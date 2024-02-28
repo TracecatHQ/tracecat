@@ -34,6 +34,12 @@ Homepage = "https://github.com/TracecatHQ/tracecat"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
+[project.optional-dependencies]
+runner = [
+    "orjson",
+    "polars"
+]
+
 [tool.hatch.version]
 path = "tracecat/__init__.py"
 
