@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      API_MODULE: "tracecat.api:app"
+    container_name: api
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    networks:
+      - nginx-network
+
+  runner:
+    build: .
+    ports:
+      - "8001:8000"
+    environment:
+      API_MODULE: "tracecat.runner:app"
+    container_name: runner
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    networks:
+      - nginx-network
+
+  nginx:
+    image: nginx:mainline-bookworm
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d
+    networks:
+      - nginx-network
+
+networks:
+  nginx-network:
