@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "tracecat"
 description = ""
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [
     { name = "Tracecat", email = "founders@tracecat.com" },
