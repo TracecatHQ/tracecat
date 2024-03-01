@@ -38,7 +38,6 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 [project.optional-dependencies]
 runner = [
     "orjson",
-    "polars"
 ]
 
 [tool.hatch.version]
