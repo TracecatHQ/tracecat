@@ -1,5 +1,8 @@
+import { cookies } from "next/headers"
+
 import { Metadata } from "next"
 import { Search } from "@/components/search"
+import { Workspace }  from "@/components/workspace"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 import { UserNav } from "@/components/user-nav"
 
@@ -8,6 +11,25 @@ export const metadata: Metadata = {
 }
 
 export default function DashboardPage() {
+  const layout = cookies().get("react-resizable-panels:layout")
+  const defaultLayout = layout ? JSON.parse(layout.value) : undefined
+  const collapsed = cookies().get("react-resizable-panels:collapsed");
+  let defaultCollapsed;
+
+  // Explicitly check for both `undefined` and the string "undefined"
+  if (collapsed?.value === undefined || collapsed?.value === "undefined") {
+    defaultCollapsed = false;
+  } else {
+    try {
+      // Safely attempt to parse `collapsed.value` if it exists
+      defaultCollapsed = collapsed ? JSON.parse(collapsed.value) : undefined;
+    } catch (error) {
+      // Handle any errors that occur during parsing, such as invalid JSON
+      console.error("Error parsing collapsed value:", error);
+      defaultCollapsed = false; // Or set to a sensible default
+    }
+  }
+
   return (
     <>
       <div className="border-b">
@@ -18,6 +40,13 @@ export default function DashboardPage() {
             <UserNav />
           </div>
         </div>
+      </div>
+      <div className="flex-col">
+        <Workspace
+          defaultLayout={defaultLayout}
+          defaultCollapsed={defaultCollapsed}
+          navCollapsedSize={4}
+        />  
       </div>
     </>
   )
