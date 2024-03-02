@@ -2,7 +2,7 @@ import { cookies } from "next/headers"
 
 import { Metadata } from "next"
 import { Search } from "@/components/search"
-import { Workspace }  from "@/components/workspace"
+import { Workspace } from "@/components/workspace"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 import { UserNav } from "@/components/user-nav"
 
@@ -24,29 +24,29 @@ export default function DashboardPage() {
       // Safely attempt to parse `collapsed.value` if it exists
       defaultCollapsed = collapsed ? JSON.parse(collapsed.value) : undefined;
     } catch (error) {
-      // Handle any errors that occur during parsing, such as invalid JSON
-      console.error("Error parsing collapsed value:", error);
       defaultCollapsed = false; // Or set to a sensible default
     }
   }
 
   return (
     <>
-      <div className="border-b">
-        <div className="flex h-16 items-center px-4">
-          <WorkflowSwitcher />
-          <div className="ml-auto flex items-center space-x-4">
-            <Search />
-            <UserNav />
+      <div className="flex flex-col h-screen">
+        <div className="border-b">
+          <div className="flex h-16 items-center px-4">
+            <WorkflowSwitcher />
+            <div className="ml-auto flex items-center space-x-4">
+              <Search />
+              <UserNav />
+            </div>
           </div>
         </div>
-      </div>
-      <div className="flex-col">
-        <Workspace
-          defaultLayout={defaultLayout}
-          defaultCollapsed={defaultCollapsed}
-          navCollapsedSize={4}
-        />  
+        <div className="flex flex-col flex-grow">
+          <Workspace
+            defaultLayout={defaultLayout}
+            defaultCollapsed={defaultCollapsed}
+            navCollapsedSize={4}
+          />
+        </div>
       </div>
     </>
   )
