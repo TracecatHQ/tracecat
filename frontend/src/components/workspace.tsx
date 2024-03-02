@@ -6,6 +6,7 @@ import {
   Globe,
   Mail,
   Send,
+  ShieldAlert,
   Sparkles,
   Split,
   Webhook
@@ -73,7 +74,7 @@ export function Workspace({
                 title: "Webhook",
                 label: "",
                 icon: Webhook,
-                variant: "default",
+                variant: "ghost",
               },
               {
                 title: "HTTP Request",
@@ -91,6 +92,12 @@ export function Workspace({
                 title: "If Condition",
                 label: "",
                 icon: Split,
+                variant: "ghost",
+              },
+              {
+                title: "Open Case",
+                label: "",
+                icon: ShieldAlert,
                 variant: "ghost",
               },
               {
