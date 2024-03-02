@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import { ActionTiles } from "@/components/action-tiles"
+import Canvas, { WorkflowBuilder } from "@/components/canvas"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -46,88 +47,91 @@ export function Workspace({
   };
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <ResizablePanelGroup
-        direction="horizontal"
-        onLayout={(sizes: number[]) => {
-          document.cookie = `react-resizable-panels:layout=${JSON.stringify(
-            sizes
-          )}`
-        }}
-        className="h-full max-h-[800px] items-stretch"
-      >
-        <ResizablePanel
-          defaultSize={defaultLayout[0]}
-          collapsedSize={navCollapsedSize}
-          collapsible={true}
-          minSize={15}
-          maxSize={20}
-          onCollapse={handleCollapse}
-          onExpand={handleExpand}
-          className={cn(isCollapsed && "min-w-[50px] transition-all duration-300 ease-in-out")}
+    <WorkflowBuilder>
+      <TooltipProvider delayDuration={0}>
+        <ResizablePanelGroup
+          direction="horizontal"
+          onLayout={(sizes: number[]) => {
+            document.cookie = `react-resizable-panels:layout=${JSON.stringify(
+              sizes
+            )}`
+          }}
+          className="h-full max-h-[800px] items-stretch"
         >
-          <Separator />
-          <ActionTiles
-            isCollapsed={isCollapsed}
-            links={[
-              {
-                title: "Webhook",
-                label: "",
-                icon: Webhook,
-                variant: "ghost",
-              },
-              {
-                title: "HTTP Request",
-                label: "",
-                icon: Globe,
-                variant: "ghost",
-              },
-              {
-                title: "Data Transform",
-                label: "",
-                icon: Blend,
-                variant: "ghost",
-              },
-              {
-                title: "If Condition",
-                label: "",
-                icon: Split,
-                variant: "ghost",
-              },
-              {
-                title: "Open Case",
-                label: "",
-                icon: ShieldAlert,
-                variant: "ghost",
-              },
-              {
-                title: "Receive Email",
-                label: "",
-                icon: Mail,
-                variant: "ghost",
-              },
-              {
-                title: "Send Email",
-                label: "",
-                icon: Send,
-                variant: "ghost",
-              },
-              {
-                title: "AI Copilot",
-                label: "",
-                icon: Sparkles,
-                variant: "ghost",
-              },
-            ]}
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={defaultLayout[1]} minSize={30}>
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={defaultLayout[2]}>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </TooltipProvider>
+          <ResizablePanel
+            defaultSize={defaultLayout[0]}
+            collapsedSize={navCollapsedSize}
+            collapsible={true}
+            minSize={15}
+            maxSize={20}
+            onCollapse={handleCollapse}
+            onExpand={handleExpand}
+            className={cn(isCollapsed && "min-w-[50px] transition-all duration-300 ease-in-out")}
+          >
+            <Separator />
+            <ActionTiles
+              isCollapsed={isCollapsed}
+              tiles={[
+                {
+                  title: "Webhook",
+                  label: "",
+                  icon: Webhook,
+                  variant: "ghost",
+                },
+                {
+                  title: "HTTP Request",
+                  label: "",
+                  icon: Globe,
+                  variant: "ghost",
+                },
+                {
+                  title: "Data Transform",
+                  label: "",
+                  icon: Blend,
+                  variant: "ghost",
+                },
+                {
+                  title: "If Condition",
+                  label: "",
+                  icon: Split,
+                  variant: "ghost",
+                },
+                {
+                  title: "Open Case",
+                  label: "",
+                  icon: ShieldAlert,
+                  variant: "ghost",
+                },
+                {
+                  title: "Receive Email",
+                  label: "",
+                  icon: Mail,
+                  variant: "ghost",
+                },
+                {
+                  title: "Send Email",
+                  label: "",
+                  icon: Send,
+                  variant: "ghost",
+                },
+                {
+                  title: "AI Copilot",
+                  label: "",
+                  icon: Sparkles,
+                  variant: "ghost",
+                },
+              ]}
+            />
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={defaultLayout[1]} minSize={30}>
+            <Canvas />
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={defaultLayout[2]}>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </TooltipProvider>
+    </WorkflowBuilder>
   )
 }
