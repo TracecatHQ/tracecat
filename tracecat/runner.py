@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from tracecat.actions import ActionTrail
 from tracecat.graph import find_entrypoint
 from tracecat.logger import standard_logger
-from tracecat.workflows import Workflow, WorkflowTask, WorkflowTaskStatus, execute_task
+from tracecat.workflows import ActionRun, ActionRunStatus, Workflow, execute_action_run
 
 app = FastAPI(debug=True, default_response_class=ORJSONResponse)
 
@@ -219,14 +219,12 @@ async def run_workflow(
 
     # Execution state
     action_result_store: dict[str, ActionTrail] = {}
-    task_status_store: dict[str, WorkflowTaskStatus] = {}
-    ready_tasks: asyncio.Queue[WorkflowTask] = asyncio.Queue()
+    task_status_store: dict[str, ActionRunStatus] = {}
+    ready_tasks: asyncio.Queue[ActionRun] = asyncio.Queue()
     running_tasks: dict[str, asyncio.Task[None]] = {}
 
     # Initial state
-    ready_tasks.put_nowait(
-        WorkflowTask(workflow_id=workflow_id, run_id=run_id, action_id=entrypoint)
-    )
+    ready_tasks.put_nowait(ActionRun(run_id=run_id, action_id=entrypoint))
 
     try:
         while (
@@ -247,9 +245,9 @@ async def run_workflow(
             logger.info(
                 f"{workflow.action_map[action_id].__class__.__name__} {action_id!r} ready. Running."
             )
-            task_status_store[action_id] = WorkflowTaskStatus.PENDING
+            task_status_store[action_id] = ActionRunStatus.PENDING
             running_tasks[action_id] = asyncio.create_task(
-                execute_task(
+                execute_action_run(
                     logger=logger,
                     workflow_id=workflow_id,
                     run_id=run_id,

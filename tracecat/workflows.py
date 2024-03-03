@@ -49,17 +49,15 @@ class Workflow(BaseModel):
         return values
 
 
-class WorkflowTask(BaseModel):
-    """A task to be executed as part of a workflow run."""
+class ActionRun(BaseModel):
+    """A run of an action to be executed as part of a workflow run."""
 
-    workflow_id: str
     run_id: str
     action_id: str
 
 
-# WorkflowTaskStatus = Literal["queued", "pending", "running", "failure", "success"]
-class WorkflowTaskStatus(StrEnum):
-    """Status of a workflow task."""
+class ActionRunStatus(StrEnum):
+    """Status of an action run."""
 
     QUEUED = auto()
     PENDING = auto()
@@ -83,23 +81,21 @@ def _get_dependencies_results(
 
 
 async def _wait_for_dependencies(
-    dependencies: Iterable[str], task_status: dict[str, WorkflowTaskStatus]
+    dependencies: Iterable[str], task_status: dict[str, ActionRunStatus]
 ) -> None:
-    while not all(
-        task_status.get(d) == WorkflowTaskStatus.SUCCESS for d in dependencies
-    ):
+    while not all(task_status.get(d) == ActionRunStatus.SUCCESS for d in dependencies):
         await asyncio.sleep(random.uniform(0, 1))
 
 
-async def execute_task(
+async def execute_action_run(
     workflow_id: str,
     run_id: str,
     action: Action,
     adj_list: dict[str, list[str]],
-    ready_tasks: asyncio.Queue[WorkflowTask],
+    ready_tasks: asyncio.Queue[ActionRun],
     running_tasks_store: dict[str, asyncio.Task[None]],
     action_result_store: dict[str, ActionTrail],
-    task_status_store: dict[str, WorkflowTaskStatus],
+    task_status_store: dict[str, ActionRunStatus],
     dependencies: Iterable[str],
     pending_timeout: float | None = None,
     logger: logging.Logger | None = None,
@@ -115,11 +111,11 @@ async def execute_task(
         action_trail = _get_dependencies_results(dependencies, action_result_store)
 
         logger.debug(f"Running action {action.id!r}. Trail {action_trail.keys()}.")
-        task_status_store[action.id] = WorkflowTaskStatus.RUNNING
+        task_status_store[action.id] = ActionRunStatus.RUNNING
         result = await run_action(action_trail=action_trail, **action.model_dump())
 
         # Mark the action as completed
-        task_status_store[action.id] = WorkflowTaskStatus.SUCCESS
+        task_status_store[action.id] = ActionRunStatus.SUCCESS
 
         # Store the result in the action result store.
         # Every action has its own result and the trail of actions that led to it.
@@ -130,10 +126,9 @@ async def execute_task(
         # Broadcast the results to the next actions and enqueue them
         for next_action_id in adj_list[action.id]:
             if next_action_id not in task_status_store:
-                task_status_store[next_action_id] = WorkflowTaskStatus.QUEUED
+                task_status_store[next_action_id] = ActionRunStatus.QUEUED
                 ready_tasks.put_nowait(
-                    WorkflowTask(
-                        workflow_id=workflow_id,
+                    ActionRun(
                         run_id=run_id,
                         action_id=next_action_id,
                     )
@@ -148,8 +143,8 @@ async def execute_task(
     except Exception as e:
         logger.error(f"Action {action.id!r} failed with error {e}.")
     finally:
-        if task_status_store[action.id] != WorkflowTaskStatus.SUCCESS:
+        if task_status_store[action.id] != ActionRunStatus.SUCCESS:
             # Exception was raised before the action was marked as successful
-            task_status_store[action.id] = WorkflowTaskStatus.FAILURE
+            task_status_store[action.id] = ActionRunStatus.FAILURE
         running_tasks_store.pop(action.id, None)
         logger.debug(f"Remaining tasks: {running_tasks_store.keys()}")
