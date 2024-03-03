@@ -23,12 +23,6 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
-def create_session() -> Session:
-    with create_db_engine().connect() as connection:
-        with Session(connection) as session:
-            yield session
-
-
 class ActionResponse(BaseModel):
     id: str
     title: str
@@ -62,7 +56,7 @@ class WorkflowTitleResponse(BaseModel):
 @app.get("/workflows")
 def list_workflows() -> list[WorkflowTitleResponse]:
     """List all Workflows in database."""
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         statement = select(Workflow)
         results = session.exec(statement)
         workflows = results.all()
@@ -80,7 +74,7 @@ def create_workflow(title: str, description: str) -> WorkflowTitleResponse:
     """Create new Workflow with title and description."""
 
     workflow = Workflow(title=title, description=description)
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         session.add(workflow)
         session.commit()
 
@@ -91,7 +85,7 @@ def create_workflow(title: str, description: str) -> WorkflowTitleResponse:
 def get_workflow(workflow_id: str) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         # Get Workflow given workflow_id
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
@@ -104,11 +98,11 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
 
         graph = None
         if len(actions) > 0:
-            # For each Action, get all connected Actions from Action IDs in `connects_to`
+            # For each Action, get all connected Actions from Action IDs in `links_to`
             graph = {}
             for action in actions:
-                if action.connects_to:
-                    graph[action.id] = action.connects_to
+                if action.links_to:
+                    graph[action.id] = action.links_to.split(",")
                 else:
                     graph[action.id] = []
 
@@ -136,10 +130,10 @@ def update_workflow(
     workflow_id: str,
     title: str | None,
     description: str | None,
-) -> WorkflowTitleResponse:
+) -> None:
     """Update Workflow."""
 
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
         workflow = result.one()
@@ -152,10 +146,6 @@ def update_workflow(
         session.add(workflow)
         session.commit()
 
-    return WorkflowTitleResponse(
-        id=workflow_id, title=workflow.title, description=workflow.description
-    )
-
 
 ### Actions
 
@@ -163,7 +153,7 @@ def update_workflow(
 @app.get("/actions")
 def list_actions(workflow_id: str) -> list[ActionTitleResponse]:
     """List all Actions related to `workflow_id`."""
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         statement = select(Action).where(Action.workflow_id == workflow_id)
         results = session.exec(statement)
         actions = results.all()
@@ -182,7 +172,7 @@ def create_action(
     title: str,
     description: str,
 ) -> ActionTitleResponse:
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         action = Action(
             workflow_id=workflow_id,
             title=title,
@@ -199,7 +189,7 @@ def create_action(
 
 @app.get("/actions/{action_id}")
 def get_action(action_id: str, workflow_id: int) -> ActionResponse:
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         statement = (
             select(Action)
             .where(Action.id == action_id)
@@ -220,10 +210,10 @@ def update_action(
     action_id: str | None,
     title: str | None,
     description: str | None,
-    connects_to: list[str] | None,
+    links_to: list[str] | None,
     inputs: str | None,  # JSON-serialized string
-) -> ActionResponse:
-    with create_session() as session:
+) -> None:
+    with Session(create_db_engine()) as session:
         # Fetch the action by id
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
@@ -233,28 +223,20 @@ def update_action(
             action.title = title
         if description is not None:
             action.description = description
-        if connects_to is not None:
-            action.connects_to = connects_to
+        if links_to is not None:
+            action.links_to = ",".join(links_to)
         if inputs is not None:
             action.inputs = inputs
 
         session.add(action)
         session.commit()
 
-    return ActionResponse(
-        id=action.id,
-        title=action.title,
-        description=action.description,
-        inputs=json.loads(action.inputs) if action.inputs else None,
-    )
-
 
 @app.delete("/actions/{action_id}", status_code=204)
 def delete_action(action_id: str) -> None:
-    with create_session() as session:
+    with Session(create_db_engine()) as session:
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
         action = result.one()
         session.delete(action)
         session.commit()
-    return None
