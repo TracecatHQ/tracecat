@@ -2,20 +2,36 @@ import React from "react"
 import { Handle, NodeProps, Position } from "reactflow"
 
 import {
+  BellDotIcon,
   ChevronsDownIcon,
   CircleIcon,
-  GanttChartIcon,
-  PlayIcon,
-  TestTubeIcon,
+  ScanSearchIcon,
+  EyeIcon,
+  LucideIcon,
 } from "lucide-react"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
   CardTitle,
+  CardDescription,
+  CardContent,
+  CardHeader,
 } from "@/components/ui/card"
+import {
+  Blend,
+  Globe,
+  Mail,
+  Send,
+  ShieldAlert,
+  Sparkles,
+  Split,
+  Webhook
+} from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,51 +47,77 @@ export interface ActionNodeData {
   // Generic metadata
 }
 
+const tileIconMapping: { [key: string]: LucideIcon } = {
+  "Webhook": Webhook,
+  "HTTP Request": Globe,
+  "Data Transform": Blend,
+  "If Condition": Split,
+  "Open Case": ShieldAlert,
+  "Receive Email": Mail,
+  "Send Email": Send,
+  "AI Copilot": Sparkles,
+}
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
   data: { title, name, status, numberOfEvents },
 }: NodeProps<ActionNodeData>) {
+
+  const statusCapitalized = status[0].toUpperCase() + status.slice(1);
+  const avatarImageAlt = `${title}-${name}`;
+  const tileIcon = tileIconMapping[title];
+
   return (
     <Card>
-      <CardHeader className="grid grid-cols-[1fr_110px] items-start gap-4 space-y-0">
-        <div className="space-y-1">
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{name}</CardDescription>
-        </div>
-        <div className="flex items-center space-x-1 rounded-md bg-secondary text-secondary-foreground">
+      <CardHeader className="grid p-4 pl-5 pr-5">
+        <div className="flex items-center justify-between space-x-16">
+          <div className="flex items-center space-x-4">
+            <Avatar>
+              <AvatarImage src="" alt={avatarImageAlt} />
+              <AvatarFallback>{React.createElement(tileIcon, { className: "h-5 w-5" })}</AvatarFallback>
+            </Avatar>
+            <div>
+              <CardTitle className="text-sm font-medium leading-none">{name}</CardTitle>
+              <CardDescription className="mt-1 text-sm text-muted-foreground">{title}</CardDescription>
+            </div>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" className="px-2 shadow-none">
-                <ChevronsDownIcon className="h-4 w-4 text-secondary-foreground" />
+              <Button variant="outline" className="ml-auto">
+                <ChevronsDownIcon className="h-4 w-4 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              alignOffset={-5}
-              className="w-[200px]"
-              forceMount
-            >
+            <DropdownMenuContent className="p-0" align="end">
               <DropdownMenuItem>
-                <PlayIcon className="mr-2 h-4 w-4" /> Run
+                <ScanSearchIcon className="mr-2 h-4 w-4" />
+                <span>Search events</span>
               </DropdownMenuItem>
               <DropdownMenuItem>
-                <TestTubeIcon className="mr-2 h-4 w-4" /> Test action
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <GanttChartIcon className="mr-2 h-4 w-4" /> View events
+                <EyeIcon className="mr-2 h-4 w-4" />
+                <span>View logs</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </CardHeader>
-      <CardContent>
+
+      <CardContent className="pt-0 pb-4 pl-5 pr-5">
         <div className="flex space-x-4 text-sm text-muted-foreground">
           <div className="flex items-center">
-            <CircleIcon className="mr-1 h-3 w-3 fill-sky-400 text-sky-400" /> {status}
+            {status === 'online' && (
+              <CircleIcon className="mr-1 h-3 w-3 fill-green-400 text-green-400" />
+            )}
+            {status === 'error' && (
+              <CircleIcon className="mr-1 h-3 w-3 fill-red-400 text-red-400" />
+            )}
+            {status === 'offline' && (
+              <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
+            )}
+            <span>{statusCapitalized}</span>
           </div>
           <div className="flex items-center">
-            <GanttChartIcon className="mr-1 h-3 w-3" /> {numberOfEvents} events
+            <BellDotIcon className="mr-1 h-3 w-3" />
+            <span>{numberOfEvents}</span>
           </div>
         </div>
       </CardContent>

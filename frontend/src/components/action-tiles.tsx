@@ -30,7 +30,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
 
     const actionNodeData = {
       title: tile.title,
-      name: tile.label || "",
+      name: tile.label || `${tile.title} Action`,
       status: "offline",
       numberOfEvents: 0
     };
