@@ -20,7 +20,7 @@ from tracecat.config import MAX_RETRIES
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
 
-_LOGGER = standard_logger(__name__)
+logger = standard_logger(__name__)
 
 # TODO: Add support for the rest of the Actions
 ActionType = Literal[
@@ -176,13 +176,13 @@ def evaluate_jsonpath_str(
     jsonpath_expr = jsonpath_ng.parse(jsonpath)
     matches = [found.value for found in jsonpath_expr.find(action_trail)]
     if len(matches) == 0:
-        _LOGGER.debug(f"No match found for {jsonpath}.")
+        logger.debug(f"No match found for {jsonpath}.")
         return match.group(0)
     elif len(matches) == 1:
-        _LOGGER.debug(f"Match found for {jsonpath}: {matches[0]}.")
+        logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
         return str(matches[0])
     else:
-        _LOGGER.debug(f"Multiple matches found for {jsonpath}: {matches}.")
+        logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
         return str(matches)
 
 
@@ -223,7 +223,7 @@ def evaluate_templated_fields(
     )
 
     for field_name, field_value in action_kwargs.items():
-        _LOGGER.debug(f"{field_name = } {field_value = }")
+        logger.debug(f"{field_name = } {field_value = }")
 
         processed_kwargs[field_name] = evaluate_jsonpath(
             field_value,
@@ -264,10 +264,10 @@ async def start_action_run(
     action_run_status_store: dict[str, ActionRunStatus],
     dependencies: Iterable[str],
     pending_timeout: float | None = None,
-    logger: logging.Logger | None = None,
+    custom_logger: logging.Logger | None = None,
 ) -> None:
-    logger = logger or _LOGGER
-    logger.debug(f"Action {action.id} waiting for dependencies {dependencies}.")
+    custom_logger = custom_logger or logger
+    custom_logger.debug(f"Action {action.id} waiting for dependencies {dependencies}.")
     try:
         await asyncio.wait_for(
             _wait_for_dependencies(dependencies, action_run_status_store),
@@ -276,9 +276,15 @@ async def start_action_run(
 
         action_trail = _get_dependencies_results(dependencies, action_result_store)
 
-        logger.debug(f"Running action {action.id!r}. Trail {action_trail.keys()}.")
+        custom_logger.debug(
+            f"Running action {action.id!r}. Trail {action_trail.keys()}."
+        )
         action_run_status_store[action.id] = ActionRunStatus.RUNNING
-        result = await run_action(action_trail=action_trail, **action.model_dump())
+        result = await run_action(
+            custom_logger=custom_logger,
+            action_trail=action_trail,
+            **action.model_dump(),
+        )
 
         # Mark the action as completed
         action_run_status_store[action.id] = ActionRunStatus.SUCCESS
@@ -287,7 +293,7 @@ async def start_action_run(
         # Every action has its own result and the trail of actions that led to it.
         # The schema is {<action ID> : <action result>, ...}
         action_result_store[action.id] = action_trail | {action.id: result}
-        logger.debug(f"Action {action.id!r} completed with result {result}.")
+        custom_logger.debug(f"Action {action.id!r} completed with result {result}.")
 
         # Broadcast the results to the next actions and enqueue them
         for next_action_id in adj_list[action.id]:
@@ -301,19 +307,19 @@ async def start_action_run(
                 )
 
     except TimeoutError:
-        logger.error(
+        custom_logger.error(
             f"Action {action.id} timed out waiting for dependencies {dependencies}."
         )
     except asyncio.CancelledError:
-        logger.warning(f"Action {action.id!r} was cancelled.")
+        custom_logger.warning(f"Action {action.id!r} was cancelled.")
     except Exception as e:
-        logger.error(f"Action {action.id!r} failed with error {e}.")
+        custom_logger.error(f"Action {action.id!r} failed with error {e}.")
     finally:
         if action_run_status_store[action.id] != ActionRunStatus.SUCCESS:
             # Exception was raised before the action was marked as successful
             action_run_status_store[action.id] = ActionRunStatus.FAILURE
         running_jobs_store.pop(action.id, None)
-        logger.debug(f"Remaining tasks: {running_jobs_store.keys()}")
+        custom_logger.debug(f"Remaining tasks: {running_jobs_store.keys()}")
 
 
 async def run_action(
@@ -322,6 +328,7 @@ async def run_action(
     title: str,
     action_trail: dict[str, ActionRunResult],
     tags: dict[str, Any] | None = None,
+    custom_logger: logging.Logger = logger,
     **action_kwargs: Any,
 ) -> ActionRunResult:
     """Run an action.
@@ -340,35 +347,40 @@ async def run_action(
     - transform: Apply a transformation to the data.
     """
 
-    _LOGGER.debug(f"Running action {title} with id {id} of type {type}.")
+    custom_logger.debug(f"Running action {title} with id {id} of type {type}.")
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
         result.action_key: result.data for result in action_trail.values()
     }
-    _LOGGER.debug(f"{action_trail_json = }")
+    custom_logger.debug(f"{action_trail_json = }")
     processed_action_kwargs = evaluate_templated_fields(
         action_kwargs, action_trail_json
     )
-    _LOGGER.debug(f"{processed_action_kwargs = }")
+    custom_logger.debug(f"{processed_action_kwargs = }")
 
     try:
         result = await action_runner(
-            action_trail=action_trail, **processed_action_kwargs
+            action_trail=action_trail,
+            custom_logger=custom_logger,
+            **processed_action_kwargs,
         )
     except Exception as e:
-        _LOGGER.error(f"Error running action {title} with id {id}.", exc_info=e)
+        custom_logger.error(f"Error running action {title} with id {id}.", exc_info=e)
         raise
     return ActionRunResult(action_id=id, action_title=title, data=result)
 
 
 async def run_webhook_action(
-    action_trail: ActionTrail, url: str, method: str
+    action_trail: ActionTrail,
+    url: str,
+    method: str,
+    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a webhook action."""
-    _LOGGER.debug("Perform webhook action")
-    _LOGGER.debug(f"{url = }")
-    _LOGGER.debug(f"{method = }")
+    custom_logger.debug("Perform webhook action")
+    custom_logger.debug(f"{url = }")
+    custom_logger.debug(f"{method = }")
     return {"data": "test_webhook"}
 
 
@@ -382,13 +394,14 @@ async def run_http_request_action(
     method: str,
     headers: dict[str, str] | None,
     payload: dict[str, str | bytes] | None,
+    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    _LOGGER.debug("Perform HTTP request action")
-    _LOGGER.debug(f"{url = }")
-    _LOGGER.debug(f"{method = }")
-    _LOGGER.debug(f"{headers = }")
-    _LOGGER.debug(f"{payload = }")
+    custom_logger.debug("Perform HTTP request action")
+    custom_logger.debug(f"{url = }")
+    custom_logger.debug(f"{method = }")
+    custom_logger.debug(f"{headers = }")
+    custom_logger.debug(f"{payload = }")
 
     try:
         async with httpx.AsyncClient(http2=True) as client:
@@ -401,16 +414,20 @@ async def run_http_request_action(
         response.raise_for_status()
         data: dict[str, Any] = response.json()
     except httpx.HTTPStatusError as e:
-        _LOGGER.error(f"HTTP request failed with status {e.response.status_code}.")
+        custom_logger.error(
+            f"HTTP request failed with status {e.response.status_code}."
+        )
         raise
     return data
 
 
 async def run_conditional_action(
-    action_trail: ActionTrail, event: str
+    action_trail: ActionTrail,
+    event: str,
+    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a conditional action."""
-    _LOGGER.debug(f"Run conditional event {event}.")
+    custom_logger.debug(f"Run conditional event {event}.")
     return {"data": "test_conditional"}
 
 
@@ -421,11 +438,12 @@ async def run_llm_action(
     model: ModelType = DEFAULT_MODEL_TYPE,
     response_schema: dict[str, Any] | None = None,
     kwargs: dict[str, Any] | None = None,
+    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    _LOGGER.debug("Perform LLM action")
-    _LOGGER.debug(f"{instructions = }")
-    _LOGGER.debug(f"{response_schema = }")
+    custom_logger.debug("Perform LLM action")
+    custom_logger.debug(f"{instructions = }")
+    custom_logger.debug(f"{response_schema = }")
 
     system_context = (
         "You are an expert decision maker and instruction follower."
@@ -447,7 +465,7 @@ async def run_llm_action(
             You must complete the objective using the past task execution data.
             """
         )
-        _LOGGER.debug(f"Prompt: {prompt}")
+        custom_logger.debug(f"Prompt: {prompt}")
         text_response: str = await async_openai_call(
             prompt=prompt,
             model=model,
@@ -476,7 +494,7 @@ async def run_llm_action(
             ```
             """
         )
-        _LOGGER.debug(f"Prompt: {prompt}")
+        custom_logger.debug(f"Prompt: {prompt}")
         json_response: dict[str, Any] = await async_openai_call(
             prompt=prompt,
             model=model,

@@ -211,8 +211,7 @@ async def run_workflow(
         - This will allow us to trace the lineage of the data.
         - NOTE(perf): We can parallelize the execution of the next actions (IO bound).
     """
-    logger = standard_logger(run_id)
-
+    run_logger = standard_logger(run_id)
     # This is the adjacency list of the graph
     workflow = workflow_registry[workflow_id]
     dependencies = workflow.action_dependencies
@@ -237,12 +236,12 @@ async def run_workflow(
             # Defensive: Deduplicate tasks
             action_id = task.action_id
             if action_id in running_jobs_store or action_id in action_result_store:
-                logger.debug(
+                run_logger.debug(
                     f"Action {action_id!r} already running or completed. Skipping."
                 )
                 continue
 
-            logger.info(
+            run_logger.info(
                 f"{workflow.action_map[action_id].__class__.__name__} {action_id!r} ready. Running."
             )
             task_status_store[action_id] = ActionRunStatus.PENDING
@@ -256,15 +255,15 @@ async def run_workflow(
                     action_result_store=action_result_store,
                     action_run_status_store=task_status_store,
                     dependencies=dependencies[action_id],
-                    logger=logger,
+                    custom_logger=run_logger,
                 )
             )
 
-        logger.info("Workflow completed.")
+        run_logger.info("Workflow completed.")
     except asyncio.CancelledError:
-        logger.warning("Workflow was cancelled.")
+        run_logger.warning("Workflow was cancelled.")
     finally:
-        logger.info("Shutting down running tasks")
+        run_logger.info("Shutting down running tasks")
         for running_task in running_jobs_store.values():
             running_task.cancel()
 
