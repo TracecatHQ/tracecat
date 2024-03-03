@@ -26,7 +26,9 @@ classifiers = [
 dependencies = [
     "fastapi",
     "uvicorn",
-    "pydantic"
+    "pydantic==2.6.1",
+    "openai",
+    "tenacity",
 ]
 dynamic = ["version"]
 
@@ -38,7 +40,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 [project.optional-dependencies]
 runner = [
     "orjson",
-    "polars"
+    "httpx[http2]",
 ]
 
 [tool.hatch.version]
@@ -65,6 +67,13 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "W191",  # indentation contains tabs
 ]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers", "-vvrP"]
+xfail_strict = true
+log_level = "INFO"
+log_cli = true
+log_cli_level = "INFO"
 
 [tool.ruff.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.
