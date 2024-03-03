@@ -52,6 +52,14 @@ class Action(BaseModel):
         action_cls = ACTION_FACTORY[action_type]
         return action_cls(**data)
 
+    @property
+    def workflow_run_id(self) -> str:
+        return action_id_to_workflow_run_id(self.id)
+
+    @property
+    def action_key(self) -> str:
+        return action_id_to_action_key(self.id)
+
 
 class ActionResult(BaseModel):
     """The result of an action."""
@@ -61,6 +69,14 @@ class ActionResult(BaseModel):
     action_title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
+
+    @property
+    def workflow_run_id(self) -> str:
+        return action_id_to_workflow_run_id(self.action_id)
+
+    @property
+    def action_key(self) -> str:
+        return action_id_to_action_key(self.action_id)
 
 
 class WebhookAction(Action):
@@ -118,6 +134,14 @@ ACTION_FACTORY: dict[str, type[Action]] = {
     "condition": ConditionAction,
     "llm": LLMAction,
 }
+
+
+def action_id_to_workflow_run_id(action_id: str) -> str:
+    return action_id.split(".")[0]
+
+
+def action_id_to_action_key(action_id: str) -> str:
+    return action_id.split(".")[1]
 
 
 async def run_action(
