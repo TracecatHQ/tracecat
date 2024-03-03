@@ -1,13 +1,12 @@
+import json
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
-from typing import Any, AsyncIterator
-from sqlmodel import Session, select
-from tracecat.db import initialize_db, Workflow, Action, create_db_engine
-
-from tracecat.db import initialize_db
 from pydantic import BaseModel
-import json
+from sqlmodel import Session, select
+
+from tracecat.db import Action, Workflow, create_db_engine, initialize_db
 
 
 @asynccontextmanager
@@ -50,6 +49,7 @@ class ActionTitleResponse(BaseModel):
     title: str
     description: str
 
+
 class WorkflowTitleResponse(BaseModel):
     id: str
     title: str
@@ -57,6 +57,7 @@ class WorkflowTitleResponse(BaseModel):
 
 
 ### Workflows
+
 
 @app.get("/workflows")
 def list_workflows() -> list[WorkflowTitleResponse]:
@@ -67,9 +68,7 @@ def list_workflows() -> list[WorkflowTitleResponse]:
         workflows = results.all()
     workflow_titles = [
         WorkflowTitleResponse(
-            id=workflow.id,
-            title=workflow.title,
-            description=workflow.description
+            id=workflow.id, title=workflow.title, description=workflow.description
         )
         for workflow in workflows
     ]
@@ -80,15 +79,12 @@ def list_workflows() -> list[WorkflowTitleResponse]:
 def create_workflow(title: str, description: str) -> WorkflowTitleResponse:
     """Create new Workflow with title and description."""
 
-    workflow = Workflow(
-        title=title,
-        description=description
-    )
+    workflow = Workflow(title=title, description=description)
     with create_session() as session:
         session.add(workflow)
         session.commit()
 
-    return WorkflowTitleResponse(id=workflow.id, title=title, description=description) 
+    return WorkflowTitleResponse(id=workflow.id, title=title, description=description)
 
 
 @app.get("/workflows/{workflow_id}")
@@ -96,7 +92,6 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
     with create_session() as session:
-
         # Get Workflow given workflow_id
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
@@ -122,7 +117,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             id=action.id,
             title=action.title,
             description=action.description,
-            inputs=json.loads(action.inputs) if action.inputs else None
+            inputs=json.loads(action.inputs) if action.inputs else None,
         )
         for action in actions
     ]
@@ -131,7 +126,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         title=workflow.title,
         description=workflow.description,
         actions=actions_responses,
-        graph=graph
+        graph=graph,
     )
     return workflow_response
 
@@ -145,7 +140,6 @@ def update_workflow(
     """Update Workflow."""
 
     with create_session() as session:
-
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
         workflow = result.one()
@@ -158,7 +152,9 @@ def update_workflow(
         session.add(workflow)
         session.commit()
 
-    return WorkflowTitleResponse(id=workflow_id, title=workflow.title, description=workflow.description)
+    return WorkflowTitleResponse(
+        id=workflow_id, title=workflow.title, description=workflow.description
+    )
 
 
 ### Actions
@@ -173,9 +169,7 @@ def list_actions(workflow_id: str) -> list[ActionTitleResponse]:
         actions = results.all()
     action_titles = [
         ActionTitleResponse(
-            id=action.id,
-            title=action.title,
-            description=action.description
+            id=action.id, title=action.title, description=action.description
         )
         for action in actions
     ]
@@ -198,9 +192,7 @@ def create_action(
         session.commit()
         session.refresh(action)
     action_title = ActionTitleResponse(
-        id=action.id,
-        title=action.title,
-        description=action.description
+        id=action.id, title=action.title, description=action.description
     )
     return action_title
 
@@ -208,14 +200,18 @@ def create_action(
 @app.get("/actions/{action_id}")
 def get_action(action_id: str, workflow_id: int) -> ActionResponse:
     with create_session() as session:
-        statement = select(Action).where(Action.id == action_id).where(Action.workflow_id == workflow_id)
+        statement = (
+            select(Action)
+            .where(Action.id == action_id)
+            .where(Action.workflow_id == workflow_id)
+        )
         result = session.exec(statement)
-        action = result.one() 
+        action = result.one()
     return ActionResponse(
         id=action.id,
         title=action.title,
         description=action.description,
-        inputs=json.loads(action.inputs) if action.inputs else None
+        inputs=json.loads(action.inputs) if action.inputs else None,
     )
 
 
@@ -225,11 +221,9 @@ def update_action(
     title: str | None,
     description: str | None,
     connects_to: list[str] | None,
-    inputs: str | None  # JSON-serialized string
+    inputs: str | None,  # JSON-serialized string
 ) -> ActionResponse:
-
     with create_session() as session:
-
         # Fetch the action by id
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
@@ -251,7 +245,7 @@ def update_action(
         id=action.id,
         title=action.title,
         description=action.description,
-        inputs=json.loads(action.inputs) if action.inputs else None
+        inputs=json.loads(action.inputs) if action.inputs else None,
     )
 
 
