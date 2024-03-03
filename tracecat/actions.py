@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from functools import partial
+from typing import Any, Literal, TypeVar
 from uuid import uuid4
 
 import httpx
+import jsonpath_ng
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -27,15 +30,20 @@ ActionType = Literal[
     "transform",
 ]
 
+ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s]+$"
+# ACtion ID = Hexadecimal workflow ID + lower snake case action title
+ACTION_ID_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
+
 
 class Action(BaseModel):
     """An action in a workflow graph.
 
     An action is an instance of a Action with templated fields."""
 
-    id: str = Field(default_factory=lambda: uuid4().hex)
+    id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
     type: ActionType
-    title: str
+    # Only alphanumeric characters and spaces
+    title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     tags: dict[str, Any] | None = None
     # Templated variables to be replaced with actual values
     # based on the results of the previous step
@@ -47,15 +55,31 @@ class Action(BaseModel):
         action_cls = ACTION_FACTORY[action_type]
         return action_cls(**data)
 
+    @property
+    def workflow_run_id(self) -> str:
+        return action_id_to_workflow_run_id(self.id)
+
+    @property
+    def action_key(self) -> str:
+        return action_id_to_action_key(self.id)
+
 
 class ActionResult(BaseModel):
     """The result of an action."""
 
     id: str = Field(default_factory=lambda: uuid4().hex)
-    action_id: str
-    action_title: str
+    action_id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
+    action_title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
+
+    @property
+    def workflow_run_id(self) -> str:
+        return action_id_to_workflow_run_id(self.action_id)
+
+    @property
+    def action_key(self) -> str:
+        return action_id_to_action_key(self.action_id)
 
 
 class WebhookAction(Action):
@@ -115,6 +139,84 @@ ACTION_FACTORY: dict[str, type[Action]] = {
 }
 
 
+def action_id_to_workflow_run_id(action_id: str) -> str:
+    return action_id.split(".")[0]
+
+
+def action_id_to_action_key(action_id: str) -> str:
+    return action_id.split(".")[1]
+
+
+DEFAULT_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
+
+
+def evaluate_jsonpath_str(
+    match: re.Match[str],
+    action_trail: dict[str, Any],
+    regex_group: str = "jsonpath",
+) -> str:
+    """Replacement function to be used with re.sub()."""
+    jsonpath = match.group(regex_group)
+    jsonpath_expr = jsonpath_ng.parse(jsonpath)
+    matches = [found.value for found in jsonpath_expr.find(action_trail)]
+    if len(matches) == 0:
+        logger.debug(f"No match found for {jsonpath}.")
+        return match.group(0)
+    elif len(matches) == 1:
+        logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
+        return str(matches[0])
+    else:
+        logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
+        return str(matches)
+
+
+T = TypeVar("T", str, list[Any], dict[str, Any])
+
+
+def evaluate_jsonpath(
+    obj: T,
+    pattern: re.Pattern[str],
+    evaluator: Callable[[re.Match[str]], str],
+) -> T:
+    """Process jsonpaths in strings, lists, and dictionaries."""
+    if isinstance(obj, str):
+        return pattern.sub(evaluator, obj)
+    elif isinstance(obj, list):
+        return [evaluate_jsonpath(item, pattern, evaluator) for item in obj]
+    elif isinstance(obj, dict):
+        return {
+            evaluate_jsonpath(k, pattern, evaluator): evaluate_jsonpath(
+                v, pattern, evaluator
+            )
+            for k, v in obj.items()
+        }
+    else:
+        return obj
+
+
+def evaluate_templated_fields(
+    action_kwargs: dict[str, Any],
+    action_trail_json: dict[str, Any],
+    template_pattern: re.Pattern[str] = DEFAULT_TEMPLATE_PATTERN,
+) -> dict[str, Any]:
+    """Populate the templated fields with actual values."""
+
+    processed_kwargs = {}
+    jsonpath_str_evaluator = partial(
+        evaluate_jsonpath_str, action_trail=action_trail_json
+    )
+
+    for field_name, field_value in action_kwargs.items():
+        logger.debug(f"{field_name = } {field_value = }")
+
+        processed_kwargs[field_name] = evaluate_jsonpath(
+            field_value,
+            template_pattern,
+            jsonpath_str_evaluator,
+        )
+    return processed_kwargs
+
+
 async def run_action(
     type: ActionType,
     id: str,
@@ -143,10 +245,19 @@ async def run_action(
     logger.debug(f"Running action {title} with id {id} of type {type}.")
     action_runner = ACTION_RUNNER_FACTORY[type]
 
-    # TODO: Populate the templated fields with actual values
+    action_trail_json = {
+        result.action_key: result.data for result in action_trail.values()
+    }
+    logger.debug(f"{action_trail_json = }")
+    processed_action_kwargs = evaluate_templated_fields(
+        action_kwargs, action_trail_json
+    )
+    logger.debug(f"{processed_action_kwargs = }")
 
     try:
-        result = await action_runner(action_trail=action_trail, **action_kwargs)
+        result = await action_runner(
+            action_trail=action_trail, **processed_action_kwargs
+        )
     except Exception as e:
         logger.error(f"Error running action {title} with id {id}.", exc_info=e)
         raise
@@ -157,9 +268,9 @@ async def run_webhook_action(
     action_trail: ActionTrail, url: str, method: str
 ) -> dict[str, Any]:
     """Run a webhook action."""
-    logger.info("Perform webhook action")
-    logger.info(f"{url = }")
-    logger.info(f"{method = }")
+    logger.debug("Perform webhook action")
+    logger.debug(f"{url = }")
+    logger.debug(f"{method = }")
     return {"data": "test_webhook"}
 
 
@@ -175,11 +286,11 @@ async def run_http_request_action(
     payload: dict[str, str | bytes] | None,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    logger.info("Perform HTTP request action")
-    logger.info(f"{url = }")
-    logger.info(f"{method = }")
-    logger.info(f"{headers = }")
-    logger.info(f"{payload = }")
+    logger.debug("Perform HTTP request action")
+    logger.debug(f"{url = }")
+    logger.debug(f"{method = }")
+    logger.debug(f"{headers = }")
+    logger.debug(f"{payload = }")
 
     try:
         async with httpx.AsyncClient(http2=True) as client:
@@ -214,9 +325,9 @@ async def run_llm_action(
     kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    logger.info("Perform LLM action")
-    logger.info(f"{instructions = }")
-    logger.info(f"{response_schema = }")
+    logger.debug("Perform LLM action")
+    logger.debug(f"{instructions = }")
+    logger.debug(f"{response_schema = }")
 
     system_context = (
         "You are an expert decision maker and instruction follower."
