@@ -13,7 +13,8 @@ import {
 } from "lucide-react"
 
 import { ActionTiles } from "@/components/action-tiles"
-import Canvas, { WorkflowBuilder } from "@/components/canvas"
+import { WorkflowCanvas, WorkflowBuilder } from "@/components/canvas"
+import { WorkflowPanel } from "@/components/panel"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -26,7 +27,7 @@ interface WorkspaceProps {
 }
 
 export function Workspace({
-  defaultLayout = [265, 440, 655],
+  defaultLayout = [265, 440, 265],
   defaultCollapsed = false,
   navCollapsedSize,
 }: WorkspaceProps) {
@@ -68,7 +69,6 @@ export function Workspace({
             onExpand={handleExpand}
             className={cn(isCollapsed && "min-w-[50px] transition-all duration-300 ease-in-out")}
           >
-            <Separator />
             <ActionTiles
               isCollapsed={isCollapsed}
               tiles={[
@@ -124,11 +124,12 @@ export function Workspace({
             />
           </ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={defaultLayout[1]} minSize={30}>
-            <Canvas />
+          <ResizablePanel defaultSize={defaultLayout[1]}>
+            <WorkflowCanvas />
           </ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={defaultLayout[2]}>
+          <ResizablePanel defaultSize={defaultLayout[2]} minSize={25}>
+            <WorkflowPanel />
           </ResizablePanel>
         </ResizablePanelGroup>
       </TooltipProvider>

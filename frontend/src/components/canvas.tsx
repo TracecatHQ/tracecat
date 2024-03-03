@@ -33,7 +33,7 @@ const defaultEdgeOptions = {
   style: { strokeWidth: 3 },
 }
 
-const Workflow: React.FC = () => {
+const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
@@ -113,5 +113,4 @@ const Workflow: React.FC = () => {
 const WorkflowBuilder = ReactFlowProvider
 const useWorkflowBuilder = useReactFlow
 
-export { WorkflowBuilder, useWorkflowBuilder }
-export default Workflow
+export { WorkflowCanvas, WorkflowBuilder, useWorkflowBuilder }
