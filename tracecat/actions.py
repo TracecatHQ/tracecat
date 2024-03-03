@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from functools import partial
+from typing import Any, Literal, TypeVar
 from uuid import uuid4
 
 import httpx
+import jsonpath_ng
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -144,6 +147,76 @@ def action_id_to_action_key(action_id: str) -> str:
     return action_id.split(".")[1]
 
 
+DEFAULT_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
+
+
+def evaluate_jsonpath_str(
+    match: re.Match[str],
+    action_trail: dict[str, Any],
+    regex_group: str = "jsonpath",
+) -> str:
+    """Replacement function to be used with re.sub()."""
+    jsonpath = match.group(regex_group)
+    jsonpath_expr = jsonpath_ng.parse(jsonpath)
+    matches = [found.value for found in jsonpath_expr.find(action_trail)]
+    if len(matches) == 0:
+        logger.debug(f"No match found for {jsonpath}.")
+        return match.group(0)
+    elif len(matches) == 1:
+        logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
+        return str(matches[0])
+    else:
+        logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
+        return str(matches)
+
+
+T = TypeVar("T", str, list[Any], dict[str, Any])
+
+
+def evaluate_jsonpath(
+    obj: T,
+    pattern: re.Pattern[str],
+    evaluator: Callable[[re.Match[str]], str],
+) -> T:
+    """Process jsonpaths in strings, lists, and dictionaries."""
+    if isinstance(obj, str):
+        return pattern.sub(evaluator, obj)
+    elif isinstance(obj, list):
+        return [evaluate_jsonpath(item, pattern, evaluator) for item in obj]
+    elif isinstance(obj, dict):
+        return {
+            evaluate_jsonpath(k, pattern, evaluator): evaluate_jsonpath(
+                v, pattern, evaluator
+            )
+            for k, v in obj.items()
+        }
+    else:
+        return obj
+
+
+def evaluate_templated_fields(
+    action_kwargs: dict[str, Any],
+    action_trail_json: dict[str, Any],
+    template_pattern: re.Pattern[str] = DEFAULT_TEMPLATE_PATTERN,
+) -> dict[str, Any]:
+    """Populate the templated fields with actual values."""
+
+    processed_kwargs = {}
+    jsonpath_str_evaluator = partial(
+        evaluate_jsonpath_str, action_trail=action_trail_json
+    )
+
+    for field_name, field_value in action_kwargs.items():
+        logger.debug(f"{field_name = } {field_value = }")
+
+        processed_kwargs[field_name] = evaluate_jsonpath(
+            field_value,
+            template_pattern,
+            jsonpath_str_evaluator,
+        )
+    return processed_kwargs
+
+
 async def run_action(
     type: ActionType,
     id: str,
@@ -172,10 +245,19 @@ async def run_action(
     logger.debug(f"Running action {title} with id {id} of type {type}.")
     action_runner = ACTION_RUNNER_FACTORY[type]
 
-    # TODO: Populate the templated fields with actual values
+    action_trail_json = {
+        result.action_key: result.data for result in action_trail.values()
+    }
+    logger.debug(f"{action_trail_json = }")
+    processed_action_kwargs = evaluate_templated_fields(
+        action_kwargs, action_trail_json
+    )
+    logger.debug(f"{processed_action_kwargs = }")
 
     try:
-        result = await action_runner(action_trail=action_trail, **action_kwargs)
+        result = await action_runner(
+            action_trail=action_trail, **processed_action_kwargs
+        )
     except Exception as e:
         logger.error(f"Error running action {title} with id {id}.", exc_info=e)
         raise
