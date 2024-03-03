@@ -25,10 +25,10 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, HTTPException, stat
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
-from tracecat.actions import ActionTrail
+from tracecat.actions import ActionRun, ActionRunStatus, ActionTrail, start_action_run
 from tracecat.graph import find_entrypoint
 from tracecat.logger import standard_logger
-from tracecat.workflows import ActionRun, ActionRunStatus, Workflow, execute_action_run
+from tracecat.workflows import Workflow
 
 app = FastAPI(debug=True, default_response_class=ORJSONResponse)
 
@@ -220,23 +220,23 @@ async def run_workflow(
     # Execution state
     action_result_store: dict[str, ActionTrail] = {}
     task_status_store: dict[str, ActionRunStatus] = {}
-    ready_tasks: asyncio.Queue[ActionRun] = asyncio.Queue()
-    running_tasks: dict[str, asyncio.Task[None]] = {}
+    ready_jobs_queue: asyncio.Queue[ActionRun] = asyncio.Queue()
+    running_jobs_store: dict[str, asyncio.Task[None]] = {}
 
     # Initial state
-    ready_tasks.put_nowait(ActionRun(run_id=run_id, action_id=entrypoint))
+    ready_jobs_queue.put_nowait(ActionRun(run_id=run_id, action_id=entrypoint))
 
     try:
         while (
-            not ready_tasks.empty() or running_tasks
+            not ready_jobs_queue.empty() or running_jobs_store
         ) and runner_status == RunnerStatus.RUNNING:
             try:
-                task = await asyncio.wait_for(ready_tasks.get(), timeout=3)
+                task = await asyncio.wait_for(ready_jobs_queue.get(), timeout=3)
             except TimeoutError:
                 continue
             # Defensive: Deduplicate tasks
             action_id = task.action_id
-            if action_id in running_tasks or action_id in action_result_store:
+            if action_id in running_jobs_store or action_id in action_result_store:
                 logger.debug(
                     f"Action {action_id!r} already running or completed. Skipping."
                 )
@@ -246,18 +246,17 @@ async def run_workflow(
                 f"{workflow.action_map[action_id].__class__.__name__} {action_id!r} ready. Running."
             )
             task_status_store[action_id] = ActionRunStatus.PENDING
-            running_tasks[action_id] = asyncio.create_task(
-                execute_action_run(
-                    logger=logger,
-                    workflow_id=workflow_id,
+            running_jobs_store[action_id] = asyncio.create_task(
+                start_action_run(
                     run_id=run_id,
                     action=workflow.action_map[action_id],
-                    running_tasks_store=running_tasks,
-                    ready_tasks=ready_tasks,
-                    action_result_store=action_result_store,
                     adj_list=workflow.adj_list,
-                    task_status_store=task_status_store,
+                    ready_jobs_queue=ready_jobs_queue,
+                    running_jobs_store=running_jobs_store,
+                    action_result_store=action_result_store,
+                    action_run_status_store=task_status_store,
                     dependencies=dependencies[action_id],
+                    logger=logger,
                 )
             )
 
@@ -266,5 +265,27 @@ async def run_workflow(
         logger.warning("Workflow was cancelled.")
     finally:
         logger.info("Shutting down running tasks")
-        for running_task in running_tasks.values():
+        for running_task in running_jobs_store.values():
             running_task.cancel()
+
+
+@app.post("/mock/search")
+def mock_search(data: Annotated[dict[str, Any], Body]) -> dict[str, Any]:
+    """Mock search endpoint."""
+    logger.info(f"Received data: {data}")
+    return {"query": data, "response": "Mock response"}
+
+
+class SlackPayload(BaseModel):
+    workspace: str
+    channel: str
+    message: str
+
+
+@app.post("/mock/slack")
+def mock_slack(params: Annotated[SlackPayload, Body]) -> dict[str, Any]:
+    """Mock search endpoint."""
+    logger.info(
+        f"Sending message to {params.workspace}/{params.channel}: {params.message}"
+    )
+    return params.model_dump()

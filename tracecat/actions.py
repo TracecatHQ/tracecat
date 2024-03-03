@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
 import re
 import textwrap
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
+from enum import StrEnum, auto
 from functools import partial
 from typing import Any, Literal, TypeVar
 from uuid import uuid4
@@ -15,9 +19,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from tracecat.config import MAX_RETRIES
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
-from tracecat.types import TemplatedField
 
-logger = standard_logger(__name__)
+_LOGGER = standard_logger(__name__)
 
 # TODO: Add support for the rest of the Actions
 ActionType = Literal[
@@ -35,6 +38,23 @@ ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s]+$"
 ACTION_ID_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
 
 
+class ActionRun(BaseModel):
+    """A run of an action to be executed as part of a workflow run."""
+
+    run_id: str
+    action_id: str
+
+
+class ActionRunStatus(StrEnum):
+    """Status of an action run."""
+
+    QUEUED = auto()
+    PENDING = auto()
+    RUNNING = auto()
+    FAILURE = auto()
+    SUCCESS = auto()
+
+
 class Action(BaseModel):
     """An action in a workflow graph.
 
@@ -42,12 +62,8 @@ class Action(BaseModel):
 
     id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
     type: ActionType
-    # Only alphanumeric characters and spaces
     title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     tags: dict[str, Any] | None = None
-    # Templated variables to be replaced with actual values
-    # based on the results of the previous step
-    templated_fields: list[TemplatedField] = Field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Action:
@@ -64,7 +80,7 @@ class Action(BaseModel):
         return action_id_to_action_key(self.id)
 
 
-class ActionResult(BaseModel):
+class ActionRunResult(BaseModel):
     """The result of an action."""
 
     id: str = Field(default_factory=lambda: uuid4().hex)
@@ -127,7 +143,7 @@ class LLMAction(Action):
     kwargs: dict[str, Any] | None = None
 
 
-ActionTrail = dict[str, ActionResult]
+ActionTrail = dict[str, ActionRunResult]
 ActionSubclass = WebhookAction | HTTPRequestAction | ConditionAction | LLMAction
 
 
@@ -160,13 +176,13 @@ def evaluate_jsonpath_str(
     jsonpath_expr = jsonpath_ng.parse(jsonpath)
     matches = [found.value for found in jsonpath_expr.find(action_trail)]
     if len(matches) == 0:
-        logger.debug(f"No match found for {jsonpath}.")
+        _LOGGER.debug(f"No match found for {jsonpath}.")
         return match.group(0)
     elif len(matches) == 1:
-        logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
+        _LOGGER.debug(f"Match found for {jsonpath}: {matches[0]}.")
         return str(matches[0])
     else:
-        logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
+        _LOGGER.debug(f"Multiple matches found for {jsonpath}: {matches}.")
         return str(matches)
 
 
@@ -207,7 +223,7 @@ def evaluate_templated_fields(
     )
 
     for field_name, field_value in action_kwargs.items():
-        logger.debug(f"{field_name = } {field_value = }")
+        _LOGGER.debug(f"{field_name = } {field_value = }")
 
         processed_kwargs[field_name] = evaluate_jsonpath(
             field_value,
@@ -217,15 +233,97 @@ def evaluate_templated_fields(
     return processed_kwargs
 
 
+def _get_dependencies_results(
+    dependencies: Iterable[str], action_result_store: dict[str, ActionTrail]
+) -> dict[str, ActionRunResult]:
+    """Return a combined trail of the execution results of the dependencies.
+
+    The keys are the action IDs and the values are the results of the actions.
+    """
+    combined_trail: dict[str, ActionRunResult] = {}
+    for dep in dependencies:
+        past_action_result = action_result_store[dep]
+        combined_trail |= past_action_result
+    return combined_trail
+
+
+async def _wait_for_dependencies(
+    dependencies: Iterable[str], task_status: dict[str, ActionRunStatus]
+) -> None:
+    while not all(task_status.get(d) == ActionRunStatus.SUCCESS for d in dependencies):
+        await asyncio.sleep(random.uniform(0, 1))
+
+
+async def start_action_run(
+    run_id: str,
+    action: Action,
+    adj_list: dict[str, list[str]],
+    ready_jobs_queue: asyncio.Queue[ActionRun],
+    running_jobs_store: dict[str, asyncio.Task[None]],
+    action_result_store: dict[str, ActionTrail],
+    action_run_status_store: dict[str, ActionRunStatus],
+    dependencies: Iterable[str],
+    pending_timeout: float | None = None,
+    logger: logging.Logger | None = None,
+) -> None:
+    logger = logger or _LOGGER
+    logger.debug(f"Action {action.id} waiting for dependencies {dependencies}.")
+    try:
+        await asyncio.wait_for(
+            _wait_for_dependencies(dependencies, action_run_status_store),
+            timeout=pending_timeout,
+        )
+
+        action_trail = _get_dependencies_results(dependencies, action_result_store)
+
+        logger.debug(f"Running action {action.id!r}. Trail {action_trail.keys()}.")
+        action_run_status_store[action.id] = ActionRunStatus.RUNNING
+        result = await run_action(action_trail=action_trail, **action.model_dump())
+
+        # Mark the action as completed
+        action_run_status_store[action.id] = ActionRunStatus.SUCCESS
+
+        # Store the result in the action result store.
+        # Every action has its own result and the trail of actions that led to it.
+        # The schema is {<action ID> : <action result>, ...}
+        action_result_store[action.id] = action_trail | {action.id: result}
+        logger.debug(f"Action {action.id!r} completed with result {result}.")
+
+        # Broadcast the results to the next actions and enqueue them
+        for next_action_id in adj_list[action.id]:
+            if next_action_id not in action_run_status_store:
+                action_run_status_store[next_action_id] = ActionRunStatus.QUEUED
+                ready_jobs_queue.put_nowait(
+                    ActionRun(
+                        run_id=run_id,
+                        action_id=next_action_id,
+                    )
+                )
+
+    except TimeoutError:
+        logger.error(
+            f"Action {action.id} timed out waiting for dependencies {dependencies}."
+        )
+    except asyncio.CancelledError:
+        logger.warning(f"Action {action.id!r} was cancelled.")
+    except Exception as e:
+        logger.error(f"Action {action.id!r} failed with error {e}.")
+    finally:
+        if action_run_status_store[action.id] != ActionRunStatus.SUCCESS:
+            # Exception was raised before the action was marked as successful
+            action_run_status_store[action.id] = ActionRunStatus.FAILURE
+        running_jobs_store.pop(action.id, None)
+        logger.debug(f"Remaining tasks: {running_jobs_store.keys()}")
+
+
 async def run_action(
     type: ActionType,
     id: str,
     title: str,
-    action_trail: dict[str, ActionResult],
-    templated_fields: list[TemplatedField],
+    action_trail: dict[str, ActionRunResult],
     tags: dict[str, Any] | None = None,
     **action_kwargs: Any,
-) -> ActionResult:
+) -> ActionRunResult:
     """Run an action.
 
     In this step we should populate the templated fields with actual values.
@@ -242,35 +340,35 @@ async def run_action(
     - transform: Apply a transformation to the data.
     """
 
-    logger.debug(f"Running action {title} with id {id} of type {type}.")
-    action_runner = ACTION_RUNNER_FACTORY[type]
+    _LOGGER.debug(f"Running action {title} with id {id} of type {type}.")
+    action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
         result.action_key: result.data for result in action_trail.values()
     }
-    logger.debug(f"{action_trail_json = }")
+    _LOGGER.debug(f"{action_trail_json = }")
     processed_action_kwargs = evaluate_templated_fields(
         action_kwargs, action_trail_json
     )
-    logger.debug(f"{processed_action_kwargs = }")
+    _LOGGER.debug(f"{processed_action_kwargs = }")
 
     try:
         result = await action_runner(
             action_trail=action_trail, **processed_action_kwargs
         )
     except Exception as e:
-        logger.error(f"Error running action {title} with id {id}.", exc_info=e)
+        _LOGGER.error(f"Error running action {title} with id {id}.", exc_info=e)
         raise
-    return ActionResult(action_id=id, action_title=title, data=result)
+    return ActionRunResult(action_id=id, action_title=title, data=result)
 
 
 async def run_webhook_action(
     action_trail: ActionTrail, url: str, method: str
 ) -> dict[str, Any]:
     """Run a webhook action."""
-    logger.debug("Perform webhook action")
-    logger.debug(f"{url = }")
-    logger.debug(f"{method = }")
+    _LOGGER.debug("Perform webhook action")
+    _LOGGER.debug(f"{url = }")
+    _LOGGER.debug(f"{method = }")
     return {"data": "test_webhook"}
 
 
@@ -286,11 +384,11 @@ async def run_http_request_action(
     payload: dict[str, str | bytes] | None,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    logger.debug("Perform HTTP request action")
-    logger.debug(f"{url = }")
-    logger.debug(f"{method = }")
-    logger.debug(f"{headers = }")
-    logger.debug(f"{payload = }")
+    _LOGGER.debug("Perform HTTP request action")
+    _LOGGER.debug(f"{url = }")
+    _LOGGER.debug(f"{method = }")
+    _LOGGER.debug(f"{headers = }")
+    _LOGGER.debug(f"{payload = }")
 
     try:
         async with httpx.AsyncClient(http2=True) as client:
@@ -298,12 +396,12 @@ async def run_http_request_action(
                 method=method,
                 url=url,
                 headers=headers,
-                data=payload,
+                json=payload,
             )
         response.raise_for_status()
         data: dict[str, Any] = response.json()
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP request failed with status {e.response.status_code}.")
+        _LOGGER.error(f"HTTP request failed with status {e.response.status_code}.")
         raise
     return data
 
@@ -312,7 +410,7 @@ async def run_conditional_action(
     action_trail: ActionTrail, event: str
 ) -> dict[str, Any]:
     """Run a conditional action."""
-    logger.debug(f"Run conditional event {event}.")
+    _LOGGER.debug(f"Run conditional event {event}.")
     return {"data": "test_conditional"}
 
 
@@ -325,9 +423,9 @@ async def run_llm_action(
     kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    logger.debug("Perform LLM action")
-    logger.debug(f"{instructions = }")
-    logger.debug(f"{response_schema = }")
+    _LOGGER.debug("Perform LLM action")
+    _LOGGER.debug(f"{instructions = }")
+    _LOGGER.debug(f"{response_schema = }")
 
     system_context = (
         "You are an expert decision maker and instruction follower."
@@ -349,7 +447,7 @@ async def run_llm_action(
             You must complete the objective using the past task execution data.
             """
         )
-        logger.debug(f"Prompt: {prompt}")
+        _LOGGER.debug(f"Prompt: {prompt}")
         text_response: str = await async_openai_call(
             prompt=prompt,
             model=model,
@@ -378,7 +476,7 @@ async def run_llm_action(
             ```
             """
         )
-        logger.debug(f"Prompt: {prompt}")
+        _LOGGER.debug(f"Prompt: {prompt}")
         json_response: dict[str, Any] = await async_openai_call(
             prompt=prompt,
             model=model,
@@ -394,7 +492,7 @@ async def run_llm_action(
 
 _ActionRunner = Callable[..., Awaitable[dict[str, Any]]]
 
-ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
+_ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "webhook": run_webhook_action,
     "http_request": run_http_request_action,
     "condition": run_conditional_action,
