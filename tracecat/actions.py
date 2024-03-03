@@ -27,15 +27,20 @@ ActionType = Literal[
     "transform",
 ]
 
+ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s]+$"
+# ACtion ID = Hexadecimal workflow ID + lower snake case action title
+ACTION_ID_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
+
 
 class Action(BaseModel):
     """An action in a workflow graph.
 
     An action is an instance of a Action with templated fields."""
 
-    id: str = Field(default_factory=lambda: uuid4().hex)
+    id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
     type: ActionType
-    title: str
+    # Only alphanumeric characters and spaces
+    title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     tags: dict[str, Any] | None = None
     # Templated variables to be replaced with actual values
     # based on the results of the previous step
@@ -52,8 +57,8 @@ class ActionResult(BaseModel):
     """The result of an action."""
 
     id: str = Field(default_factory=lambda: uuid4().hex)
-    action_id: str
-    action_title: str
+    action_id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
+    action_title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
 
