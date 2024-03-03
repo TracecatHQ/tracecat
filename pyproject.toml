@@ -25,6 +25,9 @@ classifiers = [
 ]
 dependencies = [
     "fastapi",
+    "kuzu",
+    "pydantic",
+    "sqlmodel",
     "uvicorn",
     "pydantic==2.6.1",
     "openai",
