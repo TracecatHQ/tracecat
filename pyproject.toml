@@ -26,7 +26,9 @@ classifiers = [
 dependencies = [
     "fastapi",
     "uvicorn",
-    "pydantic"
+    "pydantic==2.6.1",
+    "openai",
+    "tenacity",
 ]
 dynamic = ["version"]
 
@@ -38,6 +40,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 [project.optional-dependencies]
 runner = [
     "orjson",
+    "httpx[http2]",
 ]
 
 [tool.hatch.version]
