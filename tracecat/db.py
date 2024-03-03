@@ -1,5 +1,8 @@
-from sqlmodel import Field, Relationship, SQLModel, create_engine
+import os
+from pathlib import Path
 from uuid import uuid4
+
+from sqlmodel import Field, Relationship, SQLModel, create_engine
 
 
 class Workflow(SQLModel, table=True):
@@ -14,17 +17,18 @@ class Action(SQLModel, table=True):
     title: str
     description: str
     inputs: str | None = None  # JSON-serialized String of inputs
-    connects_to: list[str] | None = None # List of Action IDs
+    # NOTE: Only temporary, will be replaced by a graph database
+    links_to: str | None = None  # Comma separated list of Action IDs
     workflow_id: str = Field(foreign_key="workflow.id")
-    workflow: Workflow = Field(back_populates="actions")
+    workflow: Workflow = Relationship(back_populates="actions")
 
 
 def create_db_engine():
-    sqlite_uri = f"sqlite://.tracecat/storage/database.db"
+    storage_path = os.path.expanduser("~/.tracecat/storage")
+    Path(storage_path).mkdir(parents=True, exist_ok=True)
+    sqlite_uri = f"sqlite:////{storage_path}/database.db"
     engine = create_engine(
-        sqlite_uri,
-        echo=True,
-        connect_args={"check_same_thread": False}
+        sqlite_uri, echo=True, connect_args={"check_same_thread": False}
     )
     return engine
 
