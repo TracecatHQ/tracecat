@@ -186,9 +186,9 @@ async def run_webhook_action(
     action_trail: ActionTrail, url: str, method: str
 ) -> dict[str, Any]:
     """Run a webhook action."""
-    logger.info("Perform webhook action")
-    logger.info(f"{url = }")
-    logger.info(f"{method = }")
+    logger.debug("Perform webhook action")
+    logger.debug(f"{url = }")
+    logger.debug(f"{method = }")
     return {"data": "test_webhook"}
 
 
@@ -204,11 +204,11 @@ async def run_http_request_action(
     payload: dict[str, str | bytes] | None,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    logger.info("Perform HTTP request action")
-    logger.info(f"{url = }")
-    logger.info(f"{method = }")
-    logger.info(f"{headers = }")
-    logger.info(f"{payload = }")
+    logger.debug("Perform HTTP request action")
+    logger.debug(f"{url = }")
+    logger.debug(f"{method = }")
+    logger.debug(f"{headers = }")
+    logger.debug(f"{payload = }")
 
     try:
         async with httpx.AsyncClient(http2=True) as client:
@@ -243,9 +243,9 @@ async def run_llm_action(
     kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    logger.info("Perform LLM action")
-    logger.info(f"{instructions = }")
-    logger.info(f"{response_schema = }")
+    logger.debug("Perform LLM action")
+    logger.debug(f"{instructions = }")
+    logger.debug(f"{response_schema = }")
 
     system_context = (
         "You are an expert decision maker and instruction follower."
