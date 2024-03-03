@@ -28,6 +28,7 @@ export function WorkflowForm() {
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
         name: "",
+        description: "",
     },
   })
  
@@ -38,7 +39,7 @@ export function WorkflowForm() {
   return (
     <div className="space-y-4 p-4">
       <div className="space-y-2">
-        <h4 className="text-sm font-medium">Status</h4>
+        <h4 className="text-sm font-medium">Workflow Status</h4>
         <Badge variant="outline" className="bg-green-100 py-1 px-4">
           <CircleIcon className="mr-1 h-3 w-3 fill-green-600 text-green-600" />
           <span className="text-green-600">Online</span>
