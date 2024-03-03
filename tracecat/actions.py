@@ -357,11 +357,14 @@ async def run_action(
     processed_action_kwargs = evaluate_templated_fields(
         action_kwargs, action_trail_json
     )
+
+    # Only pass the action trail to the LLM action
+    if type == "llm":
+        processed_action_kwargs.update(action_trail=action_trail)
     custom_logger.debug(f"{processed_action_kwargs = }")
 
     try:
         result = await action_runner(
-            action_trail=action_trail,
             custom_logger=custom_logger,
             **processed_action_kwargs,
         )
@@ -372,7 +375,6 @@ async def run_action(
 
 
 async def run_webhook_action(
-    action_trail: ActionTrail,
     url: str,
     method: str,
     custom_logger: logging.Logger = logger,
@@ -389,7 +391,6 @@ async def run_webhook_action(
     wait=wait_exponential(multiplier=1, min=4, max=10),
 )
 async def run_http_request_action(
-    action_trail: ActionTrail,
     url: str,
     method: str,
     headers: dict[str, str] | None,
@@ -422,7 +423,6 @@ async def run_http_request_action(
 
 
 async def run_conditional_action(
-    action_trail: ActionTrail,
     event: str,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
