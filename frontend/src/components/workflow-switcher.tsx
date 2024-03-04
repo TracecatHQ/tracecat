@@ -1,6 +1,6 @@
 "use client"
 
-import * as React from "react"
+import React, { useEffect } from "react";
 import {
   CaretSortIcon,
   CheckIcon,
@@ -16,9 +16,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
   CommandSeparator,
@@ -47,19 +45,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-const groups = [
-  {
-    label: "Workflows",
-    workflows: [
-      {
-        label: "Phishing Takedown",
-        value: "workflows",
-      },
-    ],
-  },
-]
+import axios from "axios";
+import { useQuery } from "@tanstack/react-query";
 
-type Workflow = (typeof groups)[number]["workflows"][number]
+type Workflow = {
+  id: string;
+  title: string;
+  description: string;
+};
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
@@ -68,9 +61,54 @@ interface WorkflowSwitcherProps extends PopoverTriggerProps {}
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] = React.useState(false)
-  const [selectedWorkflow, setSelectedWorkflow] = React.useState<Workflow>(
-    groups[0].workflows[0]
-  )
+  const [selectedWorkflow, setSelectedWorkflow] = React.useState<Workflow | undefined>(undefined);
+
+  // Fetch workflows from the database
+  const fetchWorkflows = async (): Promise<Workflow[]> => {
+    try {
+      // Attempt to fetch existing workflows
+      const response = await axios.get<Workflow[]>("http://localhost:8000/workflows");
+      let workflows = response.data;
+
+      // If no workflows exist, create a new one
+      if (workflows.length === 0) {
+        const newWorkflowMetadata = JSON.stringify({
+          title: "My first workflow",
+          description: "Welcome to Tracecat. This is your first workflow!",
+        })
+        const newWorkflowResponse = await axios.post<Workflow>("http://localhost:8000/workflows", newWorkflowMetadata, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+        const newWorkflow = newWorkflowResponse.data;
+        workflows = [newWorkflow];
+      }
+      return workflows;
+    } catch (error) {
+      console.error("Error fetching workflows:", error);
+      throw error; // Rethrow the error to ensure it's caught by useQuery's isError state
+    }
+  };
+
+  const { data: workflows, isLoading, isError } = useQuery<Workflow[], Error>({
+    queryKey: ["workflows"],
+    queryFn: fetchWorkflows,
+  });
+
+  // Automatically select the first workflow as the default selected workflow if not already selected
+  useEffect(() => {
+    if (!selectedWorkflow && workflows && workflows.length > 0) {
+      setSelectedWorkflow(workflows[0]);
+    }
+  }, [workflows, selectedWorkflow]);
+
+  const groups = workflows ? [
+    {
+      label: "workflows", // UI grouping label
+      workflows: workflows,
+    },
+  ] : [];
 
   return (
     <Dialog open={showNewWorkflowDialog} onOpenChange={setShowNewWorkflowDialog}>
@@ -85,13 +123,13 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
           >
             <Avatar className="mr-2 h-5 w-5">
               <AvatarImage
-                src={`https://avatar.vercel.sh/${selectedWorkflow.value}.png`}
-                alt={selectedWorkflow.label}
+                src={`https://avatar.vercel.sh/${selectedWorkflow?.id}.png`}
+                alt={selectedWorkflow?.title ?? ""}
                 className="grayscale"
               />
               <AvatarFallback>SC</AvatarFallback>
             </Avatar>
-            {selectedWorkflow.label}
+            {selectedWorkflow?.title ?? ""}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
@@ -102,7 +140,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                 <CommandGroup key={group.label} heading={group.label}>
                   {group.workflows.map((workflow) => (
                     <CommandItem
-                      key={workflow.value}
+                      key={workflow.id}
                       onSelect={() => {
                         setSelectedWorkflow(workflow)
                         setOpen(false)
@@ -111,17 +149,17 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                     >
                       <Avatar className="mr-2 h-5 w-5">
                         <AvatarImage
-                          src={`https://avatar.vercel.sh/${workflow.value}.png`}
-                          alt={workflow.label}
+                          src={`https://avatar.vercel.sh/${workflow.id}.png`}
+                          alt={workflow.title}
                           className="grayscale"
                         />
                         <AvatarFallback>SC</AvatarFallback>
                       </Avatar>
-                      {workflow.label}
+                      {workflow.title}
                       <CheckIcon
                         className={cn(
                           "ml-auto h-4 w-4",
-                          selectedWorkflow.value === workflow.value
+                          selectedWorkflow && selectedWorkflow.id === workflow.id
                             ? "opacity-100"
                             : "opacity-0"
                         )}

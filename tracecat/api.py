@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -16,6 +17,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -38,13 +52,13 @@ class WorkflowResponse(BaseModel):
     graph: dict[str, list[str]] | None  # Adjacency list of Action IDs
 
 
-class ActionTitleResponse(BaseModel):
+class ActionMetadataResponse(BaseModel):
     id: str
     title: str
     description: str
 
 
-class WorkflowTitleResponse(BaseModel):
+class WorkflowMetadataResponse(BaseModel):
     id: str
     title: str
     description: str
@@ -54,31 +68,38 @@ class WorkflowTitleResponse(BaseModel):
 
 
 @app.get("/workflows")
-def list_workflows() -> list[WorkflowTitleResponse]:
+def list_workflows() -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
     with Session(create_db_engine()) as session:
         statement = select(Workflow)
         results = session.exec(statement)
         workflows = results.all()
-    workflow_titles = [
-        WorkflowTitleResponse(
+    workflow_metadata = [
+        WorkflowMetadataResponse(
             id=workflow.id, title=workflow.title, description=workflow.description
         )
         for workflow in workflows
     ]
-    return workflow_titles
+    return workflow_metadata
+
+
+class CreateWorkflowParams(BaseModel):
+    title: str
+    description: str
 
 
 @app.post("/workflows", status_code=201)
-def create_workflow(title: str, description: str) -> WorkflowTitleResponse:
+def create_workflow(params: CreateWorkflowParams) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
 
-    workflow = Workflow(title=title, description=description)
+    workflow = Workflow(title=params.title, description=params.description)
     with Session(create_db_engine()) as session:
         session.add(workflow)
         session.commit()
 
-    return WorkflowTitleResponse(id=workflow.id, title=title, description=description)
+    return WorkflowMetadataResponse(
+        id=workflow.id, title=params.title, description=params.description
+    )
 
 
 @app.get("/workflows/{workflow_id}")
@@ -102,7 +123,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             graph = {}
             for action in actions:
                 if action.links_to:
-                    graph[action.id] = action.links_to.split(",")
+                    graph[action.id] = json.loads(action.links_to).get("action_ids")
                 else:
                     graph[action.id] = []
 
@@ -151,19 +172,19 @@ def update_workflow(
 
 
 @app.get("/actions")
-def list_actions(workflow_id: str) -> list[ActionTitleResponse]:
+def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
     """List all Actions related to `workflow_id`."""
     with Session(create_db_engine()) as session:
         statement = select(Action).where(Action.workflow_id == workflow_id)
         results = session.exec(statement)
         actions = results.all()
-    action_titles = [
-        ActionTitleResponse(
+    action_metadata = [
+        ActionMetadataResponse(
             id=action.id, title=action.title, description=action.description
         )
         for action in actions
     ]
-    return action_titles
+    return action_metadata
 
 
 @app.post("/actions")
@@ -171,7 +192,7 @@ def create_action(
     workflow_id: str,
     title: str,
     description: str,
-) -> ActionTitleResponse:
+) -> ActionMetadataResponse:
     with Session(create_db_engine()) as session:
         action = Action(
             workflow_id=workflow_id,
@@ -181,7 +202,7 @@ def create_action(
         session.add(action)
         session.commit()
         session.refresh(action)
-    action_title = ActionTitleResponse(
+    action_title = ActionMetadataResponse(
         id=action.id, title=action.title, description=action.description
     )
     return action_title
@@ -224,7 +245,7 @@ def update_action(
         if description is not None:
             action.description = description
         if links_to is not None:
-            action.links_to = ",".join(links_to)
+            action.links_to = json.dumps({"action_ids": links_to})
         if inputs is not None:
             action.inputs = inputs
 

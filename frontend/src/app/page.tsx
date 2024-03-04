@@ -5,6 +5,7 @@ import { Search } from "@/components/search"
 import { Workspace } from "@/components/workspace"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 import { UserNav } from "@/components/user-nav"
+import { DefaultQueryClientProvider } from "@/providers/query"
 
 export const metadata: Metadata = {
   title: "Workflows | Tracecat",
@@ -30,24 +31,26 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="flex flex-col h-screen">
-        <div className="border-b">
-          <div className="flex h-16 items-center px-4">
-            <WorkflowSwitcher />
-            <div className="ml-auto flex items-center space-x-4">
-              <Search />
-              <UserNav />
+      <DefaultQueryClientProvider>
+        <div className="flex flex-col h-screen">
+          <div className="border-b">
+            <div className="flex h-16 items-center px-4">
+              <WorkflowSwitcher />
+              <div className="ml-auto flex items-center space-x-4">
+                <Search />
+                <UserNav />
+              </div>
             </div>
           </div>
+          <div className="flex flex-col flex-grow">
+            <Workspace
+              defaultLayout={defaultLayout}
+              defaultCollapsed={defaultCollapsed}
+              navCollapsedSize={4}
+            />
+          </div>
         </div>
-        <div className="flex flex-col flex-grow">
-          <Workspace
-            defaultLayout={defaultLayout}
-            defaultCollapsed={defaultCollapsed}
-            navCollapsedSize={4}
-          />
-        </div>
-      </div>
+      </DefaultQueryClientProvider>
     </>
   )
 }

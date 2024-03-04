@@ -16,7 +16,6 @@ import { ActionTiles } from "@/components/action-tiles"
 import { WorkflowCanvas, WorkflowBuilder } from "@/components/canvas"
 import { WorkflowPanel } from "@/components/panel"
 import { cn } from "@/lib/utils"
-import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 
