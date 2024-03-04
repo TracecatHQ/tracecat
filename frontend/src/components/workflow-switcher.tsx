@@ -212,13 +212,13 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                   <SelectItem value="blank">
                     <span className="font-medium">Blank Canvas</span> -{" "}
                     <span className="text-muted-foreground">
-                      Clean workspace to build your custom automation workflows.
+                      Build custom automation workflows.
                     </span>
                   </SelectItem>
                   <SelectItem value="startup-secops">
                     <span className="font-medium">Startup SecOps</span> -{" "}
                     <span className="text-muted-foreground">
-                      Run automated security operations as a startup.
+                      Automated security operations for startups.
                     </span>
                   </SelectItem>
                 </SelectContent>
