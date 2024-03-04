@@ -26,6 +26,7 @@ Actions and action runs
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from enum import StrEnum, auto
 from typing import Annotated, Any
@@ -38,18 +39,18 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
-    Security,
+    Request,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
-from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from tracecat.actions import (
     ActionRun,
     ActionRunStatus,
     ActionTrail,
+    action_key_to_workflow_id,
     start_action_run,
 )
 from tracecat.graph import find_entrypoint
@@ -57,24 +58,11 @@ from tracecat.logger import standard_logger
 from tracecat.workflows import Workflow
 
 logger = standard_logger(__name__)
-api_key_header = APIKeyHeader(name="X-API-KEY")
 
 load_dotenv()
 
 
-async def validate_api_key(key: str = Security(api_key_header)):
-    if key != os.getenv("RUNNER_API_KEY"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized - API Key is wrong",
-        )
-
-
-app = FastAPI(
-    debug=True,
-    default_response_class=ORJSONResponse,
-    dependencies=[Depends(validate_api_key)],
-)
+app = FastAPI(debug=True, default_response_class=ORJSONResponse)
 origins = [
     "http://localhost",
     "http://localhost:8080",
@@ -99,7 +87,7 @@ runner_status: RunnerStatus = RunnerStatus.RUNNING
 
 # Static data
 workflow_registry: dict[str, Workflow] = {}
-entrypoint_to_workflow: dict[str, str] = {}
+entrypoint_secret_to_action_key: dict[str, str] = {}
 
 # Dynamic data
 action_result_store: dict[str, ActionTrail] = {}
@@ -120,15 +108,14 @@ def valid_workflow(workflow_id: str) -> str:
     return workflow_id
 
 
-def valid_entrypoint(entrypoint_id: str) -> str:
-    """Check if an action ID is an entrypoint."""
-    if entrypoint_id not in entrypoint_to_workflow:
-        logger.error(f"{entrypoint_id} is not a valid entrypoint.")
+def valid_webhook_secret(secret: str) -> str:
+    if secret not in entrypoint_secret_to_action_key:
+        logger.error(f"{secret} is not a valid entrypoint.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{entrypoint_id} is not a valid entrypoint.",
+            detail=f"{secret} is not a valid entrypoint.",
         )
-    return entrypoint_id
+    return entrypoint_secret_to_action_key[secret]
 
 
 # Endpoints
@@ -153,20 +140,28 @@ def add_workflow(workflow: Annotated[Workflow, Body]) -> AddWorkflowResponse:
     - Using a database to store the graph.
     - Using a message broker/task queue to send the graph to the runner.
     """
-    global workflow_registry, entrypoint_to_workflow
+    global workflow_registry, entrypoint_secret_to_action_key
     logger.debug(f"Received workflow: {workflow.id!r}")
 
     workflow_registry[workflow.id] = workflow
-    entrypoint = find_entrypoint(workflow.adj_list)
-    entrypoint_to_workflow[entrypoint] = workflow.id
+    entrypoint_key = find_entrypoint(workflow.adj_list)
+    entrypoint_secret = hashlib.sha256(
+        f"{entrypoint_key}{os.environ["RUNNER_SALT"]}".encode()
+    ).hexdigest()
+
+    logger.debug(f"Entrypoint: {entrypoint_key}")
+    logger.debug(f"Entrypoint secret: {entrypoint_secret}")
+
+    entrypoint_secret_to_action_key[entrypoint_secret] = entrypoint_key
 
     logger.debug(f"Workflow registry: {workflow_registry.keys()}")
-    logger.debug(f"Entrypoint mapping: {entrypoint_to_workflow}")
+    logger.debug(f"Entrypoint mapping: {entrypoint_secret_to_action_key}")
 
     return {
         "status": "ok",
         "message": "Successfully added workflow to runner.",
         "id": workflow.id,
+        "entrypoint_secret": entrypoint_secret,
     }  # type: ignore
 
 
@@ -176,10 +171,26 @@ class StartWorkflowResponse(BaseModel):
     id: str = Field(..., description="ID of the workflow.")
 
 
-@app.post("/webhook/{entrypoint_id}", response_model=StartWorkflowResponse)
+async def valid_payload(request: Request) -> dict[str, Any]:
+    """Validate the payload of a request."""
+    payload: dict[str, Any]
+    match request.headers.get("content-type"):
+        case "application/json":
+            payload = await request.json()
+        case "application/x-www-form-urlencoded":
+            payload = await request.form()
+        case _:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid content type.",
+            )
+    return payload
+
+
+@app.post("/webhook/{secret}", response_model=StartWorkflowResponse)
 async def webhook(
-    entrypoint_id: Annotated[str, Depends(valid_entrypoint)],
-    payload: Annotated[dict[str, Any], Body(default_factory=dict)],
+    entrypoint_key: Annotated[str, Depends(valid_webhook_secret)],
+    payload: Annotated[dict[str, Any], Depends(valid_payload)],
     background_tasks: BackgroundTasks,
 ) -> StartWorkflowResponse:
     """A webhook to handle tracecat events.
@@ -195,15 +206,15 @@ async def webhook(
         - Spawn a new process to handle the event.
         - Store the process in a queue.
     """
-    logger.info(f"Received webhook for {entrypoint_id}")
+    logger.info(f"Received webhook with entrypoint {entrypoint_key}")
+
     logger.info(f"{payload =}")
 
-    # Reverse lookup the workflow id
-    workflow_id = entrypoint_to_workflow[entrypoint_id]
+    workflow_id = action_key_to_workflow_id(entrypoint_key)
 
     # This data refers to the webhook specific data
     response = await start_workflow(
-        entrypoint_id=entrypoint_id,
+        entrypoint_key=entrypoint_key,
         workflow_id=workflow_id,
         entrypoint_payload=payload,
         background_tasks=background_tasks,
@@ -212,10 +223,10 @@ async def webhook(
 
 
 @app.post(
-    "/workflow/{workflow_id}/run/{entrypoint_id}", response_model=StartWorkflowResponse
+    "/workflow/{workflow_id}/run/{entrypoint_key}", response_model=StartWorkflowResponse
 )
 async def start_workflow(
-    entrypoint_id: Annotated[str, Depends(valid_entrypoint)],
+    entrypoint_key: str,
     workflow_id: Annotated[str, Depends(valid_workflow)],
     entrypoint_payload: Annotated[dict[str, Any], Body],
     background_tasks: BackgroundTasks,
@@ -233,7 +244,7 @@ async def start_workflow(
         run_workflow,
         workflow_id=workflow_id,
         run_id=run_id,
-        entrypoint_id=entrypoint_id,
+        entrypoint_id=entrypoint_key,
         entrypoint_payload=entrypoint_payload,
     )
     return {"status": "ok", "message": "Workflow started.", "id": workflow_id}  # type: ignore
@@ -242,7 +253,7 @@ async def start_workflow(
 async def run_workflow(
     workflow_id: str,
     run_id: str,
-    entrypoint_id: str,
+    entrypoint_key: str,
     entrypoint_payload: dict[str, Any] | None = None,
 ) -> None:
     """Run a workflow.
@@ -285,7 +296,7 @@ async def run_workflow(
         ActionRun(
             run_id=run_id,
             run_kwargs=entrypoint_payload,
-            action_key=entrypoint_id,
+            action_key=entrypoint_key,
         )
     )
 
