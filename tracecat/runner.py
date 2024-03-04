@@ -285,7 +285,7 @@ async def run_workflow(
         ActionRun(
             run_id=run_id,
             run_kwargs=entrypoint_payload,
-            action_id=entrypoint_id,
+            action_key=entrypoint_id,
         )
     )
 
@@ -299,20 +299,20 @@ async def run_workflow(
                 )
             except TimeoutError:
                 continue
-            action_id = curr_action_run.action_id
+            action_key = curr_action_run.action_key
             # Defensive: Deduplicate tasks
-            if action_id in running_jobs_store or action_id in action_result_store:
+            if action_key in running_jobs_store or action_key in action_result_store:
                 run_logger.debug(
-                    f"Action {action_id!r} already running or completed. Skipping."
+                    f"Action {action_key!r} already running or completed. Skipping."
                 )
                 continue
 
             run_logger.info(
-                f"{workflow.action_map[action_id].__class__.__name__} {action_id!r} ready. Running."
+                f"{workflow.action_map[action_key].__class__.__name__} {action_key!r} ready. Running."
             )
-            action_run_status_store[action_id] = ActionRunStatus.PENDING
+            action_run_status_store[action_key] = ActionRunStatus.PENDING
             # Schedule a new action run
-            running_jobs_store[action_id] = asyncio.create_task(
+            running_jobs_store[action_key] = asyncio.create_task(
                 start_action_run(
                     action_run=curr_action_run,
                     workflow_ref=workflow,

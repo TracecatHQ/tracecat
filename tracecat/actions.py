@@ -1,3 +1,22 @@
+"""Actions to be executed as part of a workflow.
+
+
+Action
+------
+An action is a blueprint of a task to be executed as part of a workflow.
+
+Action Run
+----------
+An action run is an instance of an action to be executed as part of a workflow run.
+
+Action Key
+----------
+The action key is a unique identifier for an action within a workflow:
+action_key = <workflow_id>.<action_title_lower_snake_case>
+
+Note that this is different from the action ID which is a surrogate key.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +57,7 @@ ActionType = Literal[
 
 ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s]+$"
 # ACtion ID = Hexadecimal workflow ID + lower snake case action title
-ACTION_ID_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
+ACTION_KEY_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
 
 
 class ActionRun(BaseModel):
@@ -46,7 +65,7 @@ class ActionRun(BaseModel):
 
     run_id: str
     run_kwargs: dict[str, Any] | None = None
-    action_id: str
+    action_key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50)
 
 
 class ActionRunStatus(StrEnum):
@@ -64,7 +83,7 @@ class Action(BaseModel):
 
     An action is an instance of a Action with templated fields."""
 
-    id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
+    key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50)
     type: ActionType
     title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     tags: dict[str, Any] | None = None
@@ -76,31 +95,31 @@ class Action(BaseModel):
         return action_cls(**data)
 
     @property
-    def workflow_run_id(self) -> str:
-        return action_id_to_workflow_run_id(self.id)
+    def workflow_id(self) -> str:
+        return action_key_to_workflow_id(self.key)
 
     @property
-    def action_key(self) -> str:
+    def action_title_snake_case(self) -> str:
         """The workflow-specific unique key of the action. This is the action title in lower snake case."""
-        return action_id_to_action_key(self.id)
+        return action_key_to_action_title_snake_case(self.key)
 
 
 class ActionRunResult(BaseModel):
     """The result of an action."""
 
     id: str = Field(default_factory=lambda: uuid4().hex)
-    action_id: str = Field(pattern=ACTION_ID_PATTERN, max_length=50)
+    action_key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50)
     action_title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
 
     @property
     def workflow_run_id(self) -> str:
-        return action_id_to_workflow_run_id(self.action_id)
+        return action_key_to_workflow_id(self.action_key)
 
     @property
-    def action_key(self) -> str:
-        return action_id_to_action_key(self.action_id)
+    def action_title_snake_case(self) -> str:
+        return action_key_to_action_title_snake_case(self.action_key)
 
 
 class WebhookAction(Action):
@@ -160,11 +179,11 @@ ACTION_FACTORY: dict[str, type[Action]] = {
 }
 
 
-def action_id_to_workflow_run_id(action_id: str) -> str:
+def action_key_to_workflow_id(action_id: str) -> str:
     return action_id.split(".")[0]
 
 
-def action_id_to_action_key(action_id: str) -> str:
+def action_key_to_action_title_snake_case(action_id: str) -> str:
     return action_id.split(".")[1]
 
 
@@ -276,12 +295,14 @@ async def start_action_run(
     pending_timeout: float | None = None,
     custom_logger: logging.Logger | None = None,
 ) -> None:
-    action_id = action_run.action_id
-    upstream_deps = workflow_ref.action_dependencies[action_id]
-    downstream_deps = workflow_ref.adj_list[action_id]
+    action_key = action_run.action_key
+    upstream_deps = workflow_ref.action_dependencies[action_key]
+    downstream_deps = workflow_ref.adj_list[action_key]
 
     custom_logger = custom_logger or logger
-    custom_logger.debug(f"Action {action_id} waiting for dependencies {upstream_deps}.")
+    custom_logger.debug(
+        f"Action {action_key} waiting for dependencies {upstream_deps}."
+    )
     try:
         await asyncio.wait_for(
             _wait_for_dependencies(upstream_deps, action_run_status_store),
@@ -291,10 +312,10 @@ async def start_action_run(
         action_trail = _get_dependencies_results(upstream_deps, action_result_store)
 
         custom_logger.debug(
-            f"Running action {action_id!r}. Trail {action_trail.keys()}."
+            f"Running action {action_key!r}. Trail {action_trail.keys()}."
         )
-        action_run_status_store[action_id] = ActionRunStatus.RUNNING
-        action_ref = workflow_ref.action_map[action_id]
+        action_run_status_store[action_key] = ActionRunStatus.RUNNING
+        action_ref = workflow_ref.action_map[action_key]
         result = await run_action(
             custom_logger=custom_logger,
             action_trail=action_trail,
@@ -303,44 +324,44 @@ async def start_action_run(
         )
 
         # Mark the action as completed
-        action_run_status_store[action_id] = ActionRunStatus.SUCCESS
+        action_run_status_store[action_key] = ActionRunStatus.SUCCESS
 
         # Store the result in the action result store.
         # Every action has its own result and the trail of actions that led to it.
         # The schema is {<action ID> : <action result>, ...}
-        action_result_store[action_id] = action_trail | {action_id: result}
-        custom_logger.debug(f"Action {action_id!r} completed with result {result}.")
+        action_result_store[action_key] = action_trail | {action_key: result}
+        custom_logger.debug(f"Action {action_key!r} completed with result {result}.")
 
         # Broadcast the results to the next actions and enqueue them
-        for next_action_id in downstream_deps:
-            if next_action_id not in action_run_status_store:
-                action_run_status_store[next_action_id] = ActionRunStatus.QUEUED
+        for next_action_key in downstream_deps:
+            if next_action_key not in action_run_status_store:
+                action_run_status_store[next_action_key] = ActionRunStatus.QUEUED
                 ready_jobs_queue.put_nowait(
                     ActionRun(
                         run_id=action_run.run_id,
-                        action_id=next_action_id,
+                        action_key=next_action_key,
                     )
                 )
 
     except TimeoutError:
         custom_logger.error(
-            f"Action {action_id} timed out waiting for dependencies {upstream_deps}."
+            f"Action {action_key} timed out waiting for dependencies {upstream_deps}."
         )
     except asyncio.CancelledError:
-        custom_logger.warning(f"Action {action_id!r} was cancelled.")
+        custom_logger.warning(f"Action {action_key!r} was cancelled.")
     except Exception as e:
-        custom_logger.error(f"Action {action_id!r} failed with error {e}.")
+        custom_logger.error(f"Action {action_key!r} failed with error {e}.")
     finally:
-        if action_run_status_store[action_id] != ActionRunStatus.SUCCESS:
+        if action_run_status_store[action_key] != ActionRunStatus.SUCCESS:
             # Exception was raised before the action was marked as successful
-            action_run_status_store[action_id] = ActionRunStatus.FAILURE
-        running_jobs_store.pop(action_id, None)
+            action_run_status_store[action_key] = ActionRunStatus.FAILURE
+        running_jobs_store.pop(action_key, None)
         custom_logger.debug(f"Remaining tasks: {running_jobs_store.keys()}")
 
 
 async def run_action(
     type: ActionType,
-    id: str,
+    key: str,
     title: str,
     action_trail: dict[str, ActionRunResult],
     tags: dict[str, Any] | None = None,
@@ -365,7 +386,7 @@ async def run_action(
     """
 
     custom_logger.debug(f"{"*" * 10} Running action {"*" * 10}")
-    custom_logger.debug(f"{id = }")
+    custom_logger.debug(f"{key = }")
     custom_logger.debug(f"{title = }")
     custom_logger.debug(f"{type = }")
     custom_logger.debug(f"{tags = }")
@@ -375,7 +396,7 @@ async def run_action(
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
-        result.action_key: result.data for result in action_trail.values()
+        result.action_title_snake_case: result.data for result in action_trail.values()
     }
     custom_logger.debug(f"Before template eval: {action_trail_json = }")
     processed_action_kwargs = evaluate_templated_fields(
@@ -394,9 +415,9 @@ async def run_action(
             **processed_action_kwargs,
         )
     except Exception as e:
-        custom_logger.error(f"Error running action {title} with id {id}.", exc_info=e)
+        custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
         raise
-    return ActionRunResult(action_id=id, action_title=title, data=result)
+    return ActionRunResult(action_key=key, action_title=title, data=result)
 
 
 async def run_webhook_action(
