@@ -514,20 +514,23 @@ async def run_llm_action(
         "You are an expert decision maker and instruction follower."
         " You will be given JSON data as context to help you complete your task."
         " You do exactly as the user asks."
+        " When given a question, you answer it in a conversational manner without repeating it back."
     )
     if response_schema is None:
         prompt = textwrap.dedent(
             f"""
-
-            Your objective is the following: {instructions}
-
             You have also been provided with the following JSON data of the previous task execution results.
             The keys are the action ids and the values are the results of the actions.
             ```
             {action_trail}
             ```
 
-            You must complete the objective using the past task execution data.
+            You may use the past task execution data to help you complete your task.
+            If you think it isn't helpful, you may ignore it.
+
+            Your objective is the following: {instructions}
+
+            Your response:
             """
         )
         custom_logger.debug(f"Prompt: {prompt}")
@@ -550,7 +553,8 @@ async def run_llm_action(
             {action_trail}
             ```
 
-            You must complete the objective using the past task execution data.
+            You may use the past task execution data to help you complete your task.
+            If you think it isn't helpful, you may ignore it.
 
             Create a `JSONDataResponse` according to the following pydantic model:
             ```
