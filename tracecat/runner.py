@@ -251,7 +251,7 @@ async def start_workflow(
         run_workflow,
         workflow_id=workflow_id,
         run_id=run_id,
-        entrypoint_id=entrypoint_key,
+        entrypoint_key=entrypoint_key,
         entrypoint_payload=entrypoint_payload,
     )
     return {"status": "ok", "message": "Workflow started.", "id": workflow_id}  # type: ignore
