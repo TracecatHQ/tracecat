@@ -15,13 +15,10 @@ class Workflow(SQLModel, table=True):
 
 class Action(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    type: str
     title: str
     description: str
     inputs: str | None = None  # JSON-serialized String of inputs
-    # NOTE: Only temporary, will be replaced by a graph database
-    links_to: (
-        str | None
-    ) = None  # JSON-serialized string of Action IDs (in `action_ids` field)
     workflow_id: str = Field(foreign_key="workflow.id")
     workflow: Workflow = Relationship(back_populates="actions")
 

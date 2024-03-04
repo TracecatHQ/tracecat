@@ -40,8 +40,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export interface ActionNodeData {
+  type: string
   title: string
-  name: string
   status: "online" | "error" | "offline"
   numberOfEvents: number
   // Generic metadata
@@ -60,12 +60,12 @@ const tileIconMapping: { [key: string]: LucideIcon } = {
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
-  data: { title, name, status, numberOfEvents },
+  data: { type, title, status, numberOfEvents },
 }: NodeProps<ActionNodeData>) {
 
   const statusCapitalized = status[0].toUpperCase() + status.slice(1);
-  const avatarImageAlt = `${title}-${name}`;
-  const tileIcon = tileIconMapping[title];
+  const avatarImageAlt = `${type}-${title}`;
+  const tileIcon = tileIconMapping[type];
 
   return (
     <Card>
@@ -77,8 +77,8 @@ export default React.memo(function ActionNode({
               <AvatarFallback>{React.createElement(tileIcon, { className: "h-5 w-5" })}</AvatarFallback>
             </Avatar>
             <div>
-              <CardTitle className="text-sm font-medium leading-none">{name}</CardTitle>
-              <CardDescription className="mt-1 text-sm text-muted-foreground">{title}</CardDescription>
+              <CardTitle className="text-sm font-medium leading-none">{title}</CardTitle>
+              <CardDescription className="mt-1 text-sm text-muted-foreground">{type}</CardDescription>
             </div>
           </div>
           <DropdownMenu>

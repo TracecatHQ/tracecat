@@ -22,9 +22,6 @@ import ActionNode, { ActionNodeData } from "@/components/action-node"
 
 import { useSelectedWorkflow } from "@/providers/selected-workflow"
 
-let id = 0
-const getActionNodeId = (): string => `node_${id++}`
-
 const nodeTypes = {
   action: ActionNode,
 }
@@ -36,6 +33,14 @@ const defaultEdgeOptions = {
   style: { strokeWidth: 3 },
 }
 
+type ActionMetadata = {
+  id: string;
+  workflow_id: string;
+  title: string;
+  description: string;
+};
+
+
 const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -45,7 +50,7 @@ const WorkflowCanvas: React.FC = () => {
 
   const { toast } = useToast()
 
-  // Save react flow object to database
+  // CRUD operations
   const saveFlow = useCallback(async () => {
     if (!selectedWorkflowId || !reactFlowInstance) return;
     try {
@@ -63,6 +68,27 @@ const WorkflowCanvas: React.FC = () => {
     }
   }, [selectedWorkflowId, reactFlowInstance]);
 
+  const createAction = async (type: string, title: string) => {
+    if (!selectedWorkflowId || !reactFlowInstance) return;
+    try {
+      const createActionMetadata = JSON.stringify({
+        workflow_id: selectedWorkflowId,
+        type: type,
+        title: title
+      });
+      const response = await axios.post<ActionMetadata>("http://localhost:8000/actions", createActionMetadata, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      console.log("Action created successfully:", response.data);
+      return response.data.id;
+    } catch (error) {
+      console.error("Error creating action:", error);
+    }
+  }
+
+  // React Flow callbacks
   const onConnect = useCallback(
     (params: Edge | Connection) => {
       setEdges((eds) => addEdge(params, eds));
@@ -100,15 +126,20 @@ const WorkflowCanvas: React.FC = () => {
       y: event.clientY,
     })
 
-    const newNode = {
-      id: getActionNodeId(),
-      type: reactFlowNodeType,
-      position: reactFlowNodePosition,
-      data: actionNodeData,
-    } as Node<ActionNodeData>
+    // Create Action in database
+    createAction(actionNodeData.type, actionNodeData.title).then((actionId) => {
+      if (!actionId) return;
+      // Then create Action node in React Flow
+      const newNode = {
+        id: actionId,
+        type: reactFlowNodeType,
+        position: reactFlowNodePosition,
+        data: actionNodeData,
+      } as Node<ActionNodeData>
 
-    setNodes((nds) => nds.concat(newNode));
-    saveFlow();
+      setNodes((nds) => nds.concat(newNode));
+      saveFlow();
+    });
   }
 
   const onEdgesDelete = useCallback((edgesToDelete: Edge[]) => {

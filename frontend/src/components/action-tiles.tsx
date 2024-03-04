@@ -14,23 +14,23 @@ import {
 interface ActionTilesProps {
   isCollapsed: boolean
   tiles: {
-    title: string
-    label?: string
+    type: string
+    title?: string
     icon: LucideIcon
     variant: "default" | "ghost"
   }[]
 }
 
 export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
-  
+
   const onDragStart = (
     event: DragEvent<HTMLDivElement>,
-    tile: { title: string; label?: string; icon: LucideIcon; variant: "default" | "ghost" }
+    tile: { type: string; title?: string; icon: LucideIcon; variant: "default" | "ghost" }
   ) => {
 
     const actionNodeData = {
-      title: tile.title,
-      name: tile.label || `${tile.title} Action`,
+      type: tile.type,
+      title: tile.title || `${tile.type} Action`,
       status: "offline",
       numberOfEvents: 0
     };
@@ -62,14 +62,14 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                   onDragStart={(event) => onDragStart(event, tile)}
                 >
                   <tile.icon className="h-4 w-4" />
-                  <span className="sr-only">{tile.title}</span>
+                  <span className="sr-only">{tile.type}</span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="right" className="flex items-center gap-4">
-                {tile.title}
-                {tile.label && (
+                {tile.type}
+                {tile.title && (
                   <span className="ml-auto text-muted-foreground">
-                    {tile.label}
+                    {tile.title}
                   </span>
                 )}
               </TooltipContent>
@@ -89,16 +89,16 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
               onDragStart={(event) => onDragStart(event, tile)}
             >
               <tile.icon className="mr-2 h-4 w-4" />
-              {tile.title}
-              {tile.label && (
+              {tile.type}
+              {tile.title && (
                 <span
                   className={cn(
-                    "ml-auto",
+                    "ml-3",
                     tile.variant === "default" &&
                       "text-background dark:text-white"
                   )}
                 >
-                  {tile.label}
+                  {tile.title}
                 </span>
               )}
             </div>

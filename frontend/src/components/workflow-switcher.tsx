@@ -50,7 +50,7 @@ import {
 
 import { useSelectedWorkflow } from "@/providers/selected-workflow"
 
-type Workflow = {
+type WorkflowMetadata = {
   id: string;
   title: string;
   description: string;
@@ -63,13 +63,13 @@ interface WorkflowSwitcherProps extends PopoverTriggerProps {}
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] = React.useState(false)
-  const [selectedWorkflow, setSelectedWorkflow] = React.useState<Workflow | undefined>(undefined);
+  const [selectedWorkflow, setSelectedWorkflow] = React.useState<WorkflowMetadata | undefined>(undefined);
 
   // Fetch workflows from the database
-  const fetchWorkflows = async (): Promise<Workflow[]> => {
+  const fetchWorkflows = async (): Promise<WorkflowMetadata[]> => {
     try {
       // Attempt to fetch existing workflows
-      const response = await axios.get<Workflow[]>("http://localhost:8000/workflows");
+      const response = await axios.get<WorkflowMetadata[]>("http://localhost:8000/workflows");
       let workflows = response.data;
 
       // If no workflows exist, create a new one
@@ -78,7 +78,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
           title: "My first workflow",
           description: "Welcome to Tracecat. This is your first workflow!",
         })
-        const newWorkflowResponse = await axios.post<Workflow>("http://localhost:8000/workflows", newWorkflowMetadata, {
+        const newWorkflowResponse = await axios.post<WorkflowMetadata>("http://localhost:8000/workflows", newWorkflowMetadata, {
           headers: {
             "Content-Type": "application/json",
           },
@@ -93,7 +93,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
     }
   };
 
-  const { data: workflows, isLoading, isError } = useQuery<Workflow[], Error>({
+  const { data: workflows, isLoading, isError } = useQuery<WorkflowMetadata[], Error>({
     queryKey: ["workflows"],
     queryFn: fetchWorkflows,
   });

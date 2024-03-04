@@ -54,6 +54,8 @@ class WorkflowResponse(BaseModel):
 
 class ActionMetadataResponse(BaseModel):
     id: str
+    workflow_id: str
+    type: str
     title: str
     description: str
 
@@ -96,6 +98,7 @@ def create_workflow(params: CreateWorkflowParams) -> WorkflowMetadataResponse:
     with Session(create_db_engine()) as session:
         session.add(workflow)
         session.commit()
+        session.refresh(workflow)
 
     return WorkflowMetadataResponse(
         id=workflow.id, title=params.title, description=params.description
@@ -118,14 +121,9 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         actions = results.all()
 
         graph = None
-        if len(actions) > 0:
-            # For each Action, get all connected Actions from Action IDs in `links_to`
-            graph = {}
-            for action in actions:
-                if action.links_to:
-                    graph[action.id] = json.loads(action.links_to).get("action_ids")
-                else:
-                    graph[action.id] = []
+        if len(actions) > 0 and workflow.object is not None:
+            # Process react flow object into adjacency list
+            graph = workflow.object
 
     actions_responses = [
         ActionResponse(
@@ -187,32 +185,43 @@ def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
         actions = results.all()
     action_metadata = [
         ActionMetadataResponse(
-            id=action.id, title=action.title, description=action.description
+            id=action.id,
+            workflow_id=workflow_id,
+            type=action.type,
+            title=action.title,
+            description=action.description,
         )
         for action in actions
     ]
     return action_metadata
 
 
+class CreateActionParams(BaseModel):
+    workflow_id: str
+    type: str
+    title: str
+
+
 @app.post("/actions")
-def create_action(
-    workflow_id: str,
-    title: str,
-    description: str,
-) -> ActionMetadataResponse:
+def create_action(params: CreateActionParams) -> ActionMetadataResponse:
     with Session(create_db_engine()) as session:
         action = Action(
-            workflow_id=workflow_id,
-            title=title,
-            description=description,
+            workflow_id=params.workflow_id,
+            type=params.type,
+            title=params.title,
+            description="",  # Default to empty string
         )
         session.add(action)
         session.commit()
         session.refresh(action)
-    action_title = ActionMetadataResponse(
-        id=action.id, title=action.title, description=action.description
+    action_metadata = ActionMetadataResponse(
+        id=action.id,
+        workflow_id=params.workflow_id,
+        type=params.type,
+        title=action.title,
+        description=action.description,
     )
-    return action_title
+    return action_metadata
 
 
 @app.get("/actions/{action_id}")
@@ -238,7 +247,6 @@ def update_action(
     action_id: str | None,
     title: str | None,
     description: str | None,
-    links_to: list[str] | None,
     inputs: str | None,  # JSON-serialized string
 ) -> None:
     with Session(create_db_engine()) as session:
@@ -251,8 +259,6 @@ def update_action(
             action.title = title
         if description is not None:
             action.description = description
-        if links_to is not None:
-            action.links_to = json.dumps({"action_ids": links_to})
         if inputs is not None:
             action.inputs = inputs
 
