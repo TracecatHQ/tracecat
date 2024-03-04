@@ -1,6 +1,9 @@
 "use client"
 
 import React, { useEffect } from "react";
+import axios from "axios";
+import { useQuery } from "@tanstack/react-query";
+
 import {
   CaretSortIcon,
   CheckIcon,
@@ -45,8 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-import axios from "axios";
-import { useQuery } from "@tanstack/react-query";
+import { useSelectedWorkflow } from "@/providers/selected-workflow"
 
 type Workflow = {
   id: string;
@@ -97,9 +99,13 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   });
 
   // Automatically select the first workflow as the default selected workflow if not already selected
+  const { selectedWorkflowId, setSelectedWorkflowId } = useSelectedWorkflow();
+
   useEffect(() => {
     if (!selectedWorkflow && workflows && workflows.length > 0) {
-      setSelectedWorkflow(workflows[0]);
+      const workflow = workflows[0];
+      setSelectedWorkflow(workflow);
+      setSelectedWorkflowId(workflow.id);
     }
   }, [workflows, selectedWorkflow]);
 

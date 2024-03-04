@@ -146,11 +146,16 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
     return workflow_response
 
 
+class UpdateWorkflowParams(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    object: str | None = None
+
+
 @app.post("/workflows/{workflow_id}", status_code=204)
 def update_workflow(
     workflow_id: str,
-    title: str | None,
-    description: str | None,
+    params: UpdateWorkflowParams,
 ) -> None:
     """Update Workflow."""
 
@@ -159,10 +164,12 @@ def update_workflow(
         result = session.exec(statement)
         workflow = result.one()
 
-        if title is not None:
-            workflow.title = title
-        if description is not None:
-            workflow.description = description
+        if params.title is not None:
+            workflow.title = params.title
+        if params.description is not None:
+            workflow.description = params.description
+        if params.object is not None:
+            workflow.object = params.object
 
         session.add(workflow)
         session.commit()

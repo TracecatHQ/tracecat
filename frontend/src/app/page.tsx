@@ -6,6 +6,7 @@ import { Workspace } from "@/components/workspace"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 import { UserNav } from "@/components/user-nav"
 import { DefaultQueryClientProvider } from "@/providers/query"
+import { SelectedWorkflowProvider } from "@/providers/selected-workflow"
 
 export const metadata: Metadata = {
   title: "Workflows | Tracecat",
@@ -31,7 +32,8 @@ export default function DashboardPage() {
 
   return (
     <>
-      <DefaultQueryClientProvider>
+    <DefaultQueryClientProvider>
+      <SelectedWorkflowProvider>
         <div className="flex flex-col h-screen">
           <div className="border-b">
             <div className="flex h-16 items-center px-4">
@@ -50,7 +52,8 @@ export default function DashboardPage() {
             />
           </div>
         </div>
-      </DefaultQueryClientProvider>
+      </SelectedWorkflowProvider>
+    </DefaultQueryClientProvider>
     </>
   )
 }

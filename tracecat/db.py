@@ -9,6 +9,7 @@ class Workflow(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     title: str
     description: str
+    object: str | None = None  # JSON-serialized String of react flow object
     actions: list["Action"] | None = Relationship(back_populates="workflow")
 
 
