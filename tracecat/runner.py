@@ -21,6 +21,13 @@ Actions and action runs
 - An action is a node in the graph.
 - A run is an instance of an action.
 
+Stores
+------
+- We need to store the state of the workflow run.
+- The current implementation uses in-memory kv stores to manage execution state.
+- We can use distributed kv stores / databases to manage state across multiple runners to scale the backend.
+- Note that ActionRuns need to be identified across workflow runs - we use a combination of the workflow id and the action id to do this.
+
 """
 
 from __future__ import annotations
