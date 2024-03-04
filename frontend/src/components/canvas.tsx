@@ -88,6 +88,16 @@ const WorkflowCanvas: React.FC = () => {
     }
   }
 
+  const deleteAction = async (actionId: string) => {
+    try {
+      const url = `http://localhost:8000/actions/${actionId}`;
+      await axios.delete(url);
+      console.log(`Action with ID ${actionId} deleted successfully.`);
+    } catch (error) {
+      console.error(`Error deleting action with ID ${actionId}:`, error);
+    }
+  }
+
   // React Flow callbacks
   const onConnect = useCallback(
     (params: Edge | Connection) => {
@@ -148,9 +158,16 @@ const WorkflowCanvas: React.FC = () => {
   }, [setEdges, saveFlow]);
 
   const onNodesDelete = useCallback((nodesToDelete: Node[]) => {
-    setNodes((nds) => nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id)));
-    saveFlow();
-  }, [setNodes, saveFlow]);
+    Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
+    .then(() => {
+      console.log("All Actions in database deleted successfully.");
+      setNodes((nds) => nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id)));
+      saveFlow();
+    })
+    .catch((error) => {
+      console.error("An error occurred while deleting Action nodes:", error);
+    });
+  }, [setNodes, saveFlow, deleteAction]);
 
   return (
     <div ref={reactFlowWrapper} style={{ height: "100%" }}>
