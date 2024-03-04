@@ -50,8 +50,8 @@ export function WorkflowForm() {
           <h4 className="text-sm font-medium">Workflow Status</h4>
           <div className="flex justify-between">
             <Badge variant="outline" className={`py-1 px-4 ${status === 'online' ? 'bg-green-100' : 'bg-gray-100'}`}>
-              <CircleIcon className={`mr-1 h-3 w-3 ${status === 'online' ? 'fill-green-600 text-green-600' : 'fill-gray-400 text-gray-400'}`} />
-              <span className={`${status === 'online' ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
+              <CircleIcon className={`mr-2 h-3 w-3 ${status === 'online' ? 'fill-green-600 text-green-600' : 'fill-gray-400 text-gray-400'}`} />
+              <span className={ `text-muted-foreground ${status === 'online' ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
             </Badge>
             <Tooltip>
               <TooltipTrigger asChild>

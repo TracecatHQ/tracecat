@@ -1,3 +1,5 @@
+import React, { useEffect, useState } from "react";
+
 import axios from "axios";
 import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -63,15 +65,22 @@ export function ActionForm({ actionId, actionData }: ActionFormData) {
     queryFn: getActionById,
   });
 
+  const [status, setStatus] = useState("offline");
   const form = useForm<z.infer<typeof actionFormSchema>>({
     resolver: zodResolver(actionFormSchema),
-    defaultValues: {
-      name: data?.title || "",
-      description: data?.description || "",
-    },
   });
 
-  const status = data?.status || "offline";
+  useEffect(() => {
+    if (data) {
+      const { title, description, status } = data;
+      form.reset({ // Use reset method to set form values
+        name: title,
+        description: description,
+      });
+      setStatus(status);
+    }
+  }, [data, form.reset]);
+
   const statusCapitalized = status[0].toUpperCase() + status.slice(1);
 
   function onSubmit(values: z.infer<typeof actionFormSchema>) {
@@ -85,8 +94,8 @@ export function ActionForm({ actionId, actionData }: ActionFormData) {
           <h4 className="text-sm font-medium">Action Status</h4>
           <div className="flex justify-between">
           <Badge variant="outline" className={`py-1 px-4 ${status === 'online' ? 'bg-green-100' : 'bg-gray-100'}`}>
-              <CircleIcon className={`mr-1 h-3 w-3 ${status === 'online' ? 'fill-green-600 text-green-600' : 'fill-gray-400 text-gray-400'}`} />
-              <span className={`${status === 'online' ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
+              <CircleIcon className={`mr-2 h-3 w-3 ${status === 'online' ? 'fill-green-600 text-green-600' : 'fill-gray-400 text-gray-400'}`} />
+              <span className={`text-muted-foreground ${status === 'online' ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
             </Badge>
             <Tooltip>
               <TooltipTrigger asChild>
