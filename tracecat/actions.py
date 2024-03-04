@@ -202,19 +202,20 @@ def evaluate_jsonpath(
     evaluator: Callable[[re.Match[str]], str],
 ) -> T:
     """Process jsonpaths in strings, lists, and dictionaries."""
-    if isinstance(obj, str):
-        return pattern.sub(evaluator, obj)
-    elif isinstance(obj, list):
-        return [evaluate_jsonpath(item, pattern, evaluator) for item in obj]
-    elif isinstance(obj, dict):
-        return {
-            evaluate_jsonpath(k, pattern, evaluator): evaluate_jsonpath(
-                v, pattern, evaluator
-            )
-            for k, v in obj.items()
-        }
-    else:
-        return obj
+    match obj:
+        case str():
+            return pattern.sub(evaluator, obj)
+        case list():
+            return [evaluate_jsonpath(item, pattern, evaluator) for item in obj]
+        case dict():
+            return {
+                evaluate_jsonpath(k, pattern, evaluator): evaluate_jsonpath(
+                    v, pattern, evaluator
+                )
+                for k, v in obj.items()
+            }
+        case _:
+            return obj
 
 
 def evaluate_templated_fields(
