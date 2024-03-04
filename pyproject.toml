@@ -43,6 +43,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 runner = [
     "orjson",
     "httpx[http2]",
+    "python-multipart",
 ]
 
 [tool.hatch.version]
