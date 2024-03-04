@@ -235,6 +235,7 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
         type=params.type,
         title=action.title,
         description=action.description,
+        status=action.status,
     )
     return action_metadata
 
