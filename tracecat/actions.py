@@ -179,12 +179,12 @@ ACTION_FACTORY: dict[str, type[Action]] = {
 }
 
 
-def action_key_to_workflow_id(action_id: str) -> str:
-    return action_id.split(".")[0]
+def action_key_to_workflow_id(action_key: str) -> str:
+    return action_key.split(".")[0]
 
 
-def action_key_to_action_title_snake_case(action_id: str) -> str:
-    return action_id.split(".")[1]
+def action_key_to_action_title_snake_case(action_key: str) -> str:
+    return action_key.split(".")[1]
 
 
 DEFAULT_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
