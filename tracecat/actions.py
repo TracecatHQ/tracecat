@@ -23,7 +23,6 @@ import asyncio
 import logging
 import random
 import re
-import textwrap
 from collections.abc import Awaitable, Callable, Iterable
 from enum import StrEnum, auto
 from functools import partial
@@ -36,7 +35,14 @@ from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import MAX_RETRIES
-from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
+from tracecat.llm import (
+    DEFAULT_MODEL_TYPE,
+    ModelType,
+    TaskType,
+    async_openai_call,
+    generate_pydantic_json_response_schema,
+    get_system_context,
+)
 from tracecat.logger import standard_logger
 
 if TYPE_CHECKING:
@@ -171,7 +177,8 @@ class LLMAction(Action):
 
     Attributes:
         type (Literal["llm"]): The type of the action, which is always "llm".
-        instructions (str): The instructions for the LLM action.
+        task (Literal["translate", "extract", "summarize", "label", "enrich", "question_answering"]): The task for the LLM action.
+        message (str): The message for the LLM action. This is the possibly templated message that the LLM action node will receive as input.
         system_context (str | None): The system context for the LLM action, if any.
         model (ModelType): The model type for the LLM action.
         response_schema (dict[str, Any] | None): The response schema for the LLM action, if any.
@@ -180,7 +187,8 @@ class LLMAction(Action):
 
     type: Literal["llm"] = Field("llm", frozen=True)
 
-    instructions: str
+    task: TaskType
+    message: str
     system_context: str | None = None
     model: ModelType = DEFAULT_MODEL_TYPE
     response_schema: dict[str, Any] | None = None
@@ -556,7 +564,8 @@ async def run_conditional_action(
 
 async def run_llm_action(
     action_trail: ActionTrail,
-    instructions: str,
+    task: TaskType,
+    message: str,
     system_context: str | None = None,
     model: ModelType = DEFAULT_MODEL_TYPE,
     response_schema: dict[str, Any] | None = None,
@@ -566,36 +575,15 @@ async def run_llm_action(
 ) -> dict[str, Any]:
     """Run an LLM action."""
     custom_logger.debug("Perform LLM action")
-    custom_logger.debug(f"{instructions = }")
+    custom_logger.debug(f"{message = }")
     custom_logger.debug(f"{response_schema = }")
 
     llm_kwargs = llm_kwargs or {}
-    system_context = (
-        "You are an expert decision maker and instruction follower."
-        " You will be given JSON data as context to help you complete your task."
-        " You do exactly as the user asks."
-        " When given a question, you answer it in a conversational manner without repeating it back."
-    )
+
     if response_schema is None:
-        prompt = textwrap.dedent(
-            f"""
-            You have also been provided with the following JSON data of the previous task execution results.
-            The keys are the action ids and the values are the results of the actions.
-            ```
-            {action_trail}
-            ```
-
-            You may use the past task execution data to help you complete your task.
-            If you think it isn't helpful, you may ignore it.
-
-            Your objective is the following: {instructions}
-
-            Your response:
-            """
-        )
-        custom_logger.debug(f"Prompt: {prompt}")
+        system_context = get_system_context(task, action_trail=action_trail)
         text_response: str = await async_openai_call(
-            prompt=prompt,
+            prompt=message,
             model=model,
             system_context=system_context,
             response_format="text",
@@ -603,29 +591,14 @@ async def run_llm_action(
         )
         return {"response": text_response}
     else:
-        prompt = textwrap.dedent(
-            f"""
-
-            Your objective is the following: {instructions}
-
-            You have also been provided with the following JSON data of the previous task execution results:
-            ```
-            {action_trail}
-            ```
-
-            You may use the past task execution data to help you complete your task.
-            If you think it isn't helpful, you may ignore it.
-
-            Create a `JSONDataResponse` according to the following pydantic model:
-            ```
-            class JSONDataResponse(BaseModel):
-            {"\n".join(f"\t{k}: {v}" for k, v in response_schema.items())}
-            ```
-            """
+        system_context = "\n".join(
+            (
+                get_system_context(task, action_trail=action_trail),
+                generate_pydantic_json_response_schema(response_schema),
+            )
         )
-        custom_logger.debug(f"Prompt: {prompt}")
         json_response: dict[str, Any] = await async_openai_call(
-            prompt=prompt,
+            prompt=message,
             model=model,
             system_context=system_context,
             response_format="json_object",
