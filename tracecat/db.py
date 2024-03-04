@@ -9,6 +9,7 @@ class Workflow(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     title: str
     description: str
+    status: str = "offline"  # "online" or "offline"
     object: str | None = None  # JSON-serialized String of react flow object
     actions: list["Action"] | None = Relationship(back_populates="workflow")
 
@@ -18,6 +19,7 @@ class Action(SQLModel, table=True):
     type: str
     title: str
     description: str
+    status: str = "offline"  # "online" or "offline"
     inputs: str | None = None  # JSON-serialized String of inputs
     workflow_id: str = Field(foreign_key="workflow.id")
     workflow: Workflow = Relationship(back_populates="actions")
