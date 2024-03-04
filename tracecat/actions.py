@@ -130,7 +130,6 @@ class ActionRunResult(BaseModel):
 
     id: str = Field(default_factory=lambda: uuid4().hex)
     action_key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50)
-    action_title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
 
@@ -478,7 +477,7 @@ async def run_action(
     except Exception as e:
         custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
         raise
-    return ActionRunResult(action_key=key, action_title=title, data=result)
+    return ActionRunResult(action_key=key, data=result)
 
 
 async def run_webhook_action(
