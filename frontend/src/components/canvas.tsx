@@ -20,7 +20,7 @@ import "reactflow/dist/style.css"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, { ActionNodeData } from "@/components/action-node"
 
-import { useSelectedWorkflow } from "@/providers/selected-workflow"
+import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 
 const nodeTypes = {
   action: ActionNode,
@@ -46,7 +46,8 @@ const WorkflowCanvas: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
-  const { selectedWorkflowId } = useSelectedWorkflow();
+  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata();
+  const selectedWorkflowId = selectedWorkflowMetadata.id;
 
   const { toast } = useToast()
 

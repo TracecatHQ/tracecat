@@ -48,13 +48,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-import { useSelectedWorkflow } from "@/providers/selected-workflow"
+import { useSelectedWorkflowMetadata, WorkflowMetadata } from "@/providers/selected-workflow"
 
-type WorkflowMetadata = {
-  id: string;
-  title: string;
-  description: string;
-};
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
@@ -99,13 +94,13 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   });
 
   // Automatically select the first workflow as the default selected workflow if not already selected
-  const { selectedWorkflowId, setSelectedWorkflowId } = useSelectedWorkflow();
+  const { selectedWorkflowMetadata, setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata();
 
   useEffect(() => {
     if (!selectedWorkflow && workflows && workflows.length > 0) {
       const workflow = workflows[0];
       setSelectedWorkflow(workflow);
-      setSelectedWorkflowId(workflow.id);
+      setSelectedWorkflowMetadata(workflow);
     }
   }, [workflows, selectedWorkflow]);
 
@@ -133,7 +128,6 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                 alt={selectedWorkflow?.title ?? ""}
                 className="grayscale"
               />
-              <AvatarFallback>SC</AvatarFallback>
             </Avatar>
             {selectedWorkflow?.title ?? ""}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
@@ -159,7 +153,6 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                           alt={workflow.title}
                           className="grayscale"
                         />
-                        <AvatarFallback>SC</AvatarFallback>
                       </Avatar>
                       {workflow.title}
                       <CheckIcon

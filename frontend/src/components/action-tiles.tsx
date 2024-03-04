@@ -32,6 +32,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
       type: tile.type,
       title: tile.title || `${tile.type} Action`,
       status: "offline",
+      isConfigured: false,
       numberOfEvents: 0
     };
     event.dataTransfer.setData("application/reactflow", "action")

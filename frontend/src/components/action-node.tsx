@@ -42,7 +42,8 @@ import {
 export interface ActionNodeData {
   type: string
   title: string
-  status: "online" | "error" | "offline"
+  status: "online" | "offline"
+  isConfigured: boolean
   numberOfEvents: number
   // Generic metadata
 }
@@ -60,7 +61,7 @@ const tileIconMapping: { [key: string]: LucideIcon } = {
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
-  data: { type, title, status, numberOfEvents },
+  data: { type, title, status, isConfigured, numberOfEvents },
 }: NodeProps<ActionNodeData>) {
 
   const statusCapitalized = status[0].toUpperCase() + status.slice(1);
@@ -102,15 +103,21 @@ export default React.memo(function ActionNode({
       </CardHeader>
 
       <CardContent className="pt-0 pb-4 pl-5 pr-5">
-        <div className="flex space-x-4 text-sm text-muted-foreground">
+        <div className="flex space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center">
             {status === 'online' && (
               <CircleIcon className="mr-1 h-3 w-3 fill-green-400 text-green-400" />
             )}
-            {status === 'error' && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-red-400 text-red-400" />
-            )}
             {status === 'offline' && (
+              <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
+            )}
+            <span>{statusCapitalized}</span>
+          </div>
+          <div className="flex items-center">
+            {isConfigured && (
+              <CircleIcon className="mr-1 h-3 w-3 fill-green-400 text-green-400" />
+            )}
+            {!isConfigured && (
               <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
             )}
             <span>{statusCapitalized}</span>
