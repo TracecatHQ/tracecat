@@ -414,6 +414,18 @@ async def run_webhook_action(
     return {"url": url, "method": method, "payload": action_run_kwargs}
 
 
+def parse_http_response_data(response: httpx.Response) -> dict[str, Any]:
+    """Parse an HTTP response."""
+
+    data: dict[str, Any]
+    match response.headers.get("Content-Type"):
+        case "application/json":
+            data = response.json()
+        case _:
+            data = {"text": response.text}
+    return data
+
+
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -442,7 +454,7 @@ async def run_http_request_action(
                 json=payload,
             )
         response.raise_for_status()
-        data: dict[str, Any] = response.json()
+        data: dict[str, Any] = parse_http_response_data(response)
     except httpx.HTTPStatusError as e:
         custom_logger.error(
             f"HTTP request failed with status {e.response.status_code}."
