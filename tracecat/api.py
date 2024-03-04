@@ -241,7 +241,7 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
 
 
 @app.get("/actions/{action_id}")
-def get_action(action_id: str, workflow_id: int) -> ActionResponse:
+def get_action(action_id: str, workflow_id: str) -> ActionResponse:
     with Session(create_db_engine()) as session:
         statement = (
             select(Action)
