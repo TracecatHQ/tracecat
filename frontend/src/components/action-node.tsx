@@ -105,7 +105,7 @@ export default React.memo(function ActionNode({
       <CardContent className="pt-0 pb-4 pl-5 pr-5">
         <div className="flex space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center">
-            {status === 'online' && (
+            {status === "online" && (
               <CircleIcon className="mr-1 h-3 w-3 fill-green-400 text-green-400" />
             )}
             {status === 'offline' && (

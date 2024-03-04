@@ -259,18 +259,20 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
     )
 
 
-class UpdateWorkflowParams(BaseModel):
+class UpdateActionParams(BaseModel):
     title: str | None = None
     description: str | None = None
     status: str | None = None
-    object: str | None = None
+    inputs: str | None = None
 
 
-@app.get("/actions/{action_id}", status_code=204)
-def update_action(params: UpdateWorkflowParams) -> None:
+@app.post("/actions/{action_id}", status_code=204)
+def update_action(action_id: str, params: UpdateActionParams) -> None:
+    print(params)
+
     with Session(create_db_engine()) as session:
         # Fetch the action by id
-        statement = select(Action).where(Action.id == params.action_id)
+        statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
         action = result.one()
 
