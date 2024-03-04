@@ -28,7 +28,7 @@ import { CircleIcon, Save } from "lucide-react"
 
 // Define formSchema for type safety
 const actionFormSchema = z.object({
-  name: z.string(),
+  title: z.string(),
   description: z.string(),
   inputs: z.string().optional(),
 })
@@ -70,7 +70,7 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
   const form = useForm<z.infer<typeof actionFormSchema>>({
     resolver: zodResolver(actionFormSchema),
     defaultValues: {
-      name: "", // Default value for name
+      title: "", // Default value for name
       description: "", // Default value for description
     },
   });
@@ -79,7 +79,7 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
     if (data) {
       const { title, description, status } = data;
       form.reset({ // Use reset method to set form values
-        name: title,
+        title: title,
         description: description,
       });
       setStatus(status);
@@ -151,7 +151,7 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
             <div className="space-y-4 mb-4">
               <FormField
                 control={form.control}
-                name="name"
+                name="title"
                 render={({ field }: { field: any }) => (
                   <FormItem>
                     <FormLabel>Name</FormLabel>
