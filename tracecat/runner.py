@@ -305,27 +305,27 @@ async def run_workflow(
             not ready_jobs_queue.empty() or running_jobs_store
         ) and runner_status == RunnerStatus.RUNNING:
             try:
-                curr_action_run = await asyncio.wait_for(
-                    ready_jobs_queue.get(), timeout=3
-                )
+                action_run = await asyncio.wait_for(ready_jobs_queue.get(), timeout=3)
             except TimeoutError:
                 continue
-            action_key = curr_action_run.action_key
             # Defensive: Deduplicate tasks
-            if action_key in running_jobs_store or action_key in action_result_store:
+            if (
+                action_run.id in running_jobs_store
+                or action_run.id in action_result_store
+            ):
                 run_logger.debug(
-                    f"Action {action_key!r} already running or completed. Skipping."
+                    f"Action {action_run.id!r} already running or completed. Skipping."
                 )
                 continue
 
             run_logger.info(
-                f"{workflow.action_map[action_key].__class__.__name__} {action_key!r} ready. Running."
+                f"{workflow.action_map[action_run.action_key].__class__.__name__} {action_run.id!r} ready. Running."
             )
-            action_run_status_store[action_key] = ActionRunStatus.PENDING
+            action_run_status_store[action_run.id] = ActionRunStatus.PENDING
             # Schedule a new action run
-            running_jobs_store[action_key] = asyncio.create_task(
+            running_jobs_store[action_run.id] = asyncio.create_task(
                 start_action_run(
-                    action_run=curr_action_run,
+                    action_run=action_run,
                     workflow_ref=workflow,
                     ready_jobs_queue=ready_jobs_queue,
                     running_jobs_store=running_jobs_store,
