@@ -56,7 +56,7 @@ const tileIconMapping: { [key: string]: LucideIcon } = {
   "Open Case": ShieldAlert,
   "Receive Email": Mail,
   "Send Email": Send,
-  "AI Copilot": Sparkles,
+  "AI Actions": Sparkles,
 }
 const handleStyle = { width: 8, height: 8 }
 
