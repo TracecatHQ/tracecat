@@ -10,7 +10,7 @@ export function WorkflowPanel() {
 
   const [isActionNodeSelected, setIsActionNodeSelected] = useState(false);
   const [selectedActionNodeId, setSelectedActionNodeId] = useState<string | null>(null)
-  const { selectedWorkflowMetadata, setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata()
+  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
 
   // Workflow metadata
   const workflowId = selectedWorkflowMetadata.id

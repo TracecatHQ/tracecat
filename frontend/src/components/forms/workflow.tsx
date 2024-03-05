@@ -16,12 +16,10 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { CircleIcon, Save } from "lucide-react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 
 // Define formSchema for type safety
 const workflowFormSchema = z.object({
@@ -70,7 +68,6 @@ export function WorkflowForm({ workflowId, workflowTitle, workflowDescription, w
     return mutation;
   }
 
-  // TODO: Move get workflow ID logic into panel to ensure order of hooks called
   const { mutate } = useUpdateWorkflow(workflowId);
   function onSubmit(values: z.infer<typeof workflowFormSchema>) {
     mutate(values);

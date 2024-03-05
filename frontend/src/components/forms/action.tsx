@@ -6,6 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { Node } from "reactflow"
+
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +24,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+
+import { useWorkflowBuilder } from "@/providers/flow";
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 
 import { CircleIcon, Save } from "lucide-react"
@@ -47,7 +51,8 @@ interface ActionFormProps {
 
 export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
 
-  const { selectedWorkflowMetadata, setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata();
+  const { setNodes } = useWorkflowBuilder();
+  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata();
   const workflowId = selectedWorkflowMetadata.id;
 
   // Fetch Action by ID and Workflow ID
@@ -109,8 +114,27 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
   }
 
   const { mutate } = useUpdateAction(actionId);
+
   function onSubmit(values: z.infer<typeof actionFormSchema>) {
+    // Execute the mutate operation
     mutate(values);
+
+    // Assuming `mutate` triggers some state update or context change that you can listen to,
+    // you would place your logic for updating nodes inside that listener.
+    // For demonstration, this logic directly follows `mutate`, but you'll need to adjust based on your application's architecture.
+
+    // Directly update the nodes after calling mutate, assuming mutate triggers the changes you need
+    setNodes((nds: Node[]) =>
+      nds.map((node: Node) => {
+        if (node.id === actionId) {
+          node.data = {
+            ...node.data,
+            title: values.title,
+          };
+        }
+        return node;
+      })
+  );
   }
 
   if (!data) {

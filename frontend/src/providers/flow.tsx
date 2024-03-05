@@ -1,10 +1,11 @@
-import React, { createContext, useContext, ReactNode, useState, Dispatch, SetStateAction, useCallback } from "react";
-import { ReactFlowProvider, ReactFlowInstance, Node, useNodesState } from "reactflow";
+import React, { createContext, useContext, ReactNode, SetStateAction } from "react";
+import { Node, useReactFlow } from "reactflow";
+import { saveFlow } from "@/lib/flow"
+
+import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 
 interface ReactFlowContextType {
-  reactFlowInstance: ReactFlowInstance | null;
-  setReactFlowInstance: Dispatch<SetStateAction<ReactFlowInstance | null>>;
-  setNodes: (updateFn: (nodes: Node[]) => Node[]) => void; // Define setNodes in context
+  setNodes: React.Dispatch<SetStateAction<Node[]>>;
 }
 
 const ReactFlowInteractionsContext = createContext<ReactFlowContextType | undefined>(undefined);
@@ -14,16 +15,19 @@ interface ReactFlowInteractionsProviderProps {
 }
 
 export const WorkflowBuilderProvider: React.FC<ReactFlowInteractionsProviderProps> = ({ children }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+  const reactFlowInstance = useReactFlow()
+  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata();
+  const workflowId = selectedWorkflowMetadata.id;
 
-  console.log(reactFlowInstance)
+  const setReactFlowNodes = (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
+    reactFlowInstance.setNodes(nodes);
+    saveFlow(workflowId, reactFlowInstance);
+  }
+
   return (
-    <ReactFlowProvider>
-      <ReactFlowInteractionsContext.Provider value={{ reactFlowInstance, setReactFlowInstance, setNodes }}>
-        {children}
-      </ReactFlowInteractionsContext.Provider>
-    </ReactFlowProvider>
+    <ReactFlowInteractionsContext.Provider value={{ setNodes: setReactFlowNodes }}>
+      {children}
+    </ReactFlowInteractionsContext.Provider>
   );
 };
 
