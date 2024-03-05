@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import axios from "axios"
 
 import ReactFlow, {
@@ -9,11 +9,10 @@ import ReactFlow, {
   MarkerType,
   Node,
   ReactFlowInstance,
-  ReactFlowProvider,
   addEdge,
   useEdgesState,
   useNodesState,
-  useReactFlow,
+  useReactFlow
 } from "reactflow"
 
 import "reactflow/dist/style.css"
@@ -21,6 +20,7 @@ import { useToast } from "@/components/ui/use-toast"
 import ActionNode, { ActionNodeData } from "@/components/action-node"
 
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { saveFlow } from "@/lib/flow"
 
 const nodeTypes = {
   action: ActionNode,
@@ -30,7 +30,7 @@ const defaultEdgeOptions = {
   markerEnd: {
     type: MarkerType.ArrowClosed,
   },
-  style: { strokeWidth: 3 },
+  style: { strokeWidth: 2 },
 }
 
 type ActionMetadata = {
@@ -41,33 +41,59 @@ type ActionMetadata = {
 };
 
 
+interface ActionResponse {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  inputs: { [key: string]: any } | null;
+}
+
+interface WorkflowResponse {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  actions: { [key: string]: ActionResponse[] };
+  object: { [key: string]: any } | null;
+}
+
+
 const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+
+  const { setViewport } = useReactFlow();
   const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata();
   const selectedWorkflowId = selectedWorkflowMetadata.id;
 
   const { toast } = useToast()
 
   // CRUD operations
-  const saveFlow = useCallback(async () => {
-    if (!selectedWorkflowId || !reactFlowInstance) return;
-    try {
-      const flowObject = reactFlowInstance.toObject();
-      const updateFlowObjectParams = JSON.stringify({ object: JSON.stringify(flowObject) });
-      await axios.post(`http://localhost:8000/workflows/${selectedWorkflowId}`, updateFlowObjectParams, {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
 
-      console.log("Flow saved successfully");
-    } catch (error) {
-      console.error("Error saving flow:", error);
-    }
-  }, [selectedWorkflowId, reactFlowInstance]);
+  useEffect(() => {
+    const initializeReactFlowInstance = () => {
+      if (selectedWorkflowId) {
+        axios.get<WorkflowResponse>(`http://localhost:8000/workflows/${selectedWorkflowId}`)
+          .then(response => {
+            const flow = response.data.object;
+            if (flow) {
+              // If there is a saved React Flow configuration, load it
+              setNodes(flow.nodes || []);
+              setEdges(flow.edges || []);
+              setViewport({ x: flow.viewport.x, y: flow.viewport.y, zoom: flow.viewport.zoom });
+            }
+          })
+          .catch(error => {
+            console.error("Failed to fetch workflow data:", error);
+          });
+      }
+    };
+
+    initializeReactFlowInstance();
+  }, [selectedWorkflowId, setNodes, setEdges, setViewport]);
 
   const createAction = async (type: string, title: string) => {
     if (!selectedWorkflowId || !reactFlowInstance) return;
@@ -103,7 +129,7 @@ const WorkflowCanvas: React.FC = () => {
   const onConnect = useCallback(
     (params: Edge | Connection) => {
       setEdges((eds) => addEdge(params, eds));
-      saveFlow();
+      saveFlow(selectedWorkflowId, reactFlowInstance);
     },
     [toast, edges, setEdges]
   )
@@ -149,21 +175,20 @@ const WorkflowCanvas: React.FC = () => {
       } as Node<ActionNodeData>
 
       setNodes((nds) => nds.concat(newNode));
-      saveFlow();
+      saveFlow(selectedWorkflowId, reactFlowInstance);
     });
   }
 
   const onEdgesDelete = useCallback((edgesToDelete: Edge[]) => {
     setEdges((eds) => eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id)));
-    saveFlow();
-  }, [setEdges, saveFlow]);
+  }, [setEdges]);
 
   const onNodesDelete = useCallback((nodesToDelete: Node[]) => {
     Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
     .then(() => {
       console.log("All Actions in database deleted successfully.");
       setNodes((nds) => nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id)));
-      saveFlow();
+      saveFlow(selectedWorkflowId, reactFlowInstance);
     })
     .catch((error) => {
       console.error("An error occurred while deleting Action nodes:", error);
@@ -180,7 +205,7 @@ const WorkflowCanvas: React.FC = () => {
         onDrop={onDrop}
         onEdgesChange={onEdgesChange}
         onEdgesDelete={onEdgesDelete}
-        onInit={setReactFlowInstance}
+        onInit={(instance) => setReactFlowInstance(instance)}
         onNodesChange={onNodesChange}
         onNodesDelete={onNodesDelete}
         defaultEdgeOptions={defaultEdgeOptions}
@@ -195,7 +220,4 @@ const WorkflowCanvas: React.FC = () => {
   )
 }
 
-const WorkflowBuilder = ReactFlowProvider
-const useWorkflowBuilder = useReactFlow
-
-export { WorkflowCanvas, WorkflowBuilder, useWorkflowBuilder }
+export { WorkflowCanvas }

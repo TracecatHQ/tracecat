@@ -50,8 +50,8 @@ class WorkflowResponse(BaseModel):
     title: str
     description: str
     status: str
-    actions: dict[str, list[ActionResponse]]
-    graph: dict[str, list[str]] | None  # Adjacency list of Action IDs
+    actions: list[ActionResponse]
+    object: dict[str, Any] | None  # React Flow object
 
 
 class ActionMetadataResponse(BaseModel):
@@ -130,16 +130,17 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         results = session.exec(statement)
         actions = results.all()
 
-        graph = None
-        if len(actions) > 0 and workflow.object is not None:
+        object = None
+        if workflow.object is not None:
             # Process react flow object into adjacency list
-            graph = workflow.object
+            object = json.loads(workflow.object)
 
     actions_responses = [
         ActionResponse(
             id=action.id,
             title=action.title,
             description=action.description,
+            status=action.status,
             inputs=json.loads(action.inputs) if action.inputs else None,
         )
         for action in actions
@@ -150,7 +151,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         description=workflow.description,
         status=workflow.status,
         actions=actions_responses,
-        graph=graph,
+        object=object,
     )
     return workflow_response
 
