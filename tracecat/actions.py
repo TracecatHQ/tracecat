@@ -31,6 +31,7 @@ from uuid import uuid4
 
 import httpx
 import jsonpath_ng
+from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -252,21 +253,38 @@ def evaluate_jsonpath_str(
     action_trail: dict[str, Any],
     regex_group: str = "jsonpath",
 ) -> str:
-    """Replacement function to be used with re.sub()."""
+    """Replacement function to be used with re.sub().
+
+    Note
+    ----
+    This function only gets called when there's a match, i.e. match is not None.
+    This means we don't have to deal with the case where there are no templates.
+
+    Cases
+    -----
+    1. Input was just a plan string. Return the original string.
+    2. Input was a jsonpath. Return the value found in the action trail.
+
+    """
+
     jsonpath = match.group(regex_group)
-    jsonpath_expr = jsonpath_ng.parse(jsonpath)
+    logger.debug(f"{"*"*10} Evaluating jsonpath {jsonpath} {"*"*10}")
+    try:
+        jsonpath_expr = jsonpath_ng.parse(jsonpath)
+    except JsonPathParserError as e:
+        raise ValueError(f"Invalid jsonpath {jsonpath!r}.") from e
+    logger.debug(f"{jsonpath_expr = }")
     matches = [found.value for found in jsonpath_expr.find(action_trail)]
-    if len(matches) == 0:
-        logger.debug(f"No match found for {jsonpath}, returning the original string.")
-        # NOTE: We may also benefit from checking whether there was actually
-        # at least 1 template that should have been substituted.
-        return match.group(0)
-    elif len(matches) == 1:
+    if len(matches) == 1:
         logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
         return str(matches[0])
-    else:
+    elif len(matches) > 1:
         logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
         return str(matches)
+    else:
+        # We know that if this function is called, there was a templated field.
+        # Therefore, it means the jsonpath was valid but there was no match.
+        raise ValueError(f"jsonpath has no field {jsonpath!r}.")
 
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
@@ -280,6 +298,7 @@ def evaluate_jsonpath(
     """Process jsonpaths in strings, lists, and dictionaries."""
     match obj:
         case str():
+            # Matches anything in {{ ... }}
             return pattern.sub(evaluator, obj)
         case list():
             return [evaluate_jsonpath(item, pattern, evaluator) for item in obj]

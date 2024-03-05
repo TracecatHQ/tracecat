@@ -1,11 +1,52 @@
 import re
 from functools import partial
 
+import pytest
+
 from tracecat.actions import (
     DEFAULT_TEMPLATE_PATTERN,
     evaluate_jsonpath_str,
     evaluate_templated_fields,
 )
+
+
+def test_evaluate_jsonpath_str_raises_exception():
+    matcher = partial(re.match, DEFAULT_TEMPLATE_PATTERN)
+    json_data = {
+        "question_generation": {
+            "questions": [
+                "What is the capital of France?",
+                "What is the capital of Germany?",
+            ],
+        },
+        "receive_sentry_event": {
+            "event_id": "123",
+        },
+        "list_nested": [
+            {
+                "a": "1",
+                "b": "2",
+            },
+            {
+                "a": "3",
+                "b": "4",
+            },
+        ],
+        "list_nested_different_types": [
+            {
+                "a": 1,
+                "b": 2,
+            },
+            {
+                "a": "3",
+                "b": "4",
+            },
+        ],
+    }
+    with pytest.raises(ValueError):
+        # Invalid jsonpath
+        match = matcher("{{ .bad_jsonpath }}")
+        evaluate_jsonpath_str(match, json_data)
 
 
 def test_evaluate_jsonpath_str():
@@ -60,11 +101,25 @@ def test_evaluate_jsonpath_str():
     match = matcher("{{ $.list_nested_different_types[*].b }}")
     expected = "[2, '4']"
     assert evaluate_jsonpath_str(match, json_data) == expected
-    # Bad matches
 
-    match = matcher("{{ $.nonexistent_field }}")
-    expected = "{{ $.nonexistent_field }}"
-    assert evaluate_jsonpath_str(match, json_data) == expected
+
+def test_evaluate_templated_fields_no_match():
+    json_data = {
+        "workspace": {
+            "name": "Tracecat",
+            "channel": "general",
+            "visibility": "public",
+        },
+    }
+    kwargs = {
+        "title": "My ticket title",
+    }
+
+    expected_kwargs = {
+        "title": "My ticket title",
+    }
+    actual_kwargs = evaluate_templated_fields(kwargs, json_data)
+    assert actual_kwargs == expected_kwargs
 
 
 def test_evaluate_templated_fields():
@@ -88,7 +143,6 @@ def test_evaluate_templated_fields():
         "title": "My ticket title",
         "event_id": "I had a event occur with ID {{ $.receive_sentry_event.event_id }}. Any ideas?",
         "question": "Hey, {{ $.ticket_sections.questions[0] }}. I really need the help?",
-        "remarks": "I would like to also leearn {{ $.nonexistent_field }}.",
         "slack": {
             "{{ $.workspace.visibility }}_workspaces": [
                 {
@@ -103,7 +157,6 @@ def test_evaluate_templated_fields():
         "title": "My ticket title",
         "event_id": "I had a event occur with ID 123123. Any ideas?",
         "question": "Hey, What does the error on line 122 mean?. I really need the help?",
-        "remarks": "I would like to also leearn {{ $.nonexistent_field }}.",
         "slack": {
             "public_workspaces": [
                 {
@@ -117,7 +170,7 @@ def test_evaluate_templated_fields():
     assert actual_kwargs == expected_kwargs
 
 
-def test_evaluate_jsonpath_str_matches_multiple():
+def test_evaluate_templated_fields_matches_multiple_in_string():
     json_data = {
         "question_generation": {
             "questions": [
@@ -136,3 +189,63 @@ def test_evaluate_jsonpath_str_matches_multiple():
         lambda m: evaluate_jsonpath_str(m, json_data), templated_string
     )
     assert actual == exptected
+
+
+def test_evaluate_templated_fields_matches_multiple_different_types():
+    mock_json_data = {
+        "question_generation": {
+            "questions": [
+                "What is the capital of France?",
+                "What is the capital of Germany?",
+            ],
+        },
+        "receive_sentry_event": {
+            "event_id": "123",
+            "timestamp": 1234567890,
+        },
+    }
+    mock_templated_kwargs = {
+        "questions": [
+            "My questions {{ $.question_generation.questions[0] }}, my sentry event: {{ $.receive_sentry_event.event_id }}",
+            "Last question: {{ $.question_generation.questions[1] }}",
+        ],
+        "observation": {
+            "details": "The event occurred at {{ $.receive_sentry_event.timestamp }}",
+        },
+    }
+
+    exptected = {
+        "questions": [
+            "My questions What is the capital of France?, my sentry event: 123",
+            "Last question: What is the capital of Germany?",
+        ],
+        "observation": {
+            "details": "The event occurred at 1234567890",
+        },
+    }
+    actual = evaluate_templated_fields(
+        action_kwargs=mock_templated_kwargs, action_trail_json=mock_json_data
+    )
+    assert actual == exptected
+
+
+def test_evaluate_templated_fields_raises_exception():
+    mock_json_data = {
+        "question_generation": {
+            "questions": [
+                "What is the capital of France?",
+                "What is the capital of Germany?",
+            ],
+        },
+        "receive_sentry_event": {
+            "event_id": "123",
+        },
+    }
+    mock_templated_kwargs = {
+        "questions": "My questions {{ $.nonexistent.field }}, my sentry event: {{ $.receive_sentry_event.event_id }}"
+    }
+
+    with pytest.raises(ValueError):
+        evaluate_templated_fields(
+            action_kwargs=mock_templated_kwargs, action_trail_json=mock_json_data
+        )
