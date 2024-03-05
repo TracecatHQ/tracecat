@@ -19,23 +19,24 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 
+import { getActionSchema, ActionFieldSchemas } from "@/components/forms/action-schemas";
 import { useWorkflowBuilder } from "@/providers/flow";
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 
 import { CircleIcon, Save } from "lucide-react"
-
-// Define formSchema for type safety
-const actionFormSchema = z.object({
-  title: z.string(),
-  description: z.string(),
-  inputs: z.string().optional(),
-})
 
 interface ActionResponse {
   id: string;
@@ -47,10 +48,12 @@ interface ActionResponse {
 
 interface ActionFormProps {
   actionId: string;
+  actionType: string;
 }
 
-export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
+export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX.Element {
 
+  const [status, setStatus] = useState("offline");
   const { setNodes } = useWorkflowBuilder();
   const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata();
   const workflowId = selectedWorkflowMetadata.id;
@@ -71,14 +74,67 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
     queryFn: getActionById,
   });
 
-  const [status, setStatus] = useState("offline");
-  const form = useForm<z.infer<typeof actionFormSchema>>({
-    resolver: zodResolver(actionFormSchema),
-    defaultValues: {
-      title: "", // Default value for name
-      description: "", // Default value for description
-    },
+  const { actionSchema, actionFieldSchema } = getActionSchema(actionType) ?? {};
+  // Extend the Zod schema dynamically based on the fetched schema
+  const actionFormSchema = actionSchema ? actionSchema.extend({
+    title: z.string(),
+    description: z.string(),
+  }) : z.object({
+    title: z.string(),
+    description: z.string(),
   });
+  type actionFormSchemaType = z.infer<typeof actionFormSchema>;
+
+  const form = useForm<actionFormSchemaType>({
+    resolver: zodResolver(actionFormSchema),
+  });
+
+  const renderFormField = (inputKey: keyof actionFormSchemaType, inputField: any) => {
+    const fieldType = inputField.type;
+    const fieldProps = form.register(inputKey);
+
+    switch (fieldType) {
+      case "Select":
+        return (
+          <FormItem>
+            <FormLabel className="text-xs">{inputKey}</FormLabel>
+            <FormControl>
+              <Select {...fieldProps}>
+                <SelectTrigger>
+                  <SelectValue placeholder={`Select ${inputKey}...`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {inputField.options.map((option: string) => (
+                    <SelectItem key={option} value={option}>{option}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        );
+      case "Textarea":
+        return (
+          <FormItem>
+            <FormLabel className="text-xs">{inputKey}</FormLabel>
+            <FormControl>
+              <Textarea {...fieldProps} className="text-xs" />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        );
+      default:
+        return (
+          <FormItem>
+            <FormLabel className="text-xs">{inputKey}</FormLabel>
+            <FormControl>
+              <Input {...fieldProps} className="text-xs" />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        );
+    }
+  };
 
   useEffect(() => {
     if (data) {
@@ -93,14 +149,14 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
   const statusCapitalized = status[0].toUpperCase() + status.slice(1);
 
   // Submit form and update Action
-  async function updateAction(actionId: string, values: z.infer<typeof actionFormSchema>) {
+  async function updateAction(actionId: string, values: actionFormSchemaType) {
     const response = await axios.post(`http://localhost:8000/actions/${actionId}`, values);
     return response.data; // Adjust based on what your API returns
   }
 
   function useUpdateAction(actionId: string) {
     const mutation = useMutation({
-      mutationFn: (values: z.infer<typeof actionFormSchema>) => updateAction(actionId, values),
+      mutationFn: (values: actionFormSchemaType) => updateAction(actionId, values),
       // Configure your mutation behavior here
       onSuccess: (data, variables, context) => {
         console.log("Action update successful", data);
@@ -115,7 +171,7 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
 
   const { mutate } = useUpdateAction(actionId);
 
-  function onSubmit(values: z.infer<typeof actionFormSchema>) {
+  function onSubmit(values: actionFormSchemaType) {
     // Execute the mutate operation
     mutate(values);
 
@@ -134,10 +190,13 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
         }
         return node;
       })
-  );
+    );
   }
 
-  if (!data) {
+  // Loading state to defend in a user friendly way
+  // against undefined schemas or data
+  if (!data || !actionFormSchema || !actionFieldSchema) {
+    // TODO: Make this loading state look more like a form
     return (
       <div className="flex items-center space-x-2 p-4">
         <div className="space-y-2">
@@ -176,9 +235,9 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
               <FormField
                 control={form.control}
                 name="title"
-                render={({ field }: { field: any }) => (
+                render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel className="text-xs">Name</FormLabel>
                     <FormControl>
                       <Input className="text-xs" placeholder="Add action name..." {...field} />
                     </FormControl>
@@ -189,9 +248,9 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
               <FormField
                 control={form.control}
                 name="description"
-                render={({ field }: { field: any }) => (
+                render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Description</FormLabel>
+                    <FormLabel className="text-xs">Description</FormLabel>
                     <FormControl>
                       <Textarea className="text-xs" placeholder="Describe your action..." {...field} />
                     </FormControl>
@@ -205,6 +264,16 @@ export function ActionForm({ actionId }: ActionFormProps): React.JSX.Element {
                 <p className="text-xs text-muted-foreground">
                   Define the inputs for this action.
                 </p>
+                {Object.entries(actionFieldSchema).map(([inputKey, inputField]) => {
+                  return (
+                    <FormField
+                      key={inputKey}
+                      control={form.control}
+                      name={inputKey as keyof actionFormSchemaType}
+                      render={() => renderFormField(inputKey as keyof actionFormSchemaType, inputField)}
+                      />
+                  );
+                })}
               </div>
             </div>
           </div>

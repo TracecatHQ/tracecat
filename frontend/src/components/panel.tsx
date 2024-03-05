@@ -10,6 +10,7 @@ export function WorkflowPanel() {
 
   const [isActionNodeSelected, setIsActionNodeSelected] = useState(false);
   const [selectedActionNodeId, setSelectedActionNodeId] = useState<string | null>(null)
+  const [selectedActionNodeType, setSelectedActionNodeType] = useState<string | undefined>(undefined)
   const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
 
   // Workflow metadata
@@ -24,9 +25,11 @@ export function WorkflowPanel() {
       if (actionNodeSelected) {
         setIsActionNodeSelected(true);
         setSelectedActionNodeId(actionNodeSelected.id);
+        setSelectedActionNodeType(actionNodeSelected.data.type);
       } else {
         setIsActionNodeSelected(false);
         setSelectedActionNodeId(null);
+        setSelectedActionNodeType(undefined);
       }
     }
   });
@@ -35,8 +38,8 @@ export function WorkflowPanel() {
     <div className="flex flex-col h-full">
       <div className="flex-1 flex">
         <div className="flex-1">
-          {isActionNodeSelected && selectedActionNodeId ? (
-            <ActionForm actionId={selectedActionNodeId} />
+          {isActionNodeSelected && selectedActionNodeId && selectedActionNodeType ? (
+            <ActionForm actionId={selectedActionNodeId} actionType={selectedActionNodeType} />
           ) : (!isActionNodeSelected && workflowId && workflowTitle && workflowDescription && workflowStatus) ? (
             <WorkflowForm
               workflowId={workflowId}

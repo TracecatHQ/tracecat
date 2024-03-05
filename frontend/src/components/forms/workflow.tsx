@@ -100,7 +100,7 @@ export function WorkflowForm({ workflowId, workflowTitle, workflowDescription, w
             <FormField
               control={form.control}
               name="title"
-              render={({ field }: { field: any }) => (
+              render={({ field }) => (
                 <FormItem>
                   <FormLabel>Name</FormLabel>
                   <FormControl>
@@ -113,7 +113,7 @@ export function WorkflowForm({ workflowId, workflowTitle, workflowDescription, w
             <FormField
               control={form.control}
               name="description"
-              render={({ field }: { field: any }) => (
+              render={({ field }) => (
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormControl>

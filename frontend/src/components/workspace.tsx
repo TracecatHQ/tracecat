@@ -118,7 +118,7 @@ export function Workspace({
                     variant: "ghost",
                   },
                   {
-                    type: "AI Copilot",
+                    type: "AI Actions",
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
