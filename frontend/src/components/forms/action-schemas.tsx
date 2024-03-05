@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 
+const WebhookActionSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(["GET", "POST"]),
+});
+
 const HTTPRequestActionSchema = z.object({
   url: z.string().url(),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
@@ -22,6 +27,22 @@ const HTTPRequestActionSchema = z.object({
   }),
 });
 
+const LLMTranslateActionSchema = z.object({
+  text: z.string(),
+  from_language: z.string(),
+  to_language: z.string(),
+});
+
+const LLMExtractActionSchema = z.object({
+  text: z.string(),
+  groups: z.array(z.string()),
+});
+
+const LLMLabelTaskActionSchema = z.object({
+  text: z.string(),
+  labels: z.array(z.string()),
+});
+
 interface ActionFieldOption {
   type: "Input" | "Select" | "Textarea";
   options?: string[];
@@ -36,6 +57,13 @@ export interface ActionFieldSchemas {
 }
 
 const actionFieldSchemas: ActionFieldSchemas = {
+  "Webhook": {
+    url: { type: "Input" },
+    method: {
+      type: "Select",
+      options: ["GET", "POST"],
+    },
+  },
   "HTTP Request": {
     url: { type: "Input" },
     method: {
@@ -45,13 +73,36 @@ const actionFieldSchemas: ActionFieldSchemas = {
     headers: { type: "Textarea" },
     payload: { type: "Textarea" },
   },
+  "Translate": {
+    // TODO: Replace with supported languages and Command input
+    text: { type: "Textarea" },
+    from_language: { type: "Input" },
+    to_language: { type: "Input" },
+  },
+  "Extract": {
+    text: { type: "Textarea" },
+    // TODO: Replace with Command input and ability to add to list
+    groups: { type: "Input" },  // Assuming a comma-separated string to be transformed into an array
+  },
+  "Label": {
+    // TODO: Replace with Command input and ability to add to list
+    text: { type: "Textarea" },
+    labels: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
+  },
 };
 
 export const getActionSchema = (actionType: string) => {
   switch (actionType) {
     case "HTTP Request":
       return { actionSchema: HTTPRequestActionSchema, actionFieldSchema: actionFieldSchemas["HTTP Request"] };
-    // Define and return other action schemas as needed
+    case "Webhook":
+      return { actionSchema: WebhookActionSchema, actionFieldSchema: actionFieldSchemas["Webhook"] };
+    case "Translate":
+      return { actionSchema: LLMTranslateActionSchema, actionFieldSchema: actionFieldSchemas["Translate"] };
+    case "Extract":
+      return { actionSchema: LLMExtractActionSchema, actionFieldSchema: actionFieldSchemas["Extract"] };
+    case "Label":
+      return { actionSchema: LLMLabelTaskActionSchema, actionFieldSchema: actionFieldSchemas["Label"] };
     default:
       return null; // No schema or UI hints available for the given action type
   }
