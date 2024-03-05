@@ -80,9 +80,9 @@ export function WorkflowForm({ workflowId, workflowTitle, workflowDescription, w
           <div className="space-y-3">
             <h4 className="text-sm font-medium">Workflow Status</h4>
             <div className="flex justify-between">
-              <Badge variant="outline" className={`py-1 px-4 ${workflowStatus === "online" ? 'bg-green-100' : 'bg-gray-100'}`}>
+              <Badge variant="outline" className={`py-1 px-4 ${workflowStatus === "online" ? 'bg-green-600/10' : 'bg-gray-100'}`}>
                 <CircleIcon className={`mr-2 h-3 w-3 ${workflowStatus === "online" ? 'fill-green-600 text-green-600' : 'fill-gray-400 text-gray-400'}`} />
-                <span className={`text-muted-foreground ${workflowStatus === "online" ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
+                <span className={`${workflowStatus === "online" ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
               </Badge>
               <Tooltip>
                 <TooltipTrigger asChild>
