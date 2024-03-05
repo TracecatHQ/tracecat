@@ -13,7 +13,6 @@ import {
 import { cn } from "@/lib/utils"
 import {
   Avatar,
-  AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -94,7 +93,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   });
 
   // Automatically select the first workflow as the default selected workflow if not already selected
-  const { selectedWorkflowMetadata, setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata();
+  const { setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata();
 
   useEffect(() => {
     if (!selectedWorkflow && workflows && workflows.length > 0) {
@@ -122,13 +121,6 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
             aria-label="Select a team"
             className={cn("w-96 justify-between", className)}
           >
-            <Avatar className="mr-2 h-5 w-5">
-              <AvatarImage
-                src={`https://avatar.vercel.sh/${selectedWorkflow?.id}.png`}
-                alt={selectedWorkflow?.title ?? ""}
-                className="grayscale"
-              />
-            </Avatar>
             {selectedWorkflow?.title ?? ""}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
           </Button>
@@ -145,8 +137,9 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                         setSelectedWorkflow(workflow)
                         setOpen(false)
                       }}
-                      className="text-sm"
+                      className="text-xs"
                     >
+                      {/* TODO: Replace with CircleIcon and green / grey / red (error) / yellow (warning) */}
                       <Avatar className="mr-2 h-5 w-5">
                         <AvatarImage
                           src={`https://avatar.vercel.sh/${workflow.id}.png`}
@@ -157,7 +150,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                       {workflow.title}
                       <CheckIcon
                         className={cn(
-                          "ml-auto h-4 w-4",
+                          "ml-auto h-4 w-4 text-xs",
                           selectedWorkflow && selectedWorkflow.id === workflow.id
                             ? "opacity-100"
                             : "opacity-0"
@@ -173,6 +166,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
               <CommandGroup>
                 <DialogTrigger asChild>
                   <CommandItem
+                    className="text-xs"
                     onSelect={() => {
                       setOpen(false)
                       setShowNewWorkflowDialog(true)
