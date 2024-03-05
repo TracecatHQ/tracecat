@@ -35,34 +35,24 @@ export function WorkflowPanel() {
   });
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 flex">
-        <div className="flex-1">
-          {isActionNodeSelected && selectedActionNodeId && selectedActionNodeType ? (
-            <ActionForm actionId={selectedActionNodeId} actionType={selectedActionNodeType} />
-          ) : (!isActionNodeSelected && workflowId && workflowTitle && workflowDescription && workflowStatus) ? (
-            <WorkflowForm
-              workflowId={workflowId}
-              workflowTitle={workflowTitle}
-              workflowDescription={workflowDescription}
-              workflowStatus={workflowStatus}
-            />
-          ) : (
-            <div className="flex flex-col h-full">
-              <div className="flex-1 flex">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 p-4">
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-[250px]" />
-                      <Skeleton className="h-4 w-[200px]" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+    <div className="flex-1">
+      {isActionNodeSelected && selectedActionNodeId && selectedActionNodeType ? (
+        <ActionForm actionId={selectedActionNodeId} actionType={selectedActionNodeType} />
+      ) : (!isActionNodeSelected && workflowId && workflowTitle && workflowDescription && workflowStatus) ? (
+        <WorkflowForm
+          workflowId={workflowId}
+          workflowTitle={workflowTitle}
+          workflowDescription={workflowDescription}
+          workflowStatus={workflowStatus}
+        />
+      ) : (
+        <div className="w-full space-x-2 p-4">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-[250px]" />
+            <Skeleton className="h-4 w-[200px]" />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
