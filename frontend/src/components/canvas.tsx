@@ -180,7 +180,6 @@ const WorkflowCanvas: React.FC = () => {
   const onNodesDelete = useCallback((nodesToDelete: Node[]) => {
     Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
     .then(() => {
-      console.log("All Actions in database deleted successfully.");
       setNodes((nds) => nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id)));
     })
     .catch((error) => {
