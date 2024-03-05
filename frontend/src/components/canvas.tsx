@@ -129,7 +129,6 @@ const WorkflowCanvas: React.FC = () => {
   const onConnect = useCallback(
     (params: Edge | Connection) => {
       setEdges((eds) => addEdge(params, eds));
-      saveFlow(selectedWorkflowId, reactFlowInstance);
     },
     [toast, edges, setEdges]
   )
@@ -137,9 +136,9 @@ const WorkflowCanvas: React.FC = () => {
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-  }, [])
+  }, [nodes])
 
-  const onDrop = (event: React.DragEvent) => {
+  const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault()
 
     // Limit total number of nodes
@@ -175,25 +174,27 @@ const WorkflowCanvas: React.FC = () => {
       } as Node<ActionNodeData>
 
       setNodes((nds) => nds.concat(newNode));
-      saveFlow(selectedWorkflowId, reactFlowInstance);
     });
-  }
-
-  const onEdgesDelete = useCallback((edgesToDelete: Edge[]) => {
-    setEdges((eds) => eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id)));
-  }, [setEdges]);
+  }, [nodes, createAction])
 
   const onNodesDelete = useCallback((nodesToDelete: Node[]) => {
     Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
     .then(() => {
       console.log("All Actions in database deleted successfully.");
       setNodes((nds) => nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id)));
-      saveFlow(selectedWorkflowId, reactFlowInstance);
     })
     .catch((error) => {
       console.error("An error occurred while deleting Action nodes:", error);
     });
-  }, [setNodes, saveFlow, deleteAction]);
+  }, [nodes, setNodes, deleteAction]);
+
+  const onEdgesDelete = useCallback((edgesToDelete: Edge[]) => {
+    setEdges((eds) => eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id)));
+  }, [edges, setEdges]);
+
+  useEffect(() => {
+    saveFlow(selectedWorkflowId, reactFlowInstance);
+  }, [nodes, edges])
 
   return (
     <div ref={reactFlowWrapper} style={{ height: "100%" }}>
@@ -205,7 +206,7 @@ const WorkflowCanvas: React.FC = () => {
         onDrop={onDrop}
         onEdgesChange={onEdgesChange}
         onEdgesDelete={onEdgesDelete}
-        onInit={(instance) => setReactFlowInstance(instance)}
+        onInit={setReactFlowInstance}
         onNodesChange={onNodesChange}
         onNodesDelete={onNodesDelete}
         defaultEdgeOptions={defaultEdgeOptions}
