@@ -243,7 +243,7 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
   }
 
   return (
-    <ScrollArea>
+    <ScrollArea className="h-full">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <div className="space-y-4 p-4">

@@ -35,7 +35,7 @@ export function WorkflowPanel() {
   });
 
   return (
-    <div className="flex-1">
+    <>
       {isActionNodeSelected && selectedActionNodeId && selectedActionNodeType ? (
         <ActionForm actionId={selectedActionNodeId} actionType={selectedActionNodeType} />
       ) : (!isActionNodeSelected && workflowId && workflowTitle && workflowDescription && workflowStatus) ? (
@@ -53,6 +53,6 @@ export function WorkflowPanel() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

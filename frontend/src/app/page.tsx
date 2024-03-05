@@ -34,13 +34,11 @@ export default function DashboardPage() {
         <SelectedWorkflowProvider>
           <div className="flex flex-col h-screen">
             <Navbar />
-            <div className="flex flex-col flex-grow">
-              <Workspace
-                defaultLayout={defaultLayout}
-                defaultCollapsed={defaultCollapsed}
-                navCollapsedSize={4}
-              />
-            </div>
+            <Workspace
+              defaultLayout={defaultLayout}
+              defaultCollapsed={defaultCollapsed}
+              navCollapsedSize={4}
+            />
           </div>
         </SelectedWorkflowProvider>
       </DefaultQueryClientProvider>

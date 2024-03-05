@@ -60,7 +60,6 @@ export function Workspace({
                 sizes
               )}`
             }}
-            className="h-full items-stretch"
           >
             <ResizablePanel
               defaultSize={defaultLayout[0]}
