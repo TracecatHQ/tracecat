@@ -93,17 +93,19 @@ TASK_FIELDS_FACTORY: dict[TaskType, type[TaskFields]] = {
     "enrich": EnrichTaskFields,
 }
 
-action_trail_instructions = (
-    "Additional Instructions:"
-    "\nYou have also been provided with the following JSON object of the previous task execution results,"
-    " delimited by triple backticks (```)."
-    " The object keys are the action ids and the values are the results of the actions."
-    "\n```"
-    "\n{action_trail}"
-    "\n```"
-    "You may use the past action run results to help you complete your task."
-    " If you think it isn't helpful, you may ignore it."
-)
+
+def action_trail_instructions(action_trail: dict[str, Any]) -> str:
+    return (
+        "Additional Instructions:"
+        "\nYou have also been provided with the following JSON object of the previous task execution results,"
+        " delimited by triple backticks (```)."
+        " The object keys are the action ids and the values are the results of the actions."
+        "\n```"
+        f"\n{action_trail}"
+        "\n```"
+        "You may use the past action run results to help you complete your task."
+        " If you think it isn't helpful, you may ignore it."
+    )
 
 
 def _translate_system_context(from_language: str | None, to_language: str) -> str:
@@ -189,14 +191,11 @@ _LLM_SYSTEM_CONTEXT_FACTORY: dict[TaskType, Callable[..., str]] = {
 }
 
 
-def get_system_context(
-    task_fields: TaskFields,
-    **template_kwargs: Any,
-) -> str:
+def get_system_context(task_fields: TaskFields, action_trail: dict[str, Any]) -> str:
     context = _LLM_SYSTEM_CONTEXT_FACTORY[task_fields.type](
         **task_fields.model_dump(exclude={"type"})
     )
-    formatted_add_instrs = action_trail_instructions.format(**template_kwargs)
+    formatted_add_instrs = action_trail_instructions(action_trail)
     return "\n".join((context, formatted_add_instrs))
 
 
