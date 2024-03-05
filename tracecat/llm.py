@@ -63,11 +63,34 @@ class LabelTaskFields(TaskFields):
     labels: list[str]
 
 
-TaskFieldsSubclass = TranslateTaskFields | ExtractTaskFields | LabelTaskFields
+class SummarizeTaskFields(TaskFields):
+    type: Literal["summarize"] = Field("summarize", frozen=True)
+
+
+class ChoiceTaskFields(TaskFields):
+    type: Literal["choice"] = Field("choice", frozen=True)
+    choices: list[str]
+
+
+class EnrichTaskFields(TaskFields):
+    type: Literal["enrich"] = Field("enrich", frozen=True)
+
+
+TaskFieldsSubclass = (
+    TranslateTaskFields
+    | ExtractTaskFields
+    | LabelTaskFields
+    | SummarizeTaskFields
+    | ChoiceTaskFields
+    | EnrichTaskFields
+)
 TASK_FIELDS_FACTORY: dict[TaskType, type[TaskFields]] = {
     "translate": TranslateTaskFields,
     "extract": ExtractTaskFields,
     "label": LabelTaskFields,
+    "summarize": SummarizeTaskFields,
+    "choice": ChoiceTaskFields,
+    "enrich": EnrichTaskFields,
 }
 
 action_trail_instructions = (
@@ -83,10 +106,7 @@ action_trail_instructions = (
 )
 
 
-def _translate_system_context(
-    from_language: str | None,
-    to_language: str,
-) -> str:
+def _translate_system_context(from_language: str | None, to_language: str) -> str:
     # The corresponding `message` body for this should be a templated string.
     from_language = from_language or "Non-English"
     context = (
@@ -101,9 +121,7 @@ def _translate_system_context(
     return context
 
 
-def _label_system_context(
-    labels: list[str],
-) -> str:
+def _label_system_context(labels: list[str]) -> str:
     context = (
         "You will be provided with a body of text (e.g. paragraph, articles),"
         f" and your task is to classify it into one of the following categories: {labels}."
@@ -111,9 +129,7 @@ def _label_system_context(
     return context
 
 
-def _extract_system_context(
-    groups: list[str] | None,
-) -> str:
+def _extract_system_context(groups: list[str] | None) -> str:
     if groups:
         task = f"extract one or more lists of keywords from it, grouped by the following categories: {groups}"
     else:
@@ -132,14 +148,44 @@ def _summary_system_context() -> str:
     )
 
 
+def _question_answering_system_context() -> str:
+    return (
+        "You are an expert at answering questions. Answer the following question in a concise and direct manner."
+        " If you don't know the answer, don't make up an answer but say that you don't know the answer."
+    )
+
+
+def _choice_system_context(choices: list[str]) -> str:
+    """Return the system context for a choice task.
+
+    Example use cases
+    -----------------
+    1. Given a body of text containing some instructions, choose the best option from the following choices.
+    2. Given an excerpt, choose the best option from the following choices.
+    """
+    return (
+        "\nYou will be provided with a body of text from which you will use to make a decision."
+        " Given a multiple choice question, choose the best option to answer the question."
+        " Given a body of text containing some instructions, choose the best option to achieve the objective."
+        f" Choose the best option from the following choices: {choices}"
+    )
+
+
+def _enrich_system_context() -> str:
+    return (
+        "You are an expert at enriching data. You will be provided with a body of text (e.g. paragraph, articles),"
+        " and your task is to enrich it."
+    )
+
+
 _LLM_SYSTEM_CONTEXT_FACTORY: dict[TaskType, Callable[..., str]] = {
     "translate": _translate_system_context,
     "extract": _extract_system_context,
     "label": _label_system_context,
     "summarize": _summary_system_context,
-    "question_answering": lambda _: "Answer the following question.",
-    "choice": lambda _: "Choose the best option from the following choices.",
-    "enrich": lambda _: "Enrich the following text.",
+    "question_answering": _question_answering_system_context,
+    "choice": _choice_system_context,
+    "enrich": _enrich_system_context,
 }
 
 
