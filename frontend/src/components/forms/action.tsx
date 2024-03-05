@@ -32,7 +32,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 
-import { getActionSchema, ActionFieldSchemas } from "@/components/forms/action-schemas";
+import { getActionSchema } from "@/components/forms/action-schemas";
 import { useWorkflowBuilder } from "@/providers/flow";
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 
@@ -100,9 +100,18 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
             <FormLabel className="text-xs">{inputKey}</FormLabel>
             <FormControl>
               <Select
-                {...fieldProps}
+                // NOTE: Need to manually unpack fieldProps and pass them to the Select component
+                // to ensure the form state for this shadcn component is updated correctly
                 value={form.watch(inputKey)} // Ensure the Select component uses the current field value
-                onValueChange={(value) => form.setValue(inputKey, value)} // Update the form state on change
+                onValueChange={(value) => {
+                  fieldProps.onChange({
+                    target: {
+                      value: value,
+                    },
+                  });
+                  form.setValue(inputKey, value)
+                } // Update the form state on change
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -175,6 +184,7 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
       description: values.description,
       inputs: inputs,
     }
+    console.log("Updating action with:", updateActionParams);
     const response = await axios.post(
       `http://localhost:8000/actions/${actionId}`,
       JSON.stringify(updateActionParams), {
