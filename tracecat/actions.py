@@ -39,7 +39,8 @@ from tracecat.config import MAX_RETRIES
 from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
     ModelType,
-    TaskType,
+    TaskFields,
+    TaskFieldsSubclass,
     async_openai_call,
     generate_pydantic_json_response_schema,
     get_system_context,
@@ -149,6 +150,7 @@ class ActionRunResult(BaseModel):
         return action_key_to_action_title_snake_case(self.action_key)
 
 
+# NOTE: Might want to switch out to using discriminated unions instead of subclassing
 class WebhookAction(Action):
     type: Literal["webhook"] = Field("webhook", frozen=True)
 
@@ -188,8 +190,10 @@ class LLMAction(Action):
 
     type: Literal["llm"] = Field("llm", frozen=True)
 
-    task: TaskType
     message: str
+    # Discriminated union with str discriminators
+    # https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions-with-str-discriminators
+    task_fields: TaskFieldsSubclass = Field(..., discriminator="type")
     system_context: str | None = None
     model: ModelType = DEFAULT_MODEL_TYPE
     response_schema: dict[str, Any] | None = None
@@ -284,7 +288,9 @@ def evaluate_jsonpath_str(
     else:
         # We know that if this function is called, there was a templated field.
         # Therefore, it means the jsonpath was valid but there was no match.
-        raise ValueError(f"jsonpath has no field {jsonpath!r}.")
+        raise ValueError(
+            f"jsonpath has no field {jsonpath!r}. Action trail: {action_trail}."
+        )
 
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
@@ -325,7 +331,7 @@ def evaluate_templated_fields(
         evaluate_jsonpath_str, action_trail=action_trail_json
     )
 
-    logger.debug("**Evaluating templated fields**")
+    logger.debug(f"{"*"*10} Evaluating templated fields {"*"*10}")
     for field_name, field_value in action_kwargs.items():
         logger.debug(f"{field_name = } {field_value = }")
 
@@ -478,6 +484,7 @@ async def run_action(
     custom_logger.debug(f"{type = }")
     custom_logger.debug(f"{tags = }")
     custom_logger.debug(f"{action_run_kwargs = }")
+    custom_logger.debug(f"{action_kwargs = }")
     custom_logger.debug(f"{"*" * 20}")
 
     action_runner = _ACTION_RUNNER_FACTORY[type]
@@ -510,6 +517,7 @@ async def run_action(
 async def run_webhook_action(
     url: str,
     method: str,
+    # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
@@ -543,6 +551,7 @@ async def run_http_request_action(
     method: str,
     headers: dict[str, str],
     payload: dict[str, str | bytes],
+    # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
@@ -573,6 +582,7 @@ async def run_http_request_action(
 
 async def run_conditional_action(
     event: str,
+    # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
@@ -583,12 +593,14 @@ async def run_conditional_action(
 
 async def run_llm_action(
     action_trail: ActionTrail,
-    task: TaskType,
+    # NOTE: This arrives as a dictionary becaused we called `model_dump` on the LLMAction instance.
+    task_fields: dict[str, Any],
     message: str,
     system_context: str | None = None,
     model: ModelType = DEFAULT_MODEL_TYPE,
     response_schema: dict[str, Any] | None = None,
     llm_kwargs: dict[str, Any] | None = None,
+    # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
@@ -599,8 +611,15 @@ async def run_llm_action(
 
     llm_kwargs = llm_kwargs or {}
 
+    # TODO(perf): Avoid re-creating the task fields object if possible
+    validated_task_fields = TaskFields.from_dict(task_fields)
+    logger.debug(f"{type(validated_task_fields) = }")
+
     if response_schema is None:
-        system_context = get_system_context(task, action_trail=action_trail)
+        system_context = get_system_context(
+            validated_task_fields,
+            action_trail=action_trail,
+        )
         text_response: str = await async_openai_call(
             prompt=message,
             model=model,
@@ -612,7 +631,7 @@ async def run_llm_action(
     else:
         system_context = "\n".join(
             (
-                get_system_context(task, action_trail=action_trail),
+                get_system_context(validated_task_fields, action_trail=action_trail),
                 generate_pydantic_json_response_schema(response_schema),
             )
         )
