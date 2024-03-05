@@ -30,20 +30,20 @@ export default function DashboardPage() {
 
   return (
     <>
-    <DefaultQueryClientProvider>
-      <SelectedWorkflowProvider>
-        <div className="flex flex-col h-screen">
-          <Navbar />
-          <div className="flex flex-col flex-grow">
-            <Workspace
-              defaultLayout={defaultLayout}
-              defaultCollapsed={defaultCollapsed}
-              navCollapsedSize={4}
-            />
+      <DefaultQueryClientProvider>
+        <SelectedWorkflowProvider>
+          <div className="flex flex-col h-screen">
+            <Navbar />
+            <div className="flex flex-col flex-grow">
+              <Workspace
+                defaultLayout={defaultLayout}
+                defaultCollapsed={defaultCollapsed}
+                navCollapsedSize={4}
+              />
+            </div>
           </div>
-        </div>
-      </SelectedWorkflowProvider>
-    </DefaultQueryClientProvider>
+        </SelectedWorkflowProvider>
+      </DefaultQueryClientProvider>
     </>
   )
 }
