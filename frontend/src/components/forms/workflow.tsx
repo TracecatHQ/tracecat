@@ -102,7 +102,7 @@ export function WorkflowForm({ workflowId, workflowTitle, workflowDescription, w
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel className="text-xs">Name</FormLabel>
                   <FormControl>
                     <Input className="text-xs" placeholder="Add workflow name..." {...field} />
                   </FormControl>
@@ -115,7 +115,7 @@ export function WorkflowForm({ workflowId, workflowTitle, workflowDescription, w
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel className="text-xs">Description</FormLabel>
                   <FormControl>
                     <Textarea className="text-xs" placeholder="Describe your workflow..." {...field} />
                   </FormControl>

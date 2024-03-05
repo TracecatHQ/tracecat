@@ -99,9 +99,13 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
           <FormItem>
             <FormLabel className="text-xs">{inputKey}</FormLabel>
             <FormControl>
-              <Select {...fieldProps}>
+              <Select
+                {...fieldProps}
+                value={form.watch(inputKey)} // Ensure the Select component uses the current field value
+                onValueChange={(value) => form.setValue(inputKey, value)} // Update the form state on change
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder={`Select ${inputKey}...`} />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {inputField.options.map((option: string) => (
@@ -136,12 +140,26 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
     }
   };
 
+  const processInputs = (inputs: Record<string, any>): Record<string, any> => {
+    return Object.entries(inputs).reduce((stringInputs: Record<string, any>, [key, value]) => {
+      // Check if value is an object and not null, not an array, and not a Date instance
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)) {
+        stringInputs[key] = JSON.stringify(value); // Stringify object values
+      } else {
+        stringInputs[key] = value; // Keep non-object values as is
+      }
+      return stringInputs;
+    }, {});
+  }
+
   useEffect(() => {
     if (data) {
-      const { title, description, status } = data;
+      console.log(data)
+      const { title, description, status, inputs } = data;
       form.reset({ // Use reset method to set form values
         title: title,
         description: description,
+        ...(inputs ? processInputs(inputs) : {}), // Process and unpack the inputs object
       });
       setStatus(status);
     }
@@ -150,7 +168,20 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
 
   // Submit form and update Action
   async function updateAction(actionId: string, values: actionFormSchemaType) {
-    const response = await axios.post(`http://localhost:8000/actions/${actionId}`, values);
+    const { title, description, ...inputsObject } = values;
+    const inputs = JSON.stringify(inputsObject);
+    const updateActionParams = {
+      title: values.title,
+      description: values.description,
+      inputs: inputs,
+    }
+    const response = await axios.post(
+      `http://localhost:8000/actions/${actionId}`,
+      JSON.stringify(updateActionParams), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
     return response.data; // Adjust based on what your API returns
   }
 
@@ -174,11 +205,6 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
   function onSubmit(values: actionFormSchemaType) {
     // Execute the mutate operation
     mutate(values);
-
-    // Assuming `mutate` triggers some state update or context change that you can listen to,
-    // you would place your logic for updating nodes inside that listener.
-    // For demonstration, this logic directly follows `mutate`, but you'll need to adjust based on your application's architecture.
-
     // Directly update the nodes after calling mutate, assuming mutate triggers the changes you need
     setNodes((nds: Node[]) =>
       nds.map((node: Node) => {
@@ -271,7 +297,7 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
                       control={form.control}
                       name={inputKey as keyof actionFormSchemaType}
                       render={() => renderFormField(inputKey as keyof actionFormSchemaType, inputField)}
-                      />
+                    />
                   );
                 })}
               </div>

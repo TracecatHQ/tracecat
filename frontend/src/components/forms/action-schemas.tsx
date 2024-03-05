@@ -1,14 +1,29 @@
-import { z } from 'zod';
+import { z } from "zod";
+
 
 const HTTPRequestActionSchema = z.object({
-  url: z.string().url().optional(),
+  url: z.string().url(),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-  headers: z.record(z.string()), // Simple string to string map
-  payload: z.record(z.string()), // Simple string to string map
+  headers: z.string().optional().transform((val) => {
+    try {
+      return val ? JSON.parse(val) : {};
+    } catch (error) {
+      // TODO: Handle error on SAVE only
+      return {};
+    }
+  }),
+  payload: z.string().optional().transform((val) => {
+    try {
+      return val ? JSON.parse(val) : {};
+    } catch (error) {
+      // TODO: Handle error on SAVE only
+      return {};
+    }
+  }),
 });
 
 interface ActionFieldOption {
-  type: 'Input' | 'Select' | 'Textarea';
+  type: "Input" | "Select" | "Textarea";
   options?: string[];
 }
 
@@ -22,7 +37,7 @@ export interface ActionFieldSchemas {
 
 const actionFieldSchemas: ActionFieldSchemas = {
   "HTTP Request": {
-    url: { type: "Input"},
+    url: { type: "Input" },
     method: {
       type: "Select",
       options: ["GET", "POST", "PUT", "PATCH", "DELETE"],

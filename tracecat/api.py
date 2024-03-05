@@ -269,8 +269,6 @@ class UpdateActionParams(BaseModel):
 
 @app.post("/actions/{action_id}", status_code=204)
 def update_action(action_id: str, params: UpdateActionParams) -> None:
-    print(params)
-
     with Session(create_db_engine()) as session:
         # Fetch the action by id
         statement = select(Action).where(Action.id == action_id)
