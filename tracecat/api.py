@@ -267,8 +267,8 @@ class UpdateActionParams(BaseModel):
     inputs: str | None = None
 
 
-@app.post("/actions/{action_id}", status_code=204)
-def update_action(action_id: str, params: UpdateActionParams) -> None:
+@app.post("/actions/{action_id}")
+def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
     with Session(create_db_engine()) as session:
         # Fetch the action by id
         statement = select(Action).where(Action.id == action_id)
@@ -286,6 +286,15 @@ def update_action(action_id: str, params: UpdateActionParams) -> None:
 
         session.add(action)
         session.commit()
+        session.refresh(action)
+
+    return ActionResponse(
+        id=action.id,
+        title=action.title,
+        description=action.description,
+        status=action.status,
+        inputs=json.loads(action.inputs) if action.inputs else None,
+    )
 
 
 @app.delete("/actions/{action_id}", status_code=204)

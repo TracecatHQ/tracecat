@@ -64,9 +64,9 @@ export default React.memo(function ActionNode({
   data: { type, title, status, isConfigured, numberOfEvents },
 }: NodeProps<ActionNodeData>) {
 
-  const statusCapitalized = status[0].toUpperCase() + status.slice(1);
   const avatarImageAlt = `${type}-${title}`;
   const tileIcon = tileIconMapping[type];
+  const isConfiguredMessage = isConfigured ? "ready" : "missing inputs";
 
   return (
     <Card>
@@ -106,21 +106,21 @@ export default React.memo(function ActionNode({
         <div className="flex space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center">
             {status === "online" && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-green-400 text-green-400" />
+              <CircleIcon className="mr-1 h-3 w-3 fill-green-600 text-green-600" />
             )}
             {status === 'offline' && (
               <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
             )}
-            <span>{statusCapitalized}</span>
+            <span>{status}</span>
           </div>
           <div className="flex items-center">
             {isConfigured && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-green-400 text-green-400" />
+              <CircleIcon className="mr-1 h-3 w-3 fill-green-600 text-green-600" />
             )}
             {!isConfigured && (
               <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
             )}
-            <span>{statusCapitalized}</span>
+            <span>{isConfiguredMessage}</span>
           </div>
           <div className="flex items-center">
             <BellDotIcon className="mr-1 h-3 w-3" />

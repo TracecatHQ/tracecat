@@ -173,7 +173,6 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
       setStatus(status);
     }
   }, [data, form.reset]);
-  const statusCapitalized = status[0].toUpperCase() + status.slice(1);
 
   // Submit form and update Action
   async function updateAction(actionId: string, values: actionFormSchemaType) {
@@ -201,6 +200,19 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
       // Configure your mutation behavior here
       onSuccess: (data, variables, context) => {
         console.log("Action update successful", data);
+        setNodes((nds: Node[]) =>
+          nds.map((node: Node) => {
+            if (node.id === actionId) {
+              node.data = {
+                ...node.data,
+                title: data.title,
+                status: data.status,
+                isConfigured: data.inputs ? true : false,
+              };
+            }
+            return node;
+          })
+        );
       },
       onError: (error, variables, context) => {
         console.error("Failed to update action:", error);
@@ -213,20 +225,7 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
   const { mutate } = useUpdateAction(actionId);
 
   function onSubmit(values: actionFormSchemaType) {
-    // Execute the mutate operation
-    mutate(values);
-    // Directly update the nodes after calling mutate, assuming mutate triggers the changes you need
-    setNodes((nds: Node[]) =>
-      nds.map((node: Node) => {
-        if (node.id === actionId) {
-          node.data = {
-            ...node.data,
-            title: values.title,
-          };
-        }
-        return node;
-      })
-    );
+    mutate(values)
   }
 
   // Loading state to defend in a user friendly way
@@ -253,7 +252,7 @@ export function ActionForm({ actionId, actionType }: ActionFormProps): React.JSX
               <div className="flex justify-between">
                 <Badge variant="outline" className={`py-1 px-4 ${status === "online" ? 'bg-green-100' : 'bg-gray-100'}`}>
                   <CircleIcon className={`mr-2 h-3 w-3 ${status === "online" ? 'fill-green-600 text-green-600' : 'fill-gray-400 text-gray-400'}`} />
-                  <span className={`text-muted-foreground ${status === "online" ? 'text-green-600' : 'text-gray-600'}`}>{statusCapitalized}</span>
+                  <span className={`text-muted-foreground ${status === "online" ? 'text-green-600' : 'text-gray-600'}`}>{status}</span>
                 </Badge>
                 <Tooltip>
                   <TooltipTrigger asChild>
