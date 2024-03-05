@@ -2,7 +2,7 @@ from functools import cached_property
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, root_validator
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 from tracecat.actions import (
     Action,
@@ -31,8 +31,6 @@ class Workflow(BaseModel):
                 deps[action].add(dependency)
         return deps
 
-    @root_validator(pre=True)
-    def parse_actions(cls, values: Any) -> Any:
-        actions = values.get("action_map", {})
-        values["action_map"] = {k: Action.from_dict(v) for k, v in actions.items()}
-        return values
+    @validator("action_map", pre=True)
+    def parse_actions(cls, v: dict[str, Any]) -> Any:
+        return {k: Action.from_dict(v) for k, v in v.items()}
