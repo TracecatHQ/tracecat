@@ -32,7 +32,7 @@ export default function DashboardPage() {
     <>
       <DefaultQueryClientProvider>
         <SelectedWorkflowProvider>
-          <div className="flex flex-col h-screen">
+          <div className="flex h-screen flex-col">
             <Navbar />
             <Workspace
               defaultLayout={defaultLayout}

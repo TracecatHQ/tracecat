@@ -55,7 +55,7 @@ export function UserNav() {
           <span>Logout</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <Button className="w-full mt-1 text-xs">Join our Discord</Button>
+        <Button className="mt-1 w-full text-xs">Join our Discord</Button>
       </DropdownMenuContent>
     </DropdownMenu>
   )

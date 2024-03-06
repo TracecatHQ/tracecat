@@ -50,11 +50,11 @@ export function Navbar() {
           <Tabs defaultValue="workspace-view">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="workflow">
-                <WorkflowIcon className="h-4 w-4 mr-2" />
+                <WorkflowIcon className="mr-2 h-4 w-4" />
                 Workflow
               </TabsTrigger>
               <TabsTrigger value="cases">
-                <BellRingIcon className="h-4 w-4 mr-2" />
+                <BellRingIcon className="mr-2 h-4 w-4" />
                 Cases
               </TabsTrigger>
             </TabsList>

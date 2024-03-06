@@ -93,7 +93,7 @@ export function WorkflowForm({
             <div className="flex justify-between">
               <Badge
                 variant="outline"
-                className={`py-1 px-4 ${workflowStatus === "online" ? "bg-green-600/10" : "bg-gray-100"}`}
+                className={`px-4 py-1 ${workflowStatus === "online" ? "bg-green-600/10" : "bg-gray-100"}`}
               >
                 <CircleIcon
                   className={`mr-2 h-3 w-3 ${workflowStatus === "online" ? "fill-green-600 text-green-600" : "fill-gray-400 text-gray-400"}`}
