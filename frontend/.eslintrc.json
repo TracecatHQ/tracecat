@@ -6,7 +6,7 @@
     "plugin:tailwindcss/recommended",
     "prettier"
   ],
-  "plugins": ["tailwindcss"],
+  "plugins": ["tailwindcss", "@typescript-eslint/eslint-plugin"],
   "rules": {
     "@next/next/no-html-link-for-pages": "off",
     "@typescript-eslint/no-unused-vars": "warn",
