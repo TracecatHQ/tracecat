@@ -1,37 +1,31 @@
 import React from "react"
-import { Handle, NodeProps, Position } from "reactflow"
-
 import {
   BellDotIcon,
+  Blend,
   ChevronsDownIcon,
   CircleIcon,
-  ScanSearchIcon,
   EyeIcon,
-  LucideIcon,
-} from "lucide-react"
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card"
-import {
-  Blend,
   Globe,
+  LucideIcon,
   Mail,
+  ScanSearchIcon,
   Send,
   ShieldAlert,
   Sparkles,
   Split,
-  Webhook
+  Webhook,
 } from "lucide-react"
+import { Handle, NodeProps, Position } from "reactflow"
+
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,7 +43,7 @@ export interface ActionNodeData {
 }
 
 const tileIconMapping: { [key: string]: LucideIcon } = {
-  "Webhook": Webhook,
+  Webhook: Webhook,
   "HTTP Request": Globe,
   "Data Transform": Blend,
   "If Condition": Split,
@@ -63,10 +57,9 @@ const handleStyle = { width: 8, height: 8 }
 export default React.memo(function ActionNode({
   data: { type, title, status, isConfigured, numberOfEvents },
 }: NodeProps<ActionNodeData>) {
-
-  const avatarImageAlt = `${type}-${title}`;
-  const tileIcon = tileIconMapping[type];
-  const isConfiguredMessage = isConfigured ? "ready" : "missing inputs";
+  const avatarImageAlt = `${type}-${title}`
+  const tileIcon = tileIconMapping[type]
+  const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
 
   return (
     <Card>
@@ -75,11 +68,17 @@ export default React.memo(function ActionNode({
           <div className="flex items-center space-x-4">
             <Avatar>
               <AvatarImage src="" alt={avatarImageAlt} />
-              <AvatarFallback>{React.createElement(tileIcon, { className: "h-5 w-5" })}</AvatarFallback>
+              <AvatarFallback>
+                {React.createElement(tileIcon, { className: "h-5 w-5" })}
+              </AvatarFallback>
             </Avatar>
             <div>
-              <CardTitle className="text-sm font-medium leading-none">{title}</CardTitle>
-              <CardDescription className="mt-1 text-sm text-muted-foreground">{type}</CardDescription>
+              <CardTitle className="text-sm font-medium leading-none">
+                {title}
+              </CardTitle>
+              <CardDescription className="mt-1 text-sm text-muted-foreground">
+                {type}
+              </CardDescription>
             </div>
           </div>
           <DropdownMenu>
@@ -108,7 +107,7 @@ export default React.memo(function ActionNode({
             {status === "online" && (
               <CircleIcon className="mr-1 h-3 w-3 fill-green-600 text-green-600" />
             )}
-            {status === 'offline' && (
+            {status === "offline" && (
               <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
             )}
             <span>{status}</span>

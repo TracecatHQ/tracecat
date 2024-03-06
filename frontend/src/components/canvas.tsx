@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import axios from "axios"
-
 import ReactFlow, {
+  addEdge,
   Background,
   Connection,
   Controls,
@@ -9,18 +9,18 @@ import ReactFlow, {
   MarkerType,
   Node,
   ReactFlowInstance,
-  addEdge,
   useEdgesState,
   useNodesState,
-  useReactFlow
+  useReactFlow,
 } from "reactflow"
 
 import "reactflow/dist/style.css"
-import { useToast } from "@/components/ui/use-toast"
-import ActionNode, { ActionNodeData } from "@/components/action-node"
 
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+
 import { saveFlow } from "@/lib/flow"
+import { useToast } from "@/components/ui/use-toast"
+import ActionNode, { ActionNodeData } from "@/components/action-node"
 
 const nodeTypes = {
   action: ActionNode,
@@ -34,40 +34,39 @@ const defaultEdgeOptions = {
 }
 
 type ActionMetadata = {
-  id: string;
-  workflow_id: string;
-  title: string;
-  description: string;
-};
-
+  id: string
+  workflow_id: string
+  title: string
+  description: string
+}
 
 interface ActionResponse {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  inputs: { [key: string]: any } | null;
+  id: string
+  title: string
+  description: string
+  status: string
+  inputs: { [key: string]: any } | null
 }
 
 interface WorkflowResponse {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  actions: { [key: string]: ActionResponse[] };
-  object: { [key: string]: any } | null;
+  id: string
+  title: string
+  description: string
+  status: string
+  actions: { [key: string]: ActionResponse[] }
+  object: { [key: string]: any } | null
 }
-
 
 const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
-  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+  const [reactFlowInstance, setReactFlowInstance] =
+    useState<ReactFlowInstance | null>(null)
 
-  const { setViewport } = useReactFlow();
-  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata();
-  const selectedWorkflowId = selectedWorkflowMetadata.id;
+  const { setViewport } = useReactFlow()
+  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
+  const selectedWorkflowId = selectedWorkflowMetadata.id
 
   const { toast } = useToast()
 
@@ -76,123 +75,154 @@ const WorkflowCanvas: React.FC = () => {
   useEffect(() => {
     const initializeReactFlowInstance = () => {
       if (selectedWorkflowId) {
-        axios.get<WorkflowResponse>(`http://localhost:8000/workflows/${selectedWorkflowId}`)
-          .then(response => {
-            const flow = response.data.object;
+        axios
+          .get<WorkflowResponse>(
+            `http://localhost:8000/workflows/${selectedWorkflowId}`
+          )
+          .then((response) => {
+            const flow = response.data.object
             if (flow) {
               // If there is a saved React Flow configuration, load it
-              setNodes(flow.nodes || []);
-              setEdges(flow.edges || []);
-              setViewport({ x: flow.viewport.x, y: flow.viewport.y, zoom: flow.viewport.zoom });
+              setNodes(flow.nodes || [])
+              setEdges(flow.edges || [])
+              setViewport({
+                x: flow.viewport.x,
+                y: flow.viewport.y,
+                zoom: flow.viewport.zoom,
+              })
             }
           })
-          .catch(error => {
-            console.error("Failed to fetch workflow data:", error);
-          });
+          .catch((error) => {
+            console.error("Failed to fetch workflow data:", error)
+          })
       }
-    };
+    }
 
-    initializeReactFlowInstance();
-  }, [selectedWorkflowId, setNodes, setEdges, setViewport]);
+    initializeReactFlowInstance()
+  }, [selectedWorkflowId, setNodes, setEdges, setViewport])
 
   const createAction = async (type: string, title: string) => {
-    if (!selectedWorkflowId || !reactFlowInstance) return;
+    if (!selectedWorkflowId || !reactFlowInstance) return
     try {
       const createActionMetadata = JSON.stringify({
         workflow_id: selectedWorkflowId,
         type: type,
-        title: title
-      });
-      const response = await axios.post<ActionMetadata>("http://localhost:8000/actions", createActionMetadata, {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-      console.log("Action created successfully:", response.data);
-      return response.data.id;
+        title: title,
+      })
+      const response = await axios.post<ActionMetadata>(
+        "http://localhost:8000/actions",
+        createActionMetadata,
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+      console.log("Action created successfully:", response.data)
+      return response.data.id
     } catch (error) {
-      console.error("Error creating action:", error);
+      console.error("Error creating action:", error)
     }
   }
 
   const deleteAction = async (actionId: string) => {
     try {
-      const url = `http://localhost:8000/actions/${actionId}`;
-      await axios.delete(url);
-      console.log(`Action with ID ${actionId} deleted successfully.`);
+      const url = `http://localhost:8000/actions/${actionId}`
+      await axios.delete(url)
+      console.log(`Action with ID ${actionId} deleted successfully.`)
     } catch (error) {
-      console.error(`Error deleting action with ID ${actionId}:`, error);
+      console.error(`Error deleting action with ID ${actionId}:`, error)
     }
   }
 
   // React Flow callbacks
   const onConnect = useCallback(
     (params: Edge | Connection) => {
-      setEdges((eds) => addEdge(params, eds));
+      setEdges((eds) => addEdge(params, eds))
     },
     [toast, edges, setEdges]
   )
 
-  const onDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-  }, [nodes])
+  const onDragOver = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = "move"
+    },
+    [nodes]
+  )
 
-  const onDrop = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
 
-    // Limit total number of nodes
-    if (nodes.length >= 50) {
-      toast({
-        title: "Invalid action",
-        description: "Maximum 50 nodes allowed.",
+      // Limit total number of nodes
+      if (nodes.length >= 50) {
+        toast({
+          title: "Invalid action",
+          description: "Maximum 50 nodes allowed.",
+        })
+        return
+      }
+
+      const reactFlowNodeType = event.dataTransfer.getData(
+        "application/reactflow"
+      )
+      const actionNodeData = JSON.parse(
+        event.dataTransfer.getData("application/json")
+      ) as ActionNodeData
+
+      if (!actionNodeData || !reactFlowNodeType || !reactFlowInstance) return
+
+      const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       })
-      return
-    }
 
-    const reactFlowNodeType = event.dataTransfer.getData("application/reactflow");
-    const actionNodeData = JSON.parse(
-      event.dataTransfer.getData("application/json")
-    ) as ActionNodeData
+      // Create Action in database
+      createAction(actionNodeData.type, actionNodeData.title).then(
+        (actionId) => {
+          if (!actionId) return
+          // Then create Action node in React Flow
+          const newNode = {
+            id: actionId,
+            type: reactFlowNodeType,
+            position: reactFlowNodePosition,
+            data: actionNodeData,
+          } as Node<ActionNodeData>
 
-    if (!actionNodeData || !reactFlowNodeType || !reactFlowInstance) return
+          setNodes((nds) => nds.concat(newNode))
+        }
+      )
+    },
+    [nodes, createAction]
+  )
 
-    const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    })
+  const onNodesDelete = useCallback(
+    (nodesToDelete: Node[]) => {
+      Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
+        .then(() => {
+          setNodes((nds) =>
+            nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
+          )
+        })
+        .catch((error) => {
+          console.error("An error occurred while deleting Action nodes:", error)
+        })
+    },
+    [nodes, setNodes, deleteAction]
+  )
 
-    // Create Action in database
-    createAction(actionNodeData.type, actionNodeData.title).then((actionId) => {
-      if (!actionId) return;
-      // Then create Action node in React Flow
-      const newNode = {
-        id: actionId,
-        type: reactFlowNodeType,
-        position: reactFlowNodePosition,
-        data: actionNodeData,
-      } as Node<ActionNodeData>
-
-      setNodes((nds) => nds.concat(newNode));
-    });
-  }, [nodes, createAction])
-
-  const onNodesDelete = useCallback((nodesToDelete: Node[]) => {
-    Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
-    .then(() => {
-      setNodes((nds) => nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id)));
-    })
-    .catch((error) => {
-      console.error("An error occurred while deleting Action nodes:", error);
-    });
-  }, [nodes, setNodes, deleteAction]);
-
-  const onEdgesDelete = useCallback((edgesToDelete: Edge[]) => {
-    setEdges((eds) => eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id)));
-  }, [edges, setEdges]);
+  const onEdgesDelete = useCallback(
+    (edgesToDelete: Edge[]) => {
+      setEdges((eds) =>
+        eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id))
+      )
+    },
+    [edges, setEdges]
+  )
 
   useEffect(() => {
-    saveFlow(selectedWorkflowId, reactFlowInstance);
+    saveFlow(selectedWorkflowId, reactFlowInstance)
   }, [nodes, edges])
 
   return (

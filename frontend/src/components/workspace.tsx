@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { WorkflowBuilderProvider } from "@/providers/flow"
 import {
   Blend,
   Globe,
@@ -9,18 +10,20 @@ import {
   ShieldAlert,
   Sparkles,
   Split,
-  Webhook
+  Webhook,
 } from "lucide-react"
+import { ReactFlowProvider } from "reactflow"
 
-import { ReactFlowProvider } from "reactflow";
-
+import { cn } from "@/lib/utils"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { ActionTiles } from "@/components/action-tiles"
 import { WorkflowCanvas } from "@/components/canvas"
 import { WorkflowPanel } from "@/components/panel"
-import { WorkflowBuilderProvider } from "@/providers/flow"
-import { cn } from "@/lib/utils"
-import { TooltipProvider } from "@/components/ui/tooltip"
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 
 interface WorkspaceProps {
   defaultLayout: number[] | undefined
@@ -38,16 +41,16 @@ export function Workspace({
   // Adjust onCollapse to match the expected signature
   const handleCollapse = () => {
     // Assuming you have a way to set the collapsed state here
-    setIsCollapsed(true); // Set to true when you know the panel is collapsed
-    document.cookie = `react-resizable-panels:collapsed=${JSON.stringify(true)}`;
-  };
+    setIsCollapsed(true) // Set to true when you know the panel is collapsed
+    document.cookie = `react-resizable-panels:collapsed=${JSON.stringify(true)}`
+  }
 
   // Adjust onExpand to match the expected signature
   const handleExpand = () => {
     // Assuming you have a way to set the collapsed state here
-    setIsCollapsed(false); // Set to false when you know the panel is expanded
-    document.cookie = `react-resizable-panels:collapsed=${JSON.stringify(false)}`;
-  };
+    setIsCollapsed(false) // Set to false when you know the panel is expanded
+    document.cookie = `react-resizable-panels:collapsed=${JSON.stringify(false)}`
+  }
 
   return (
     <ReactFlowProvider>
@@ -69,7 +72,10 @@ export function Workspace({
               maxSize={20}
               onCollapse={handleCollapse}
               onExpand={handleExpand}
-              className={cn(isCollapsed && "min-w-[50px] transition-all duration-300 ease-in-out")}
+              className={cn(
+                isCollapsed &&
+                  "min-w-[50px] transition-all duration-300 ease-in-out"
+              )}
             >
               <ActionTiles
                 isCollapsed={isCollapsed}

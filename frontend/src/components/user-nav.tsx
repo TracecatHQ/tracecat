@@ -1,15 +1,6 @@
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar"
-import {
-  UserRound,
-  UsersRound,
-  LogOut,
-  KeyRound,
-  Settings,
-} from "lucide-react"
+import { KeyRound, LogOut, Settings, UserRound, UsersRound } from "lucide-react"
+
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -28,7 +19,9 @@ export function UserNav() {
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
           <Avatar className="h-8 w-8">
             <AvatarImage src="" alt="" />
-            <AvatarFallback><UserRound className="h-5 w-5" /></AvatarFallback>
+            <AvatarFallback>
+              <UserRound className="h-5 w-5" />
+            </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>

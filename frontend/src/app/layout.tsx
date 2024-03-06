@@ -1,4 +1,5 @@
 import "@/styles/globals.css"
+
 import { Metadata } from "next"
 
 import { siteConfig } from "@/config/site"
@@ -35,7 +36,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           )}
         >
           {children}
-          <Toaster/>
+          <Toaster />
         </body>
       </html>
     </>

@@ -22,23 +22,29 @@ interface ActionTilesProps {
 }
 
 export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
-
   const onDragStart = (
     event: DragEvent<HTMLDivElement>,
-    tile: { type: string; title?: string; icon: LucideIcon; variant: "default" | "ghost" }
+    tile: {
+      type: string
+      title?: string
+      icon: LucideIcon
+      variant: "default" | "ghost"
+    }
   ) => {
-
     const actionNodeData = {
       type: tile.type,
       title: tile.title || `${tile.type} Action`,
       status: "offline",
       isConfigured: false,
-      numberOfEvents: 0
-    };
+      numberOfEvents: 0,
+    }
     event.dataTransfer.setData("application/reactflow", "action")
-    event.dataTransfer.setData("application/json", JSON.stringify(actionNodeData))
-    event.dataTransfer.effectAllowed = "move";
-  };
+    event.dataTransfer.setData(
+      "application/json",
+      JSON.stringify(actionNodeData)
+    )
+    event.dataTransfer.effectAllowed = "move"
+  }
 
   return (
     <div
@@ -58,8 +64,8 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                       "dark:bg-muted dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-white"
                   )}
                   draggable
-                  onMouseOver={(e) => e.currentTarget.style.cursor = "grab"}
-                  onMouseOut={(e) => e.currentTarget.style.cursor = ""}
+                  onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
+                  onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
                   onDragStart={(event) => onDragStart(event, tile)}
                 >
                   <tile.icon className="h-4 w-4" />
@@ -85,8 +91,8 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                 "justify-start"
               )}
               draggable
-              onMouseOver={(e) => e.currentTarget.style.cursor = "grab"}
-              onMouseOut={(e) => e.currentTarget.style.cursor = ""}
+              onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
+              onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
               onDragStart={(event) => onDragStart(event, tile)}
             >
               <tile.icon className="mr-2 h-4 w-4" />

@@ -1,16 +1,19 @@
-import React, { useState } from "react";
-import { useOnSelectionChange, Node } from "reactflow";
-import { Skeleton } from "@/components/ui/skeleton"
-
-import { WorkflowForm } from "@/components/forms/workflow"
-import { ActionForm } from "@/components/forms/action"
+import React, { useState } from "react"
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { Node, useOnSelectionChange } from "reactflow"
+
+import { Skeleton } from "@/components/ui/skeleton"
+import { ActionForm } from "@/components/forms/action"
+import { WorkflowForm } from "@/components/forms/workflow"
 
 export function WorkflowPanel() {
-
-  const [isActionNodeSelected, setIsActionNodeSelected] = useState(false);
-  const [selectedActionNodeId, setSelectedActionNodeId] = useState<string | null>(null)
-  const [selectedActionNodeType, setSelectedActionNodeType] = useState<string | undefined>(undefined)
+  const [isActionNodeSelected, setIsActionNodeSelected] = useState(false)
+  const [selectedActionNodeId, setSelectedActionNodeId] = useState<
+    string | null
+  >(null)
+  const [selectedActionNodeType, setSelectedActionNodeType] = useState<
+    string | undefined
+  >(undefined)
   const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
 
   // Workflow metadata
@@ -21,24 +24,35 @@ export function WorkflowPanel() {
 
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: Node[] }) => {
-      const actionNodeSelected = nodes.find((node: Node) => node.type === "action");
+      const actionNodeSelected = nodes.find(
+        (node: Node) => node.type === "action"
+      )
       if (actionNodeSelected) {
-        setIsActionNodeSelected(true);
-        setSelectedActionNodeId(actionNodeSelected.id);
-        setSelectedActionNodeType(actionNodeSelected.data.type);
+        setIsActionNodeSelected(true)
+        setSelectedActionNodeId(actionNodeSelected.id)
+        setSelectedActionNodeType(actionNodeSelected.data.type)
       } else {
-        setIsActionNodeSelected(false);
-        setSelectedActionNodeId(null);
-        setSelectedActionNodeType(undefined);
+        setIsActionNodeSelected(false)
+        setSelectedActionNodeId(null)
+        setSelectedActionNodeType(undefined)
       }
-    }
-  });
+    },
+  })
 
   return (
     <>
-      {isActionNodeSelected && selectedActionNodeId && selectedActionNodeType ? (
-        <ActionForm actionId={selectedActionNodeId} actionType={selectedActionNodeType} />
-      ) : (!isActionNodeSelected && workflowId && workflowTitle && workflowDescription && workflowStatus) ? (
+      {isActionNodeSelected &&
+      selectedActionNodeId &&
+      selectedActionNodeType ? (
+        <ActionForm
+          actionId={selectedActionNodeId}
+          actionType={selectedActionNodeType}
+        />
+      ) : !isActionNodeSelected &&
+        workflowId &&
+        workflowTitle &&
+        workflowDescription &&
+        workflowStatus ? (
         <WorkflowForm
           workflowId={workflowId}
           workflowTitle={workflowTitle}
@@ -54,5 +68,5 @@ export function WorkflowPanel() {
         </div>
       )}
     </>
-  );
+  )
 }

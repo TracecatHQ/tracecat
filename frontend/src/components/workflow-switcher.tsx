@@ -1,20 +1,20 @@
 "use client"
 
-import React, { useEffect } from "react";
-import axios from "axios";
-import { useQuery } from "@tanstack/react-query";
-
+import React, { useEffect } from "react"
+import {
+  useSelectedWorkflowMetadata,
+  WorkflowMetadata,
+} from "@/providers/selected-workflow"
 import {
   CaretSortIcon,
   CheckIcon,
   PlusCircledIcon,
 } from "@radix-ui/react-icons"
+import { useQuery } from "@tanstack/react-query"
+import axios from "axios"
 
 import { cn } from "@/lib/utils"
-import {
-  Avatar,
-  AvatarImage,
-} from "@/components/ui/avatar"
+import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -47,24 +47,26 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-import { useSelectedWorkflowMetadata, WorkflowMetadata } from "@/providers/selected-workflow"
-
-
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
 interface WorkflowSwitcherProps extends PopoverTriggerProps {}
 
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
-  const [showNewWorkflowDialog, setShowNewWorkflowDialog] = React.useState(false)
-  const [selectedWorkflow, setSelectedWorkflow] = React.useState<WorkflowMetadata | undefined>(undefined);
+  const [showNewWorkflowDialog, setShowNewWorkflowDialog] =
+    React.useState(false)
+  const [selectedWorkflow, setSelectedWorkflow] = React.useState<
+    WorkflowMetadata | undefined
+  >(undefined)
 
   // Fetch workflows from the database
   const fetchWorkflows = async (): Promise<WorkflowMetadata[]> => {
     try {
       // Attempt to fetch existing workflows
-      const response = await axios.get<WorkflowMetadata[]>("http://localhost:8000/workflows");
-      let workflows = response.data;
+      const response = await axios.get<WorkflowMetadata[]>(
+        "http://localhost:8000/workflows"
+      )
+      let workflows = response.data
 
       // If no workflows exist, create a new one
       if (workflows.length === 0) {
@@ -72,46 +74,59 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
           title: "My first workflow",
           description: "Welcome to Tracecat. This is your first workflow!",
         })
-        const newWorkflowResponse = await axios.post<WorkflowMetadata>("http://localhost:8000/workflows", newWorkflowMetadata, {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-        const newWorkflow = newWorkflowResponse.data;
-        workflows = [newWorkflow];
+        const newWorkflowResponse = await axios.post<WorkflowMetadata>(
+          "http://localhost:8000/workflows",
+          newWorkflowMetadata,
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+        const newWorkflow = newWorkflowResponse.data
+        workflows = [newWorkflow]
       }
-      return workflows;
+      return workflows
     } catch (error) {
-      console.error("Error fetching workflows:", error);
-      throw error; // Rethrow the error to ensure it's caught by useQuery's isError state
+      console.error("Error fetching workflows:", error)
+      throw error // Rethrow the error to ensure it's caught by useQuery's isError state
     }
-  };
+  }
 
-  const { data: workflows, isLoading, isError } = useQuery<WorkflowMetadata[], Error>({
+  const {
+    data: workflows,
+    isLoading,
+    isError,
+  } = useQuery<WorkflowMetadata[], Error>({
     queryKey: ["workflows"],
     queryFn: fetchWorkflows,
-  });
+  })
 
   // Automatically select the first workflow as the default selected workflow if not already selected
-  const { setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata();
+  const { setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata()
 
   useEffect(() => {
     if (!selectedWorkflow && workflows && workflows.length > 0) {
-      const workflow = workflows[0];
-      setSelectedWorkflow(workflow);
-      setSelectedWorkflowMetadata(workflow);
+      const workflow = workflows[0]
+      setSelectedWorkflow(workflow)
+      setSelectedWorkflowMetadata(workflow)
     }
-  }, [workflows, selectedWorkflow]);
+  }, [workflows, selectedWorkflow])
 
-  const groups = workflows ? [
-    {
-      label: "workflows", // UI grouping label
-      workflows: workflows,
-    },
-  ] : [];
+  const groups = workflows
+    ? [
+        {
+          label: "workflows", // UI grouping label
+          workflows: workflows,
+        },
+      ]
+    : []
 
   return (
-    <Dialog open={showNewWorkflowDialog} onOpenChange={setShowNewWorkflowDialog}>
+    <Dialog
+      open={showNewWorkflowDialog}
+      onOpenChange={setShowNewWorkflowDialog}
+    >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -151,7 +166,8 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                       <CheckIcon
                         className={cn(
                           "ml-auto h-4 w-4 text-xs",
-                          selectedWorkflow && selectedWorkflow.id === workflow.id
+                          selectedWorkflow &&
+                            selectedWorkflow.id === workflow.id
                             ? "opacity-100"
                             : "opacity-0"
                         )}
@@ -193,7 +209,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
           <div className="space-y-4 py-2 pb-4">
             <div className="space-y-2">
               <Label htmlFor="name">Workflow name</Label>
-              <Input id="name"/>
+              <Input id="name" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="playbook">Playbook</Label>
@@ -220,7 +236,10 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setShowNewWorkflowDialog(false)}>
+          <Button
+            variant="outline"
+            onClick={() => setShowNewWorkflowDialog(false)}
+          >
             Cancel
           </Button>
           <Button type="submit">Continue</Button>
