@@ -1,11 +1,7 @@
 "use client"
 
-import React, { useEffect } from "react"
-import { useRouter } from "next/router"
-import {
-  useSelectedWorkflowMetadata,
-  WorkflowMetadata,
-} from "@/providers/selected-workflow"
+import React from "react"
+import { useParams } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   CaretSortIcon,
@@ -16,7 +12,12 @@ import { useQuery } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { createWorkflow, fetchWorkflows } from "@/lib/flow"
+import {
+  createWorkflow,
+  fetchWorkflow,
+  fetchWorkflows,
+  WorkflowMetadata,
+} from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -50,6 +51,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Skeleton } from "@/components/ui/skeleton"
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
@@ -65,9 +67,23 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] =
     React.useState(false)
-  const [selectedWorkflow, setSelectedWorkflow] = React.useState<
-    WorkflowMetadata | undefined
-  >(undefined)
+  const params = useParams<{ id: string }>()
+  const selectedWorkflowId = params.id
+
+  const { data: workflows } = useQuery<WorkflowMetadata[], Error>({
+    queryKey: ["workflows"],
+    queryFn: fetchWorkflows,
+  })
+
+  const { data: selectedWorkflowMetadata } = useQuery<WorkflowMetadata, Error>({
+    queryKey: ["workflow", selectedWorkflowId],
+    queryFn: ({ queryKey }) => {
+      const [_, workflowId] = queryKey as [string, string]
+      console.log(workflowId)
+      // Extract workflowNameId from queryKey
+      return fetchWorkflow(workflowId)
+    },
+  })
 
   const form = useForm<WorkflowFormInputs>({
     resolver: zodResolver(newWorkflowFormSchema),
@@ -86,34 +102,9 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
     }
   }
 
-  const {
-    data: workflows,
-    isLoading,
-    isError,
-  } = useQuery<WorkflowMetadata[], Error>({
-    queryKey: ["workflows"],
-    queryFn: fetchWorkflows,
-  })
-
-  // Automatically select the first workflow as the default selected workflow if not already selected
-  const { setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata()
-
-  useEffect(() => {
-    if (!selectedWorkflow && workflows && workflows.length > 0) {
-      const workflow = workflows[0]
-      setSelectedWorkflow(workflow)
-      setSelectedWorkflowMetadata(workflow)
-    }
-  }, [workflows, selectedWorkflow])
-
-  const groups = workflows
-    ? [
-        {
-          label: "workflows", // UI grouping label
-          workflows: workflows,
-        },
-      ]
-    : []
+  if (!selectedWorkflowMetadata || !workflows) {
+    return <Skeleton className="h-9 w-96" />
+  }
 
   return (
     <Dialog
@@ -129,46 +120,42 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
             aria-label="Select a team"
             className={cn("w-96 justify-between", className)}
           >
-            {selectedWorkflow?.title ?? ""}
+            {selectedWorkflowMetadata.title}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-96 p-0">
           <Command>
             <CommandList>
-              {groups.map((group) => (
-                <CommandGroup key={group.label} heading={group.label}>
-                  {group.workflows.map((workflow) => (
-                    <CommandItem
-                      key={workflow.id}
-                      onSelect={() => {
-                        setSelectedWorkflow(workflow)
-                        setOpen(false)
-                      }}
-                      className="text-xs"
-                    >
-                      {/* TODO: Replace with CircleIcon and green / grey / red (error) / yellow (warning) */}
-                      <Avatar className="mr-2 h-5 w-5">
-                        <AvatarImage
-                          src={`https://avatar.vercel.sh/${workflow.id}.png`}
-                          alt={workflow.title}
-                          className="grayscale"
-                        />
-                      </Avatar>
-                      {workflow.title}
-                      <CheckIcon
-                        className={cn(
-                          "ml-auto h-4 w-4 text-xs",
-                          selectedWorkflow &&
-                            selectedWorkflow.id === workflow.id
-                            ? "opacity-100"
-                            : "opacity-0"
-                        )}
+              <CommandGroup key="workflows" heading="workflows">
+                {workflows.map((workflow) => (
+                  <CommandItem
+                    key={workflow.id}
+                    onSelect={() => {
+                      setOpen(false)
+                    }}
+                    className="text-xs"
+                  >
+                    {/* TODO: Replace with CircleIcon and green / grey / red (error) / yellow (warning) */}
+                    <Avatar className="mr-2 h-5 w-5">
+                      <AvatarImage
+                        src={`https://avatar.vercel.sh/${workflow.id}.png`}
+                        alt={workflow.title}
+                        className="grayscale"
                       />
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              ))}
+                    </Avatar>
+                    {workflow.title}
+                    <CheckIcon
+                      className={cn(
+                        "ml-auto h-4 w-4 text-xs",
+                        selectedWorkflowId === workflow.id
+                          ? "opacity-100"
+                          : "opacity-0"
+                      )}
+                    />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
             </CommandList>
             <CommandSeparator />
             <CommandList>

@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { usePathname, useSearchParams } from "next/navigation"
 import axios from "axios"
 import { BellRingIcon, WorkflowIcon } from "lucide-react"
 
@@ -14,14 +13,14 @@ import { UserNav } from "@/components/user-nav"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 
 export function Navbar() {
-  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata() // This assumes the existence of such a hook
   const [enableWorkflow, setEnableWorkflow] = useState(false)
-  const selectedWorkflowId = selectedWorkflowMetadata.id
+  const searchParams = useSearchParams()
+  const selectedWorkflowId = searchParams.get("id")
   const pathname = usePathname()
 
   useEffect(() => {
     const updateWorkflowStatus = async () => {
-      if (selectedWorkflowMetadata && selectedWorkflowId) {
+      if (selectedWorkflowId) {
         const status = enableWorkflow ? "online" : "offline"
         try {
           await axios.post(
@@ -43,7 +42,7 @@ export function Navbar() {
     }
 
     updateWorkflowStatus()
-  }, [enableWorkflow, selectedWorkflowMetadata, selectedWorkflowId])
+  }, [enableWorkflow, selectedWorkflowId])
 
   return (
     <div className="border-b">

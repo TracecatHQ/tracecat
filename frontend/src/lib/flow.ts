@@ -37,17 +37,21 @@ export async function saveFlow(
   }
 }
 
-export async function getWorkflow(
-  workflowId: string
-) {
+
+export const fetchWorkflow = async (workflowNameId: string): Promise<WorkflowMetadata> => {
   try {
-    const response = await axios.get(`http://localhost:8000/workflows/${workflowId}`)
+    const response = await axios.get<WorkflowMetadata>(
+      `http://localhost:8000/workflows/${workflowNameId}`
+    )
+    console.log("Workflow fetched successfully", response.data)
     return response.data
+
   } catch (error) {
-    console.error("Error fetching flow:", error)
+    console.error("Error fetching workflow:", error)
     throw error
   }
 }
+
 
 export const createWorkflow = async (
   workflowName: string,
