@@ -49,6 +49,9 @@ export function Navbar() {
     <div className="border-b">
       <div className="flex h-16 items-center px-4">
         <div className="flex space-x-8">
+          {/* TODO: Ensure that workflow switcher doesn't make an API call to update
+              workflows when page is switched between workflow view and cases view
+          */}
           <WorkflowSwitcher />
           <Tabs value={pathname === "/" ? "workflow" : "cases"}>
             <TabsList className="grid w-full grid-cols-2">
