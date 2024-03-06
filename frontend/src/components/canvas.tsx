@@ -16,7 +16,7 @@ import ReactFlow, {
 
 import "reactflow/dist/style.css"
 
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { useParams } from "next/navigation"
 
 import { saveFlow } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
@@ -65,8 +65,8 @@ const WorkflowCanvas: React.FC = () => {
     useState<ReactFlowInstance | null>(null)
 
   const { setViewport } = useReactFlow()
-  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
-  const selectedWorkflowId = selectedWorkflowMetadata.id
+  const params = useParams<{ id: string }>()
+  const selectedWorkflowId = params.id
 
   const { toast } = useToast()
 

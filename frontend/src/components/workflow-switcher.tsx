@@ -2,6 +2,7 @@
 
 import React from "react"
 import { useParams } from "next/navigation"
+import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   CaretSortIcon,
@@ -64,6 +65,7 @@ const newWorkflowFormSchema = z.object({
 type WorkflowFormInputs = z.infer<typeof newWorkflowFormSchema>
 
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
+  const { setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata()
   const [open, setOpen] = React.useState(false)
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] =
     React.useState(false)
@@ -77,11 +79,12 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
 
   const { data: selectedWorkflowMetadata } = useQuery<WorkflowMetadata, Error>({
     queryKey: ["workflow", selectedWorkflowId],
-    queryFn: ({ queryKey }) => {
+    queryFn: async ({ queryKey }) => {
       const [_, workflowId] = queryKey as [string, string]
       console.log(workflowId)
-      // Extract workflowNameId from queryKey
-      return fetchWorkflow(workflowId)
+      const data = await fetchWorkflow(workflowId)
+      setSelectedWorkflowMetadata(data)
+      return data
     },
   })
 

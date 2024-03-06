@@ -4,7 +4,7 @@ import React, {
   SetStateAction,
   useContext,
 } from "react"
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { useParams } from "next/navigation"
 import { Node, useReactFlow } from "reactflow"
 
 import { saveFlow } from "@/lib/flow"
@@ -25,12 +25,12 @@ export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
-  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
-  const workflowId = selectedWorkflowMetadata.id
+  const params = useParams<{ id: string }>()
+  const selectedWorkflowId = params.id
 
   const setReactFlowNodes = (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
     reactFlowInstance.setNodes(nodes)
-    saveFlow(workflowId, reactFlowInstance)
+    saveFlow(selectedWorkflowId, reactFlowInstance)
   }
 
   return (
