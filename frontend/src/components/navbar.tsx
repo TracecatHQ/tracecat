@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
 import axios from "axios"
 import { BellRingIcon, WorkflowIcon } from "lucide-react"
@@ -15,6 +17,7 @@ export function Navbar() {
   const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata() // This assumes the existence of such a hook
   const [enableWorkflow, setEnableWorkflow] = useState(false)
   const selectedWorkflowId = selectedWorkflowMetadata.id
+  const pathname = usePathname()
 
   useEffect(() => {
     const updateWorkflowStatus = async () => {
@@ -40,23 +43,27 @@ export function Navbar() {
     }
 
     updateWorkflowStatus()
-  }, [enableWorkflow, selectedWorkflowMetadata])
+  }, [enableWorkflow, selectedWorkflowMetadata, selectedWorkflowId])
 
   return (
     <div className="border-b">
       <div className="flex h-16 items-center px-4">
         <div className="flex space-x-8">
           <WorkflowSwitcher />
-          <Tabs defaultValue="workspace-view">
+          <Tabs value={pathname === "/" ? "workflow" : "cases"}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="workflow">
-                <WorkflowIcon className="mr-2 h-4 w-4" />
-                Workflow
-              </TabsTrigger>
-              <TabsTrigger value="cases">
-                <BellRingIcon className="mr-2 h-4 w-4" />
-                Cases
-              </TabsTrigger>
+              <Link href="/" className="w-full" passHref>
+                <TabsTrigger className="w-full" value="workflow">
+                  <WorkflowIcon className="mr-2 h-4 w-4" />
+                  Workflow
+                </TabsTrigger>
+              </Link>
+              <Link href="/cases" className="w-full" passHref>
+                <TabsTrigger className="w-full" value="cases">
+                  <BellRingIcon className="mr-2 h-4 w-4" />
+                  Cases
+                </TabsTrigger>
+              </Link>
             </TabsList>
           </Tabs>
         </div>
