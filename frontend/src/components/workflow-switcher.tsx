@@ -1,18 +1,22 @@
 "use client"
 
 import React, { useEffect } from "react"
+import { useRouter } from "next/router"
 import {
   useSelectedWorkflowMetadata,
   WorkflowMetadata,
 } from "@/providers/selected-workflow"
+import { zodResolver } from "@hookform/resolvers/zod"
 import {
   CaretSortIcon,
   CheckIcon,
   PlusCircledIcon,
 } from "@radix-ui/react-icons"
 import { useQuery } from "@tanstack/react-query"
-import axios from "axios"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
 
+import { createWorkflow, fetchWorkflows } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -32,24 +36,30 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
 interface WorkflowSwitcherProps extends PopoverTriggerProps {}
+
+const newWorkflowFormSchema = z.object({
+  workflowName: z.string().min(1, "Please enter a workflow name."),
+})
+
+type WorkflowFormInputs = z.infer<typeof newWorkflowFormSchema>
 
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
@@ -59,37 +69,20 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
     WorkflowMetadata | undefined
   >(undefined)
 
-  // Fetch workflows from the database
-  const fetchWorkflows = async (): Promise<WorkflowMetadata[]> => {
-    try {
-      // Attempt to fetch existing workflows
-      const response = await axios.get<WorkflowMetadata[]>(
-        "http://localhost:8000/workflows"
-      )
-      let workflows = response.data
+  const form = useForm<WorkflowFormInputs>({
+    resolver: zodResolver(newWorkflowFormSchema),
+  })
 
-      // If no workflows exist, create a new one
-      if (workflows.length === 0) {
-        const newWorkflowMetadata = JSON.stringify({
-          title: "My first workflow",
-          description: "Welcome to Tracecat. This is your first workflow!",
-        })
-        const newWorkflowResponse = await axios.post<WorkflowMetadata>(
-          "http://localhost:8000/workflows",
-          newWorkflowMetadata,
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        )
-        const newWorkflow = newWorkflowResponse.data
-        workflows = [newWorkflow]
-      }
-      return workflows
+  const onSubmit = async (data: WorkflowFormInputs) => {
+    try {
+      await createWorkflow(data.workflowName)
+      // Assuming you want to do something on successful creation,
+      // like showing a notification, refreshing a list of workflows, or resetting the form
+      form.reset()
+      // Add here any action like closing modal or refreshing the workflow list
     } catch (error) {
-      console.error("Error fetching workflows:", error)
-      throw error // Rethrow the error to ensure it's caught by useQuery's isError state
+      console.error("Failed to create workflow", error)
+      // Handle error, maybe set an error state or show a toast notification
     }
   }
 
@@ -205,45 +198,26 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
             Create a new automation workflow.
           </DialogDescription>
         </DialogHeader>
-        <div>
-          <div className="space-y-4 py-2 pb-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Workflow name</Label>
-              <Input id="name" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="playbook">Playbook</Label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select playbook" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="blank">
-                    <span className="font-medium">Blank Canvas</span> -{" "}
-                    <span className="text-muted-foreground">
-                      Build custom automation workflows.
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="startup-secops">
-                    <span className="font-medium">Startup SecOps</span> -{" "}
-                    <span className="text-muted-foreground">
-                      Automated security operations for startups.
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => setShowNewWorkflowDialog(false)}
-          >
-            Cancel
-          </Button>
-          <Button type="submit">Continue</Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="workflowName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Workflow Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="My new workflow" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button type="submit">Create Workflow</Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   )
