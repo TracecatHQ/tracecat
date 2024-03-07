@@ -30,4 +30,4 @@ COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT"]
+CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT --reload"]
