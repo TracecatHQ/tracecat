@@ -50,7 +50,7 @@ class WorkflowResponse(BaseModel):
     title: str
     description: str
     status: str
-    actions: list[ActionResponse]
+    actions: dict[str, ActionResponse]
     object: dict[str, Any] | None  # React Flow object
 
 
@@ -135,8 +135,8 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             # Process react flow object into adjacency list
             object = json.loads(workflow.object)
 
-    actions_responses = [
-        ActionResponse(
+    actions_responses = {
+        action.id: ActionResponse(
             id=action.id,
             title=action.title,
             description=action.description,
@@ -144,7 +144,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             inputs=json.loads(action.inputs) if action.inputs else None,
         )
         for action in actions
-    ]
+    }
     workflow_response = WorkflowResponse(
         id=workflow.id,
         title=workflow.title,
