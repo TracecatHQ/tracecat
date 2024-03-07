@@ -44,10 +44,6 @@ export function Navbar() {
     updateWorkflowStatus()
   }, [enableWorkflow, workflowId])
 
-  if (!workflowId) {
-    return <h1>FUCK</h1>
-  }
-
   return (
     <div className="border-b">
       <div className="flex h-16 items-center px-4">
