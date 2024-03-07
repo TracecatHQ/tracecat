@@ -1,7 +1,8 @@
 import { Metadata } from "next"
 import { cookies } from "next/headers"
+import { useRouter } from "next/navigation"
 import { DefaultQueryClientProvider } from "@/providers/query"
-import { SelectedWorkflowProvider } from "@/providers/selected-workflow"
+import { WorkflowProvider } from "@/providers/workflow"
 
 import { Navbar } from "@/components/navbar"
 import { Workspace } from "@/components/workspace"
@@ -31,7 +32,7 @@ export default function DashboardPage() {
   return (
     <>
       <DefaultQueryClientProvider>
-        <SelectedWorkflowProvider>
+        <WorkflowProvider>
           <div className="flex h-screen flex-col">
             <Navbar />
             <Workspace
@@ -40,7 +41,7 @@ export default function DashboardPage() {
               navCollapsedSize={4}
             />
           </div>
-        </SelectedWorkflowProvider>
+        </WorkflowProvider>
       </DefaultQueryClientProvider>
     </>
   )
