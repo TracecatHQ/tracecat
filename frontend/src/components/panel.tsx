@@ -18,7 +18,6 @@ export function WorkflowPanel() {
 
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: Node[] }) => {
-      console.log("ALL NODES:", nodes)
       const actionNodeSelected = nodes.find(
         (node: Node) => node.type === "action"
       )
