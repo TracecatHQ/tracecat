@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import axios from "axios"
 import { BellRingIcon, WorkflowIcon } from "lucide-react"
 
@@ -14,8 +14,8 @@ import WorkflowSwitcher from "@/components/workflow-switcher"
 
 export function Navbar() {
   const [enableWorkflow, setEnableWorkflow] = useState(false)
-  const searchParams = useSearchParams()
-  const workflowId = searchParams.get("id")
+  const params = useParams()
+  const workflowId = params["id"]
   const pathname = usePathname()
 
   useEffect(() => {
@@ -44,6 +44,10 @@ export function Navbar() {
     updateWorkflowStatus()
   }, [enableWorkflow, workflowId])
 
+  if (!workflowId) {
+    return <h1>FUCK</h1>
+  }
+
   return (
     <div className="border-b">
       <div className="flex h-16 items-center px-4">
@@ -52,7 +56,7 @@ export function Navbar() {
               workflows when page is switched between workflow view and cases view
           */}
           <WorkflowSwitcher />
-          <Tabs value={pathname === "/" ? "workflow" : "cases"}>
+          <Tabs value={pathname.endsWith("/cases") ? "cases" : "workflow"}>
             <TabsList className="grid w-full grid-cols-2">
               <Link href="/" className="w-full" passHref>
                 <TabsTrigger className="w-full" value="workflow">
@@ -60,7 +64,11 @@ export function Navbar() {
                   Workflow
                 </TabsTrigger>
               </Link>
-              <Link href="/cases" className="w-full" passHref>
+              <Link
+                href={`/workflows/${workflowId}/cases`}
+                className="w-full"
+                passHref
+              >
                 <TabsTrigger className="w-full" value="cases">
                   <BellRingIcon className="mr-2 h-4 w-4" />
                   Cases
