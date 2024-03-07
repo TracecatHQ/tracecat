@@ -12,7 +12,8 @@ An action run is an instance of an action to be executed as part of a workflow r
 Action Key
 ----------
 The action key is a unique identifier for an action within a workflow:
-action_key = <workflow_id>.<action_title_lower_snake_case>
+action_key = <action_id>.<action_slug>
+We can reverse lookup the workflow ID from the action ID.
 
 Note that this is different from the action ID which is a surrogate key.
 """
@@ -125,30 +126,34 @@ class Action(BaseModel):
         return action_cls(**data)
 
     @property
-    def workflow_id(self) -> str:
-        return action_key_to_workflow_id(self.key)
+    def id(self) -> str:
+        return action_key_to_id(self.key)
 
     @property
     def action_title_snake_case(self) -> str:
         """The workflow-specific unique key of the action. This is the action title in lower snake case."""
-        return action_key_to_action_title_snake_case(self.key)
+        return action_key_to_title_snake_case(self.key)
 
 
 class ActionRunResult(BaseModel):
     """The result of an action."""
 
     id: str = Field(default_factory=lambda: uuid4().hex)
-    action_key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50)
+    action_key: str = Field(
+        pattern=ACTION_KEY_PATTERN,
+        max_length=50,
+        description="Action key = '<action_id>.<action_title_lower_snake_case>'",
+    )
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
 
     @property
-    def workflow_run_id(self) -> str:
-        return action_key_to_workflow_id(self.action_key)
+    def action_id(self) -> str:
+        return action_key_to_id(self.action_key)
 
     @property
     def action_title_snake_case(self) -> str:
-        return action_key_to_action_title_snake_case(self.action_key)
+        return action_key_to_title_snake_case(self.action_key)
 
 
 # NOTE: Might want to switch out to using discriminated unions instead of subclassing
@@ -244,9 +249,9 @@ def parse_action_run_id(ar_id: str, component: Literal["action_key", "run_id"]) 
 
     Example
     -------
-    >>> parse_action_run_id("ar:TEST-WORKFLOW-ID.receive_sentry_event:RUN_ID", "action_key")
-    "TEST-WORKFLOW-ID.receive_sentry_event"
-    >>> parse_action_run_id("ar:TEST-WORKFLOW-ID.receive_sentry_event:RUN_ID", "run_id")
+    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "action_key")
+    "TEST_ACTION_ID.receive_sentry_event"
+    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "run_id")
     "RUN_ID"
     """
     if not ar_id.startswith(f"{ACTION_RUN_ID_PREFIX}:"):
@@ -260,11 +265,11 @@ def parse_action_run_id(ar_id: str, component: Literal["action_key", "run_id"]) 
             raise ValueError(f"Invalid component {component!r}")
 
 
-def action_key_to_workflow_id(action_key: str) -> str:
+def action_key_to_id(action_key: str) -> str:
     return action_key.split(".")[0]
 
 
-def action_key_to_action_title_snake_case(action_key: str) -> str:
+def action_key_to_title_snake_case(action_key: str) -> str:
     return action_key.split(".")[1]
 
 
