@@ -58,7 +58,11 @@ export function Navbar() {
           <WorkflowSwitcher />
           <Tabs value={pathname.endsWith("/cases") ? "cases" : "workflow"}>
             <TabsList className="grid w-full grid-cols-2">
-              <Link href="/" className="w-full" passHref>
+              <Link
+                href={`/workflows/${workflowId}`}
+                className="w-full"
+                passHref
+              >
                 <TabsTrigger className="w-full" value="workflow">
                   <WorkflowIcon className="mr-2 h-4 w-4" />
                   Workflow
