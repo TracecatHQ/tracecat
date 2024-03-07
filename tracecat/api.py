@@ -1,13 +1,21 @@
 import json
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
-from tracecat.db import Action, Workflow, WorkflowRun, create_db_engine, initialize_db
+from tracecat.db import (
+    Action,
+    Webhook,
+    Workflow,
+    WorkflowRun,
+    create_db_engine,
+    initialize_db,
+)
 
 
 @asynccontextmanager
@@ -43,6 +51,7 @@ class ActionResponse(BaseModel):
     description: str
     status: str
     inputs: dict[str, Any] | None
+    key: str
 
 
 class WorkflowResponse(BaseModel):
@@ -61,6 +70,7 @@ class ActionMetadataResponse(BaseModel):
     title: str
     description: str
     status: str
+    key: str
 
 
 class WorkflowMetadataResponse(BaseModel):
@@ -135,7 +145,12 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         # Get Workflow given workflow_id
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
-        workflow = result.one()
+        try:
+            workflow = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
         # List all Actions related to `workflow_id`
         statement = select(Action).where(Action.workflow_id == workflow_id)
@@ -154,6 +169,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             description=action.description,
             status=action.status,
             inputs=json.loads(action.inputs) if action.inputs else None,
+            key=action.action_key,
         )
         for action in actions
     }
@@ -307,6 +323,7 @@ def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
             title=action.title,
             description=action.description,
             status=action.status,
+            key=action.action_key,
         )
         for action in actions
     ]
@@ -338,6 +355,7 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
         title=action.title,
         description=action.description,
         status=action.status,
+        key=action.action_key,
     )
     return action_metadata
 
@@ -358,6 +376,7 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
         description=action.description,
         status=action.status,
         inputs=json.loads(action.inputs) if action.inputs else None,
+        key=action.action_key,
     )
 
 
@@ -395,6 +414,7 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
         description=action.description,
         status=action.status,
         inputs=json.loads(action.inputs) if action.inputs else None,
+        key=action.action_key,
     )
 
 
@@ -406,3 +426,110 @@ def delete_action(action_id: str) -> None:
         action = result.one()
         session.delete(action)
         session.commit()
+
+
+### Webhooks
+
+
+class CreateWebhookParams(BaseModel):
+    path: str
+    action_id: str
+    workflow_id: str
+
+
+@app.put("/webhooks", status_code=status.HTTP_201_CREATED)
+def create_webhook(params: CreateWebhookParams) -> None:
+    """Create a new Webhook."""
+    webhook = Webhook(
+        path=params.path,
+        action_id=params.action_id,
+        workflow_id=params.workflow_id,
+    )
+    with Session(create_db_engine()) as session:
+        session.add(webhook)
+        session.commit()
+        session.refresh(webhook)
+
+
+class WebhookResponse(BaseModel):
+    id: str
+    path: str
+    action_id: str
+    workflow_id: str
+
+
+class GetWebhookParams(BaseModel):
+    webhook_id: str | None = None
+    path: str | None = None
+
+
+@app.get("/webhooks/{webhook_id}")
+def get_webhook(webhook_id: str) -> WebhookResponse:
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook).where(Webhook.id == webhook_id)
+        result = session.exec(statement)
+        webhook = result.one()
+    webhook_response = WebhookResponse(
+        id=webhook.id,
+        path=webhook.path,
+        action_id=webhook.action_id,
+        workflow_id=webhook.workflow_id,
+    )
+    return webhook_response
+
+
+@app.delete("/webhooks/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_webhook(webhook_id: str) -> None:
+    """Delete a Webhook by ID."""
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook).where(Webhook.id == webhook_id)
+        result = session.exec(statement)
+        webhook = result.one()
+        session.delete(webhook)
+        session.commit()
+
+
+@app.get("/webhooks")
+def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
+    """List all Webhooks for a workflow."""
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook).where(Webhook.workflow_id == workflow_id)
+        result = session.exec(statement)
+        webhooks = result.all()
+    webhook_responses = [
+        WebhookResponse(
+            id=webhook.id,
+            path=webhook.path,
+            action_id=webhook.action_id,
+            workflow_id=webhook.workflow_id,
+        )
+        for webhook in webhooks
+    ]
+    return webhook_responses
+
+
+class AuthenticateWebhookResponse(BaseModel):
+    status: Literal["Authorized", "Unauthorized"]
+    action_key: str | None = None
+    webhook_id: str | None = None
+
+
+@app.post("/authenticate/webhook/{webhook_id}")
+def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook).where(Webhook.id == webhook_id)
+        result = session.exec(statement)
+        webhook = result.one()
+
+        # Get slug
+        statement = select(Action).where(Action.id == webhook.action_id)
+        result = session.exec(statement)
+        action = result.one()
+    if webhook.secret != secret:
+        return AuthenticateWebhookResponse(message="Unauthorized")
+    else:
+        return AuthenticateWebhookResponse(
+            message="Authorized",
+            action_key=action.action_key,
+            webhook_id=webhook_id,
+        )
