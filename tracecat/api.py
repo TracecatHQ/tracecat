@@ -109,9 +109,9 @@ def create_workflow(params: CreateWorkflowParams) -> WorkflowMetadataResponse:
 
     return WorkflowMetadataResponse(
         id=workflow.id,
-        title=params.title,
-        description=params.description,
-        status=params.status,
+        title=workflow.title,
+        description=workflow.description,
+        status=workflow.status,
     )
 
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react"
-import { useWorkflowBuilder } from "@/providers/flow"
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { useParams } from "next/navigation"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import axios from "axios"
@@ -57,8 +57,8 @@ export function ActionForm({
 }: ActionFormProps): React.JSX.Element {
   const [status, setStatus] = useState("offline")
   const { setNodes } = useWorkflowBuilder()
-  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
-  const workflowId = selectedWorkflowMetadata.id
+  const params = useParams<{ id: string }>()
+  const workflowId = params.id
 
   // Fetch Action by ID and Workflow ID
   const getActionById = async (): Promise<ActionResponse> => {
