@@ -39,7 +39,6 @@ from enum import StrEnum, auto
 from typing import Annotated, Any
 from uuid import uuid4
 
-from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks,
     Body,
@@ -49,6 +48,7 @@ from fastapi import (
     Request,
     status,
 )
+from fastapi.datastructures import FormData
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
@@ -65,8 +65,6 @@ from tracecat.logger import standard_logger
 from tracecat.workflows import Workflow
 
 logger = standard_logger(__name__)
-
-load_dotenv()
 
 
 app = FastAPI(debug=True, default_response_class=ORJSONResponse)
@@ -137,7 +135,7 @@ class AddWorkflowResponse(BaseModel):
     id: str = Field(..., description="ID of the workflow.")
 
 
-@app.post("/workflow", response_model=AddWorkflowResponse)
+@app.post("/workflow")
 def add_workflow(workflow: Annotated[Workflow, Body]) -> AddWorkflowResponse:
     """Load the runner with a workflow.
 
@@ -164,12 +162,11 @@ def add_workflow(workflow: Annotated[Workflow, Body]) -> AddWorkflowResponse:
     logger.debug(f"Workflow registry: {workflow_registry.keys()}")
     logger.debug(f"Entrypoint mapping: {entrypoint_secret_to_action_key}")
 
-    return {
-        "status": "ok",
-        "message": "Successfully added workflow to runner.",
-        "id": workflow.id,
-        "entrypoint_secret": entrypoint_secret,
-    }  # type: ignore
+    return AddWorkflowResponse(
+        status="ok",
+        message="Successfully added workflow to runner.",
+        id=workflow.id,
+    )
 
 
 class StartWorkflowResponse(BaseModel):
@@ -178,9 +175,9 @@ class StartWorkflowResponse(BaseModel):
     id: str = Field(..., description="ID of the workflow.")
 
 
-async def valid_payload(request: Request) -> dict[str, Any]:
+async def valid_payload(request: Request) -> dict[str, Any] | FormData:
     """Validate the payload of a request."""
-    payload: dict[str, Any]
+    payload: dict[str, Any] | FormData
     match request.headers.get("content-type"):
         case "application/json":
             payload = await request.json()
@@ -194,7 +191,7 @@ async def valid_payload(request: Request) -> dict[str, Any]:
     return payload
 
 
-@app.post("/webhook/{secret}", response_model=StartWorkflowResponse)
+@app.post("/webhook/{secret}")
 async def webhook(
     entrypoint_key: Annotated[str, Depends(valid_webhook_secret)],
     payload: Annotated[dict[str, Any], Depends(valid_payload)],
@@ -229,9 +226,7 @@ async def webhook(
     return response
 
 
-@app.post(
-    "/workflow/{workflow_id}/run/{entrypoint_key}", response_model=StartWorkflowResponse
-)
+@app.post("/workflow/{workflow_id}/run/{entrypoint_key}")
 async def start_workflow(
     entrypoint_key: str,
     workflow_id: Annotated[str, Depends(valid_workflow)],
@@ -254,7 +249,9 @@ async def start_workflow(
         entrypoint_key=entrypoint_key,
         entrypoint_payload=entrypoint_payload,
     )
-    return {"status": "ok", "message": "Workflow started.", "id": workflow_id}  # type: ignore
+    return StartWorkflowResponse(
+        status="ok", message="Workflow started.", id=workflow_id
+    )
 
 
 async def run_workflow(
@@ -349,25 +346,3 @@ async def run_workflow(
         run_logger.info("Shutting down running tasks")
         for running_task in running_jobs_store.values():
             running_task.cancel()
-
-
-@app.post("/mock/search")
-def mock_search(data: Annotated[dict[str, Any], Body]) -> dict[str, Any]:
-    """Mock search endpoint."""
-    logger.info(f"Received data: {data}")
-    return {"query": data, "response": "Mock response"}
-
-
-class SlackPayload(BaseModel):
-    workspace: str
-    channel: str
-    message: str
-
-
-@app.post("/mock/slack")
-def mock_slack(params: Annotated[SlackPayload, Body]) -> dict[str, Any]:
-    """Mock search endpoint."""
-    logger.info(
-        f"Sending message to {params.workspace}/{params.channel}: {params.message}"
-    )
-    return params.model_dump()
