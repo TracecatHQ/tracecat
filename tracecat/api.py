@@ -2,12 +2,12 @@ import json
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from tracecat.db import Action, Workflow, create_db_engine, initialize_db
+from tracecat.db import Action, Workflow, WorkflowRun, create_db_engine, initialize_db
 
 
 @asynccontextmanager
@@ -67,6 +67,18 @@ class WorkflowMetadataResponse(BaseModel):
     id: str
     title: str
     description: str
+    status: str
+
+
+class WorkflowRunResponse(BaseModel):
+    id: str
+    workflow_id: str
+    status: str
+
+
+class WorkflowRunMetadataResponse(BaseModel):
+    id: str
+    workflow_id: str
     status: str
 
 
@@ -185,6 +197,95 @@ def update_workflow(
             workflow.object = params.object
 
         session.add(workflow)
+        session.commit()
+
+
+### Workflow Runs
+
+
+@app.post("/workflows/{workflow_id}/runs", status_code=status.HTTP_201_CREATED)
+def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
+    """Create a Workflow Run."""
+
+    workflow_run = WorkflowRun(workflow_id=workflow_id)
+    with Session(create_db_engine()) as session:
+        session.add(workflow_run)
+        session.commit()
+        session.refresh(workflow_run)
+
+    return WorkflowRunMetadataResponse(
+        id=workflow_run.id,
+        workflow_id=workflow_id,
+        status=workflow_run.status,
+    )
+
+
+@app.get("/workflows/{workflow_id}/runs")
+def list_workflow_runs(workflow_id: str) -> list[WorkflowRunMetadataResponse]:
+    """List all Workflow Runs for a Workflow."""
+    with Session(create_db_engine()) as session:
+        statement = select(WorkflowRun).where(WorkflowRun.id == workflow_id)
+        results = session.exec(statement)
+        workflow_runs = results.all()
+
+    workflow_runs_metadata = [
+        WorkflowRunMetadataResponse(
+            id=workflow_run.id,
+            workflow_id=workflow_run.workflow_id,
+            status=workflow_run.status,
+        )
+        for workflow_run in workflow_runs
+    ]
+    return workflow_runs_metadata
+
+
+@app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
+def get_workflow_run(workflow_id: str, workflow_run_id: str) -> WorkflowRunResponse:
+    """Return WorkflowRun as title, description, list of Action JSONs, adjacency list of Action IDs."""
+
+    with Session(create_db_engine()) as session:
+        # Get Workflow given workflow_id
+        statement = select(WorkflowRun).where(
+            WorkflowRun.id == workflow_run_id,
+            WorkflowRun.workflow_id == workflow_id,  # Redundant, but for clarity
+        )
+        result = session.exec(statement)
+        workflow_run = result.one()
+
+    return WorkflowRunResponse(
+        id=workflow_run.id,
+        workflow_id=workflow_run.workflow_id,
+        status=workflow_run.status,
+    )
+
+
+class UpdateWorkflowRunParams(BaseModel):
+    status: str | None = None
+
+
+@app.post(
+    "/workflows/{workflow_id}/runs/{workflow_run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def update_workflow_run(
+    workflow_id: str,
+    workflow_run_id: str,
+    params: UpdateWorkflowRunParams,
+) -> None:
+    """Update Workflow."""
+
+    with Session(create_db_engine()) as session:
+        statement = select(WorkflowRun).where(
+            WorkflowRun.id == workflow_run_id,
+            WorkflowRun.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        workflow_run = result.one()
+
+        if params.status is not None:
+            workflow_run.status = params.status
+
+        session.add(workflow_run)
         session.commit()
 
 
