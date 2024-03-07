@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 import orjson
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from pydantic import BaseModel, Field
@@ -230,7 +229,6 @@ async def async_openai_call(  # type: ignore
     dict[str, Any]
         The message object from the OpenAI ChatCompletion API.
     """
-    load_dotenv()
     client = AsyncOpenAI()
 
     def parse_choice(choice: Choice) -> str | dict[str, Any]:
