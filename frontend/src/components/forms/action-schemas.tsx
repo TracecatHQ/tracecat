@@ -32,20 +32,52 @@ const HTTPRequestActionSchema = z.object({
     }),
 })
 
+const SendEmailActionSchema = z.object({
+  // recipients is a comma delimited list of email addresses. Pasrse it into an array
+  recipients: z
+    .string()
+    .transform((val) => (val ? val.split(",") : []))
+    .pipe(z.string().email().array()),
+  subject: z.string(),
+  contents: z.string(),
+})
+
 const LLMTranslateActionSchema = z.object({
-  text: z.string(),
+  message: z.string(),
   from_language: z.string(),
   to_language: z.string(),
 })
 
 const LLMExtractActionSchema = z.object({
-  text: z.string(),
-  groups: z.array(z.string()),
+  message: z.string(),
+  groups: z
+    .string()
+    .optional()
+    .transform((val) => (val ? val.split(",") : []))
+    .pipe(z.string().array()),
 })
 
 const LLMLabelTaskActionSchema = z.object({
-  text: z.string(),
-  labels: z.array(z.string()),
+  message: z.string(),
+  labels: z
+    .string()
+    .optional()
+    .transform((val) => (val ? val.split(",") : []))
+    .pipe(z.string().array()),
+})
+
+const LLMChoiceTaskActionSchema = z.object({
+  message: z.string(),
+  choices: z
+    .string()
+    .optional()
+    .transform((val) => (val ? val.split(",") : []))
+    .pipe(z.string().array()),
+})
+
+const LLMSummarizeTaskActionSchema = z.object({
+  message: z.string(),
+  summary: z.string(),
 })
 
 interface ActionFieldOption {
@@ -78,21 +110,34 @@ const actionFieldSchemas: ActionFieldSchemas = {
     headers: { type: "Textarea" },
     payload: { type: "Textarea" },
   },
+  "Send Email": {
+    recipients: { type: "Input" },
+    subject: { type: "Input" },
+    contents: { type: "Textarea" },
+  },
   Translate: {
     // TODO: Replace with supported languages and Command input
-    text: { type: "Textarea" },
+    message: { type: "Textarea" },
     from_language: { type: "Input" },
     to_language: { type: "Input" },
   },
   Extract: {
-    text: { type: "Textarea" },
+    message: { type: "Textarea" },
     // TODO: Replace with Command input and ability to add to list
     groups: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
   },
   Label: {
     // TODO: Replace with Command input and ability to add to list
-    text: { type: "Textarea" },
+    message: { type: "Textarea" },
     labels: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
+  },
+  Choice: {
+    message: { type: "Textarea" },
+    choices: { type: "Input" },
+  },
+  Summarize: {
+    message: { type: "Textarea" },
+    summary: { type: "Textarea" },
   },
 }
 
@@ -108,6 +153,11 @@ export const getActionSchema = (actionType: string) => {
         actionSchema: WebhookActionSchema,
         actionFieldSchema: actionFieldSchemas["Webhook"],
       }
+    case "Send Email":
+      return {
+        actionSchema: SendEmailActionSchema,
+        actionFieldSchema: actionFieldSchemas["Send Email"],
+      }
     case "Translate":
       return {
         actionSchema: LLMTranslateActionSchema,
@@ -122,6 +172,16 @@ export const getActionSchema = (actionType: string) => {
       return {
         actionSchema: LLMLabelTaskActionSchema,
         actionFieldSchema: actionFieldSchemas["Label"],
+      }
+    case "Choice":
+      return {
+        actionSchema: LLMChoiceTaskActionSchema,
+        actionFieldSchema: actionFieldSchemas["Choice"],
+      }
+    case "Summarize":
+      return {
+        actionSchema: LLMSummarizeTaskActionSchema,
+        actionFieldSchema: actionFieldSchemas["Summarize"],
       }
     default:
       return null // No schema or UI hints available for the given action type

@@ -7,13 +7,7 @@ import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
 
 export function WorkflowPanel() {
-  const [isActionNodeSelected, setIsActionNodeSelected] = useState(false)
-  const [selectedActionNodeId, setSelectedActionNodeId] = useState<
-    string | null
-  >(null)
-  const [selectedActionNodeType, setSelectedActionNodeType] = useState<
-    string | undefined
-  >(undefined)
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const { workflowMetadata } = useWorkflowMetadata()
 
   // Workflow metadata
@@ -24,32 +18,26 @@ export function WorkflowPanel() {
 
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: Node[] }) => {
+      console.log("ALL NODES:", nodes)
       const actionNodeSelected = nodes.find(
         (node: Node) => node.type === "action"
       )
       if (actionNodeSelected) {
-        setIsActionNodeSelected(true)
-        setSelectedActionNodeId(actionNodeSelected.id)
-        setSelectedActionNodeType(actionNodeSelected.data.type)
+        setSelectedNode(actionNodeSelected)
       } else {
-        setIsActionNodeSelected(false)
-        setSelectedActionNodeId(null)
-        setSelectedActionNodeType(undefined)
+        setSelectedNode(null)
       }
     },
   })
 
   return (
     <>
-      {isActionNodeSelected &&
-      selectedActionNodeId &&
-      selectedActionNodeType ? (
+      {selectedNode ? (
         <ActionForm
-          actionId={selectedActionNodeId}
-          actionType={selectedActionNodeType}
+          actionId={selectedNode.id}
+          actionType={selectedNode.data.type}
         />
-      ) : !isActionNodeSelected &&
-        workflowId &&
+      ) : workflowId &&
         workflowTitle &&
         workflowDescription &&
         workflowStatus ? (
