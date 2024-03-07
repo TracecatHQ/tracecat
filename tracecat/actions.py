@@ -32,10 +32,10 @@ from uuid import uuid4
 import httpx
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.config import MAX_RETRIES
+from tracecat.config import MAX_RETRIES, TRACECAT__OAUTH2_GMAIL_PATH
 from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
     ModelType,
@@ -46,6 +46,7 @@ from tracecat.llm import (
     get_system_context,
 )
 from tracecat.logger import standard_logger
+from tracecat.mail import EMAIL_PATTERN, AsyncSMTPClient
 
 if TYPE_CHECKING:
     from tracecat.workflows import Workflow
@@ -200,8 +201,25 @@ class LLMAction(Action):
     llm_kwargs: dict[str, Any] | None = None
 
 
+class SendEmailAction(Action):
+    type: Literal["send_email"] = Field("send_email", frozen=True)
+
+    # Email regex
+    recipients: list[str]
+    subject: str
+    contents: str
+
+    @validator("recipients", always=True, pre=True, each_item=True)
+    def validate_recipients(cls, v: str) -> str:
+        if not EMAIL_PATTERN.match(v):
+            raise ValueError(f"Invalid email address {v!r}.")
+        return v
+
+
 ActionTrail = dict[str, ActionRunResult]
-ActionSubclass = WebhookAction | HTTPRequestAction | ConditionAction | LLMAction
+ActionSubclass = (
+    WebhookAction | HTTPRequestAction | ConditionAction | LLMAction | SendEmailAction
+)
 
 
 ACTION_FACTORY: dict[str, type[Action]] = {
@@ -209,6 +227,7 @@ ACTION_FACTORY: dict[str, type[Action]] = {
     "http_request": HTTPRequestAction,
     "condition": ConditionAction,
     "llm": LLMAction,
+    "send_email": SendEmailAction,
 }
 
 ACTION_RUN_ID_PREFIX = "ar"
@@ -648,6 +667,36 @@ async def run_llm_action(
         return json_response
 
 
+async def run_send_email_action(
+    recipients: list[str],
+    subject: str,
+    contents: str,
+    # Common
+    action_run_kwargs: dict[str, Any] | None = None,
+    custom_logger: logging.Logger = logger,
+) -> dict[str, Any]:
+    """Run a send email action."""
+    custom_logger.debug("Perform send email action")
+    custom_logger.debug(f"{recipients = }")
+    custom_logger.debug(f"{subject = }")
+    custom_logger.debug(f"{contents = }")
+
+    async with AsyncSMTPClient(oauth2_file=str(TRACECAT__OAUTH2_GMAIL_PATH)) as client:
+        tasks = [
+            client.send(to=recipient, subject=subject, contents=contents)
+            for recipient in recipients
+        ]
+        await asyncio.gather(*tasks)
+
+    return {
+        "status": "ok",
+        "message": "Successfully sent email",
+        "recipients": recipients,
+        "subject": subject,
+        "contents": contents,
+    }
+
+
 _ActionRunner = Callable[..., Awaitable[dict[str, Any]]]
 
 _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
@@ -655,4 +704,5 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "http_request": run_http_request_action,
     "condition": run_conditional_action,
     "llm": run_llm_action,
+    "send_email": run_send_email_action,
 }
