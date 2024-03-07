@@ -128,6 +128,36 @@ export function Workspace({
                     icon: Sparkles,
                     variant: "ghost",
                   },
+                  {
+                    type: "Extract",
+                    title: "",
+                    icon: Sparkles,
+                    variant: "ghost",
+                  },
+                  {
+                    type: "Label",
+                    title: "",
+                    icon: Sparkles,
+                    variant: "ghost",
+                  },
+                  {
+                    type: "Translate",
+                    title: "",
+                    icon: Sparkles,
+                    variant: "ghost",
+                  },
+                  {
+                    type: "Choice",
+                    title: "",
+                    icon: Sparkles,
+                    variant: "ghost",
+                  },
+                  {
+                    type: "Summarize",
+                    title: "",
+                    icon: Sparkles,
+                    variant: "ghost",
+                  },
                 ]}
               />
             </ResizablePanel>

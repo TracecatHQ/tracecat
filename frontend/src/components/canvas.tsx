@@ -11,6 +11,7 @@ import ReactFlow, {
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
+  useOnSelectionChange,
   useReactFlow,
 } from "reactflow"
 
@@ -153,7 +154,7 @@ const WorkflowCanvas: React.FC = () => {
   )
 
   const onDrop = useCallback(
-    (event: React.DragEvent) => {
+    async (event: React.DragEvent) => {
       event.preventDefault()
 
       // Limit total number of nodes
@@ -180,20 +181,20 @@ const WorkflowCanvas: React.FC = () => {
       })
 
       // Create Action in database
-      createAction(actionNodeData.type, actionNodeData.title).then(
-        (actionId) => {
-          if (!actionId) return
-          // Then create Action node in React Flow
-          const newNode = {
-            id: actionId,
-            type: reactFlowNodeType,
-            position: reactFlowNodePosition,
-            data: actionNodeData,
-          } as Node<ActionNodeData>
-
-          setNodes((nds) => nds.concat(newNode))
-        }
+      const actionId = await createAction(
+        actionNodeData.type,
+        actionNodeData.title
       )
+      if (!actionId) return
+      // Then create Action node in React Flow
+      const newNode = {
+        id: actionId,
+        type: reactFlowNodeType,
+        position: reactFlowNodePosition,
+        data: actionNodeData,
+      } as Node<ActionNodeData>
+
+      setNodes((nds) => nds.concat(newNode))
     },
     [nodes, createAction]
   )

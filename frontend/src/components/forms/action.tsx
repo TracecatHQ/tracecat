@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form"
 import { Node } from "reactflow"
 import { z } from "zod"
 
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -66,6 +67,7 @@ export function ActionForm({
       const response = await axios.get<ActionResponse>(
         `http://localhost:8000/actions/${actionId}?workflow_id=${workflowId}`
       )
+      // TODO: Validate response data with zod
       return response.data
     } catch (error) {
       console.error("Error fetching action:", error)
@@ -73,7 +75,11 @@ export function ActionForm({
     }
   }
 
-  const { data, isLoading, isError } = useQuery<ActionResponse, Error>({
+  const {
+    data: actionResponseData,
+    isLoading,
+    isError,
+  } = useQuery<ActionResponse, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: getActionById,
   })
@@ -165,7 +171,9 @@ export function ActionForm({
     return Object.entries(inputs).reduce(
       (stringInputs: Record<string, any>, [key, value]) => {
         // Check if value is an object and not null, not an array, and not a Date instance
-        if (
+        if (!value) {
+          stringInputs[key] = ""
+        } else if (
           typeof value === "object" &&
           value !== null &&
           !Array.isArray(value) &&
@@ -182,9 +190,9 @@ export function ActionForm({
   }
 
   useEffect(() => {
-    if (data) {
-      console.log(data)
-      const { title, description, status, inputs } = data
+    if (actionResponseData) {
+      const { title, description, status, inputs } = actionResponseData
+      form.reset()
       form.reset({
         // Use reset method to set form values
         title: title,
@@ -193,7 +201,7 @@ export function ActionForm({
       })
       setStatus(status)
     }
-  }, [data, form.reset])
+  }, [actionResponseData, form.reset])
 
   // Submit form and update Action
   async function updateAction(actionId: string, values: actionFormSchemaType) {
@@ -254,7 +262,7 @@ export function ActionForm({
 
   // Loading state to defend in a user friendly way
   // against undefined schemas or data
-  if (!data || !actionFormSchema || !actionFieldSchema) {
+  if (!actionResponseData || !actionFormSchema || !actionFieldSchema) {
     // TODO: Make this loading state look more like a form
     return (
       <div className="flex items-center space-x-2 p-4">
@@ -276,13 +284,24 @@ export function ActionForm({
               <div className="flex justify-between">
                 <Badge
                   variant="outline"
-                  className={`px-4 py-1 ${status === "online" ? "bg-green-100" : "bg-gray-100"}`}
+                  className={cn(
+                    "px-4 py-1",
+                    status === "online" ? "bg-green-100" : "bg-gray-100"
+                  )}
                 >
                   <CircleIcon
-                    className={`mr-2 h-3 w-3 ${status === "online" ? "fill-green-600 text-green-600" : "fill-gray-400 text-gray-400"}`}
+                    className={cn(
+                      "mr-2 h-3 w-3",
+                      status === "online"
+                        ? "fill-green-600 text-green-600"
+                        : "fill-gray-400 text-gray-400"
+                    )}
                   />
                   <span
-                    className={`text-muted-foreground ${status === "online" ? "text-green-600" : "text-gray-600"}`}
+                    className={cn(
+                      "text-muted-foreground",
+                      status === "online" ? "text-green-600" : "text-gray-600"
+                    )}
                   >
                     {status}
                   </span>
@@ -335,7 +354,7 @@ export function ActionForm({
                 )}
               />
               <Separator />
-              <div className="space-y-2">
+              <div className="space-y-2 capitalize">
                 <h4 className="text-m font-medium">Action Inputs</h4>
                 <p className="text-xs text-muted-foreground">
                   Define the inputs for this action.

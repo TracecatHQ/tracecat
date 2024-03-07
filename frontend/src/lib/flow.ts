@@ -30,8 +30,6 @@ export async function saveFlow(
         },
       }
     )
-
-    console.log("Flow saved successfully")
   } catch (error) {
     console.error("Error saving flow:", error)
   }
