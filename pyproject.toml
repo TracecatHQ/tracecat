@@ -31,6 +31,7 @@ dependencies = [
     "pydantic==2.6.1",
     "openai",
     "tenacity",
+    "colorlog"
 ]
 dynamic = ["version"]
 
@@ -44,6 +45,12 @@ runner = [
     "orjson",
     "httpx[http2]",
     "python-multipart",
+    "jsonpath_ng",
+    "yagmail[all]"
+]
+dev = [
+    "pytest",
+    "python-dotenv",
 ]
 
 [tool.hatch.version]
