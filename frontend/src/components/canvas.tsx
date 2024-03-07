@@ -19,6 +19,7 @@ import "reactflow/dist/style.css"
 import { useParams } from "next/navigation"
 
 import { saveFlow } from "@/lib/flow"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, { ActionNodeData } from "@/components/action-node"
 
@@ -66,7 +67,7 @@ const WorkflowCanvas: React.FC = () => {
 
   const { setViewport } = useReactFlow()
   const params = useParams<{ id: string }>()
-  const selectedWorkflowId = params.id
+  const workflowId = params.id
 
   const { toast } = useToast()
 
@@ -74,10 +75,10 @@ const WorkflowCanvas: React.FC = () => {
 
   useEffect(() => {
     const initializeReactFlowInstance = () => {
-      if (selectedWorkflowId) {
+      if (workflowId) {
         axios
           .get<WorkflowResponse>(
-            `http://localhost:8000/workflows/${selectedWorkflowId}`
+            `http://localhost:8000/workflows/${workflowId}`
           )
           .then((response) => {
             const flow = response.data.object
@@ -99,13 +100,13 @@ const WorkflowCanvas: React.FC = () => {
     }
 
     initializeReactFlowInstance()
-  }, [selectedWorkflowId, setNodes, setEdges, setViewport])
+  }, [workflowId, setNodes, setEdges, setViewport])
 
   const createAction = async (type: string, title: string) => {
-    if (!selectedWorkflowId || !reactFlowInstance) return
+    if (!workflowId || !reactFlowInstance) return
     try {
       const createActionMetadata = JSON.stringify({
-        workflow_id: selectedWorkflowId,
+        workflow_id: workflowId,
         type: type,
         title: title,
       })
@@ -222,7 +223,9 @@ const WorkflowCanvas: React.FC = () => {
   )
 
   useEffect(() => {
-    saveFlow(selectedWorkflowId, reactFlowInstance)
+    if (workflowId && reactFlowInstance) {
+      saveFlow(workflowId, reactFlowInstance)
+    }
   }, [nodes, edges])
 
   return (

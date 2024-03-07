@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { useWorkflowMetadata } from "@/providers/workflow"
 import { Node, useOnSelectionChange } from "reactflow"
 
 import { Skeleton } from "@/components/ui/skeleton"
@@ -14,13 +14,13 @@ export function WorkflowPanel() {
   const [selectedActionNodeType, setSelectedActionNodeType] = useState<
     string | undefined
   >(undefined)
-  const { selectedWorkflowMetadata } = useSelectedWorkflowMetadata()
+  const { workflowMetadata } = useWorkflowMetadata()
 
   // Workflow metadata
-  const workflowId = selectedWorkflowMetadata.id
-  const workflowTitle = selectedWorkflowMetadata.title
-  const workflowDescription = selectedWorkflowMetadata.description
-  const workflowStatus = selectedWorkflowMetadata.status
+  const workflowId = workflowMetadata.id
+  const workflowTitle = workflowMetadata.title
+  const workflowDescription = workflowMetadata.description
+  const workflowStatus = workflowMetadata.status
 
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: Node[] }) => {

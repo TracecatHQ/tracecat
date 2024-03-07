@@ -2,7 +2,7 @@
 
 import React from "react"
 import { useParams } from "next/navigation"
-import { useSelectedWorkflowMetadata } from "@/providers/selected-workflow"
+import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   CaretSortIcon,
@@ -65,25 +65,25 @@ const newWorkflowFormSchema = z.object({
 type WorkflowFormInputs = z.infer<typeof newWorkflowFormSchema>
 
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
-  const { setSelectedWorkflowMetadata } = useSelectedWorkflowMetadata()
+  const { setWorkflowMetadata } = useWorkflowMetadata()
   const [open, setOpen] = React.useState(false)
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] =
     React.useState(false)
   const params = useParams<{ id: string }>()
-  const selectedWorkflowId = params.id
+  const workflowId = params.id
 
   const { data: workflows } = useQuery<WorkflowMetadata[], Error>({
     queryKey: ["workflows"],
     queryFn: fetchWorkflows,
   })
 
-  const { data: selectedWorkflowMetadata } = useQuery<WorkflowMetadata, Error>({
-    queryKey: ["workflow", selectedWorkflowId],
+  const { data: workflowMetadata } = useQuery<WorkflowMetadata, Error>({
+    queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
       const [_, workflowId] = queryKey as [string, string]
       console.log(workflowId)
       const data = await fetchWorkflow(workflowId)
-      setSelectedWorkflowMetadata(data)
+      setWorkflowMetadata(data)
       return data
     },
   })
@@ -105,7 +105,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
     }
   }
 
-  if (!selectedWorkflowMetadata || !workflows) {
+  if (!workflowMetadata || !workflows) {
     return <Skeleton className="h-9 w-96" />
   }
 
@@ -123,7 +123,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
             aria-label="Select a team"
             className={cn("w-96 justify-between", className)}
           >
-            {selectedWorkflowMetadata.title}
+            {workflowMetadata.title}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
@@ -151,9 +151,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                     <CheckIcon
                       className={cn(
                         "ml-auto h-4 w-4 text-xs",
-                        selectedWorkflowId === workflow.id
-                          ? "opacity-100"
-                          : "opacity-0"
+                        workflowId === workflow.id ? "opacity-100" : "opacity-0"
                       )}
                     />
                   </CommandItem>

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { WorkflowBuilderProvider } from "@/providers/flow"
+import { WorkflowBuilderProvider } from "@/providers/builder"
 import {
   Blend,
   Globe,

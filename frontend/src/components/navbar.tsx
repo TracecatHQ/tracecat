@@ -15,16 +15,16 @@ import WorkflowSwitcher from "@/components/workflow-switcher"
 export function Navbar() {
   const [enableWorkflow, setEnableWorkflow] = useState(false)
   const searchParams = useSearchParams()
-  const selectedWorkflowId = searchParams.get("id")
+  const workflowId = searchParams.get("id")
   const pathname = usePathname()
 
   useEffect(() => {
     const updateWorkflowStatus = async () => {
-      if (selectedWorkflowId) {
+      if (workflowId) {
         const status = enableWorkflow ? "online" : "offline"
         try {
           await axios.post(
-            `http://localhost:8000/workflows/${selectedWorkflowId}`,
+            `http://localhost:8000/workflows/${workflowId}`,
             JSON.stringify({
               status: status,
             }),
@@ -34,7 +34,7 @@ export function Navbar() {
               },
             }
           )
-          console.log(`Workflow ${selectedWorkflowId} set to ${status}`)
+          console.log(`Workflow ${workflowId} set to ${status}`)
         } catch (error) {
           console.error("Failed to update workflow status:", error)
         }
@@ -42,7 +42,7 @@ export function Navbar() {
     }
 
     updateWorkflowStatus()
-  }, [enableWorkflow, selectedWorkflowId])
+  }, [enableWorkflow, workflowId])
 
   return (
     <div className="border-b">

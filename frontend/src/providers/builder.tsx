@@ -26,11 +26,11 @@ export const WorkflowBuilderProvider: React.FC<
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
   const params = useParams<{ id: string }>()
-  const selectedWorkflowId = params.id
+  const workflowId = params.id
 
   const setReactFlowNodes = (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
     reactFlowInstance.setNodes(nodes)
-    saveFlow(selectedWorkflowId, reactFlowInstance)
+    saveFlow(workflowId, reactFlowInstance)
   }
 
   return (

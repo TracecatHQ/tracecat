@@ -2,7 +2,7 @@ import { promises as fs } from "fs"
 import path from "path"
 import { Metadata } from "next"
 import { DefaultQueryClientProvider } from "@/providers/query"
-import { SelectedWorkflowProvider } from "@/providers/selected-workflow"
+import { WorkflowProvider } from "@/providers/workflow"
 import { z } from "zod"
 
 import { columns } from "@/components/cases/columns"
@@ -28,14 +28,14 @@ export default async function CasesPage() {
   return (
     <>
       <DefaultQueryClientProvider>
-        <SelectedWorkflowProvider>
+        <WorkflowProvider>
           <div className="flex h-screen flex-col">
             <Navbar />
             <div className="w-full flex-1 space-y-8 p-8">
               <DataTable data={tasks} columns={columns} />
             </div>
           </div>
-        </SelectedWorkflowProvider>
+        </WorkflowProvider>
       </DefaultQueryClientProvider>
     </>
   )
