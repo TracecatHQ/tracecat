@@ -31,7 +31,8 @@ dependencies = [
     "pydantic==2.6.1",
     "openai",
     "tenacity",
-    "colorlog"
+    "colorlog",
+    "python-slugify"
 ]
 dynamic = ["version"]
 
@@ -46,7 +47,8 @@ runner = [
     "httpx[http2]",
     "python-multipart",
     "jsonpath_ng",
-    "yagmail[all]"
+    "yagmail[all]",
+    "aiosmtplib"
 ]
 dev = [
     "pytest",
