@@ -8,6 +8,7 @@ services:
       - ./:/app
     environment:
       API_MODULE: "tracecat.api:app"
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
     container_name: api
     restart: unless-stopped
     depends_on:
@@ -24,7 +25,7 @@ services:
     environment:
       API_MODULE: "tracecat.runner:app"
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      RUNNER_SECRET: ${RUNNER_SECRET}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
     container_name: runner
     restart: unless-stopped
     depends_on:
