@@ -127,36 +127,42 @@ export function Workspace({
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
+                    hierarchy: "group",
                   },
                   {
                     type: "Extract",
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
+                    hierarchy: "groupItem",
                   },
                   {
                     type: "Label",
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
+                    hierarchy: "groupItem",
                   },
                   {
                     type: "Translate",
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
+                    hierarchy: "groupItem",
                   },
                   {
                     type: "Choice",
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
+                    hierarchy: "groupItem",
                   },
                   {
                     type: "Summarize",
                     title: "",
                     icon: Sparkles,
                     variant: "ghost",
+                    hierarchy: "groupItem",
                   },
                 ]}
               />
