@@ -36,7 +36,7 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.condition import ConditionRuleVariant
+from tracecat.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.config import MAX_RETRIES, TRACECAT__OAUTH2_GMAIL_PATH
 from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
@@ -181,12 +181,7 @@ class HTTPRequestAction(Action):
 class ConditionAction(Action):
     type: Literal["condition"] = Field("condition", frozen=True)
 
-    condition_rules: list[ConditionRuleVariant] = Field(
-        ...,
-        min_length=1,
-        max_length=20,
-        discriminator="type",
-    )
+    condition_rules: ConditionRuleVariant = Field(..., discriminator="type")
 
 
 class LLMAction(Action):
@@ -454,6 +449,9 @@ async def start_action_run(
         action_result_store[ar_id] = action_trail | {ar_id: result}
         custom_logger.debug(f"Action run {ar_id!r} completed with result {result}.")
 
+        if not result.should_continue:
+            custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
+            return
         downstream_deps_ar_ids = [
             get_action_run_id(action_run.run_id, k)
             for k in workflow_ref.adj_list[action_key]
@@ -544,7 +542,9 @@ async def run_action(
     except Exception as e:
         custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
         raise
-    return ActionRunResult(action_key=key, data=result)
+
+    should_continue = result.get("__should_continue__", True)
+    return ActionRunResult(action_key=key, data=result, should_continue=should_continue)
 
 
 async def run_webhook_action(
@@ -614,15 +614,17 @@ async def run_http_request_action(
 
 
 async def run_conditional_action(
-    condition_rules: list[ConditionRuleVariant],
+    # NOTE: This arrives as a dictionary becaused we called `model_dump` on the ConditionAction instance.
+    condition_rules: dict[str, Any],
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a conditional action."""
     custom_logger.debug(f"Run conditional rules {condition_rules}.")
-    rule_match = all(rule.evaluate() for rule in condition_rules)
-    return {"rule_match": rule_match}
+    rule = ConditionRuleValidator.validate_python(condition_rules)
+    rule_match = rule.evaluate()
+    return {"rule_match": rule_match, "__should_continue__": rule_match}
 
 
 async def run_llm_action(
