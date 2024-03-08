@@ -6,6 +6,9 @@ from pydantic import computed_field
 from slugify import slugify
 from sqlmodel import Field, Relationship, SQLModel, create_engine
 
+from tracecat import auth
+from tracecat.llm import TYPE_SLUGS
+
 
 class Workflow(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
@@ -41,6 +44,22 @@ class Action(SQLModel, table=True):
         slug = slugify(self.title, separator="_")
         return f"{self.id}.{slug}"
 
+    @computed_field
+    @property
+    def type_slug(self) -> str:
+        """Slug of the action type.
+
+        In the Python runner world we use this as an Action disctiminator.
+
+        Example
+        -------
+        - "HTTP Request" --> "http_request"
+        """
+        slug = slugify(self.type, separator="_")
+        if slug in TYPE_SLUGS:
+            return f"llm.{slug}"
+        return slug
+
 
 class Webhook(SQLModel, table=True):
     """Webhook is a URL that can be called to trigger a workflow.
@@ -51,11 +70,19 @@ class Webhook(SQLModel, table=True):
     - External sources only have access to the path
     """
 
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
-    secret: str
+    id: str | None = Field(
+        default_factory=lambda: uuid4().hex,
+        primary_key=True,
+        description="Webhook path",
+    )
     action_id: str | None = Field(foreign_key="action.id")
     workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="webhooks")
+
+    @computed_field
+    @property
+    def secret(self) -> str:
+        return auth.compute_hash(self.id)
 
 
 def create_db_engine():
