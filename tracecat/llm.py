@@ -31,6 +31,15 @@ ModelType = Literal[
 ]
 DEFAULT_MODEL_TYPE: ModelType = "gpt-4-turbo-preview"
 DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
+TYPE_SLUGS = {
+    "translate",
+    "extract",
+    "summarize",
+    "label",
+    "enrich",
+    "question_answering",
+    "choice",
+}
 
 
 class TaskFields(BaseModel):
