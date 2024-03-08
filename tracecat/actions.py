@@ -427,7 +427,7 @@ async def start_action_run(
 
         custom_logger.debug(f"Running action {ar_id!r}. Trail {action_trail.keys()}.")
         action_run_status_store[ar_id] = ActionRunStatus.RUNNING
-        action_ref = workflow_ref.action_map[action_key]
+        action_ref = workflow_ref.actions[action_key]
         result = await run_action(
             custom_logger=custom_logger,
             action_trail=action_trail,
