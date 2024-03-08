@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import { Handle, NodeProps, Position } from "reactflow"
 
+import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -118,21 +119,25 @@ export default React.memo(function ActionNode({
       <CardContent className="pb-4 pl-5 pr-5 pt-0">
         <div className="flex space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center">
-            {status === "online" && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-green-600 text-green-600" />
-            )}
-            {status === "offline" && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
-            )}
+            <CircleIcon
+              className={cn(
+                "mr-1 h-3 w-3",
+                status === "online"
+                  ? "fill-green-600 text-green-600"
+                  : "fill-gray-400 text-gray-400"
+              )}
+            />
             <span>{status}</span>
           </div>
           <div className="flex items-center">
-            {isConfigured && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-green-600 text-green-600" />
-            )}
-            {!isConfigured && (
-              <CircleIcon className="mr-1 h-3 w-3 fill-gray-400 text-gray-400" />
-            )}
+            <CircleIcon
+              className={cn(
+                "mr-1 h-3 w-3",
+                isConfigured
+                  ? "fill-green-600 text-green-600"
+                  : "fill-gray-400 text-gray-400"
+              )}
+            />
             <span>{isConfiguredMessage}</span>
           </div>
           <div className="flex items-center">
