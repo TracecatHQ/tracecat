@@ -36,6 +36,7 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from tracecat.condition import ConditionRuleVariant
 from tracecat.config import MAX_RETRIES, TRACECAT__OAUTH2_GMAIL_PATH
 from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
@@ -175,8 +176,12 @@ class HTTPRequestAction(Action):
 class ConditionAction(Action):
     type: Literal["condition"] = Field("condition", frozen=True)
 
-    # TODO: Replace placeholder
-    event: str | None = None
+    condition_rules: list[ConditionRuleVariant] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        discriminator="type",
+    )
 
 
 class LLMAction(Action):
@@ -604,14 +609,15 @@ async def run_http_request_action(
 
 
 async def run_conditional_action(
-    event: str,
+    condition_rules: list[ConditionRuleVariant],
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a conditional action."""
-    custom_logger.debug(f"Run conditional event {event}.")
-    return {"data": "test_conditional"}
+    custom_logger.debug(f"Run conditional rules {condition_rules}.")
+    rule_match = all(rule.evaluate() for rule in condition_rules)
+    return {"rule_match": rule_match}
 
 
 async def run_llm_action(
