@@ -1,7 +1,9 @@
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Literal
 
+import polars as pl
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,6 +16,7 @@ from tracecat.db import (
     Workflow,
     WorkflowRun,
     create_db_engine,
+    create_events_index,
     initialize_db,
 )
 
@@ -586,3 +589,90 @@ def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookRes
         workflow_id=webhook.workflow_id,
         webhook_id=webhook_id,
     )
+
+
+### Events Management
+
+
+class EventParams(BaseModel):
+    id: str  # The action run "key"
+    workflow_id: str
+    workflow_run_id: str
+    action_id: str
+    action_type: str
+    published_at: datetime
+    event: dict[str, Any]
+
+
+@app.post("/events")
+def index_event(event: EventParams):
+    with create_events_index().writer() as writer:
+        writer.add_document(event.model_dump())
+        writer.commit()
+
+
+SUPPORTED_EVENT_AGGS = {
+    "count": pl.count,
+    "max": pl.max,
+    "avg": pl.mean,
+    "median": pl.median,
+    "min": pl.min,
+    "std": pl.std,
+    "sum": pl.sum,
+    "var": pl.var,
+}
+
+
+class EventSearchParams(BaseModel):
+    workflow_id: str
+    workflow_run_id: str | None = None
+    query: str | None = None
+    group_by: list[str] | None = None
+    agg: str | None = None
+
+
+class EventSearchResponse(BaseModel):
+    id: str
+    workflow_id: str
+    workflow_run_id: str
+    action_id: str
+    action_type: str
+    published_at: datetime
+    event: dict[str, Any]
+
+
+@app.get("/events/search")
+def search_events(params: EventSearchParams) -> list[EventSearchResponse]:
+    # Filter by workflow_id
+    # Filter by workflow_run_id (if non-null)
+    # Run query
+    # Return results
+    pass
+
+
+### Case Management
+
+
+class CaseResponse(BaseModel):
+    id: str
+    title: str
+
+
+@app.get("/cases")
+def list_cases() -> list[CaseResponse]:
+    pass
+
+
+@app.post("/cases")
+def create_case() -> CaseResponse:
+    pass
+
+
+@app.get("/cases/{case_id}")
+def get_case(case_id: str) -> CaseResponse:
+    pass
+
+
+@app.post("/cases/{case_id}")
+def update_case(case_id: str) -> CaseResponse:
+    pass

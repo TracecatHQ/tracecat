@@ -8,9 +8,7 @@ description = ""
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
-authors = [
-    { name = "Tracecat", email = "founders@tracecat.com" },
-]
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: Apache Software License",
@@ -24,15 +22,17 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "fastapi",
-    "sqlmodel",
-    "uvicorn",
-    "pydantic==2.6.1",
-    "openai",
-    "tenacity",
     "colorlog",
-    "orjson",
-    "python-slugify"
+    "fastapi",
+    "lancedb",
+    "openai",
+    "polars",
+    "pydantic==2.6.1",
+    "python-slugify",
+    "sqlmodel",
+    "tantivy",
+    "tenacity",
+    "uvicorn",
 ]
 dynamic = ["version"]
 
@@ -47,12 +47,9 @@ runner = [
     "python-multipart",
     "jsonpath_ng",
     "yagmail[all]",
-    "aiosmtplib"
+    "aiosmtplib",
 ]
-dev = [
-    "pytest",
-    "python-dotenv",
-]
+dev = ["pytest", "python-dotenv"]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
@@ -70,13 +67,13 @@ select = [
     "F",  # pyflakes
     "I",  # isort
     "B",  # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "UP",  # pyupgrade
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long, handled by ruff
-    "B008",  # do not perform function calls in argument defaults
-    "W191",  # indentation contains tabs
+    "E501", # line too long, handled by ruff
+    "B008", # do not perform function calls in argument defaults
+    "W191", # indentation contains tabs
 ]
 
 [tool.pytest.ini_options]
