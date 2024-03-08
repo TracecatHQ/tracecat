@@ -75,7 +75,7 @@ class ActionRun(BaseModel):
 
     run_id: str = Field(frozen=True)
     run_kwargs: dict[str, Any] | None = None
-    action_key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50, frozen=True)
+    action_key: str = Field(pattern=ACTION_KEY_PATTERN, frozen=True)
 
     @property
     def id(self) -> str:
@@ -114,7 +114,7 @@ class Action(BaseModel):
 
     An action is an instance of a Action with templated fields."""
 
-    key: str = Field(pattern=ACTION_KEY_PATTERN, max_length=50)
+    key: str = Field(pattern=ACTION_KEY_PATTERN)
     type: ActionType
     title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
     tags: dict[str, Any] | None = None
@@ -141,7 +141,6 @@ class ActionRunResult(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     action_key: str = Field(
         pattern=ACTION_KEY_PATTERN,
-        max_length=50,
         description="Action key = '<action_id>.<action_title_lower_snake_case>'",
     )
     data: dict[str, Any] = Field(default_factory=dict)
