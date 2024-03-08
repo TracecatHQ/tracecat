@@ -2,12 +2,10 @@
 
 import { ColumnDef } from "@tanstack/react-table"
 
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 
 import { DataTableColumnHeader } from "./data-table-column-header"
-import { DataTableRowActions } from "./data-table-row-actions"
-import { labels, priorities, statuses } from "./data/data"
+import { priorities, statuses } from "./data/data"
 import { Task } from "./data/schema"
 
 export const columns: ColumnDef<Task>[] = [
@@ -38,29 +36,13 @@ export const columns: ColumnDef<Task>[] = [
   {
     accessorKey: "id",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Task" />
+      <DataTableColumnHeader className="text-xs" column={column} title="ID" />
     ),
-    cell: ({ row }) => <div className="w-[80px]">{row.getValue("id")}</div>,
-    enableSorting: false,
+    cell: ({ row }) => (
+      <div className="w-[60px] text-xs">&#x23; {row.getValue("id")}</div>
+    ),
+    enableSorting: true,
     enableHiding: false,
-  },
-  {
-    accessorKey: "title",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Title" />
-    ),
-    cell: ({ row }) => {
-      const label = labels.find((label) => label.value === row.original.label)
-
-      return (
-        <div className="flex space-x-2">
-          {label && <Badge variant="outline">{label.label}</Badge>}
-          <span className="max-w-[500px] truncate font-medium">
-            {row.getValue("title")}
-          </span>
-        </div>
-      )
-    },
   },
   {
     accessorKey: "status",
@@ -79,9 +61,9 @@ export const columns: ColumnDef<Task>[] = [
       return (
         <div className="flex w-[100px] items-center">
           {status.icon && (
-            <status.icon className="mr-2 h-4 w-4 text-muted-foreground" />
+            <status.icon className="mr-2 h-3 w-3 text-muted-foreground" />
           )}
-          <span>{status.label}</span>
+          <span className="text-xs">{status.label}</span>
         </div>
       )
     },
@@ -106,9 +88,9 @@ export const columns: ColumnDef<Task>[] = [
       return (
         <div className="flex items-center">
           {priority.icon && (
-            <priority.icon className="mr-2 h-4 w-4 text-muted-foreground" />
+            <priority.icon className="mr-2 h-3 w-3 text-muted-foreground" />
           )}
-          <span>{priority.label}</span>
+          <span className="text-xs">{priority.label}</span>
         </div>
       )
     },
@@ -117,7 +99,93 @@ export const columns: ColumnDef<Task>[] = [
     },
   },
   {
-    id: "actions",
-    cell: ({ row }) => <DataTableRowActions row={row} />,
+    accessorKey: "title",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Case Title" />
+    ),
+    cell: ({ row }) => {
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] truncate text-xs">
+            {row.getValue("title")}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "payload",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Payload" />
+    ),
+    cell: ({ row }) => {
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+            {row.getValue("payload")}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "malice",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Malice" />
+    ),
+    cell: ({ row }) => {
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+            {row.getValue("malice")}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "action",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Action" />
+    ),
+    cell: ({ row }) => {
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+            {row.getValue("action")}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "context",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Context" />
+    ),
+    cell: ({ row }) => {
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+            {row.getValue("context")}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "suppression",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Suppression" />
+    ),
+    cell: ({ row }) => {
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+            {row.getValue("suppression")}
+          </span>
+        </div>
+      )
+    },
   },
 ]

@@ -1,54 +1,40 @@
 import {
+  AlertTriangleIcon,
   ArrowDownIcon,
   ArrowRightIcon,
   ArrowUpIcon,
-  CheckCircledIcon,
+  CheckCircleIcon,
   CircleIcon,
-  CrossCircledIcon,
-  QuestionMarkCircledIcon,
-  StopwatchIcon,
-} from "@radix-ui/react-icons"
-
-export const labels = [
-  {
-    value: "bug",
-    label: "Bug",
-  },
-  {
-    value: "feature",
-    label: "Feature",
-  },
-  {
-    value: "documentation",
-    label: "Documentation",
-  },
-]
+  FlagTriangleRightIcon,
+  ShieldAlertIcon,
+  TrafficConeIcon,
+} from "lucide-react"
 
 export const statuses = [
   {
-    value: "backlog",
-    label: "Backlog",
-    icon: QuestionMarkCircledIcon,
+    value: "open",
+    label: "Open",
+    icon: CircleIcon,
   },
   {
-    value: "todo",
-    label: "Todo",
-    icon: CircleIcon,
+    value: "closed",
+    label: "Closed",
+    icon: CheckCircleIcon,
   },
   {
     value: "in progress",
     label: "In Progress",
-    icon: StopwatchIcon,
+    icon: TrafficConeIcon,
   },
   {
-    value: "done",
-    label: "Done",
-    icon: CheckCircledIcon,
+    value: "reported",
+    label: "Reported",
+    icon: FlagTriangleRightIcon,
   },
   {
-    value: "canceled",
-    label: "Canceled",
-    icon: CrossCircledIcon,
+    value: "escalated",
+    label: "Escalated",
+    icon: ShieldAlertIcon,
   },
 ]
 
@@ -67,5 +53,10 @@ export const priorities = [
     label: "High",
     value: "high",
     icon: ArrowUpIcon,
+  },
+  {
+    label: "Critical",
+    value: "critical",
+    icon: AlertTriangleIcon,
   },
 ]

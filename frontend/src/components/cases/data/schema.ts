@@ -1,13 +1,16 @@
 import { z } from "zod"
 
-// We're keeping a simple non-relational schema here.
-// IRL, you will have a schema for your data models.
-export const taskSchema = z.object({
-  id: z.string(),
+
+export const caseSchema = z.object({
+  id: z.number().int(),
   title: z.string(),
+  payload:z.record(z.string()).transform((val) => JSON.stringify(val)),
+  malice: z.enum(["malicious", "benign"]),
+  action: z.array(z.string()).transform((val) => val[0]),
+  context: z.array(z.string()),
+  suppression: z.record(z.boolean()).transform((val) => JSON.stringify(val)),
   status: z.string(),
-  label: z.string(),
-  priority: z.string(),
+  priority: z.enum(["low", "medium", "high", "critical"]),
 })
 
-export type Task = z.infer<typeof taskSchema>
+export type Task = z.infer<typeof caseSchema>

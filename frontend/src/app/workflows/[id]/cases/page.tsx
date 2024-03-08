@@ -5,9 +5,10 @@ import { DefaultQueryClientProvider } from "@/providers/query"
 import { WorkflowProvider } from "@/providers/workflow"
 import { z } from "zod"
 
+import { Separator } from "@/components/ui/separator"
 import { columns } from "@/components/cases/columns"
 import { DataTable } from "@/components/cases/data-table"
-import { taskSchema } from "@/components/cases/data/schema"
+import { caseSchema } from "@/components/cases/data/schema"
 import { Navbar } from "@/components/navbar"
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ async function getTasks() {
     path.join(process.cwd(), "src/components/cases/data/tasks.json")
   )
   const tasks = JSON.parse(data.toString())
-  return z.array(taskSchema).parse(tasks)
+  return z.array(caseSchema).parse(tasks)
 }
 
 export default async function CasesPage() {
@@ -31,7 +32,7 @@ export default async function CasesPage() {
         <WorkflowProvider>
           <div className="flex h-screen flex-col">
             <Navbar />
-            <div className="w-full flex-1 space-y-8 p-8">
+            <div className="flex-1 px-16 py-24">
               <DataTable data={tasks} columns={columns} />
             </div>
           </div>
