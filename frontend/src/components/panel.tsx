@@ -1,5 +1,6 @@
 import React, { useState } from "react"
 import { useWorkflowMetadata } from "@/providers/workflow"
+import { ActionType } from "@/types"
 import { Node, useOnSelectionChange } from "reactflow"
 
 import { Skeleton } from "@/components/ui/skeleton"
@@ -34,7 +35,7 @@ export function WorkflowPanel() {
       {selectedNode ? (
         <ActionForm
           actionId={selectedNode.id}
-          actionType={selectedNode.data.type}
+          actionType={selectedNode.data.type as ActionType}
         />
       ) : workflowId &&
         workflowTitle &&

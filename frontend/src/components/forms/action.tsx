@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { ActionType } from "@/types"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import axios from "axios"
@@ -37,7 +38,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { getActionSchema } from "@/components/forms/action-schemas"
+import {
+  ActionFieldOption,
+  getActionSchema,
+} from "@/components/forms/action-schemas"
 
 interface ActionResponse {
   id: string
@@ -49,7 +53,7 @@ interface ActionResponse {
 
 interface ActionFormProps {
   actionId: string
-  actionType: string
+  actionType: ActionType
 }
 
 export function ActionForm({
@@ -103,13 +107,13 @@ export function ActionForm({
 
   const renderFormField = (
     inputKey: keyof actionFormSchemaType,
-    inputField: any
+    inputField: ActionFieldOption
   ) => {
     const fieldType = inputField.type
     const fieldProps = form.register(inputKey)
 
     switch (fieldType) {
-      case "Select":
+      case "select":
         return (
           <FormItem>
             <FormLabel className="text-xs">{inputKey}</FormLabel>
@@ -133,7 +137,7 @@ export function ActionForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {inputField.options.map((option: string) => (
+                  {inputField.options?.map((option: string) => (
                     <SelectItem key={option} value={option}>
                       {option}
                     </SelectItem>
@@ -144,7 +148,7 @@ export function ActionForm({
             <FormMessage />
           </FormItem>
         )
-      case "Textarea":
+      case "textarea":
         return (
           <FormItem>
             <FormLabel className="text-xs">{inputKey}</FormLabel>

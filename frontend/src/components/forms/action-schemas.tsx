@@ -1,3 +1,4 @@
+import { ActionType } from "@/types"
 import { z } from "zod"
 
 const jsonPayload = z
@@ -74,8 +75,9 @@ const LLMSummarizeTaskActionSchema = z.object({
   response_schema: jsonPayload.optional(),
 })
 
-interface ActionFieldOption {
-  type: "Input" | "Select" | "Textarea"
+type ActionFieldType = "input" | "select" | "textarea"
+export interface ActionFieldOption {
+  type: ActionFieldType
   options?: string[]
 }
 
@@ -83,106 +85,106 @@ interface ActionFieldSchema {
   [key: string]: ActionFieldOption
 }
 
-export interface ActionFieldSchemas {
-  [actionType: string]: ActionFieldSchema
+export type ActionFieldSchemas = {
+  [actionType in ActionType]: ActionFieldSchema
 }
 
-const actionFieldSchemas: ActionFieldSchemas = {
-  Webhook: {
-    url: { type: "Input" },
+const actionFieldSchemas: Partial<ActionFieldSchemas> = {
+  webhook: {
+    url: { type: "input" },
     method: {
-      type: "Select",
+      type: "select",
       options: ["GET", "POST"],
     },
-    path: { type: "Input" },
-    secret: { type: "Input" },
+    path: { type: "input" },
+    secret: { type: "input" },
   },
-  "HTTP Request": {
-    url: { type: "Input" },
+  http_request: {
+    url: { type: "input" },
     method: {
-      type: "Select",
+      type: "select",
       options: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     },
-    headers: { type: "Textarea" },
-    payload: { type: "Textarea" },
+    headers: { type: "textarea" },
+    payload: { type: "textarea" },
   },
-  "Send Email": {
-    recipients: { type: "Input" },
-    subject: { type: "Input" },
-    contents: { type: "Textarea" },
+  send_email: {
+    recipients: { type: "input" },
+    subject: { type: "input" },
+    contents: { type: "textarea" },
   },
-  Translate: {
+  "llm.translate": {
     // TODO: Replace with supported languages and Command input
-    message: { type: "Textarea" },
-    from_language: { type: "Input" },
-    to_language: { type: "Input" },
-    response_schema: { type: "Textarea" },
+    message: { type: "textarea" },
+    from_language: { type: "input" },
+    to_language: { type: "input" },
+    response_schema: { type: "textarea" },
   },
-  Extract: {
-    message: { type: "Textarea" },
+  "llm.extract": {
+    message: { type: "textarea" },
     // TODO: Replace with Command input and ability to add to list
-    groups: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
-    response_schema: { type: "Textarea" },
+    groups: { type: "input" }, // Assuming a comma-separated string to be transformed into an array
+    response_schema: { type: "textarea" },
   },
-  Label: {
+  "llm.label": {
     // TODO: Replace with Command input and ability to add to list
-    message: { type: "Textarea" },
-    labels: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
-    response_schema: { type: "Textarea" },
+    message: { type: "textarea" },
+    labels: { type: "input" }, // Assuming a comma-separated string to be transformed into an array
+    response_schema: { type: "textarea" },
   },
-  Choice: {
-    message: { type: "Textarea" },
-    choices: { type: "Input" },
-    response_schema: { type: "Textarea" },
+  "llm.choice": {
+    message: { type: "textarea" },
+    choices: { type: "input" },
+    response_schema: { type: "textarea" },
   },
-  Summarize: {
-    message: { type: "Textarea" },
-    summary: { type: "Textarea" },
-    response_schema: { type: "Textarea" },
+  "llm.summarize": {
+    message: { type: "textarea" },
+    summary: { type: "textarea" },
+    response_schema: { type: "textarea" },
   },
 }
 
-export const getActionSchema = (actionType: string) => {
+export const getActionSchema = (actionType: ActionType) => {
   switch (actionType) {
-    case "HTTP Request":
+    case "http_request":
       return {
         actionSchema: HTTPRequestActionSchema,
-        actionFieldSchema: actionFieldSchemas["HTTP Request"],
+        actionFieldSchema: actionFieldSchemas.http_request,
       }
-    case "Webhook":
+    case "webhook":
       return {
         actionSchema: WebhookActionSchema,
-        actionFieldSchema: actionFieldSchemas["Webhook"],
+        actionFieldSchema: actionFieldSchemas.webhook,
       }
-    case "Send Email":
+    case "send_email":
       return {
         actionSchema: SendEmailActionSchema,
-        actionFieldSchema: actionFieldSchemas["Send Email"],
+        actionFieldSchema: actionFieldSchemas.send_email,
       }
-    case "Translate":
+    case "llm.translate":
       return {
         actionSchema: LLMTranslateActionSchema,
-        actionFieldSchema: actionFieldSchemas["Translate"],
+        actionFieldSchema: actionFieldSchemas["llm.translate"],
       }
-    case "Extract":
+    case "llm.extract":
       return {
         actionSchema: LLMExtractActionSchema,
-        actionFieldSchema: actionFieldSchemas["Extract"],
+        actionFieldSchema: actionFieldSchemas["llm.extract"],
       }
-    case "Label":
+    case "llm.label":
       return {
         actionSchema: LLMLabelTaskActionSchema,
-        actionFieldSchema: actionFieldSchemas["Label"],
+        actionFieldSchema: actionFieldSchemas["llm.label"],
       }
-    case "Choice":
+    case "llm.choice":
       return {
         actionSchema: LLMChoiceTaskActionSchema,
-        actionFieldSchema: actionFieldSchemas["Choice"],
+        actionFieldSchema: actionFieldSchemas["llm.choice"],
       }
-    case "Summarize":
+    case "llm.summarize":
       return {
         actionSchema: LLMSummarizeTaskActionSchema,
-        actionFieldSchema: actionFieldSchemas["Summarize"],
+        actionFieldSchema: actionFieldSchemas["llm.summarize"],
       }
     default:
       return null // No schema or UI hints available for the given action type

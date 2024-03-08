@@ -1,6 +1,7 @@
 "use client"
 
 import { DragEvent } from "react"
+import { ActionType } from "@/types"
 import { LucideIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -14,7 +15,7 @@ import {
 interface ActionTilesProps {
   isCollapsed: boolean
   tiles: {
-    type: string
+    type: ActionType
     title?: string
     icon: LucideIcon
     variant: "default" | "ghost"
@@ -26,7 +27,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
   const onDragStart = (
     event: DragEvent<HTMLDivElement>,
     tile: {
-      type: string
+      type: ActionType
       title?: string
       icon: LucideIcon
       variant: "default" | "ghost"
@@ -99,7 +100,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
               onDragStart={(event) => onDragStart(event, tile)}
             >
               <tile.icon className="mr-2 h-4 w-4" />
-              {tile.type}
+              {tile.title}
             </div>
           )
         )}
