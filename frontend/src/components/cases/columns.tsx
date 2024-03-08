@@ -2,13 +2,18 @@
 
 import { ColumnDef } from "@tanstack/react-table"
 
+import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { DataTableColumnHeader } from "@/components/cases/data-table-column-header"
+import {
+  indicators,
+  priorities,
+  statuses,
+} from "@/components/cases/data/categories"
 
-import { DataTableColumnHeader } from "./data-table-column-header"
-import { priorities, statuses } from "./data/data"
-import { Task } from "./data/schema"
+import { Case } from "./data/schema"
 
-export const columns: ColumnDef<Task>[] = [
+export const columns: ColumnDef<Case>[] = [
   {
     id: "select",
     header: ({ table }) => (
@@ -134,13 +139,28 @@ export const columns: ColumnDef<Task>[] = [
       <DataTableColumnHeader column={column} title="Malice" />
     ),
     cell: ({ row }) => {
+      const label = row.getValue("malice") as string
+      const bg_color = label === "malicious" ? "bg-red-100" : "bg-gray-100"
+      const border_color =
+        label === "malicious" ? "border-red-400" : "border-gray-400"
+      const text_color =
+        label === "malicious" ? "text-red-700" : "text-gray-700"
+
       return (
         <div className="flex space-x-2">
-          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {row.getValue("malice")}
+          <span className="max-w-[100px] truncate text-xs text-muted-foreground">
+            <Badge
+              variant="outline"
+              className={`${bg_color} ${border_color} ${text_color}`}
+            >
+              {label}
+            </Badge>
           </span>
         </div>
       )
+    },
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue(id))
     },
   },
   {
@@ -151,7 +171,7 @@ export const columns: ColumnDef<Task>[] = [
     cell: ({ row }) => {
       return (
         <div className="flex space-x-2">
-          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+          <span className="max-w-[300px] truncate text-xs">
             {row.getValue("action")}
           </span>
         </div>
@@ -164,10 +184,13 @@ export const columns: ColumnDef<Task>[] = [
       <DataTableColumnHeader column={column} title="Context" />
     ),
     cell: ({ row }) => {
+      const context = row.getValue("context") as string[]
       return (
         <div className="flex space-x-2">
-          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {row.getValue("context")}
+          <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
+            {context.map((label) => (
+              <Badge variant="outline">{label}</Badge>
+            ))}
           </span>
         </div>
       )

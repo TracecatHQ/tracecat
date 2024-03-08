@@ -12,10 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { DataTableFacetedFilter } from "@/components/cases/data-table-faceted-filter"
 import { DataTableViewOptions } from "@/components/cases/data-table-view-options"
-
-import { DataTableFacetedFilter } from "./data-table-faceted-filter"
-import { priorities, statuses } from "./data/data"
+import {
+  indicators,
+  priorities,
+  statuses,
+} from "@/components/cases/data/categories"
 
 interface DataTableToolbarProps<TData> {
   table: Table<TData>
@@ -49,6 +52,13 @@ export function DataTableToolbar<TData>({
             column={table.getColumn("priority")}
             title="Priority"
             options={priorities}
+          />
+        )}
+        {table.getColumn("malice") && (
+          <DataTableFacetedFilter
+            column={table.getColumn("malice")}
+            title="Malice"
+            options={indicators}
           />
         )}
         {isFiltered && (

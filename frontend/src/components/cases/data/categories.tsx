@@ -6,7 +6,9 @@ import {
   CheckCircleIcon,
   CircleIcon,
   FlagTriangleRightIcon,
+  InfoIcon,
   ShieldAlertIcon,
+  ShieldOffIcon,
   TrafficConeIcon,
 } from "lucide-react"
 
@@ -58,5 +60,18 @@ export const priorities = [
     label: "Critical",
     value: "critical",
     icon: AlertTriangleIcon,
+  },
+]
+
+export const indicators = [
+  {
+    label: "Malicious",
+    value: "malicious",
+    icon: ShieldOffIcon,
+  },
+  {
+    label: "Benign",
+    value: "benign",
+    icon: InfoIcon,
   },
 ]

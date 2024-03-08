@@ -13,4 +13,4 @@ export const caseSchema = z.object({
   priority: z.enum(["low", "medium", "high", "critical"]),
 })
 
-export type Task = z.infer<typeof caseSchema>
+export type Case = z.infer<typeof caseSchema>
