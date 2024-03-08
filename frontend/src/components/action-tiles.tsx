@@ -92,12 +92,10 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                 "justify-start ",
                 tile.hierarchy === "groupItem" && "ml-6",
                 tile.hierarchy === "group"
-                  ? "hover:bg-transparent"
+                  ? "hover:cursor-default hover:bg-transparent"
                   : "hover:cursor-grab"
               )}
               draggable={tile.hierarchy !== "group"}
-              // onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
-              // onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
               onDragStart={(event) => onDragStart(event, tile)}
             >
               <tile.icon className="mr-2 h-4 w-4" />
