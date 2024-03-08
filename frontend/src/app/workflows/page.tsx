@@ -26,22 +26,25 @@ export default function PlaceholderWorkflowsPage() {
   }, [])
   return (
     <div className="flex h-full w-full items-center justify-center">
-      {workflows.length > 0 &&
-        workflows.map((workflow, idx) => (
-          <Button asChild className="h-[50px]">
-            <Link
-              key={idx}
-              href={`/workflows/${workflow.id}`}
-              className={cn(
-                "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                "m-4 flex flex-col justify-start"
-              )}
-            >
-              {workflow.title}
-              <span className="ml-2">{workflow.id}</span>
-            </Link>
-          </Button>
-        ))}
+      {workflows.map((workflow, idx) => (
+        <Button
+          asChild
+          className="h-[50px] rounded-md border-[1px] shadow-md"
+          variant="ghost"
+        >
+          <Link
+            key={idx}
+            href={`/workflows/${workflow.id}`}
+            className={cn(
+              "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
+              "m-4 flex flex-col justify-start"
+            )}
+          >
+            {workflow.title}
+            <span className="ml-2">{workflow.id}</span>
+          </Link>
+        </Button>
+      ))}
     </div>
   )
 }
