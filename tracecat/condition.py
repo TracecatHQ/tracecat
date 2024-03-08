@@ -5,7 +5,7 @@ import re
 from collections.abc import Callable
 from typing import Annotated, Generic, Literal, TypeVar, override
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 ComparisonSubtype = Literal[
     "less_than",
@@ -44,7 +44,7 @@ CONDITION_FUNCTION_TABLE: dict[ConditionSubtype, Callable[..., bool]] = {
 
 
 class _Rule(BaseModel):
-    type: Literal["comparison", "regex", "membership"]
+    type: Literal["condition.compare", "regex", "membership"]
     subtype: ConditionSubtype
 
     def evaluate(self) -> bool:
@@ -55,7 +55,7 @@ T = TypeVar("T", str, int, float, bool)
 
 
 class ComparisonRule(_Rule, Generic[T]):
-    type: Literal["comparison"] = Field(default="comparison", frozen=True)
+    type: Literal["condition.compare"] = Field(default="condition.compare", frozen=True)
     subtype: ComparisonSubtype
     lhs: T = Field(..., description="The left-hand side of the comparison")
     rhs: T = Field(..., description="The right-hand side of the comparison")
@@ -66,7 +66,7 @@ class ComparisonRule(_Rule, Generic[T]):
 
 
 class RegexRule(_Rule):
-    type: Literal["regex"] = Field(default="regex", frozen=True)
+    type: Literal["condition.regex"] = Field(default="condition.regex", frozen=True)
     subtype: RegexSubtype
     pattern: str = Field(..., description="The regex pattern to match")
     text: str
@@ -77,7 +77,9 @@ class RegexRule(_Rule):
 
 
 class MembershipRule(_Rule, Generic[T]):
-    type: Literal["membership"] = Field(default="membership", frozen=True)
+    type: Literal["condition.membership"] = Field(
+        default="condition.membership", frozen=True
+    )
     subtype: MembershipSubtype
     item: T
     container: list[T]
@@ -87,6 +89,10 @@ class MembershipRule(_Rule, Generic[T]):
         return CONDITION_FUNCTION_TABLE[self.subtype](self.item, self.container)
 
 
-ConditionRuleVariant = Annotated[
-    ComparisonRule[T] | RegexRule | MembershipRule[T], Field(discriminator="type")
+ConditionRuleVariant = ComparisonRule[T] | RegexRule | MembershipRule[T]
+AnnotatedConditionRuleVariant = Annotated[
+    ConditionRuleVariant, Field(discriminator="type")
 ]
+ConditionRuleValidator: TypeAdapter[ConditionRuleVariant] = TypeAdapter(
+    AnnotatedConditionRuleVariant
+)

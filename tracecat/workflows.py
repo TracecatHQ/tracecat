@@ -50,9 +50,10 @@ class Workflow(BaseModel):
         adj_list = _graph_obj_to_adj_list(response.object, response.actions)
         actions = {}
         for action in response.actions.values():
+            # Handle hierarchical action types
             if action.type.startswith("llm."):
                 # Special case for LLM actions
-                inputs = action.inputs
+                inputs = action.inputs or {}
                 # NOTE!!!!: Tech debt incurring...
                 # This design needs to change
                 data = {
@@ -72,7 +73,17 @@ class Workflow(BaseModel):
                 data.update(
                     task_fields={"type": action.type, **inputs},
                 )
+            elif action.type.startswith("condition."):
+                inputs = action.inputs or {}
+                inputs.update(type=action.type)
+                data = {
+                    "key": action.key,
+                    "title": action.title,
+                    "type": "condition",
+                    "condition_rules": inputs,
+                }
             else:
+                # All other root level action types
                 data = {
                     "key": action.key,
                     "title": action.title,
