@@ -1,35 +1,36 @@
 import { z } from "zod"
 
+const jsonPayload = z
+  .string()
+  .optional()
+  .transform((val) => {
+    try {
+      return val ? JSON.parse(val) : {}
+    } catch (error) {
+      // TODO: Handle error on SAVE only
+      console.error("Error parsing payload:", error)
+      return {}
+    }
+  })
+
+const stringArray = z
+  .string()
+  .optional()
+  .transform((val) => (val ? val.split(",") : []))
+  .pipe(z.string().array())
+
 const WebhookActionSchema = z.object({
-  url: z.string().url(),
+  path: z.string(), // The webhook ID
+  secret: z.string().optional(), // The webhook secret
+  url: z.string().url(), // Whitelist of supported URL formats
   method: z.enum(["GET", "POST"]),
 })
 
 const HTTPRequestActionSchema = z.object({
   url: z.string().url(),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-  headers: z
-    .string()
-    .optional()
-    .transform((val) => {
-      try {
-        return val ? JSON.parse(val) : {}
-      } catch (error) {
-        // TODO: Handle error on SAVE only
-        return {}
-      }
-    }),
-  payload: z
-    .string()
-    .optional()
-    .transform((val) => {
-      try {
-        return val ? JSON.parse(val) : {}
-      } catch (error) {
-        // TODO: Handle error on SAVE only
-        return {}
-      }
-    }),
+  headers: jsonPayload.optional(),
+  payload: jsonPayload,
 })
 
 const SendEmailActionSchema = z.object({
@@ -46,38 +47,31 @@ const LLMTranslateActionSchema = z.object({
   message: z.string(),
   from_language: z.string(),
   to_language: z.string(),
+  response_schema: jsonPayload.optional(),
 })
 
 const LLMExtractActionSchema = z.object({
   message: z.string(),
-  groups: z
-    .string()
-    .optional()
-    .transform((val) => (val ? val.split(",") : []))
-    .pipe(z.string().array()),
+  groups: stringArray,
+  response_schema: jsonPayload.optional(),
 })
 
 const LLMLabelTaskActionSchema = z.object({
   message: z.string(),
-  labels: z
-    .string()
-    .optional()
-    .transform((val) => (val ? val.split(",") : []))
-    .pipe(z.string().array()),
+  labels: stringArray,
+  response_schema: jsonPayload.optional(),
 })
 
 const LLMChoiceTaskActionSchema = z.object({
   message: z.string(),
-  choices: z
-    .string()
-    .optional()
-    .transform((val) => (val ? val.split(",") : []))
-    .pipe(z.string().array()),
+  choices: stringArray,
+  response_schema: jsonPayload.optional(),
 })
 
 const LLMSummarizeTaskActionSchema = z.object({
   message: z.string(),
   summary: z.string(),
+  response_schema: jsonPayload.optional(),
 })
 
 interface ActionFieldOption {
@@ -100,6 +94,8 @@ const actionFieldSchemas: ActionFieldSchemas = {
       type: "Select",
       options: ["GET", "POST"],
     },
+    path: { type: "Input" },
+    secret: { type: "Input" },
   },
   "HTTP Request": {
     url: { type: "Input" },
@@ -120,24 +116,29 @@ const actionFieldSchemas: ActionFieldSchemas = {
     message: { type: "Textarea" },
     from_language: { type: "Input" },
     to_language: { type: "Input" },
+    response_schema: { type: "Textarea" },
   },
   Extract: {
     message: { type: "Textarea" },
     // TODO: Replace with Command input and ability to add to list
     groups: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
+    response_schema: { type: "Textarea" },
   },
   Label: {
     // TODO: Replace with Command input and ability to add to list
     message: { type: "Textarea" },
     labels: { type: "Input" }, // Assuming a comma-separated string to be transformed into an array
+    response_schema: { type: "Textarea" },
   },
   Choice: {
     message: { type: "Textarea" },
     choices: { type: "Input" },
+    response_schema: { type: "Textarea" },
   },
   Summarize: {
     message: { type: "Textarea" },
     summary: { type: "Textarea" },
+    response_schema: { type: "Textarea" },
   },
 }
 
