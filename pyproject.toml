@@ -25,13 +25,13 @@ classifiers = [
 ]
 dependencies = [
     "fastapi",
-    "pydantic",
     "sqlmodel",
     "uvicorn",
     "pydantic==2.6.1",
     "openai",
     "tenacity",
     "colorlog",
+    "orjson",
     "python-slugify"
 ]
 dynamic = ["version"]
@@ -43,7 +43,6 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
 runner = [
-    "orjson",
     "httpx[http2]",
     "python-multipart",
     "jsonpath_ng",
