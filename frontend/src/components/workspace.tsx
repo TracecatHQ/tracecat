@@ -104,7 +104,6 @@ export function Workspace({
                     variant: "ghost",
                   },
                   {
-                    type: "condition",
                     title: "Condition",
                     icon: Split,
                     variant: "ghost",
@@ -129,7 +128,6 @@ export function Workspace({
                     variant: "ghost",
                   },
                   {
-                    type: "llm",
                     title: "AI Actions",
                     icon: Sparkles,
                     variant: "ghost",

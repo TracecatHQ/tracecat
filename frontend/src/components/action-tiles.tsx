@@ -15,7 +15,7 @@ import {
 interface ActionTilesProps {
   isCollapsed: boolean
   tiles: {
-    type: ActionType
+    type?: ActionType
     title?: string
     icon: LucideIcon
     variant: "default" | "ghost"
@@ -27,7 +27,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
   const onDragStart = (
     event: DragEvent<HTMLDivElement>,
     tile: {
-      type: ActionType
+      type?: ActionType
       title?: string
       icon: LucideIcon
       variant: "default" | "ghost"
