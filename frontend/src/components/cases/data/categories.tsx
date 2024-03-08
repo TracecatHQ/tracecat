@@ -24,7 +24,7 @@ export const statuses = [
     icon: CheckCircleIcon,
   },
   {
-    value: "in progress",
+    value: "in_progress",
     label: "In Progress",
     icon: TrafficConeIcon,
   },

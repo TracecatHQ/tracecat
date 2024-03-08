@@ -150,7 +150,7 @@
     "action": ["Support their health-conscious choice. Offer a complimentary vegan appetizer."],
     "context": ["vegan", "gluten-free"],
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
-    "status": "open",
+    "status": "in_progress",
     "priority": "medium"
   },
   {
@@ -161,7 +161,7 @@
     "action": ["Ponder their adventurous palate. Serve with a cautionary note on sweetness overload."],
     "context": ["cheese-lover", "sweet"],
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
-    "status": "open",
+    "status": "in_progress",
     "priority": "medium"
   }
 ]
