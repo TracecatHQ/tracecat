@@ -18,6 +18,7 @@ interface ActionTilesProps {
     title?: string
     icon: LucideIcon
     variant: "default" | "ghost"
+    hierarchy?: "groupItem" | "group"
   }[]
 }
 
@@ -88,26 +89,19 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                 buttonVariants({ variant: tile.variant, size: "sm" }),
                 tile.variant === "default" &&
                   "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                "justify-start"
+                "justify-start ",
+                tile.hierarchy === "groupItem" && "ml-6",
+                tile.hierarchy === "group"
+                  ? "hover:bg-transparent"
+                  : "hover:cursor-grab"
               )}
-              draggable
-              onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
-              onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
+              draggable={tile.hierarchy !== "group"}
+              // onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
+              // onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
               onDragStart={(event) => onDragStart(event, tile)}
             >
               <tile.icon className="mr-2 h-4 w-4" />
               {tile.type}
-              {tile.title && (
-                <span
-                  className={cn(
-                    "ml-3",
-                    tile.variant === "default" &&
-                      "text-background dark:text-white"
-                  )}
-                >
-                  {tile.title}
-                </span>
-              )}
             </div>
           )
         )}
