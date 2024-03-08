@@ -47,11 +47,13 @@ def root() -> dict[str, str]:
 
 class ActionResponse(BaseModel):
     id: str
+    type: str
     title: str
     description: str
     status: str
     inputs: dict[str, Any] | None
-    key: str
+    key: str  # Computed field
+    type_slug: str | None = None  # Computed field
 
 
 class WorkflowResponse(BaseModel):
@@ -165,11 +167,13 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
     actions_responses = {
         action.id: ActionResponse(
             id=action.id,
+            type=action.type,
             title=action.title,
             description=action.description,
             status=action.status,
             inputs=json.loads(action.inputs) if action.inputs else None,
             key=action.action_key,
+            type_slug=action.type_slug,
         )
         for action in actions
     }
@@ -348,6 +352,11 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
         session.add(action)
         session.commit()
         session.refresh(action)
+
+        if params.type.lower() == "webhook":
+            create_webhook(
+                CreateWebhookParams(action_id=action.id, workflow_id=params.workflow_id)
+            )
     action_metadata = ActionMetadataResponse(
         id=action.id,
         workflow_id=params.workflow_id,
@@ -370,13 +379,22 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
         )
         result = session.exec(statement)
         action = result.one()
+
+        inputs: dict[str, Any] = json.loads(action.inputs) if action.inputs else {}
+        # Precompute webhook response
+        # Alias webhook.id as path
+        if action.type.lower() == "webhook":
+            webhook_response = search_webhooks(action_id=action.id)
+            inputs |= {"path": webhook_response.id, "secret": webhook_response.secret}
     return ActionResponse(
         id=action.id,
+        type=action.type,
         title=action.title,
         description=action.description,
         status=action.status,
-        inputs=json.loads(action.inputs) if action.inputs else None,
+        inputs=None if len(inputs) == 0 else inputs,
         key=action.action_key,
+        type_slug=action.type_slug,
     )
 
 
@@ -410,11 +428,13 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
 
     return ActionResponse(
         id=action.id,
+        type=action.type,
         title=action.title,
         description=action.description,
         status=action.status,
         inputs=json.loads(action.inputs) if action.inputs else None,
         key=action.action_key,
+        type_slug=action.type_slug,
     )
 
 
@@ -432,16 +452,21 @@ def delete_action(action_id: str) -> None:
 
 
 class CreateWebhookParams(BaseModel):
-    path: str
     action_id: str
     workflow_id: str
 
 
+class WebhookMetadataResponse(BaseModel):
+    id: str
+    action_id: str
+    workflow_id: str
+    secret: str
+
+
 @app.put("/webhooks", status_code=status.HTTP_201_CREATED)
-def create_webhook(params: CreateWebhookParams) -> None:
+def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
     """Create a new Webhook."""
     webhook = Webhook(
-        path=params.path,
         action_id=params.action_id,
         workflow_id=params.workflow_id,
     )
@@ -450,10 +475,17 @@ def create_webhook(params: CreateWebhookParams) -> None:
         session.commit()
         session.refresh(webhook)
 
+    return WebhookMetadataResponse(
+        id=webhook.id,
+        action_id=webhook.action_id,
+        workflow_id=webhook.workflow_id,
+        secret=webhook.secret,
+    )
+
 
 class WebhookResponse(BaseModel):
     id: str
-    path: str
+    secret: str
     action_id: str
     workflow_id: str
 
@@ -471,7 +503,7 @@ def get_webhook(webhook_id: str) -> WebhookResponse:
         webhook = result.one()
     webhook_response = WebhookResponse(
         id=webhook.id,
-        path=webhook.path,
+        secret=webhook.secret,
         action_id=webhook.action_id,
         workflow_id=webhook.workflow_id,
     )
@@ -508,28 +540,49 @@ def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
     return webhook_responses
 
 
+@app.get("/webhooks/search")
+def search_webhooks(action_id: str | None = None) -> WebhookResponse:
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook)
+
+        if action_id is not None:
+            statement = statement.where(Webhook.action_id == action_id)
+        result = session.exec(statement)
+        webhook = result.one()
+    webhook_response = WebhookResponse(
+        id=webhook.id,
+        secret=webhook.secret,
+        action_id=webhook.action_id,
+        workflow_id=webhook.workflow_id,
+    )
+    return webhook_response
+
+
 class AuthenticateWebhookResponse(BaseModel):
     status: Literal["Authorized", "Unauthorized"]
     action_key: str | None = None
+    action_id: str | None = None
     webhook_id: str | None = None
+    workflow_id: str | None = None
 
 
-@app.post("/authenticate/webhook/{webhook_id}")
+@app.post("/authenticate/webhooks/{webhook_id}/{secret}")
 def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
     with Session(create_db_engine()) as session:
         statement = select(Webhook).where(Webhook.id == webhook_id)
         result = session.exec(statement)
         webhook = result.one()
-
+        if webhook.secret != secret:
+            return AuthenticateWebhookResponse(status="Unauthorized")
         # Get slug
         statement = select(Action).where(Action.id == webhook.action_id)
         result = session.exec(statement)
         action = result.one()
-    if webhook.secret != secret:
-        return AuthenticateWebhookResponse(message="Unauthorized")
-    else:
-        return AuthenticateWebhookResponse(
-            message="Authorized",
-            action_key=action.action_key,
-            webhook_id=webhook_id,
-        )
+
+    return AuthenticateWebhookResponse(
+        status="Authorized",
+        action_id=action.id,
+        action_key=action.action_key,
+        workflow_id=webhook.workflow_id,
+        webhook_id=webhook_id,
+    )
