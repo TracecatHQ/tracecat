@@ -33,12 +33,11 @@ Stores
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import os
 from enum import StrEnum, auto
 from typing import Annotated, Any
 from uuid import uuid4
 
+import httpx
 from fastapi import (
     BackgroundTasks,
     Body,
@@ -57,10 +56,10 @@ from tracecat.actions import (
     ActionRun,
     ActionRunStatus,
     ActionTrail,
-    action_key_to_workflow_id,
     start_action_run,
 )
-from tracecat.graph import find_entrypoint
+from tracecat.api import AuthenticateWebhookResponse, WorkflowResponse
+from tracecat.config import TRACECAT__API_URL
 from tracecat.logger import standard_logger
 from tracecat.workflows import Workflow
 
@@ -90,9 +89,6 @@ class RunnerStatus(StrEnum):
 
 runner_status: RunnerStatus = RunnerStatus.RUNNING
 
-# Static data
-workflow_registry: dict[str, Workflow] = {}
-entrypoint_secret_to_action_key: dict[str, str] = {}
 
 # Dynamic data
 action_result_store: dict[str, ActionTrail] = {}
@@ -101,72 +97,31 @@ ready_jobs_queue: asyncio.Queue[ActionRun] = asyncio.Queue()
 running_jobs_store: dict[str, asyncio.Task[None]] = {}
 
 
+async def get_workflow(id: str) -> WorkflowResponse:
+    async with httpx.AsyncClient(http2=True) as client:
+        response = await client.get(f"{TRACECAT__API_URL}/workflows/{id}")
+        response.raise_for_status()
+    data = response.json()
+    return WorkflowResponse.model_validate(data)
+
+
 # Dependencies
-def valid_workflow(workflow_id: str) -> str:
+async def valid_workflow(workflow_id: str) -> str:
     """Check if a workflow exists."""
-    if workflow_id not in workflow_registry:
-        logger.error(f"Workflow {workflow_id} not found.")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow {workflow_id} not found.",
-        )
+    async with httpx.AsyncClient(http2=True) as client:
+        response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
+        if response.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow {workflow_id} not found.",
+            )
     return workflow_id
-
-
-def valid_webhook_secret(secret: str) -> str:
-    if secret not in entrypoint_secret_to_action_key:
-        logger.error(f"{secret} is not a valid entrypoint.")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{secret} is not a valid entrypoint.",
-        )
-    return entrypoint_secret_to_action_key[secret]
 
 
 # Endpoints
 @app.get("/")
 def root() -> dict[str, str]:
     return {"message": "Hello. I am a runner."}
-
-
-class AddWorkflowResponse(BaseModel):
-    status: str = Field(..., description="Status of the runner.")
-    message: str = Field(..., description="Message from the runner.")
-    id: str = Field(..., description="ID of the workflow.")
-
-
-@app.post("/workflow")
-def add_workflow(workflow: Annotated[Workflow, Body]) -> AddWorkflowResponse:
-    """Load the runner with a workflow.
-
-    This is a temporary solution to store the workflow in memory.
-
-    Better alternatives include:
-    - Using a database to store the graph.
-    - Using a message broker/task queue to send the graph to the runner.
-    """
-    global workflow_registry, entrypoint_secret_to_action_key
-    logger.debug(f"Received workflow: {workflow.id!r}")
-
-    workflow_registry[workflow.id] = workflow
-    entrypoint_key = find_entrypoint(workflow.adj_list)
-    entrypoint_secret = hashlib.sha256(
-        f"{entrypoint_key}{os.environ["RUNNER_SALT"]}".encode()
-    ).hexdigest()
-
-    logger.debug(f"Entrypoint: {entrypoint_key}")
-    logger.debug(f"Entrypoint secret: {entrypoint_secret}")
-
-    entrypoint_secret_to_action_key[entrypoint_secret] = entrypoint_key
-
-    logger.debug(f"Workflow registry: {workflow_registry.keys()}")
-    logger.debug(f"Entrypoint mapping: {entrypoint_secret_to_action_key}")
-
-    return AddWorkflowResponse(
-        status="ok",
-        message="Successfully added workflow to runner.",
-        id=workflow.id,
-    )
 
 
 class StartWorkflowResponse(BaseModel):
@@ -186,18 +141,57 @@ async def valid_payload(request: Request) -> dict[str, Any] | FormData:
         case _:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid content type.",
+                detail="Validation error: Invalid payload content type.",
             )
     return payload
 
 
-@app.post("/webhook/{secret}")
+async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookResponse:
+    """Validate a webhook request.
+
+    Steps
+    -----
+    1. Lookup the secret in the database
+    2. If the secret is not found, return a 404.
+    """
+    # Change this to make a db call
+    logger.critical(f"{TRACECAT__API_URL =}")
+    async with httpx.AsyncClient(http2=True) as client:
+        response = await client.post(
+            f"{TRACECAT__API_URL}/authenticate/webhooks/{path}/{secret}"
+        )
+        response.raise_for_status()
+
+    auth_response = AuthenticateWebhookResponse.model_validate(response.json())
+    if auth_response.status == "Unauthorized":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid secret.",
+        )
+    return auth_response
+
+
+@app.post("/webhook/{path}/{secret}")
 async def webhook(
-    entrypoint_key: Annotated[str, Depends(valid_webhook_secret)],
+    webhook_metadata: Annotated[
+        AuthenticateWebhookResponse, Depends(valid_webhook_request)
+    ],
     payload: Annotated[dict[str, Any], Depends(valid_payload)],
     background_tasks: BackgroundTasks,
 ) -> StartWorkflowResponse:
     """A webhook to handle tracecat events.
+
+    Responsibilities
+    ---------------
+    - This endpoint can (and ideally will) run in a separate process.
+    - Ideally, we should use a message broker to handle the events.
+
+    Authentication
+    --------------
+    - Needs to check that the incoming request is from the intended user.
+    - To do this we can store the webhook secret in the database.
+    - This server should also perform authentication / validation of the incoming requests.
+
 
     Notes
     -----
@@ -210,15 +204,19 @@ async def webhook(
         - Spawn a new process to handle the event.
         - Store the process in a queue.
     """
-    logger.info(f"Received webhook with entrypoint {entrypoint_key}")
+    logger.info(f"Received webhook with entrypoint {webhook_metadata.action_key}")
+    logger.debug(f"{payload =}")
 
-    logger.info(f"{payload =}")
-
-    workflow_id = action_key_to_workflow_id(entrypoint_key)
+    workflow_id = webhook_metadata.workflow_id
+    workflow_response = await get_workflow(workflow_id)
+    if workflow_response.status == "offline":
+        return StartWorkflowResponse(
+            status="error", message="Workflow offline", id=workflow_id
+        )
 
     # This data refers to the webhook specific data
     response = await start_workflow(
-        entrypoint_key=entrypoint_key,
+        entrypoint_key=webhook_metadata.action_key,
         workflow_id=workflow_id,
         entrypoint_payload=payload,
         background_tasks=background_tasks,
@@ -290,10 +288,8 @@ async def run_workflow(
     - The `start_workflow` function can then just directly enqueue the first action.
     """
     run_logger = standard_logger(run_id)
-    # This is the adjacency list of the graph
-    workflow = workflow_registry[workflow_id]
-
-    # Execution state
+    workflow_response = await get_workflow(workflow_id)
+    workflow = Workflow.from_response(workflow_response)
 
     # Initial state
     ready_jobs_queue.put_nowait(
@@ -323,7 +319,7 @@ async def run_workflow(
                 continue
 
             run_logger.info(
-                f"{workflow.action_map[action_run.action_key].__class__.__name__} {action_run.id!r} ready. Running."
+                f"{workflow.actions[action_run.action_key].__class__.__name__} {action_run.id!r} ready. Running."
             )
             action_run_status_store[action_run.id] = ActionRunStatus.PENDING
             # Schedule a new action run
