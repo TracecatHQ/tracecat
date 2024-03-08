@@ -122,6 +122,9 @@ export function ActionForm({
                 // NOTE: Need to manually unpack fieldProps and pass them to the Select component
                 // to ensure the form state for this shadcn component is updated correctly
                 value={form.watch(inputKey)} // Ensure the Select component uses the current field value
+                defaultValue={
+                  actionResponseData?.inputs?.[inputKey] ?? undefined
+                } // Set the default value from the fetched action data
                 onValueChange={
                   (value) => {
                     fieldProps.onChange({
