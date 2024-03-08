@@ -10,7 +10,6 @@ from slugify import slugify
 from sqlmodel import Field, Relationship, SQLModel, create_engine
 
 from tracecat import auth
-from tracecat.llm import TYPE_SLUGS
 
 STORAGE_PATH = Path(os.path.expanduser("~/.tracecat/storage"))
 EMBEDDINGS_SIZE = os.environ.get("TRACECAT__EMBEDDINGS_SIZE", 512)
@@ -49,22 +48,6 @@ class Action(SQLModel, table=True):
     def action_key(self) -> str:
         slug = slugify(self.title, separator="_")
         return f"{self.id}.{slug}"
-
-    @computed_field
-    @property
-    def type_slug(self) -> str:
-        """Slug of the action type.
-
-        In the Python runner world we use this as an Action disctiminator.
-
-        Example
-        -------
-        - "HTTP Request" --> "http_request"
-        """
-        slug = slugify(self.type, separator="_")
-        if slug in TYPE_SLUGS:
-            return f"llm.{slug}"
-        return slug
 
 
 class Webhook(SQLModel, table=True):

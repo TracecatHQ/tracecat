@@ -15,13 +15,13 @@ from tracecat.logger import standard_logger
 logger = standard_logger(__name__)
 
 TaskType = Literal[
-    "translate",
-    "extract",
-    "summarize",
-    "label",
-    "enrich",
-    "question_answering",
-    "choice",
+    "llm.translate",
+    "llm.extract",
+    "llm.summarize",
+    "llm.label",
+    "llm.enrich",
+    "llm.question_answering",
+    "llm.choice",
 ]
 ModelType = Literal[
     "gpt-4-turbo-preview",
@@ -31,15 +31,6 @@ ModelType = Literal[
 ]
 DEFAULT_MODEL_TYPE: ModelType = "gpt-4-turbo-preview"
 DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
-TYPE_SLUGS = {
-    "translate",
-    "extract",
-    "summarize",
-    "label",
-    "enrich",
-    "question_answering",
-    "choice",
-}
 
 
 class TaskFields(BaseModel):
@@ -53,7 +44,7 @@ class TaskFields(BaseModel):
 
 
 class TranslateTaskFields(TaskFields):
-    type: Literal["translate"] = Field("translate", frozen=True)
+    type: Literal["llm.translate"] = Field("llm.translate", frozen=True)
     from_language: str | None = Field(
         None,
         description="The source language for the translation. If None, the language(s) will be detected automatically.",
@@ -62,26 +53,26 @@ class TranslateTaskFields(TaskFields):
 
 
 class ExtractTaskFields(TaskFields):
-    type: Literal["extract"] = Field("extract", frozen=True)
+    type: Literal["llm.extract"] = Field("llm.extract", frozen=True)
     groups: list[str] | None = None
 
 
 class LabelTaskFields(TaskFields):
-    type: Literal["label"] = Field("label", frozen=True)
+    type: Literal["llm.label"] = Field("llm.label", frozen=True)
     labels: list[str]
 
 
 class SummarizeTaskFields(TaskFields):
-    type: Literal["summarize"] = Field("summarize", frozen=True)
+    type: Literal["llm.summarize"] = Field("llm.summarize", frozen=True)
 
 
 class ChoiceTaskFields(TaskFields):
-    type: Literal["choice"] = Field("choice", frozen=True)
+    type: Literal["llm.choice"] = Field("llm.choice", frozen=True)
     choices: list[str]
 
 
 class EnrichTaskFields(TaskFields):
-    type: Literal["enrich"] = Field("enrich", frozen=True)
+    type: Literal["llm.enrich"] = Field("llm.enrich", frozen=True)
 
 
 TaskFieldsSubclass = (
@@ -93,12 +84,12 @@ TaskFieldsSubclass = (
     | EnrichTaskFields
 )
 TASK_FIELDS_FACTORY: dict[TaskType, type[TaskFields]] = {
-    "translate": TranslateTaskFields,
-    "extract": ExtractTaskFields,
-    "label": LabelTaskFields,
-    "summarize": SummarizeTaskFields,
-    "choice": ChoiceTaskFields,
-    "enrich": EnrichTaskFields,
+    "llm.translate": TranslateTaskFields,
+    "llm.extract": ExtractTaskFields,
+    "llm.label": LabelTaskFields,
+    "llm.summarize": SummarizeTaskFields,
+    "llm.choice": ChoiceTaskFields,
+    "llm.enrich": EnrichTaskFields,
 }
 
 
@@ -189,13 +180,13 @@ def _enrich_system_context() -> str:
 
 
 _LLM_SYSTEM_CONTEXT_FACTORY: dict[TaskType, Callable[..., str]] = {
-    "translate": _translate_system_context,
-    "extract": _extract_system_context,
-    "label": _label_system_context,
-    "summarize": _summary_system_context,
-    "question_answering": _question_answering_system_context,
-    "choice": _choice_system_context,
-    "enrich": _enrich_system_context,
+    "llm.translate": _translate_system_context,
+    "llm.extract": _extract_system_context,
+    "llm.label": _label_system_context,
+    "llm.summarize": _summary_system_context,
+    "llm.question_answering": _question_answering_system_context,
+    "llm.choice": _choice_system_context,
+    "llm.enrich": _enrich_system_context,
 }
 
 
