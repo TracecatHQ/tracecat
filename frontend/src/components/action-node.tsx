@@ -1,11 +1,16 @@
 import React from "react"
+import { ActionType } from "@/types"
 import {
   BellDotIcon,
   Blend,
+  BookText,
+  CheckSquare,
   ChevronsDownIcon,
   CircleIcon,
   EyeIcon,
+  FlaskConical,
   Globe,
+  Languages,
   LucideIcon,
   Mail,
   ScanSearchIcon,
@@ -13,6 +18,7 @@ import {
   ShieldAlert,
   Sparkles,
   Split,
+  Tags,
   Webhook,
 } from "lucide-react"
 import { Handle, NodeProps, Position } from "reactflow"
@@ -34,7 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export interface ActionNodeData {
-  type: string
+  type: ActionType
   title: string
   status: "online" | "offline"
   isConfigured: boolean
@@ -42,20 +48,21 @@ export interface ActionNodeData {
   // Generic metadata
 }
 
-const tileIconMapping: { [key: string]: LucideIcon } = {
-  Webhook: Webhook,
-  "HTTP Request": Globe,
-  "Data Transform": Blend,
-  "If Condition": Split,
-  "Open Case": ShieldAlert,
-  "Receive Email": Mail,
-  "Send Email": Send,
-  "AI Actions": Sparkles,
-  Extract: Sparkles,
-  Label: Sparkles,
-  Translate: Sparkles,
-  Choice: Sparkles,
-  Summarize: Sparkles,
+const tileIconMapping: Partial<Record<ActionType, LucideIcon>> = {
+  webhook: Webhook,
+  http_request: Globe,
+  data_transform: Blend,
+  "condition.compare": Split,
+  "condition.regex": Split,
+  "condition.membership": Split,
+  open_case: ShieldAlert,
+  receive_email: Mail,
+  send_email: Send,
+  "llm.extract": FlaskConical,
+  "llm.label": Tags,
+  "llm.translate": Languages,
+  "llm.choice": CheckSquare,
+  "llm.summarize": BookText,
 }
 const handleStyle = { width: 8, height: 8 }
 
@@ -63,7 +70,7 @@ export default React.memo(function ActionNode({
   data: { type, title, status, isConfigured, numberOfEvents },
 }: NodeProps<ActionNodeData>) {
   const avatarImageAlt = `${type}-${title}`
-  const tileIcon = tileIconMapping[type]
+  const tileIcon = tileIconMapping[type] ?? Sparkles
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
 
   return (

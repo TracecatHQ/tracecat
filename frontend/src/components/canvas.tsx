@@ -11,16 +11,15 @@ import ReactFlow, {
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
-  useOnSelectionChange,
   useReactFlow,
 } from "reactflow"
 
 import "reactflow/dist/style.css"
 
 import { useParams } from "next/navigation"
+import { ActionType } from "@/types"
 
 import { saveFlow } from "@/lib/flow"
-import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, { ActionNodeData } from "@/components/action-node"
 
@@ -103,7 +102,7 @@ const WorkflowCanvas: React.FC = () => {
     initializeReactFlowInstance()
   }, [workflowId, setNodes, setEdges, setViewport])
 
-  const createAction = async (type: string, title: string) => {
+  const createAction = async (type: ActionType, title: string) => {
     if (!workflowId || !reactFlowInstance) return
     try {
       const createActionMetadata = JSON.stringify({
