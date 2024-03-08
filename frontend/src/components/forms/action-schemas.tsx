@@ -44,6 +44,36 @@ const SendEmailActionSchema = z.object({
   contents: z.string(),
 })
 
+const conditionCompareActionSubtypes = [
+  "less_than",
+  "less_than_or_equal_to",
+  "greater_than",
+  "greater_than_or_equal_to",
+  "equal_to",
+  "not_equal_to",
+] as const
+
+const ConditionCompareActionSchema = z.object({
+  subtype: z.enum(conditionCompareActionSubtypes),
+  lhs: z.string(),
+  rhs: z.string(),
+})
+const conditionRegexActionSubtypes = ["regex_match", "regex_not_match"] as const
+const ConditionRegexActionSchema = z.object({
+  subtype: z.enum(conditionRegexActionSubtypes),
+  pattern: z.string(),
+  text: z.string(),
+})
+const conditionMembershipActionSubtypes = [
+  "contains",
+  "does_not_contain",
+] as const
+const ConditionMembershipActionSchema = z.object({
+  subtype: z.enum(conditionMembershipActionSubtypes),
+  item: z.string(),
+  container: z.string(),
+})
+
 const LLMTranslateActionSchema = z.object({
   message: z.string(),
   from_language: z.string(),
@@ -78,7 +108,7 @@ const LLMSummarizeTaskActionSchema = z.object({
 type ActionFieldType = "input" | "select" | "textarea"
 export interface ActionFieldOption {
   type: ActionFieldType
-  options?: string[]
+  options?: readonly string[]
 }
 
 interface ActionFieldSchema {
@@ -112,6 +142,30 @@ const actionFieldSchemas: Partial<ActionFieldSchemas> = {
     recipients: { type: "input" },
     subject: { type: "input" },
     contents: { type: "textarea" },
+  },
+  "condition.compare": {
+    subtype: {
+      type: "select",
+      options: conditionCompareActionSubtypes,
+    },
+    lhs: { type: "input" },
+    rhs: { type: "input" },
+  },
+  "condition.regex": {
+    subtype: {
+      type: "select",
+      options: conditionRegexActionSubtypes,
+    },
+    pattern: { type: "input" },
+    text: { type: "textarea" },
+  },
+  "condition.membership": {
+    subtype: {
+      type: "select",
+      options: conditionMembershipActionSubtypes,
+    },
+    item: { type: "input" },
+    container: { type: "input" },
   },
   "llm.translate": {
     // TODO: Replace with supported languages and Command input
@@ -160,6 +214,21 @@ export const getActionSchema = (actionType: ActionType) => {
       return {
         actionSchema: SendEmailActionSchema,
         actionFieldSchema: actionFieldSchemas.send_email,
+      }
+    case "condition.compare":
+      return {
+        actionSchema: ConditionCompareActionSchema,
+        actionFieldSchema: actionFieldSchemas["condition.compare"],
+      }
+    case "condition.regex":
+      return {
+        actionSchema: ConditionRegexActionSchema,
+        actionFieldSchema: actionFieldSchemas["condition.regex"],
+      }
+    case "condition.membership":
+      return {
+        actionSchema: ConditionMembershipActionSchema,
+        actionFieldSchema: actionFieldSchemas["condition.membership"],
       }
     case "llm.translate":
       return {
