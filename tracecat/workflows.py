@@ -50,9 +50,8 @@ class Workflow(BaseModel):
         adj_list = _graph_obj_to_adj_list(response.object, response.actions)
         actions = {}
         for action in response.actions.values():
-            if action.type_slug.startswith("llm."):
+            if action.type.startswith("llm."):
                 # Special case for LLM actions
-                subtype_slug = action.type_slug.split(".")[1]
                 inputs = action.inputs
                 # NOTE!!!!: Tech debt incurring...
                 # This design needs to change
@@ -71,13 +70,13 @@ class Workflow(BaseModel):
                 if llm_kwargs := inputs.pop("llm_kwargs", None):
                     data.update(llm_kwargs=llm_kwargs)
                 data.update(
-                    task_fields={"type": subtype_slug, **inputs},
+                    task_fields={"type": action.type, **inputs},
                 )
             else:
                 data = {
                     "key": action.key,
                     "title": action.title,
-                    "type": action.type_slug,
+                    "type": action.type,
                     **action.inputs,
                 }
             actions[action.key] = data

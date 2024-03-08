@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
+from tracecat.actions import ActionType
 from tracecat.db import (
     Action,
     Webhook,
@@ -50,13 +51,12 @@ def root() -> dict[str, str]:
 
 class ActionResponse(BaseModel):
     id: str
-    type: str
+    type: ActionType
     title: str
     description: str
     status: str
     inputs: dict[str, Any] | None
     key: str  # Computed field
-    type_slug: str | None = None  # Computed field
 
 
 class WorkflowResponse(BaseModel):
@@ -71,7 +71,7 @@ class WorkflowResponse(BaseModel):
 class ActionMetadataResponse(BaseModel):
     id: str
     workflow_id: str
-    type: str
+    type: ActionType
     title: str
     description: str
     status: str
@@ -176,7 +176,6 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             status=action.status,
             inputs=json.loads(action.inputs) if action.inputs else None,
             key=action.action_key,
-            type_slug=action.type_slug,
         )
         for action in actions
     }
@@ -397,7 +396,6 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
         status=action.status,
         inputs=None if len(inputs) == 0 else inputs,
         key=action.action_key,
-        type_slug=action.type_slug,
     )
 
 
@@ -437,7 +435,6 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
         status=action.status,
         inputs=json.loads(action.inputs) if action.inputs else None,
         key=action.action_key,
-        type_slug=action.type_slug,
     )
 
 

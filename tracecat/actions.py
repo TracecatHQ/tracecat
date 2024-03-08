@@ -55,15 +55,20 @@ if TYPE_CHECKING:
 
 logger = standard_logger(__name__)
 
-# TODO: Add support for the rest of the Actions
 ActionType = Literal[
     "webhook",
     "http_request",
-    "condition",
-    "llm",
-    "receive_email",
+    "data_transform",
+    "condition.compare",
+    "condition.regex",
+    "condition.membership",
+    "llm.extract",
+    "llm.label",
+    "llm.translate",
+    "llm.choice",
+    "llm.summarize",
     "send_email",
-    "transform",
+    "receive_email",
 ]
 
 ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s]+$"
