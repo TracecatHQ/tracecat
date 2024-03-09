@@ -3,8 +3,6 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/utils/supabase/server"
 
-// import NoSSR from "@/components/no-ssr"
-
 import { SubmitButton } from "./submit-button"
 
 export default function Login({
