@@ -33,6 +33,7 @@ dependencies = [
     "tantivy",
     "tenacity",
     "uvicorn",
+    "orjson",
 ]
 dynamic = ["version"]
 
