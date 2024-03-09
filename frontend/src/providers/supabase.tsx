@@ -13,6 +13,7 @@ type SupabaseContext = {
 
 const Context = createContext<SupabaseContext>({} as SupabaseContext)
 
+// See https://github.com/supabase/auth-helpers/pull/397/files
 export default function SupabaseProvider({
   children,
   session,

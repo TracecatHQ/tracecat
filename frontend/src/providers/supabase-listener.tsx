@@ -8,6 +8,7 @@ import { useSupabase } from "@/providers/supabase"
 // this method avoids the need to pass a session down to child components
 // in order to re-render when the user's session changes
 // #elegant!
+// See https://github.com/supabase/auth-helpers/pull/397/files
 export default function SupabaseListener({
   serverAccessToken,
 }: {
