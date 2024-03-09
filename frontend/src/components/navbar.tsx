@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import axios from "axios"
@@ -9,14 +9,16 @@ import { BellRingIcon, WorkflowIcon } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Icons } from "@/components/icons"
 import { UserNav } from "@/components/user-nav"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 
-export function Navbar() {
-  const [enableWorkflow, setEnableWorkflow] = useState(false)
+interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
+export function Navbar(props: NavbarProps) {
   const params = useParams()
-  const workflowId = params["id"]
+  const [workflowId, setWorkflowId] = useState<string>(params["id"] as string)
   const pathname = usePathname()
+  const [enableWorkflow, setEnableWorkflow] = useState(false)
 
   useEffect(() => {
     const updateWorkflowStatus = async () => {
@@ -42,16 +44,19 @@ export function Navbar() {
     }
 
     updateWorkflowStatus()
-  }, [enableWorkflow, workflowId])
+  }, [enableWorkflow])
 
   return (
-    <div className="border-b">
+    <div className="border-b" {...props}>
       <div className="flex h-16 items-center px-4">
-        <div className="flex space-x-8">
+        <div className="flex items-center space-x-8">
           {/* TODO: Ensure that workflow switcher doesn't make an API call to update
               workflows when page is switched between workflow view and cases view
           */}
-          <WorkflowSwitcher />
+          <Link href="/workflows">
+            <Icons.logo className="ml-4 h-5 w-5" />
+          </Link>
+          <WorkflowSwitcher defaultValue={workflowId} />
           <Tabs value={pathname.endsWith("/cases") ? "cases" : "workflow"}>
             <TabsList className="grid w-full grid-cols-2">
               <Link
