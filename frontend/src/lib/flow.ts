@@ -1,12 +1,7 @@
 import axios from "axios"
 import { ReactFlowInstance } from "reactflow"
 
-export type WorkflowMetadata = {
-  id?: string
-  title?: string
-  description?: string
-  status?: string
-}
+import { WorkflowMetadata } from "@/types/schemas"
 
 export async function saveFlow(
   workflowId: string,
