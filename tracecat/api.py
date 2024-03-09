@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 import polars as pl
+import tantivy
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -591,21 +592,24 @@ def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookRes
 ### Events Management
 
 
-class EventParams(BaseModel):
-    id: str  # The action run "key"
-    workflow_id: str
-    workflow_run_id: str
-    action_id: str
-    action_type: str
+class Event(BaseModel):
     published_at: datetime
-    event: dict[str, Any]
+    action_id: str
+    action_run_id: str
+    action_title: str
+    action_type: str
+    workflow_id: str
+    workflow_title: str
+    workflow_run_id: str
+    data: dict[str, Any]
 
 
 @app.post("/events")
-def index_event(event: EventParams):
-    with create_events_index().writer() as writer:
-        writer.add_document(event.model_dump())
-        writer.commit()
+def index_event(event: Event):
+    index = create_events_index()
+    writer = index.writer()
+    writer.add_document(event.model_dump())
+    writer.commit()
 
 
 SUPPORTED_EVENT_AGGS = {
@@ -622,29 +626,23 @@ SUPPORTED_EVENT_AGGS = {
 
 class EventSearchParams(BaseModel):
     workflow_id: str
+    limit: int = 1000
+    order_by: str = "pubished_at"
     workflow_run_id: str | None = None
     query: str | None = None
     group_by: list[str] | None = None
     agg: str | None = None
 
 
-class EventSearchResponse(BaseModel):
-    id: str
-    workflow_id: str
-    workflow_run_id: str
-    action_id: str
-    action_type: str
-    published_at: datetime
-    event: dict[str, Any]
-
-
 @app.get("/events/search")
-def search_events(params: EventSearchParams) -> list[EventSearchResponse]:
-    # Filter by workflow_id
-    # Filter by workflow_run_id (if non-null)
-    # Run query
-    # Return results
-    pass
+def search_events(params: EventSearchParams) -> list[Event]:
+    index = create_events_index()
+    index.reload()
+    query = index.parse_query(params.workflow_id, ["workflow_id"])
+    searcher = index.searcher()
+    searcher.search(
+        query, order_by_field=tantivy.field(params.order_by), limit=params.limit
+    )
 
 
 ### Case Management

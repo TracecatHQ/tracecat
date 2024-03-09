@@ -25,6 +25,7 @@ import logging
 import random
 import re
 from collections.abc import Awaitable, Callable, Iterable
+from datetime import UTC, datetime
 from enum import StrEnum, auto
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
@@ -32,12 +33,14 @@ from uuid import uuid4
 
 import httpx
 import jsonpath_ng
+import tantivy
 from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.config import MAX_RETRIES, TRACECAT__OAUTH2_GMAIL_PATH
+from tracecat.db import create_events_index
 from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
     ModelType,
@@ -446,8 +449,28 @@ async def start_action_run(
         # Store the result in the action result store.
         # Every action has its own result and the trail of actions that led to it.
         # The schema is {<action ID> : <action result>, ...}
-        action_result_store[ar_id] = action_trail | {ar_id: result}
-        custom_logger.debug(f"Action run {ar_id!r} completed with result {result}.")
+        action_trail = action_trail | {ar_id: result}
+        action_result_store[ar_id] = action_trail
+        custom_logger.debug(
+            f"Action run {ar_id!r} completed with trail: {action_trail}."
+        )
+
+        # Add trail to events store
+        writer = create_events_index().writer()
+        writer.add_document(
+            tantivy.Document(
+                # NOTE: Not sure where to get the action metadata from...
+                action_id=action_ref.id,
+                action_run_id=ar_id,
+                action_title=action_ref.title,
+                action_type=action_ref.type,
+                workflow_id=workflow_ref.id,
+                workflow_title=workflow_ref.title,
+                workflow_run_id=action_run.run_id,
+                data={ar_id: trail.data for trail in action_trail.items()},
+                published_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        )
 
         if not result.should_continue:
             custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
