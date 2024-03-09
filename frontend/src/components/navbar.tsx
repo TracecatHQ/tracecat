@@ -6,6 +6,18 @@ import { useParams, usePathname } from "next/navigation"
 import axios from "axios"
 import { BellRingIcon, WorkflowIcon } from "lucide-react"
 
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,6 +27,7 @@ import WorkflowSwitcher from "@/components/workflow-switcher"
 
 interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
 export function Navbar(props: NavbarProps) {
+  const [openEventSearch, setOpenEventSearch] = useState(false)
   const params = useParams()
   const [workflowId, setWorkflowId] = useState<string>(params["id"] as string)
   const pathname = usePathname()
@@ -46,58 +59,111 @@ export function Navbar(props: NavbarProps) {
     updateWorkflowStatus()
   }, [enableWorkflow])
 
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "e" && (e.metaKey || e.ctrlKey)) {
+        if (
+          (e.target instanceof HTMLElement && e.target.isContentEditable) ||
+          e.target instanceof HTMLInputElement ||
+          e.target instanceof HTMLTextAreaElement ||
+          e.target instanceof HTMLSelectElement
+        ) {
+          return
+        }
+
+        e.preventDefault()
+        setOpenEventSearch((openEventSearch) => !openEventSearch)
+      }
+    }
+
+    document.addEventListener("keydown", down)
+    return () => document.removeEventListener("keydown", down)
+  }, [])
+
   return (
     <div className="border-b" {...props}>
-      <div className="flex h-16 items-center px-4">
-        <div className="flex items-center space-x-8">
-          {/* TODO: Ensure that workflow switcher doesn't make an API call to update
+      <Drawer open={openEventSearch} onOpenChange={setOpenEventSearch}>
+        <div className="flex h-12 items-center px-4">
+          <div className="flex space-x-8">
+            {/* TODO: Ensure that workflow switcher doesn't make an API call to update
               workflows when page is switched between workflow view and cases view
           */}
-          <Link href="/workflows">
-            <Icons.logo className="ml-4 h-5 w-5" />
-          </Link>
-          <WorkflowSwitcher defaultValue={workflowId} />
-          <Tabs value={pathname.endsWith("/cases") ? "cases" : "workflow"}>
-            <TabsList className="grid w-full grid-cols-2">
-              <Link
-                href={`/workflows/${workflowId}`}
-                className="w-full"
-                passHref
-              >
-                <TabsTrigger className="w-full" value="workflow">
-                  <WorkflowIcon className="mr-2 h-4 w-4" />
-                  Workflow
+            <WorkflowSwitcher />
+            <Tabs value={pathname.endsWith("/cases") ? "cases" : "workflow"}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger className="w-full py-0" value="workflow" asChild>
+                  <Link
+                    href={`/workflows/${workflowId}`}
+                    className="h-full w-full"
+                    passHref
+                  >
+                    <WorkflowIcon className="mr-2 h-4 w-4" />
+                    <span>Workflow</span>
+                    <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                      <span>Alt</span>F
+                    </kbd>
+                  </Link>
                 </TabsTrigger>
-              </Link>
-              <Link
-                href={`/workflows/${workflowId}/cases`}
-                className="w-full"
-                passHref
-              >
-                <TabsTrigger className="w-full" value="cases">
-                  <BellRingIcon className="mr-2 h-4 w-4" />
-                  Cases
+                <TabsTrigger className="w-full py-0" value="cases" asChild>
+                  <Link
+                    href={`/workflows/${workflowId}/cases`}
+                    className="h-full w-full"
+                    passHref
+                  >
+                    <BellRingIcon className="mr-2 h-4 w-4" />
+                    <span>Cases</span>
+                    <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                      <span>Alt</span>C
+                    </kbd>
+                  </Link>
                 </TabsTrigger>
-              </Link>
-            </TabsList>
-          </Tabs>
-        </div>
-        <div className="ml-auto flex items-center space-x-8">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="enable-workflow"
-              checked={enableWorkflow}
-              onCheckedChange={(newCheckedState) =>
-                setEnableWorkflow(newCheckedState)
-              }
-            />
-            <Label className="w-32" htmlFor="enable-workflow">
-              {enableWorkflow ? "Disable workflow" : "Enable workflow"}
-            </Label>
+              </TabsList>
+            </Tabs>
           </div>
-          <UserNav />
+          <div className="ml-auto flex items-center space-x-6">
+            <DrawerTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  "md:w-30 relative h-8 w-full justify-start rounded-[0.5rem] bg-background text-xs font-normal text-muted-foreground shadow-none sm:pr-12 lg:w-48"
+                )}
+              >
+                <span className="hidden lg:inline-flex">Search events...</span>
+                <span className="inline-flex lg:hidden">Search...</span>
+                <kbd className="pointer-events-none absolute right-[0.3rem] top-[0.3rem] hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
+                  <span>⌘</span>E
+                </kbd>
+              </Button>
+            </DrawerTrigger>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="enable-workflow"
+                checked={enableWorkflow}
+                onCheckedChange={(newCheckedState) =>
+                  setEnableWorkflow(newCheckedState)
+                }
+              />
+              <Label
+                className="w-30 text-xs text-muted-foreground"
+                htmlFor="enable-workflow"
+              >
+                {enableWorkflow ? "Pause" : "Publish"}
+              </Label>
+            </div>
+            <UserNav />
+          </div>
         </div>
-      </div>
+        <DrawerContent>
+          <div className="w-full max-w-sm px-4 py-1">
+            <DrawerHeader>
+              <DrawerTitle>Events</DrawerTitle>
+              <DrawerDescription>
+                Search logs across all workflow and action runs.
+              </DrawerDescription>
+            </DrawerHeader>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   )
 }
