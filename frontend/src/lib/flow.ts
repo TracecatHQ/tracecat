@@ -1,14 +1,12 @@
 import axios from "axios"
 import { ReactFlowInstance } from "reactflow"
 
-
 export type WorkflowMetadata = {
-  id: string | undefined
-  title: string | undefined
-  description: string | undefined
-  status: string | undefined
+  id?: string
+  title?: string
+  description?: string
+  status?: string
 }
-
 
 export async function saveFlow(
   workflowId: string,
@@ -35,15 +33,15 @@ export async function saveFlow(
   }
 }
 
-
-export const fetchWorkflow = async (workflowNameId: string): Promise<WorkflowMetadata> => {
+export const fetchWorkflow = async (
+  workflowNameId: string
+): Promise<WorkflowMetadata> => {
   try {
     const response = await axios.get<WorkflowMetadata>(
       `http://localhost:8000/workflows/${workflowNameId}`
     )
     console.log("Workflow fetched successfully", response.data)
     return response.data
-
   } catch (error) {
     console.error("Error fetching workflow:", error)
     throw error
