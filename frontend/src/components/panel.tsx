@@ -11,22 +11,12 @@ export function WorkflowPanel() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const { workflowMetadata } = useWorkflowMetadata()
 
-  // Workflow metadata
-  const workflowId = workflowMetadata.id
-  const workflowTitle = workflowMetadata.title
-  const workflowDescription = workflowMetadata.description
-  const workflowStatus = workflowMetadata.status
-
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: Node[] }) => {
       const actionNodeSelected = nodes.find(
         (node: Node) => node.type === "action"
       )
-      if (actionNodeSelected) {
-        setSelectedNode(actionNodeSelected)
-      } else {
-        setSelectedNode(null)
-      }
+      setSelectedNode(actionNodeSelected ?? null)
     },
   })
 
@@ -37,15 +27,12 @@ export function WorkflowPanel() {
           actionId={selectedNode.id}
           actionType={selectedNode.data.type as ActionType}
         />
-      ) : workflowId &&
-        workflowTitle &&
-        workflowDescription &&
-        workflowStatus ? (
+      ) : workflowMetadata ? (
         <WorkflowForm
-          workflowId={workflowId}
-          workflowTitle={workflowTitle}
-          workflowDescription={workflowDescription}
-          workflowStatus={workflowStatus}
+          workflowId={workflowMetadata.id}
+          workflowTitle={workflowMetadata.title}
+          workflowDescription={workflowMetadata.description}
+          workflowStatus={workflowMetadata.status}
         />
       ) : (
         <div className="w-full space-x-2 p-4">
