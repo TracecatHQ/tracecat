@@ -1,6 +1,9 @@
 import "@/styles/globals.css"
 
 import { Metadata } from "next"
+import SupabaseProvider from "@/providers/supabase"
+import SupabaseListener from "@/providers/supabase-listener"
+import { createClient } from "@/utils/supabase/server"
 
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
@@ -20,7 +23,12 @@ interface RootLayoutProps {
   children: React.ReactNode
 }
 
-export default function RootLayout({ children }: RootLayoutProps) {
+export default async function RootLayout({ children }: RootLayoutProps) {
+  const supabase = createClient()
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
   return (
     <>
       <html lang="en" className="h-full" suppressHydrationWarning>
@@ -31,7 +39,10 @@ export default function RootLayout({ children }: RootLayoutProps) {
             fontSans.className
           )}
         >
-          {children}
+          <SupabaseProvider session={session}>
+            <SupabaseListener serverAccessToken={session?.access_token} />
+            {children}
+          </SupabaseProvider>
           <Toaster />
         </body>
       </html>

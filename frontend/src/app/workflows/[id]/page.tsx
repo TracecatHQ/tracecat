@@ -1,6 +1,5 @@
 import { Metadata } from "next"
 import { cookies } from "next/headers"
-import { useRouter } from "next/navigation"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { WorkflowProvider } from "@/providers/workflow"
 
