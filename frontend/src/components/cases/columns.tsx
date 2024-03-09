@@ -184,11 +184,11 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Context" />
     ),
     cell: ({ row }) => {
-      const context = row.getValue("context") as string[]
+      const context = row.getValue("context") as Record<string, string>
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-            {context.map((label) => (
+            {Object.values(context).map((label) => (
               <Badge variant="outline">{label}</Badge>
             ))}
           </span>

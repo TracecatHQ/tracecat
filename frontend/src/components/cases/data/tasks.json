@@ -82,7 +82,7 @@
     "payload": {"pizza_order": "Pepperoni Smiley Face Design"},
     "malice": "benign",
     "action": ["Admire their joy. Comply with a smile; consider featuring it on our social media."],
-    "context": {"type": "playful", "taste": "cheesy", "theme": "meat, fun"},
+    "context": {"type": "playful", "taste": "cheesy", "theme": "fun"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "closed",
     "priority": "medium"
@@ -93,7 +93,7 @@
     "payload": {"pizza_order": "Sausage and Broccoli Rabe on Thin Crust"},
     "malice": "benign",
     "action": ["Celebrate their choice of greens. Offer a complimentary dipping sauce to enhance flavors."],
-    "context": {"type": "nutritious", "taste": "earthy", "theme": "meat, vegetables"},
+    "context": {"type": "nutritious", "taste": "earthy", "theme": "meat"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "open",
     "priority": "critical"
@@ -104,7 +104,7 @@
     "payload": {"pizza_order": "Triple Garlic with Anchovy Paste"},
     "malice": "malicious",
     "action": ["Question their love for vampires. Provide a side of parsley to freshen breath."],
-    "context": {"type": "bold", "taste": "pungent", "theme": "seafood, garlic-heavy"},
+    "context": {"type": "bold", "taste": "pungent", "theme": "seafood"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "reported",
     "priority": "medium"
@@ -115,7 +115,7 @@
     "payload": {"pizza_order": "Buffalo Chicken with Blue Cheese Drizzle"},
     "malice": "malicious",
     "action": ["Suggest a wing night instead. Reluctantly prepare, insisting on Italian seasoning."],
-    "context": {"type": "fiery", "taste": "creamy", "theme": "meat, spicy"},
+    "context": {"type": "fiery", "taste": "creamy", "theme": "meat"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "escalated",
     "priority": "low"
@@ -126,7 +126,7 @@
     "payload": {"pizza_order": "Prosciutto and Arugula with Balsamic Glaze"},
     "malice": "benign",
     "action": ["Commend their gourmet choice. Offer a complimentary glass of Chianti for dine-in."],
-    "context": {"type": "sophisticated", "taste": "tangy", "theme": "authentic, gourmet"},
+    "context": {"type": "sophisticated", "taste": "tangy", "theme": "authentic"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "open",
     "priority": "high"
@@ -137,7 +137,7 @@
     "payload": {"pizza_order": "Capricciosa with Artichokes and Ham"},
     "malice": "benign",
     "action": ["Applaud their classic choice. Offer a side of homemade focaccia."],
-    "context": {"type": "classic", "taste": "savory", "theme": "authentic, vegetables"},
+    "context": {"type": "classic", "taste": "savory", "theme": "authentic"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "closed",
     "priority": "high"
@@ -148,7 +148,7 @@
     "payload": {"pizza_order": "Gluten-Free Crust with Vegan Cheese"},
     "malice": "benign",
     "action": ["Support their health-conscious choice. Offer a complimentary vegan appetizer."],
-    "context": {"type": "conscious", "taste": "nutritious", "theme": "vegan, gluten-free"},
+    "context": {"type": "conscious", "taste": "nutritious", "theme": "vegan"},
     "suppression": {"Is between 12 to 14 inches": true, "Is pizza": true, "Order describes only one pizza": true},
     "status": "in_progress",
     "priority": "medium"
