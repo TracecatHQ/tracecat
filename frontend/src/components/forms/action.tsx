@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { ActionType } from "@/types"
@@ -6,10 +6,11 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import axios from "axios"
 import { CircleIcon, Save } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { ControllerRenderProps, useForm } from "react-hook-form"
 import { Node } from "reactflow"
 import { z } from "zod"
 
+import { ActionResponse, actionResponseSchema } from "@/types/schemas"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -43,14 +44,6 @@ import {
   getActionSchema,
 } from "@/components/forms/action-schemas"
 
-interface ActionResponse {
-  id: string
-  title: string
-  description: string
-  status: string
-  inputs: Record<string, any> | null
-}
-
 interface ActionFormProps {
   actionId: string
   actionType: ActionType
@@ -72,7 +65,7 @@ export function ActionForm({
         `http://localhost:8000/actions/${actionId}?workflow_id=${workflowId}`
       )
       // TODO: Validate response data with zod
-      return response.data
+      return actionResponseSchema.parse(response.data)
     } catch (error) {
       console.error("Error fetching action:", error)
       throw error // Rethrow the error to ensure it's caught by useQuery's isError state
@@ -105,96 +98,82 @@ export function ActionForm({
     resolver: zodResolver(actionFormSchema),
   })
 
-  const renderFormField = (
-    inputKey: keyof actionFormSchemaType,
-    inputField: ActionFieldOption
-  ) => {
-    const fieldType = inputField.type
-    const fieldProps = form.register(inputKey)
-
-    switch (fieldType) {
-      case "select":
-        return (
-          <FormItem>
-            <FormLabel className="text-xs">{inputKey}</FormLabel>
-            <FormControl>
-              <Select
-                // NOTE: Need to manually unpack fieldProps and pass them to the Select component
-                // to ensure the form state for this shadcn component is updated correctly
-                value={form.watch(inputKey)} // Ensure the Select component uses the current field value
-                defaultValue={
-                  actionResponseData?.inputs?.[inputKey] ?? undefined
-                } // Set the default value from the fetched action data
-                onValueChange={
-                  (value) => {
-                    fieldProps.onChange({
-                      target: {
-                        value: value,
-                      },
-                    })
-                    form.setValue(inputKey, value)
-                  } // Update the form state on change
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {inputField.options?.map((option: string) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )
-      case "textarea":
-        return (
-          <FormItem>
-            <FormLabel className="text-xs">{inputKey}</FormLabel>
-            <FormControl>
-              <Textarea {...fieldProps} className="text-xs" />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )
-      default:
-        return (
-          <FormItem>
-            <FormLabel className="text-xs">{inputKey}</FormLabel>
-            <FormControl>
-              <Input {...fieldProps} className="text-xs" />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )
-    }
-  }
-
-  const processInputs = (inputs: Record<string, any>): Record<string, any> => {
-    return Object.entries(inputs).reduce(
-      (stringInputs: Record<string, any>, [key, value]) => {
-        // Check if value is an object and not null, not an array, and not a Date instance
-        if (!value) {
-          stringInputs[key] = ""
-        } else if (
-          typeof value === "object" &&
-          value !== null &&
-          !Array.isArray(value) &&
-          !(value instanceof Date)
-        ) {
-          stringInputs[key] = JSON.stringify(value) // Stringify object values
-        } else {
-          stringInputs[key] = value // Keep non-object values as is
-        }
-        return stringInputs
-      },
-      {}
-    )
-  }
+  const renderFormField = useCallback(
+    (
+      inputKey: keyof actionFormSchemaType,
+      inputField: ActionFieldOption,
+      fieldProps: ControllerRenderProps<actionFormSchemaType>
+    ) => {
+      switch (inputField.type) {
+        case "select":
+          if (!inputField.options) return <></>
+          return (
+            <FormItem>
+              <FormLabel className="text-xs">{inputKey}</FormLabel>
+              <FormControl>
+                <Select
+                  // NOTE: Need to manually unpack fieldProps and pass them to the Select component
+                  // to ensure the form state for this shadcn component is updated correctly
+                  value={form.watch(inputKey)} // Ensure the Select component uses the current field value
+                  defaultValue={actionResponseData?.inputs?.[inputKey]} // Set the default value from the fetched action data
+                  onValueChange={
+                    (value) => {
+                      fieldProps.onChange({
+                        target: {
+                          value: value,
+                        },
+                      })
+                      form.setValue(inputKey, value)
+                    } // Update the form state on change
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {inputField.options?.map((option: string) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )
+        case "textarea":
+          return (
+            <FormItem>
+              <FormLabel className="text-xs">{inputKey}</FormLabel>
+              <FormControl>
+                <Textarea
+                  {...fieldProps}
+                  className="text-xs"
+                  value={form.watch(inputKey, "")}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )
+        default:
+          return (
+            <FormItem>
+              <FormLabel className="text-xs">{inputKey}</FormLabel>
+              <FormControl>
+                <Input
+                  {...fieldProps}
+                  className="text-xs"
+                  value={form.watch(inputKey, "")}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )
+      }
+    },
+    [form, actionResponseData]
+  )
 
   useEffect(() => {
     if (actionResponseData) {
@@ -334,9 +313,10 @@ export function ActionForm({
                     <FormLabel className="text-xs">Name</FormLabel>
                     <FormControl>
                       <Input
+                        {...field}
                         className="text-xs"
                         placeholder="Add action name..."
-                        {...field}
+                        value={form.watch("title", "")}
                       />
                     </FormControl>
                     <FormMessage />
@@ -351,9 +331,9 @@ export function ActionForm({
                     <FormLabel className="text-xs">Description</FormLabel>
                     <FormControl>
                       <Textarea
+                        {...field}
                         className="text-xs"
                         placeholder="Describe your action..."
-                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -373,10 +353,11 @@ export function ActionForm({
                         key={inputKey}
                         control={form.control}
                         name={inputKey as keyof actionFormSchemaType}
-                        render={() =>
+                        render={({ field }) =>
                           renderFormField(
                             inputKey as keyof actionFormSchemaType,
-                            inputField
+                            inputField,
+                            field
                           )
                         }
                       />
@@ -389,5 +370,27 @@ export function ActionForm({
         </form>
       </Form>
     </ScrollArea>
+  )
+}
+
+const processInputs = (inputs: Record<string, any>): Record<string, any> => {
+  return Object.entries(inputs).reduce(
+    (stringInputs: Record<string, any>, [key, value]) => {
+      // Check if value is an object and not null, not an array, and not a Date instance
+      if (!value) {
+        stringInputs[key] = ""
+      } else if (
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        !(value instanceof Date)
+      ) {
+        stringInputs[key] = JSON.stringify(value) // Stringify object values
+      } else {
+        stringInputs[key] = value // Keep non-object values as is
+      }
+      return stringInputs
+    },
+    {}
   )
 }
