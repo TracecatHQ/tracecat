@@ -1,6 +1,6 @@
-import { KeyRound, LogOut, Settings, UserRound, UsersRound } from "lucide-react"
+import { useSessionContext, useUser } from "@/providers/session"
+import { KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -11,46 +11,51 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import UserAvatar from "@/components/user-avatar"
 
+const userDefaults = {
+  name: "Test User",
+  email: "name@example.com",
+}
 export function UserNav() {
+  const { signOut } = useSessionContext()
+  const user = useUser()
+  console.log("user", user)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-          <Avatar className="h-8 w-8">
-            <AvatarImage src="" alt="" />
-            <AvatarFallback>
-              <UserRound className="h-5 w-5" />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 p-2" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">shadcn</p>
+            <p className="text-sm font-medium leading-none">
+              {user?.user_metadata.name ?? userDefaults.name}
+            </p>
             <p className="text-xs leading-none text-muted-foreground">
-              m@example.com
+              {user?.email ?? userDefaults.email}
             </p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>
+          <DropdownMenuItem className="hover:cursor-pointer">
             <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
+            Settings
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem className="hover:cursor-pointer">
             <KeyRound className="mr-2 h-4 w-4" />
             <span>Credentials</span>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem className="hover:cursor-pointer">
             <UsersRound className="mr-2 h-4 w-4" />
             <span>Manage users</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        <DropdownMenuItem className="hover:cursor-pointer" onClick={signOut}>
           <LogOut className="mr-2 h-4 w-4" />
           <span>Logout</span>
         </DropdownMenuItem>

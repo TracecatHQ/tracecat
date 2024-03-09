@@ -1,17 +1,22 @@
 "use client"
 
-import React, { createContext, ReactNode, useContext, useState } from "react"
+import React, {
+  createContext,
+  ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react"
+import axios from "axios"
 
-export type WorkflowMetadata = {
-  id?: string
-  title?: string
-  description?: string
-  status?: string
-}
+import { WorkflowMetadata } from "@/types/schemas"
 
+type MaybeWorkflowMetadata = WorkflowMetadata | null
 type WorkflowContextType = {
-  workflowMetadata: WorkflowMetadata
-  setWorkflowMetadata: (workflow: WorkflowMetadata) => void
+  workflowMetadata: MaybeWorkflowMetadata
+  setWorkflowMetadata: (workflow: MaybeWorkflowMetadata) => void
+  workflowId: string | null
+  setWorkflowId: (id: string) => void
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(
@@ -21,15 +26,30 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(
 export const WorkflowProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [workflowMetadata, setWorkflowMetadata] = useState<WorkflowMetadata>({
-    id: undefined,
-    title: undefined,
-    description: undefined,
-    status: undefined,
-  })
-
+  const [workflowMetadata, setWorkflowMetadata] =
+    useState<MaybeWorkflowMetadata>(null)
+  const [workflowId, setWorkflowId] = useState<string | null>(null)
+  useEffect(() => {
+    async function fetchWorkflowId(id: string) {
+      const response = await axios.get<WorkflowMetadata>(
+        `http://localhost:8000/workflows/${id}`
+      )
+      setWorkflowMetadata(response.data)
+    }
+    if (workflowId) {
+      console.log("fetching workflow id", workflowId)
+      fetchWorkflowId(workflowId)
+    }
+  }, [workflowId])
   return (
-    <WorkflowContext.Provider value={{ workflowMetadata, setWorkflowMetadata }}>
+    <WorkflowContext.Provider
+      value={{
+        workflowMetadata,
+        setWorkflowMetadata,
+        workflowId,
+        setWorkflowId,
+      }}
+    >
       {children}
     </WorkflowContext.Provider>
   )

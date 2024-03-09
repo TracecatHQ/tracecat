@@ -241,9 +241,9 @@ export function ActionForm({
   }
 
   const { mutate } = useUpdateAction(actionId)
-
   function onSubmit(values: actionFormSchemaType) {
     mutate(values)
+    // TODO: Update the workflow switcher with the new action data
   }
 
   // Loading state to defend in a user friendly way

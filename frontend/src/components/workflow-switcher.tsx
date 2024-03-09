@@ -1,7 +1,7 @@
 "use client"
 
-import React from "react"
-import { useParams } from "next/navigation"
+import React, { useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
@@ -9,16 +9,12 @@ import {
   CheckIcon,
   PlusCircledIcon,
 } from "@radix-ui/react-icons"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import {
-  createWorkflow,
-  fetchWorkflow,
-  fetchWorkflows,
-  WorkflowMetadata,
-} from "@/lib/flow"
+import { WorkflowMetadata, workflowMetadataSchema } from "@/types/schemas"
+import { createWorkflow, fetchWorkflow, fetchWorkflows } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -31,6 +27,7 @@ import {
 } from "@/components/ui/command"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -65,8 +62,8 @@ const newWorkflowFormSchema = z.object({
 type WorkflowFormInputs = z.infer<typeof newWorkflowFormSchema>
 
 export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
-  const { setWorkflowMetadata } = useWorkflowMetadata()
   const [open, setOpen] = React.useState(false)
+  const { setWorkflowMetadata } = useWorkflowMetadata()
   const [showNewWorkflowDialog, setShowNewWorkflowDialog] =
     React.useState(false)
   const params = useParams<{ id: string }>()
@@ -81,12 +78,15 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
     queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
       const [_, workflowId] = queryKey as [string, string]
-      console.log(workflowId)
       const data = await fetchWorkflow(workflowId)
-      setWorkflowMetadata(data)
+      const validatedData = workflowMetadataSchema.parse(data)
+      setWorkflowMetadata(validatedData)
       return data
     },
   })
+
+  const queryClient = useQueryClient()
+  const router = useRouter()
 
   const form = useForm<WorkflowFormInputs>({
     resolver: zodResolver(newWorkflowFormSchema),
@@ -99,13 +99,16 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
       // like showing a notification, refreshing a list of workflows, or resetting the form
       form.reset()
       // Add here any action like closing modal or refreshing the workflow list
+      queryClient.invalidateQueries({
+        queryKey: ["workflows"],
+      })
     } catch (error) {
       console.error("Failed to create workflow", error)
       // Handle error, maybe set an error state or show a toast notification
     }
   }
 
-  if (!workflowMetadata || !workflows) {
+  if (!workflows) {
     return <Skeleton className="h-9 w-96" />
   }
 
@@ -123,18 +126,20 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
             aria-label="Select a team"
             className={cn("w-96 justify-between", className)}
           >
-            {workflowMetadata.title}
+            {workflowMetadata?.title}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-96 p-0">
-          <Command>
+          <Command defaultValue={workflowMetadata?.title}>
             <CommandList>
               <CommandGroup key="workflows" heading="workflows">
                 {workflows.map((workflow) => (
                   <CommandItem
                     key={workflow.id}
                     onSelect={() => {
+                      setWorkflowMetadata(workflow)
+                      router.push(`/workflows/${workflow.id}`)
                       setOpen(false)
                     }}
                     className="text-xs"
@@ -151,7 +156,9 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                     <CheckIcon
                       className={cn(
                         "ml-auto h-4 w-4 text-xs",
-                        workflowId === workflow.id ? "opacity-100" : "opacity-0"
+                        workflowMetadata?.id === workflow.id
+                          ? "opacity-100"
+                          : "opacity-0"
                       )}
                     />
                   </CommandItem>
@@ -195,14 +202,20 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                 <FormItem>
                   <FormLabel>Workflow Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="My new workflow" {...field} />
+                    <Input
+                      placeholder="My new workflow"
+                      {...field}
+                      value={form.watch("workflowName", "")}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
             <DialogFooter>
-              <Button type="submit">Create Workflow</Button>
+              <DialogClose asChild>
+                <Button type="submit">Create Workflow</Button>
+              </DialogClose>
             </DialogFooter>
           </form>
         </Form>

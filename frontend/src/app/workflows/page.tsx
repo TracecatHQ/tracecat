@@ -1,21 +1,26 @@
 "use client"
 
-import React, { useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useSupabase } from "@/providers/supabase"
-import { User } from "@supabase/supabase-js"
+import { useSessionContext } from "@/providers/session"
 import { Loader2 } from "lucide-react"
 
-import { fetchWorkflows, WorkflowMetadata } from "@/lib/flow"
+import { WorkflowMetadata } from "@/types/schemas"
+import { fetchWorkflows } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import NoSSR from "@/components/no-ssr"
 
 export default function Page() {
-  return <WorkflowsPage suppressHydrationWarning />
+  return (
+    <NoSSR>
+      <WorkflowsPage suppressHydrationWarning />
+    </NoSSR>
+  )
 }
 function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
-  const { supabase, session } = useSupabase()
+  const { supabaseClient, session, isLoading } = useSessionContext()
   if (!session) {
     return (
       <div
@@ -26,19 +31,14 @@ function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
       </div>
     )
   }
+  const { user } = session
   const router = useRouter()
-  const [userWorkflows, setUserWorkflows] = React.useState<WorkflowMetadata[]>(
-    []
-  )
-  const [user, setUser] = React.useState<User | null>(null)
-  const [isLoading, setIsLoading] = React.useState(true)
-  const [error, setError] = React.useState<Error | null>(null)
+  const [userWorkflows, setUserWorkflows] = useState<WorkflowMetadata[]>([])
 
   const signOut = async () => {
-    await supabase.auth.signOut()
+    await supabaseClient.auth.signOut()
     router.push("/login")
     router.refresh()
-    setUser(null)
   }
 
   useEffect(() => {
@@ -49,17 +49,6 @@ function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
     }
   }, [user])
 
-  useEffect(() => {
-    async function getUser() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      setUser(user)
-      setIsLoading(false)
-    }
-    getUser()
-  }, [])
-
   if (isLoading || !user) {
     return (
       <div
@@ -67,17 +56,6 @@ function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
         {...props}
       >
         <Loader2 className="h-6 w-6 animate-spin" color="#8c8c8c" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div
-        className="container flex h-full w-full items-center justify-center"
-        {...props}
-      >
-        <div>Error: {error.message}</div>
       </div>
     )
   }

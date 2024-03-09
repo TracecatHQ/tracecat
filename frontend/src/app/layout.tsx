@@ -1,8 +1,8 @@
 import "@/styles/globals.css"
 
 import { Metadata } from "next"
-import SupabaseProvider from "@/providers/supabase"
-import SupabaseListener from "@/providers/supabase-listener"
+import { SessionContextProvider } from "@/providers/session"
+import { WorkflowProvider } from "@/providers/workflow"
 import { createClient } from "@/utils/supabase/server"
 
 import { siteConfig } from "@/config/site"
@@ -39,10 +39,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             fontSans.className
           )}
         >
-          <SupabaseProvider session={session}>
-            <SupabaseListener serverAccessToken={session?.access_token} />
-            {children}
-          </SupabaseProvider>
+          <SessionContextProvider initialSession={session}>
+            <WorkflowProvider>{children}</WorkflowProvider>
+          </SessionContextProvider>
           <Toaster />
         </body>
       </html>
