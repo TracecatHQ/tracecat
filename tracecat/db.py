@@ -83,12 +83,12 @@ def create_db_engine():
     return engine
 
 
-def create_events_index():
+def build_events_index():
     index_path = STORAGE_PATH / "event_index"
     index_path.mkdir(parents=True, exist_ok=True)
     event_schema = (
         tantivy.SchemaBuilder()
-        .add_date_field("published_at", stored=True)
+        .add_date_field("published_at", fast=True, stored=True)
         .add_text_field("action_id", stored=True)
         .add_text_field("action_run_id", stored=True)
         .add_text_field("action_title", stored=True)
@@ -99,11 +99,15 @@ def create_events_index():
         .add_json_field("data", stored=True)
         .build()
     )
-    index = tantivy.Index(event_schema, path=str(index_path))
-    return index
+    tantivy.Index(event_schema, path=str(index_path))
 
 
-def create_vdb_conn():
+def create_events_index() -> tantivy.Index:
+    index_path = STORAGE_PATH / "event_index"
+    return tantivy.Index.open(str(index_path))
+
+
+def create_vdb_conn() -> lancedb.DBConnection:
     db = lancedb.connect(STORAGE_PATH / "vector.db")
     return db
 
@@ -146,4 +150,4 @@ def initialize_db() -> None:
     db.create_table("tasks", schema=TaskSchema, exist_ok=True)
 
     # Search
-    create_events_index()
+    build_events_index()
