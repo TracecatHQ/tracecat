@@ -3,10 +3,10 @@
 import React, { createContext, ReactNode, useContext, useState } from "react"
 
 export type WorkflowMetadata = {
-  id: string | undefined
-  title: string | undefined
-  description: string | undefined
-  status: string | undefined
+  id?: string
+  title?: string
+  description?: string
+  status?: string
 }
 
 type WorkflowContextType = {
