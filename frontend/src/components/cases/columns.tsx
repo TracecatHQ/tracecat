@@ -2,6 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table"
 
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -151,7 +152,7 @@ export const columns: ColumnDef<Case>[] = [
           <span className="max-w-[100px] truncate text-xs text-muted-foreground">
             <Badge
               variant="outline"
-              className={`${bg_color} ${border_color} ${text_color}`}
+              className={cn(bg_color, border_color, text_color)}
             >
               {label}
             </Badge>
@@ -188,8 +189,10 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-            {Object.values(context).map((label) => (
-              <Badge variant="outline">{label}</Badge>
+            {Object.values(context).map((label, idx) => (
+              <Badge key={idx} variant="outline">
+                {label}
+              </Badge>
             ))}
           </span>
         </div>
