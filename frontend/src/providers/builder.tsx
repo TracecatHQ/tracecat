@@ -5,6 +5,7 @@ import React, {
   useContext,
 } from "react"
 import { useParams } from "next/navigation"
+import { type Session } from "@supabase/supabase-js"
 import { Node, useReactFlow } from "reactflow"
 
 import { saveFlow } from "@/lib/flow"
@@ -18,19 +19,24 @@ const ReactFlowInteractionsContext = createContext<
 >(undefined)
 
 interface ReactFlowInteractionsProviderProps {
+  session: Session
   children: ReactNode
 }
 
 export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
-> = ({ children }) => {
+> = ({ session, children }) => {
   const reactFlowInstance = useReactFlow()
   const params = useParams<{ id: string }>()
   const workflowId = params.id
 
   const setReactFlowNodes = (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
+    if (!session) {
+      console.error("Invalid session: cannot set nodes")
+      return
+    }
     reactFlowInstance.setNodes(nodes)
-    saveFlow(workflowId, reactFlowInstance)
+    saveFlow(session, workflowId, reactFlowInstance)
   }
 
   return (

@@ -2,6 +2,7 @@
 
 import React, { PropsWithChildren } from "react"
 import { useRouter } from "next/navigation"
+import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { useQueryClient } from "@tanstack/react-query"
@@ -31,7 +32,7 @@ import {
 import { Input } from "@/components/ui/input"
 
 const newWorkflowFormSchema = z.object({
-  workflowName: z.string().min(1, "Please enter a workflow name."),
+  title: z.string().min(1, "Please enter a workflow name."),
 })
 
 type NewWorkflowFormInputs = z.infer<typeof newWorkflowFormSchema>
@@ -46,9 +47,9 @@ export function NewWorkflowDialog({
   className,
 }: NewWorkflowDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
-
   const queryClient = useQueryClient()
   const router = useRouter()
+  const session = useSession()
 
   const form = useForm<NewWorkflowFormInputs>({
     resolver: zodResolver(newWorkflowFormSchema),
@@ -56,7 +57,10 @@ export function NewWorkflowDialog({
 
   const onSubmit = async (data: NewWorkflowFormInputs) => {
     try {
-      const newWfMetdata = await createWorkflow(data.workflowName)
+      if (!session) {
+        throw new Error("Invalid session")
+      }
+      const newWfMetdata = await createWorkflow(session, data.title)
       form.reset()
       queryClient.invalidateQueries({
         queryKey: ["workflows"],
@@ -81,7 +85,7 @@ export function NewWorkflowDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="workflowName"
+              name="title"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Workflow Name</FormLabel>
@@ -89,7 +93,7 @@ export function NewWorkflowDialog({
                     <Input
                       placeholder="My new workflow"
                       {...field}
-                      value={form.watch("workflowName", "")}
+                      value={form.watch("title", "")}
                     />
                   </FormControl>
                   <FormMessage />
