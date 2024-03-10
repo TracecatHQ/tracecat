@@ -19,15 +19,21 @@ import {
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Icons } from "@/components/icons"
 import { QueryBuilder } from "@/components/query-builder"
 import { UserNav } from "@/components/user-nav"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 
+type MaybeString = string | undefined
+
 interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
+
 export function Navbar(props: NavbarProps) {
   const [openEventSearch, setOpenEventSearch] = useState(false)
   const params = useParams()
-  const [workflowId, setWorkflowId] = useState<string>(params["id"] as string)
+  const [workflowId, setWorkflowId] = useState<MaybeString>(
+    params["id"] as MaybeString
+  )
   const pathname = usePathname()
   const [enableWorkflow, setEnableWorkflow] = useState(false)
 
@@ -77,77 +83,97 @@ export function Navbar(props: NavbarProps) {
     document.addEventListener("keydown", down)
     return () => document.removeEventListener("keydown", down)
   }, [])
+  useEffect(() => {
+    setWorkflowId(params["id"] as MaybeString)
+  }, [params])
 
   return (
     <div className="border-b" {...props}>
       <Drawer open={openEventSearch} onOpenChange={setOpenEventSearch}>
         <div className="flex h-12 items-center px-4">
-          <div className="flex space-x-8">
-            {/* TODO: Ensure that workflow switcher doesn't make an API call to update
-              workflows when page is switched between workflow view and cases view
+          <div className="flex items-center space-x-8">
+            <Link href="/workflows">
+              <Icons.logo className="ml-4 h-5 w-5" />
+            </Link>
+            {workflowId && (
+              <>
+                {/* TODO: Ensure that workflow switcher doesn't make an API call to update
+            workflows when page is switched between workflow view and cases view
           */}
-            <WorkflowSwitcher />
-            <Tabs value={pathname.endsWith("/cases") ? "cases" : "workflow"}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger className="w-full py-0" value="workflow" asChild>
-                  <Link
-                    href={`/workflows/${workflowId}`}
-                    className="h-full w-full"
-                    passHref
-                  >
-                    <WorkflowIcon className="mr-2 h-4 w-4" />
-                    <span>Workflow</span>
-                    <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                      <span>Alt</span>F
-                    </kbd>
-                  </Link>
-                </TabsTrigger>
-                <TabsTrigger className="w-full py-0" value="cases" asChild>
-                  <Link
-                    href={`/workflows/${workflowId}/cases`}
-                    className="h-full w-full"
-                    passHref
-                  >
-                    <BellRingIcon className="mr-2 h-4 w-4" />
-                    <span>Cases</span>
-                    <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                      <span>Alt</span>C
-                    </kbd>
-                  </Link>
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+                <WorkflowSwitcher defaultValue={workflowId} />
+                <Tabs
+                  value={pathname.endsWith("/cases") ? "cases" : "workflow"}
+                >
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger
+                      className="w-full py-0"
+                      value="workflow"
+                      asChild
+                    >
+                      <Link
+                        href={`/workflows/${workflowId}`}
+                        className="h-full w-full"
+                        passHref
+                      >
+                        <WorkflowIcon className="mr-2 h-4 w-4" />
+                        <span>Workflow</span>
+                        <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                          <span>Alt</span>F
+                        </kbd>
+                      </Link>
+                    </TabsTrigger>
+                    <TabsTrigger className="w-full py-0" value="cases" asChild>
+                      <Link
+                        href={`/workflows/${workflowId}/cases`}
+                        className="h-full w-full"
+                        passHref
+                      >
+                        <BellRingIcon className="mr-2 h-4 w-4" />
+                        <span>Cases</span>
+                        <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                          <span>Alt</span>C
+                        </kbd>
+                      </Link>
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </>
+            )}
           </div>
           <div className="ml-auto flex items-center space-x-6">
-            <DrawerTrigger asChild>
-              <Button
-                variant="outline"
-                className={cn(
-                  "md:w-30 relative h-8 w-full justify-start rounded-[0.5rem] bg-background text-xs font-normal text-muted-foreground shadow-none sm:pr-12 lg:w-48"
-                )}
-              >
-                <span className="hidden lg:inline-flex">Search events...</span>
-                <span className="inline-flex lg:hidden">Search...</span>
-                <kbd className="pointer-events-none absolute right-[0.3rem] top-[0.3rem] hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
-                  <span>⌘</span>E
-                </kbd>
-              </Button>
-            </DrawerTrigger>
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="enable-workflow"
-                checked={enableWorkflow}
-                onCheckedChange={(newCheckedState) =>
-                  setEnableWorkflow(newCheckedState)
-                }
-              />
-              <Label
-                className="w-30 text-xs text-muted-foreground"
-                htmlFor="enable-workflow"
-              >
-                {enableWorkflow ? "Pause" : "Publish"}
-              </Label>
-            </div>
+            {workflowId && (
+              <div className="flex items-center space-x-2">
+                <DrawerTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "md:w-30 relative h-8 w-full justify-start rounded-[0.5rem] bg-background text-xs font-normal text-muted-foreground shadow-none sm:pr-12 lg:w-48"
+                    )}
+                  >
+                    <span className="hidden lg:inline-flex">
+                      Search events...
+                    </span>
+                    <span className="inline-flex lg:hidden">Search...</span>
+                    <kbd className="pointer-events-none absolute right-[0.3rem] top-[0.3rem] hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
+                      <span>⌘</span>E
+                    </kbd>
+                  </Button>
+                </DrawerTrigger>
+                <Switch
+                  id="enable-workflow"
+                  checked={enableWorkflow}
+                  onCheckedChange={(newCheckedState) =>
+                    setEnableWorkflow(newCheckedState)
+                  }
+                />
+                <Label
+                  className="w-30 text-xs text-muted-foreground"
+                  htmlFor="enable-workflow"
+                >
+                  {enableWorkflow ? "Pause" : "Publish"}
+                </Label>
+              </div>
+            )}
             <UserNav />
           </div>
         </div>
