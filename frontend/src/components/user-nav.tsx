@@ -16,16 +16,19 @@ import UserAvatar from "@/components/user-avatar"
 const userDefaults = {
   name: "Test User",
   email: "name@example.com",
+  avatarUrl:
+    "https://media.licdn.com/dms/image/C5103AQEXlYZeTKuwyQ/profile-displayphoto-shrink_200_200/0/1582770649112?e=1715212800&v=beta&t=wqVZfVV4YwedybQFzKazeWmlQslMQ11t_NGMCqwpN-k",
+  alt: "@daryllimyt",
 }
 export function UserNav() {
   const { signOut } = useSessionContext()
   const user = useUser()
-  console.log("user", user)
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-          <UserAvatar />
+          <UserAvatar src={userDefaults.avatarUrl} alt={userDefaults.alt} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 p-2" align="end" forceMount>
@@ -41,21 +44,24 @@ export function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem className="hover:cursor-pointer">
+          <DropdownMenuItem className="text-xs hover:cursor-pointer">
             <Settings className="mr-2 h-4 w-4" />
             Settings
           </DropdownMenuItem>
-          <DropdownMenuItem className="hover:cursor-pointer">
+          <DropdownMenuItem className="text-xs hover:cursor-pointer">
             <KeyRound className="mr-2 h-4 w-4" />
             <span>Credentials</span>
           </DropdownMenuItem>
-          <DropdownMenuItem className="hover:cursor-pointer">
+          <DropdownMenuItem className="text-xs hover:cursor-pointer">
             <UsersRound className="mr-2 h-4 w-4" />
             <span>Manage users</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="hover:cursor-pointer" onClick={signOut}>
+        <DropdownMenuItem
+          className="text-xs hover:cursor-pointer"
+          onClick={signOut}
+        >
           <LogOut className="mr-2 h-4 w-4" />
           <span>Logout</span>
         </DropdownMenuItem>
