@@ -39,6 +39,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import {
   ActionFieldOption,
   getActionSchema,
@@ -64,7 +65,6 @@ export function ActionForm({
       const response = await axios.get<ActionResponse>(
         `http://localhost:8000/actions/${actionId}?workflow_id=${workflowId}`
       )
-      // TODO: Validate response data with zod
       return actionResponseSchema.parse(response.data)
     } catch (error) {
       console.error("Error fetching action:", error)
@@ -72,11 +72,7 @@ export function ActionForm({
     }
   }
 
-  const {
-    data: actionResponseData,
-    isLoading,
-    isError,
-  } = useQuery<ActionResponse, Error>({
+  const { data: actionResponseData } = useQuery<ActionResponse, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: getActionById,
   })
@@ -243,7 +239,10 @@ export function ActionForm({
   const { mutate } = useUpdateAction(actionId)
   function onSubmit(values: actionFormSchemaType) {
     mutate(values)
-    // TODO: Update the workflow switcher with the new action data
+    toast({
+      title: "Saved action",
+      description: "Your action has been updated successfully.",
+    })
   }
 
   // Loading state to defend in a user friendly way
