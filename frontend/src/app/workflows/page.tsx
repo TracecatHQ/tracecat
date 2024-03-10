@@ -1,15 +1,16 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React from "react"
 import Link from "next/link"
 import { useSessionContext } from "@/providers/session"
 import { useQuery } from "@tanstack/react-query"
-import { Loader2, PlusCircle } from "lucide-react"
+import { PlusCircle } from "lucide-react"
 
 import { WorkflowMetadata } from "@/types/schemas"
-import { fetchWorkflows } from "@/lib/flow"
+import { fetchAllWorkflows } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   NewWorkflowDialog,
   NewWorkflowDialogTrigger,
@@ -25,36 +26,42 @@ export default function Page() {
 }
 function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
   const { session, isLoading: sessionIsLoading } = useSessionContext()
-  if (!session) {
-    return (
-      <div
-        className="container flex h-full w-full items-center justify-center"
-        {...props}
-      >
-        <Link href="/login">Go to Login</Link>
-      </div>
-    )
-  }
-  const { user } = session
 
-  if (sessionIsLoading || !user) {
-    return (
-      <div
-        className="container flex h-full w-full items-center justify-center"
-        {...props}
-      >
-        <Loader2 className="h-6 w-6 animate-spin" color="#8c8c8c" />
-      </div>
-    )
-  }
   const {
     data: userWorkflows,
     isLoading,
     error,
   } = useQuery<WorkflowMetadata[], Error>({
     queryKey: ["workflows"],
-    queryFn: fetchWorkflows,
+    queryFn: async () => {
+      if (!session) {
+        console.error("Invalid session")
+        throw new Error("Invalid session")
+      }
+      console.log(session)
+      const workflows = await fetchAllWorkflows(session)
+      return workflows
+    },
   })
+
+  if (sessionIsLoading) {
+    return (
+      <div
+        className="container flex h-full w-full flex-col items-center justify-center space-y-4"
+        {...props}
+      >
+        <Skeleton className="h-20 w-96" />
+        <Skeleton className="h-20 w-96" />
+        <Skeleton className="h-20 w-96" />
+        <Skeleton className="h-20 w-96" />
+        <Skeleton className="h-20 w-96" />
+      </div>
+    )
+  }
+  if (error) {
+    throw new Error("Error fetching workflows")
+  }
+
   return (
     <div className="container flex h-full max-w-[800px] flex-col justify-center space-y-2 p-16">
       <div className="flex w-full ">
@@ -81,7 +88,11 @@ function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
           </NewWorkflowDialogTrigger>
         </NewWorkflowDialog>
       </div>
-      {!isLoading && <WorkflowList workflows={userWorkflows ?? []} />}
+      {isLoading ? (
+        <Skeleton className="h-20 w-full" />
+      ) : (
+        <WorkflowList workflows={userWorkflows ?? []} />
+      )}
     </div>
   )
 }
@@ -92,9 +103,9 @@ interface WorkflowListProps {
 
 export function WorkflowList({ workflows }: WorkflowListProps) {
   return (
-    <div className="flex flex-col gap-2 pt-0">
+    <div className="flex flex-col gap-2 pt-4">
       {workflows.length === 0 ? (
-        <span>No workflows created.</span>
+        <span className="my-4">No workflows created.</span>
       ) : (
         <>
           {workflows.map((wf) => (

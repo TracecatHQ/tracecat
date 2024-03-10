@@ -1,7 +1,8 @@
 "use client"
 
 import React from "react"
-import { useParams, useRouter } from "next/navigation"
+import { redirect, useParams, useRouter } from "next/navigation"
+import { useSessionContext } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import {
   CaretSortIcon,
@@ -10,8 +11,8 @@ import {
 } from "@radix-ui/react-icons"
 import { useQuery } from "@tanstack/react-query"
 
-import { WorkflowMetadata, workflowMetadataSchema } from "@/types/schemas"
-import { fetchWorkflow, fetchWorkflows } from "@/lib/flow"
+import { WorkflowMetadata } from "@/types/schemas"
+import { fetchAllWorkflows, fetchWorkflow } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -27,11 +28,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
   NewWorkflowDialog,
   NewWorkflowDialogTrigger,
 } from "@/components/new-workflow-dialog"
+
+import { Skeleton } from "./ui/skeleton"
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
@@ -42,31 +44,47 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const { setWorkflowMetadata } = useWorkflowMetadata()
   const params = useParams<{ id: string }>()
   const workflowId = params.id as string | undefined
+  const { session } = useSessionContext()
+  if (!session) {
+    console.error("Invalid session, redirecting to login")
+    return redirect("/login")
+  }
 
   const { data: workflows } = useQuery<WorkflowMetadata[], Error>({
     queryKey: ["workflows"],
-    queryFn: fetchWorkflows,
+    queryFn: async () => {
+      if (!session) {
+        console.error("Invalid session")
+        throw new Error("Invalid session")
+      }
+      console.log(session)
+      const workflows = await fetchAllWorkflows(session)
+      return workflows
+    },
   })
 
-  const { data: workflowMetadata } = useQuery<WorkflowMetadata, Error>({
+  const { data: workflowMetadata, isLoading } = useQuery<
+    WorkflowMetadata,
+    Error
+  >({
     queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
+      if (!session) {
+        console.error("Invalid session")
+        throw new Error("Invalid session")
+      }
       const [_, workflowId] = queryKey as [string, string?]
       if (!workflowId) {
         throw new Error("No workflow ID provided")
       }
-      const data = await fetchWorkflow(workflowId)
-      const validatedData = workflowMetadataSchema.parse(data)
-      setWorkflowMetadata(validatedData)
+      console.log(session)
+      const data = await fetchWorkflow(session, workflowId)
+      setWorkflowMetadata(data)
       return data
     },
   })
 
   const router = useRouter()
-
-  if (!workflows) {
-    return <Skeleton className="h-9 w-96" />
-  }
 
   return (
     <NewWorkflowDialog>
@@ -87,35 +105,39 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
           <Command defaultValue={workflowMetadata?.title}>
             <CommandList>
               <CommandGroup key="workflows" heading="workflows">
-                {workflows.map((workflow) => (
-                  <CommandItem
-                    key={workflow.id}
-                    onSelect={() => {
-                      setWorkflowMetadata(workflow)
-                      router.push(`/workflows/${workflow.id}`)
-                      setOpen(false)
-                    }}
-                    className="text-xs hover:cursor-pointer"
-                  >
-                    {/* TODO: Replace with CircleIcon and green / grey / red (error) / yellow (warning) */}
-                    <Avatar className="mr-2 h-4 w-4">
-                      <AvatarImage
-                        src={`https://avatar.vercel.sh/${workflow.id}.png`}
-                        alt={workflow.title}
-                        className="grayscale"
+                {!workflows || isLoading ? (
+                  <Skeleton />
+                ) : (
+                  workflows.map((workflow) => (
+                    <CommandItem
+                      key={workflow.id}
+                      onSelect={() => {
+                        setWorkflowMetadata(workflow)
+                        router.push(`/workflows/${workflow.id}`)
+                        setOpen(false)
+                      }}
+                      className="text-xs hover:cursor-pointer"
+                    >
+                      {/* TODO: Replace with CircleIcon and green / grey / red (error) / yellow (warning) */}
+                      <Avatar className="mr-2 h-4 w-4">
+                        <AvatarImage
+                          src={`https://avatar.vercel.sh/${workflow.id}.png`}
+                          alt={workflow.title}
+                          className="grayscale"
+                        />
+                      </Avatar>
+                      {workflow.title}
+                      <CheckIcon
+                        className={cn(
+                          "ml-auto h-4 w-4 text-xs",
+                          workflowMetadata?.id === workflow.id
+                            ? "opacity-100"
+                            : "opacity-0"
+                        )}
                       />
-                    </Avatar>
-                    {workflow.title}
-                    <CheckIcon
-                      className={cn(
-                        "ml-auto h-4 w-4 text-xs",
-                        workflowMetadata?.id === workflow.id
-                          ? "opacity-100"
-                          : "opacity-0"
-                      )}
-                    />
-                  </CommandItem>
-                ))}
+                    </CommandItem>
+                  ))
+                )}
               </CommandGroup>
             </CommandList>
             <CommandSeparator />
