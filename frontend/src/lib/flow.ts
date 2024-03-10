@@ -1,5 +1,4 @@
 import { Session } from "@supabase/supabase-js"
-import axios from "axios"
 import { ReactFlowInstance } from "reactflow"
 import { z } from "zod"
 
@@ -7,18 +6,16 @@ import { WorkflowMetadata, workflowMetadataSchema } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
 
 export async function saveFlow(
-  session: Session,
+  maybeSession: Session | null,
   workflowId: string,
   reactFlowInstance: ReactFlowInstance
 ) {
-  if (!workflowId || !reactFlowInstance) return
-
   try {
     const flowObject = reactFlowInstance.toObject()
     const updateFlowObjectParams = JSON.stringify({
       object: JSON.stringify(flowObject),
     })
-    const client = getAuthenticatedClient(session)
+    const client = getAuthenticatedClient(maybeSession)
     await client.post(`/workflows/${workflowId}`, updateFlowObjectParams, {
       headers: {
         "Content-Type": "application/json",
@@ -29,12 +26,12 @@ export async function saveFlow(
   }
 }
 
-export const fetchWorkflow = async (
-  session: Session,
+export async function fetchWorkflow(
+  maybeSession: Session | null,
   workflowId: string
-): Promise<WorkflowMetadata> => {
+): Promise<WorkflowMetadata> {
   try {
-    const client = getAuthenticatedClient(session)
+    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<WorkflowMetadata>(
       `/workflows/${workflowId}`
     )
@@ -46,12 +43,12 @@ export const fetchWorkflow = async (
   }
 }
 
-export const createWorkflow = async (
-  session: Session,
+export async function createWorkflow(
+  maybeSession: Session | null,
   title: string,
   description: string = ""
-): Promise<WorkflowMetadata> => {
-  const client = getAuthenticatedClient(session)
+): Promise<WorkflowMetadata> {
+  const client = getAuthenticatedClient(maybeSession)
   const response = await client.post<WorkflowMetadata>(
     "/workflows",
     JSON.stringify({
@@ -60,7 +57,6 @@ export const createWorkflow = async (
     }),
     {
       headers: {
-        Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
     }
@@ -69,11 +65,11 @@ export const createWorkflow = async (
   return workflowMetadataSchema.parse(response.data)
 }
 
-export const fetchAllWorkflows = async (
-  session: Session
-): Promise<WorkflowMetadata[]> => {
+export async function fetchAllWorkflows(
+  maybeSession: Session | null
+): Promise<WorkflowMetadata[]> {
   try {
-    const client = getAuthenticatedClient(session)
+    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<WorkflowMetadata[]>("/workflows")
     let workflows = response.data
 
@@ -82,7 +78,7 @@ export const fetchAllWorkflows = async (
     if (workflows.length === 0) {
       console.log("No workflows found. Creating a new one.")
       const newWorkflow = await createWorkflow(
-        session,
+        maybeSession,
         "My first workflow",
         "Welcome to Tracecat. This is your first workflow!"
       )
@@ -93,4 +89,14 @@ export const fetchAllWorkflows = async (
     console.error("Error fetching workflows:", error)
     throw error
   }
+}
+
+export async function updateWorkflow(
+  maybeSession: Session | null,
+  workflowId: string,
+  values: Object
+) {
+  const client = getAuthenticatedClient(maybeSession)
+  const response = await client.post(`/workflows/${workflowId}`, values)
+  return response.data
 }
