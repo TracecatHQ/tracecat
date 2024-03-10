@@ -6,19 +6,12 @@ import { Table } from "@tanstack/react-table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { DataTableFacetedFilter } from "@/components/cases/data-table-faceted-filter"
-import { DataTableViewOptions } from "@/components/cases/data-table-view-options"
-import {
   indicators,
   priorities,
   statuses,
 } from "@/components/cases/data/categories"
+import { DataTableFacetedFilter } from "@/components/data-table/faceted-filter"
+import { DataTableViewOptions } from "@/components/data-table/view-options"
 
 interface DataTableToolbarProps<TData> {
   table: Table<TData>

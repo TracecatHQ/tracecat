@@ -4,12 +4,12 @@ import { ColumnDef } from "@tanstack/react-table"
 
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import { DataTableColumnHeader } from "@/components/cases/data-table-column-header"
 import {
   indicators,
   priorities,
   statuses,
 } from "@/components/cases/data/categories"
+import { DataTableColumnHeader } from "@/components/data-table/column-header"
 
 import { Case } from "./data/schema"
 

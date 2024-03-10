@@ -10,10 +10,8 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Drawer,
-  DrawerClose,
   DrawerContent,
   DrawerDescription,
-  DrawerFooter,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
@@ -21,7 +19,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Icons } from "@/components/icons"
+import { QueryBuilder } from "@/components/query-builder"
 import { UserNav } from "@/components/user-nav"
 import WorkflowSwitcher from "@/components/workflow-switcher"
 
@@ -154,13 +152,14 @@ export function Navbar(props: NavbarProps) {
           </div>
         </div>
         <DrawerContent>
-          <div className="w-full max-w-sm px-4 py-1">
+          <div className="w-full space-y-4 px-4 pb-8">
             <DrawerHeader>
               <DrawerTitle>Events</DrawerTitle>
               <DrawerDescription>
                 Search logs across all workflow and action runs.
               </DrawerDescription>
             </DrawerHeader>
+            <QueryBuilder />
           </div>
         </DrawerContent>
       </Drawer>
