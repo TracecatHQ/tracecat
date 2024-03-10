@@ -5,7 +5,6 @@ import { DefaultQueryClientProvider } from "@/providers/query"
 import { WorkflowProvider } from "@/providers/workflow"
 import { z } from "zod"
 
-import { Separator } from "@/components/ui/separator"
 import { columns } from "@/components/cases/columns"
 import { DataTable } from "@/components/cases/data-table"
 import { caseSchema } from "@/components/cases/data/schema"
@@ -15,16 +14,16 @@ export const metadata: Metadata = {
   title: "Cases | Tracecat",
 }
 
-async function getTasks() {
+async function getCases() {
   const data = await fs.readFile(
-    path.join(process.cwd(), "src/components/cases/data/tasks.json")
+    path.join(process.cwd(), "src/components/cases/data/cases.json")
   )
-  const tasks = JSON.parse(data.toString())
-  return z.array(caseSchema).parse(tasks)
+  const cases = JSON.parse(data.toString())
+  return z.array(caseSchema).parse(cases)
 }
 
 export default async function CasesPage() {
-  const tasks = await getTasks()
+  const cases = await getCases()
 
   return (
     <>
@@ -33,7 +32,7 @@ export default async function CasesPage() {
           <div className="flex h-screen flex-col">
             <Navbar />
             <div className="flex-1 px-16 py-24">
-              <DataTable data={tasks} columns={columns} />
+              <DataTable data={cases} columns={columns} />
             </div>
           </div>
         </WorkflowProvider>
