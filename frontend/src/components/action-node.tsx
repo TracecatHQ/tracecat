@@ -66,7 +66,8 @@ const tileIconMapping: Partial<Record<ActionType, LucideIcon>> = {
   "llm.translate": Languages,
   "llm.choice": CheckSquare,
   "llm.summarize": BookText,
-}
+} as const
+
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
@@ -147,12 +148,14 @@ export default React.memo(function ActionNode({
         </div>
       </CardContent>
 
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="w-16 !bg-gray-500"
-        style={handleStyle}
-      />
+      {type !== "webhook" && (
+        <Handle
+          type="target"
+          position={Position.Top}
+          className="w-16 !bg-gray-500"
+          style={handleStyle}
+        />
+      )}
       <Handle
         type="source"
         position={Position.Bottom}
