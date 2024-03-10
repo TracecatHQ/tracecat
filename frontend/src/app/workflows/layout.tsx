@@ -1,6 +1,7 @@
 import { PropsWithChildren } from "react"
 import { Metadata } from "next"
 import { DefaultQueryClientProvider } from "@/providers/query"
+import { WorkflowProvider } from "@/providers/workflow"
 
 import { Navbar } from "@/components/navbar"
 
@@ -14,10 +15,12 @@ export default function WorkflowsLayout({
   return (
     <>
       <DefaultQueryClientProvider>
-        <div className="no-scrollbar flex h-screen flex-col">
-          <Navbar />
-          {children}
-        </div>
+        <WorkflowProvider>
+          <div className="no-scrollbar flex h-screen flex-col">
+            <Navbar />
+            {children}
+          </div>
+        </WorkflowProvider>
       </DefaultQueryClientProvider>
     </>
   )
