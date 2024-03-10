@@ -1,15 +1,13 @@
 import { Metadata } from "next"
 import { cookies } from "next/headers"
-import { DefaultQueryClientProvider } from "@/providers/query"
 
-import { Navbar } from "@/components/navbar"
 import { Workspace } from "@/components/workspace"
 
 export const metadata: Metadata = {
   title: "Workflows | Tracecat",
 }
 
-export default function DashboardPage() {
+export default function WorkflowBuilderPage() {
   const layout = cookies().get("react-resizable-panels:layout")
   const defaultLayout = layout ? JSON.parse(layout.value) : undefined
   const collapsed = cookies().get("react-resizable-panels:collapsed")
@@ -28,17 +26,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <>
-      <DefaultQueryClientProvider>
-        <div className="flex h-screen flex-col">
-          <Navbar />
-          <Workspace
-            defaultLayout={defaultLayout}
-            defaultCollapsed={defaultCollapsed}
-            navCollapsedSize={4}
-          />
-        </div>
-      </DefaultQueryClientProvider>
-    </>
+    <div className="flex h-screen flex-col">
+      <Workspace
+        defaultLayout={defaultLayout}
+        defaultCollapsed={defaultCollapsed}
+        navCollapsedSize={2}
+      />
+    </div>
   )
 }
