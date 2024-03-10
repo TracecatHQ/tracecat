@@ -2,14 +2,18 @@
 
 import React, { useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useSessionContext } from "@/providers/session"
-import { Loader2 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { Loader2, PlusCircle } from "lucide-react"
 
 import { WorkflowMetadata } from "@/types/schemas"
 import { fetchWorkflows } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  NewWorkflowDialog,
+  NewWorkflowDialogTrigger,
+} from "@/components/new-workflow-dialog"
 import NoSSR from "@/components/no-ssr"
 
 export default function Page() {
@@ -20,7 +24,7 @@ export default function Page() {
   )
 }
 function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
-  const { supabaseClient, session, isLoading } = useSessionContext()
+  const { session, isLoading: sessionIsLoading } = useSessionContext()
   if (!session) {
     return (
       <div
@@ -32,24 +36,8 @@ function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
     )
   }
   const { user } = session
-  const router = useRouter()
-  const [userWorkflows, setUserWorkflows] = useState<WorkflowMetadata[]>([])
 
-  const signOut = async () => {
-    await supabaseClient.auth.signOut()
-    router.push("/login")
-    router.refresh()
-  }
-
-  useEffect(() => {
-    if (user) {
-      fetchWorkflows().then((workflows) => setUserWorkflows(workflows))
-    } else {
-      setUserWorkflows([])
-    }
-  }, [user])
-
-  if (isLoading || !user) {
+  if (sessionIsLoading || !user) {
     return (
       <div
         className="container flex h-full w-full items-center justify-center"
@@ -59,36 +47,90 @@ function WorkflowsPage(props: React.HTMLAttributes<HTMLElement>) {
       </div>
     )
   }
-
+  const {
+    data: userWorkflows,
+    isLoading,
+    error,
+  } = useQuery<WorkflowMetadata[], Error>({
+    queryKey: ["workflows"],
+    queryFn: fetchWorkflows,
+  })
   return (
-    userWorkflows.length > 0 && (
-      <div
-        className="flex h-full w-full flex-col items-center justify-center"
-        {...props}
-      >
-        Hello, {user.email}!
-        {userWorkflows.map((workflow, idx) => (
-          <Button
-            key={idx}
-            asChild
-            className="h-[50px] rounded-md border-[1px] shadow-md"
-            variant="ghost"
-          >
+    <div className="container flex h-full max-w-[800px] flex-col justify-center space-y-2 p-16">
+      <div className="flex w-full ">
+        <div className="items-start space-y-2 text-left">
+          <h2 className="text-2xl font-bold tracking-tight">Workflows</h2>
+          <p className="text-md text-muted-foreground">
+            Welcome back! Here&apos;s a list of your workflows.
+          </p>
+        </div>
+
+        <NewWorkflowDialog>
+          <NewWorkflowDialogTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              className="ml-auto space-x-2"
+              onClick={() => {
+                console.log("Create new workflow")
+              }}
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New
+            </Button>
+          </NewWorkflowDialogTrigger>
+        </NewWorkflowDialog>
+      </div>
+      {!isLoading && <WorkflowList workflows={userWorkflows ?? []} />}
+    </div>
+  )
+}
+
+interface WorkflowListProps {
+  workflows: WorkflowMetadata[]
+}
+
+export function WorkflowList({ workflows }: WorkflowListProps) {
+  return (
+    <div className="flex flex-col gap-2 pt-0">
+      {workflows.length === 0 ? (
+        <span>No workflows created.</span>
+      ) : (
+        <>
+          {workflows.map((wf) => (
             <Link
-              key={idx}
-              href={`/workflows/${workflow.id}`}
+              key={wf.id}
+              href={`/workflows/${wf.id}`}
               className={cn(
-                "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                "m-4 flex flex-col justify-start"
+                "flex min-h-24 min-w-[600px] flex-col items-start justify-start rounded-lg border p-6 text-left text-sm shadow-md transition-all hover:bg-accent",
+                "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white"
               )}
             >
-              {workflow.title}
-              <span className="ml-2">{workflow.id}</span>
+              <div className="flex w-full flex-col gap-1">
+                <div className="flex items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="font-semibold capitalize">{wf.title}</div>
+                  </div>
+                  <div className="ml-auto flex items-center space-x-2">
+                    <span
+                      className={cn(
+                        "flex h-2 w-2 rounded-full ",
+                        wf.status === "online" ? "bg-green-400" : "bg-gray-400"
+                      )}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Last run: 2 hours ago
+                    </span>
+                  </div>
+                </div>
+                <div className="text-xs font-medium text-muted-foreground">
+                  {wf.description ?? ""}
+                </div>
+              </div>
             </Link>
-          </Button>
-        ))}
-        <Button onClick={signOut}>Sign out</Button>
-      </div>
-    )
+          ))}
+        </>
+      )}
+    </div>
   )
 }
