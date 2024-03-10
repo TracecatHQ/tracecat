@@ -15,12 +15,29 @@ STORAGE_PATH = Path(os.path.expanduser("~/.tracecat/storage"))
 EMBEDDINGS_SIZE = os.environ.get("TRACECAT__EMBEDDINGS_SIZE", 512)
 
 
+class User(SQLModel, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    tier: str = "free"  # "free" or "premium"
+    settings: str | None = None  # JSON-serialized String of settings
+    owned_workflows: list["Workflow"] = Relationship(back_populates="owner")
+
+
+class Editor(SQLModel, table=True):
+    user_id: str | None = Field(default=None, foreign_key="user.id", primary_key=True)
+    workflow_id: str | None = Field(
+        default=None, foreign_key="workflow.id", primary_key=True
+    )
+
+
 class Workflow(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
     object: str | None = None  # JSON-serialized String of react flow object
+    # Owner
+    owner_id: str | None = Field(default=None, foreign_key="user.id")
+    owner: User | None = Relationship(back_populates="owned_workflows")
     actions: list["Action"] | None = Relationship(back_populates="workflow")
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     webhooks: list["Webhook"] | None = Relationship(back_populates="workflow")
