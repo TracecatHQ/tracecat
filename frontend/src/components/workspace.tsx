@@ -6,6 +6,8 @@ import {
   Blend,
   BookText,
   CheckSquare,
+  ChevronsLeft,
+  ChevronsRight,
   Container,
   FlaskConical,
   GitCompareArrows,
@@ -20,9 +22,11 @@ import {
   Tags,
   Webhook,
 } from "lucide-react"
+import { ImperativePanelHandle } from "react-resizable-panels"
 import { ReactFlowProvider } from "reactflow"
 
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -40,10 +44,11 @@ interface WorkspaceProps {
 }
 
 export function Workspace({
-  defaultLayout = [265, 440, 265],
+  defaultLayout = [1, 60, 20],
   defaultCollapsed = false,
   navCollapsedSize,
 }: WorkspaceProps) {
+  const sidePanelRef = React.useRef<ImperativePanelHandle>(null)
   const [isCollapsed, setIsCollapsed] = React.useState(defaultCollapsed)
 
   // Adjust onCollapse to match the expected signature
@@ -59,6 +64,21 @@ export function Workspace({
     setIsCollapsed(false) // Set to false when you know the panel is expanded
     document.cookie = `react-resizable-panels:collapsed=${JSON.stringify(false)}`
   }
+  const toggleSidePanel = () => {
+    const side = sidePanelRef.current
+    if (!side) {
+      return
+    }
+    if (side.isCollapsed()) {
+      side.expand()
+    } else {
+      side.collapse()
+    }
+    setIsCollapsed(!isCollapsed)
+    document.cookie = `react-resizable-panels:collapsed=${JSON.stringify(
+      !isCollapsed
+    )}`
+  }
 
   return (
     <ReactFlowProvider>
@@ -73,14 +93,16 @@ export function Workspace({
             }}
           >
             <ResizablePanel
+              ref={sidePanelRef}
               defaultSize={defaultLayout[0]}
               collapsedSize={navCollapsedSize}
               collapsible={true}
-              minSize={15}
+              minSize={8}
               maxSize={20}
               onCollapse={handleCollapse}
               onExpand={handleExpand}
               className={cn(
+                "flex flex-col",
                 isCollapsed &&
                   "min-w-[50px] transition-all duration-300 ease-in-out"
               )}
@@ -194,6 +216,13 @@ export function Workspace({
                   },
                 ]}
               />
+              <div className="flex h-full flex-col items-start justify-end">
+                <PanelToggle
+                  className="mt-auto"
+                  isCollapsed={isCollapsed}
+                  toggleSidePanel={toggleSidePanel}
+                />
+              </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={defaultLayout[1]}>
@@ -207,5 +236,41 @@ export function Workspace({
         </TooltipProvider>
       </WorkflowBuilderProvider>
     </ReactFlowProvider>
+  )
+}
+interface PanelToggleProps extends React.HTMLAttributes<HTMLDivElement> {
+  isCollapsed: any
+  toggleSidePanel: React.MouseEventHandler<HTMLButtonElement> | undefined
+}
+function PanelToggle({
+  isCollapsed,
+  toggleSidePanel,
+  className,
+}: PanelToggleProps) {
+  return (
+    <div
+      data-collapsed={isCollapsed}
+      className={cn(
+        "group flex flex-col gap-4 py-2 data-[collapsed=true]:py-2",
+        className
+      )}
+    >
+      <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
+        <Button
+          variant="ghost"
+          className={cn(
+            "hover:bg-transparent",
+            !isCollapsed && "justify-start"
+          )}
+          onClick={toggleSidePanel}
+        >
+          {isCollapsed ? (
+            <ChevronsRight className="h-4 w-4" />
+          ) : (
+            <ChevronsLeft className="mr-2 h-4 w-4" />
+          )}
+        </Button>
+      </nav>
+    </div>
   )
 }
