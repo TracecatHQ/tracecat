@@ -1,12 +1,16 @@
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import polars as pl
+import psycopg
 import tantivy
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
@@ -21,6 +25,7 @@ from tracecat.db import (
     create_events_index,
     initialize_db,
 )
+from tracecat.logger import standard_logger
 
 
 @asynccontextmanager
@@ -43,6 +48,56 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+logger = standard_logger("api")
+
+
+async def get_auth_user(user_id: str) -> tuple[str, ...] | None:
+    conn_manager = await psycopg.AsyncConnection.connect(
+        os.environ["SUPABASE_PSQL_URL"]
+    )
+    async with conn_manager as aconn:
+        async with aconn.cursor() as acur:
+            await acur.execute(
+                "SELECT id, aud, role FROM auth.users WHERE (id=%s AND aud=%s AND role=%s)",
+                (user_id, "authenticated", "authenticated"),
+            )
+
+            record = await acur.fetchone()
+    logger.critical(f"{record = }")
+    return record
+
+
+async def authenticate_session(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
+    logger.info(f"Token: {token}")
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(
+            token,
+            key=os.environ["SUPABASE_JWT_SECRET"],
+            algorithms=os.environ["SUPABASE_JWT_ALGORITHM"],
+            # NOTE: Workaround, not sure if there are alternatives
+            options={"verify_aud": False},
+        )
+        logger.critical(f"{payload = }")
+        user_id: str = payload.get("sub")
+        logger.critical(f"{user_id = }")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError as e:
+        logger.error(f"{e = }")
+        raise credentials_exception from e
+
+    # Validate this against supabase
+
+    if await get_auth_user(user_id) is None:
+        raise credentials_exception
+    return user_id
 
 
 @app.get("/")
@@ -102,10 +157,13 @@ class WorkflowRunMetadataResponse(BaseModel):
 
 
 @app.get("/workflows")
-def list_workflows() -> list[WorkflowMetadataResponse]:
+def list_workflows(
+    user_id: Annotated[str, Depends(authenticate_session)],
+) -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
+    logger.critical(f"{user_id = }")
     with Session(create_db_engine()) as session:
-        statement = select(Workflow)
+        statement = select(Workflow).where(Workflow.owner_id == user_id)
         results = session.exec(statement)
         workflows = results.all()
     workflow_metadata = [
@@ -126,10 +184,17 @@ class CreateWorkflowParams(BaseModel):
 
 
 @app.post("/workflows", status_code=201)
-def create_workflow(params: CreateWorkflowParams) -> WorkflowMetadataResponse:
+def create_workflow(
+    params: CreateWorkflowParams,
+    user_id: Annotated[str, Depends(authenticate_session)],
+) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
 
-    workflow = Workflow(title=params.title, description=params.description)
+    workflow = Workflow(
+        title=params.title,
+        description=params.description,
+        owner_id=user_id,
+    )
     with Session(create_db_engine()) as session:
         session.add(workflow)
         session.commit()
