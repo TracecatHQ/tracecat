@@ -45,14 +45,8 @@ Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
-runner = [
-    "httpx[http2]",
-    "python-multipart",
-    "jsonpath_ng",
-    "yagmail[all]",
-    "aiosmtplib",
-]
-dev = ["pytest", "python-dotenv"]
+runner = ["aiosmtplib", "httpx[http2]", "jsonpath_ng", "python-multipart"]
+dev = ["pytest", "python-dotenv", "pytest-asyncio"]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
@@ -85,6 +79,7 @@ xfail_strict = true
 log_level = "INFO"
 log_cli = true
 log_cli_level = "INFO"
+markers = ["webtest: marks test that require the web"]
 
 [tool.ruff.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.
