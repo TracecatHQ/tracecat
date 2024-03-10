@@ -6,9 +6,13 @@ services:
       - "8000:8000"
     volumes:
       - ./:/app
+      - ./.tracecat:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.api:app"
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      SUPABASE_JWT_ALGORITHM: ${SUPABASE_JWT_ALGORITHM}
+      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
     container_name: api
     restart: unless-stopped
     depends_on:
@@ -22,6 +26,7 @@ services:
       - "8001:8000"
     volumes:
       - ./:/app
+      - ./.tracecat:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner:app"
       OPENAI_API_KEY: ${OPENAI_API_KEY}
