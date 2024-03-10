@@ -5,7 +5,7 @@ export const actionResponseSchema = z.object({
   title: z.string(),
   description: z.string(),
   status: z.string(),
-  inputs: z.record(z.any()).optional(),
+  inputs: z.record(z.any()).nullable(),
 })
 
 export type ActionResponse = z.infer<typeof actionResponseSchema>
