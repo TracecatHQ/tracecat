@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DataTableToolbar } from "@/components/cases/data-table-toolbar"
+import { CasePanel } from "@/components/cases/panel"
 import { DataTablePagination } from "@/components/data-table/pagination"
 
 interface DataTableProps<TData, TValue> {
@@ -43,6 +44,15 @@ export function DataTable<TData, TValue>({
     []
   )
   const [sorting, setSorting] = React.useState<SortingState>([])
+  const [isCaseSelected, setIsCaseSelected] = React.useState<boolean>(false)
+  const [selectedCase, setSelectedCase] = React.useState<TData | null>(null)
+
+  function handleClickRow(row: TData) {
+    return () => {
+      setIsCaseSelected(true)
+      setSelectedCase(row)
+    }
+  }
 
   const table = useReactTable({
     data,
@@ -65,6 +75,10 @@ export function DataTable<TData, TValue>({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
   })
+
+  React.useEffect(() => {
+    console.log("ROW_SELECT", rowSelection)
+  }, [rowSelection])
 
   return (
     <div className="space-y-4">
@@ -95,6 +109,7 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  onClick={handleClickRow(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -120,6 +135,7 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
       <DataTablePagination table={table} />
+      <CasePanel isOpen={isCaseSelected} {...selectedCase} />
     </div>
   )
 }

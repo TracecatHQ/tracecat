@@ -5,6 +5,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { StatusBadge } from "@/components/badges"
 import {
   indicators,
   priorities,
@@ -65,9 +66,9 @@ export const columns: ColumnDef<Case>[] = [
       }
 
       return (
-        <div className="flex w-[100px] items-center">
+        <div className="flex items-center space-x-2">
           {status.icon && (
-            <status.icon className="mr-2 h-3 w-3 text-muted-foreground" />
+            <status.icon className="h-3 w-3 text-muted-foreground" />
           )}
           <span className="text-xs">{status.label}</span>
         </div>
@@ -92,9 +93,9 @@ export const columns: ColumnDef<Case>[] = [
       }
 
       return (
-        <div className="flex items-center">
+        <div className="flex items-center space-x-2">
           {priority.icon && (
-            <priority.icon className="mr-2 h-3 w-3 text-muted-foreground" />
+            <priority.icon className="h-3 w-3 text-muted-foreground" />
           )}
           <span className="text-xs">{priority.label}</span>
         </div>
@@ -141,21 +142,10 @@ export const columns: ColumnDef<Case>[] = [
     ),
     cell: ({ row }) => {
       const label = row.getValue("malice") as string
-      const bg_color = label === "malicious" ? "bg-red-100" : "bg-gray-100"
-      const border_color =
-        label === "malicious" ? "border-red-400" : "border-gray-400"
-      const text_color =
-        label === "malicious" ? "text-red-700" : "text-gray-700"
-
       return (
         <div className="flex space-x-2">
           <span className="max-w-[100px] truncate text-xs text-muted-foreground">
-            <Badge
-              variant="outline"
-              className={cn(bg_color, border_color, text_color)}
-            >
-              {label}
-            </Badge>
+            <StatusBadge status={label}>{label}</StatusBadge>
           </span>
         </div>
       )
