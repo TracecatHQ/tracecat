@@ -27,16 +27,11 @@ export default async function CasesPage() {
 
   return (
     <>
-      <DefaultQueryClientProvider>
-        <WorkflowProvider>
-          <div className="flex h-screen flex-col">
-            <Navbar />
-            <div className="flex-1 px-16 py-24">
-              <DataTable data={cases} columns={columns} />
-            </div>
-          </div>
-        </WorkflowProvider>
-      </DefaultQueryClientProvider>
+      <div className="flex h-screen flex-col">
+        <div className="flex-1 px-16 py-24">
+          <DataTable data={cases} columns={columns} />
+        </div>
+      </div>
     </>
   )
 }
