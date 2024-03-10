@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.condition import ConditionRuleValidator, ConditionRuleVariant
-from tracecat.config import MAX_RETRIES, TRACECAT__OAUTH2_GMAIL_PATH
+from tracecat.config import MAX_RETRIES
 from tracecat.db import create_events_index
 from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
@@ -51,7 +51,12 @@ from tracecat.llm import (
     get_system_context,
 )
 from tracecat.logger import standard_logger
-from tracecat.mail import EMAIL_PATTERN, AsyncSMTPClient
+from tracecat.mail import (
+    SAFE_EMAIL_PATTERN,
+    EmailBouncedError,
+    EmailNotFoundError,
+    ResendMailProvider,
+)
 
 if TYPE_CHECKING:
     from tracecat.workflows import Workflow
@@ -223,7 +228,7 @@ class SendEmailAction(Action):
 
     @validator("recipients", always=True, pre=True, each_item=True)
     def validate_recipients(cls, v: str) -> str:
-        if not EMAIL_PATTERN.match(v):
+        if not SAFE_EMAIL_PATTERN.match(v):
             raise ValueError(f"Invalid email address {v!r}.")
         return v
 
@@ -708,33 +713,81 @@ async def run_llm_action(
 
 
 async def run_send_email_action(
+    sender: str,
     recipients: list[str],
     subject: str,
-    contents: str,
+    body: str,
+    provider: Literal["resend"] = "resend",
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a send email action."""
     custom_logger.debug("Perform send email action")
+    custom_logger.debug(f"{sender = }")
     custom_logger.debug(f"{recipients = }")
     custom_logger.debug(f"{subject = }")
-    custom_logger.debug(f"{contents = }")
+    custom_logger.debug(f"{body = }")
 
-    async with AsyncSMTPClient(oauth2_file=str(TRACECAT__OAUTH2_GMAIL_PATH)) as client:
-        tasks = [
-            client.send(to=recipient, subject=subject, contents=contents)
-            for recipient in recipients
-        ]
-        await asyncio.gather(*tasks)
+    if provider == "resend":
+        email_provider = ResendMailProvider(
+            sender=sender,
+            recipients=recipients,
+            subject=subject,
+            body=body,
+        )
+    else:
+        msg = "Email provider not recognized"
+        custom_logger.warning(f"{msg}: {provider!r}")
+        result = {
+            "status": "error",
+            "message": msg,
+            "provider": provider,
+            "sender": sender,
+            "recipients": recipients,
+            "subject": subject,
+            "body": body,
+        }
+        return result
 
-    return {
-        "status": "ok",
-        "message": "Successfully sent email",
-        "recipients": recipients,
-        "subject": subject,
-        "contents": contents,
-    }
+    try:
+        await email_provider.send()
+    except httpx.HTTPError as exc:
+        msg = "Failed to post email to provider"
+        custom_logger.error(msg, exc_info=exc)
+        result = {
+            "status": "error",
+            "message": msg,
+            "provider": provider,
+            "sender": sender,
+            "recipients": recipients,
+            "subject": subject,
+            "body": body,
+        }
+    except (EmailBouncedError, EmailNotFoundError) as exc:
+        msg = exc.args[0]
+        custom_logger.warning(msg=msg, exc_info=exc)
+        result = {
+            "status": "warning",
+            "message": msg,
+            "provider": provider,
+            "sender": sender,
+            "recipients": recipients,
+            "subject": subject,
+            "body": body,
+        }
+    else:
+        result = {
+            "status": "ok",
+            "message": "Successfully sent email",
+            "provider": provider,
+            "sender": sender,
+            "recipients": recipients,
+            "subject": subject,
+            "body": body,
+        }
+
+    return result
 
 
 _ActionRunner = Callable[..., Awaitable[dict[str, Any]]]
