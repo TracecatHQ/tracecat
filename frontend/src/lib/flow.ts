@@ -5,7 +5,7 @@ import { z } from "zod"
 import { WorkflowMetadata, workflowMetadataSchema } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
 
-export async function saveFlow(
+export async function updateDndFlow(
   maybeSession: Session | null,
   workflowId: string,
   reactFlowInstance: ReactFlowInstance

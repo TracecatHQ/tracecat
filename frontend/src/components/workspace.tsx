@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { WorkflowBuilderProvider } from "@/providers/builder"
-import { useSessionContext } from "@/providers/session"
 import {
   Blend,
   BookText,
@@ -38,8 +37,6 @@ import { ActionTiles } from "@/components/action-tiles"
 import { WorkflowCanvas } from "@/components/canvas"
 import { WorkflowPanel } from "@/components/panel"
 
-import { Skeleton } from "./ui/skeleton"
-
 interface WorkspaceProps {
   defaultLayout: number[] | undefined
   defaultCollapsed?: boolean
@@ -51,11 +48,6 @@ export function Workspace({
   defaultCollapsed = false,
   navCollapsedSize,
 }: WorkspaceProps) {
-  const { session, isLoading } = useSessionContext()
-  if (!session) {
-    throw new Error("Invalid session")
-  }
-
   const sidePanelRef = React.useRef<ImperativePanelHandle>(null)
   const [isCollapsed, setIsCollapsed] = React.useState(defaultCollapsed)
 
@@ -88,13 +80,9 @@ export function Workspace({
     )}`
   }
 
-  if (isLoading) {
-    return <Skeleton className="h-9 w-96" />
-  }
-
   return (
     <ReactFlowProvider>
-      <WorkflowBuilderProvider session={session}>
+      <WorkflowBuilderProvider>
         <TooltipProvider delayDuration={0}>
           <ResizablePanelGroup
             direction="horizontal"

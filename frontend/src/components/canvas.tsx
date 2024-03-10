@@ -17,9 +17,11 @@ import ReactFlow, {
 import "reactflow/dist/style.css"
 
 import { useParams } from "next/navigation"
+import { useSession } from "@/providers/session"
 import { ActionType } from "@/types"
 
-import { saveFlow } from "@/lib/flow"
+import { ActionMetadata, WorkflowResponse } from "@/types/schemas"
+import { updateDndFlow } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, { ActionNodeData } from "@/components/action-node"
 
@@ -34,30 +36,6 @@ const defaultEdgeOptions = {
   style: { strokeWidth: 2 },
 }
 
-type ActionMetadata = {
-  id: string
-  workflow_id: string
-  title: string
-  description: string
-}
-
-interface ActionResponse {
-  id: string
-  title: string
-  description: string
-  status: string
-  inputs: { [key: string]: any } | null
-}
-
-interface WorkflowResponse {
-  id: string
-  title: string
-  description: string
-  status: string
-  actions: { [key: string]: ActionResponse[] }
-  object: { [key: string]: any } | null
-}
-
 const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -68,6 +46,7 @@ const WorkflowCanvas: React.FC = () => {
   const { setViewport } = useReactFlow()
   const params = useParams<{ id: string }>()
   const workflowId = params.id
+  const session = useSession()
 
   const { toast } = useToast()
 
@@ -141,7 +120,7 @@ const WorkflowCanvas: React.FC = () => {
     (params: Edge | Connection) => {
       setEdges((eds) => addEdge(params, eds))
     },
-    [toast, edges, setEdges]
+    [edges, setEdges]
   )
 
   const onDragOver = useCallback(
@@ -152,6 +131,7 @@ const WorkflowCanvas: React.FC = () => {
     [nodes]
   )
 
+  // Adding a new node
   const onDrop = useCallback(
     async (event: React.DragEvent) => {
       event.preventDefault()
@@ -222,11 +202,21 @@ const WorkflowCanvas: React.FC = () => {
     [edges, setEdges]
   )
 
+  // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      saveFlow(workflowId, reactFlowInstance)
+      updateDndFlow(session, workflowId, reactFlowInstance)
     }
-  }, [nodes, edges])
+  }, [edges])
+
+  const onNodesDragStop = useCallback(
+    (event: React.MouseEvent, node: Node, nodes: Node[]) => {
+      if (workflowId && reactFlowInstance) {
+        updateDndFlow(session, workflowId, reactFlowInstance)
+      }
+    },
+    [workflowId, reactFlowInstance]
+  )
 
   return (
     <div ref={reactFlowWrapper} style={{ height: "100%" }}>
@@ -241,6 +231,7 @@ const WorkflowCanvas: React.FC = () => {
         onInit={setReactFlowInstance}
         onNodesChange={onNodesChange}
         onNodesDelete={onNodesDelete}
+        onNodeDragStop={onNodesDragStop}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
         fitViewOptions={{ maxZoom: 1 }}

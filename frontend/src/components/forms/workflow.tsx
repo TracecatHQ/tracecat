@@ -1,10 +1,11 @@
+import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation } from "@tanstack/react-query"
-import axios from "axios"
 import { CircleIcon, Save } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { updateWorkflow } from "@/lib/flow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,12 +24,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 
 // Define formSchema for type safety
 const workflowFormSchema = z.object({
   title: z.string(),
   description: z.string(),
 })
+
+type WorkflowForm = z.infer<typeof workflowFormSchema>
 
 interface WorkflowFormProps {
   workflowId: string
@@ -43,7 +47,9 @@ export function WorkflowForm({
   workflowDescription,
   workflowStatus,
 }: WorkflowFormProps): React.JSX.Element {
-  const form = useForm<z.infer<typeof workflowFormSchema>>({
+  const session = useSession()
+  console.log("WorkflowForm", session)
+  const form = useForm<WorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
       title: workflowTitle || "",
@@ -51,23 +57,10 @@ export function WorkflowForm({
     },
   })
 
-  // Submit form and update Workflow
-  async function updateWorkflow(
-    workflowId: string,
-    values: z.infer<typeof workflowFormSchema>
-  ) {
-    const response = await axios.post(
-      `http://localhost:8000/workflows/${workflowId}`,
-      values
-    )
-    return response.data // Adjust based on what your API returns
-  }
-
   function useUpdateWorkflow(workflowId: string) {
     const mutation = useMutation({
-      mutationFn: (values: z.infer<typeof workflowFormSchema>) =>
-        updateWorkflow(workflowId, values),
-      // Configure your mutation behavior here
+      mutationFn: (values: WorkflowForm) =>
+        updateWorkflow(session, workflowId, values),
       onSuccess: (data, variables, context) => {
         console.log("Workflow update successful", data)
       },
@@ -80,8 +73,12 @@ export function WorkflowForm({
   }
 
   const { mutate } = useUpdateWorkflow(workflowId)
-  function onSubmit(values: z.infer<typeof workflowFormSchema>) {
+  function onSubmit(values: WorkflowForm) {
     mutate(values)
+    toast({
+      title: "Saved workflow",
+      description: "Workflow updated successfully.",
+    })
   }
 
   return (
