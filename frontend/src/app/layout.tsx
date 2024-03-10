@@ -2,7 +2,6 @@ import "@/styles/globals.css"
 
 import { Metadata } from "next"
 import { SessionContextProvider } from "@/providers/session"
-import { WorkflowProvider } from "@/providers/workflow"
 import { createClient } from "@/utils/supabase/server"
 
 import { siteConfig } from "@/config/site"
@@ -40,7 +39,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           )}
         >
           <SessionContextProvider initialSession={session}>
-            <WorkflowProvider>{children}</WorkflowProvider>
+            {children}
           </SessionContextProvider>
           <Toaster />
         </body>
