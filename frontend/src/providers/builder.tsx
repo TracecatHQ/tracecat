@@ -2,13 +2,14 @@ import React, {
   createContext,
   ReactNode,
   SetStateAction,
+  useCallback,
   useContext,
 } from "react"
 import { useParams } from "next/navigation"
-import { type Session } from "@supabase/supabase-js"
+import { useSession } from "@/providers/session"
 import { Node, useReactFlow } from "reactflow"
 
-import { saveFlow } from "@/lib/flow"
+import { updateDndFlow } from "@/lib/flow"
 
 interface ReactFlowContextType {
   setNodes: React.Dispatch<SetStateAction<Node[]>>
@@ -19,25 +20,24 @@ const ReactFlowInteractionsContext = createContext<
 >(undefined)
 
 interface ReactFlowInteractionsProviderProps {
-  session: Session
   children: ReactNode
 }
 
 export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
-> = ({ session, children }) => {
+> = ({ children }) => {
+  const maybeSession = useSession()
   const reactFlowInstance = useReactFlow()
   const params = useParams<{ id: string }>()
   const workflowId = params.id
 
-  const setReactFlowNodes = (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
-    if (!session) {
-      console.error("Invalid session: cannot set nodes")
-      return
-    }
-    reactFlowInstance.setNodes(nodes)
-    saveFlow(session, workflowId, reactFlowInstance)
-  }
+  const setReactFlowNodes = useCallback(
+    (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
+      reactFlowInstance.setNodes(nodes)
+      updateDndFlow(maybeSession, workflowId, reactFlowInstance)
+    },
+    [maybeSession, workflowId, reactFlowInstance]
+  )
 
   return (
     <ReactFlowInteractionsContext.Provider
