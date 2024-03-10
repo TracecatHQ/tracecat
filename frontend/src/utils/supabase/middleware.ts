@@ -68,7 +68,7 @@ export const updateSession = async (request: NextRequest) => {
     } = await supabase.auth.getUser()
 
     if (error || !user) {
-      console.log("Session invalid, redirecting to /login")
+      console.log("User logged out, redirecting to /login")
       return NextResponse.redirect("/login")
     }
 

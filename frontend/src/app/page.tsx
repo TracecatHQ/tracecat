@@ -1,10 +1,8 @@
 import Link from "next/link"
-import { createClient } from "@/utils/supabase/server"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
-import AuthButton from "@/components/user-auth-button"
 import { UserAuthForm } from "@/components/user-auth-form"
 
 export default function AuthenticationPage() {
