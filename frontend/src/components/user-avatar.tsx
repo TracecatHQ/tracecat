@@ -1,12 +1,14 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { cn } from "@/lib/utils"
 
-export default function UserAvatar() {
+interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
+  src: string
+  alt: string
+}
+export default function UserAvatar({ src, alt, className }: UserAvatarProps) {
   return (
-    <Avatar className="h-8 w-8">
-      <AvatarImage
-        src="https://media.licdn.com/dms/image/C5103AQEXlYZeTKuwyQ/profile-displayphoto-shrink_200_200/0/1582770649112?e=1715212800&v=beta&t=wqVZfVV4YwedybQFzKazeWmlQslMQ11t_NGMCqwpN-k"
-        alt="@daryllimyt"
-      />
+    <Avatar className={cn("h-8 w-8", className)}>
+      <AvatarImage src={src} alt={alt} />
       <AvatarFallback>CN</AvatarFallback>
     </Avatar>
   )
