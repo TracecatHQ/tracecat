@@ -1,6 +1,12 @@
 # Database
 db.sqlite3
 
+# Tracecat
+.tracecat/
+
+# MacOS
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
