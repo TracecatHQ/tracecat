@@ -604,11 +604,6 @@ def list_cases() -> list[CaseResponse]:
     pass
 
 
-@app.post("/cases")
-def create_case() -> CaseResponse:
-    pass
-
-
 @app.get("/cases/{case_id}")
 def get_case(case_id: str) -> CaseResponse:
     pass
