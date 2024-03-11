@@ -150,5 +150,5 @@ class Case(BaseModel):
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     # Optional inputs (can be AI suggested)
     context: dict[str, str] | None = None
-    action: list[str] | None = None
+    action: str | None = None
     suppression: dict[str, bool] | None = None
