@@ -31,7 +31,7 @@ export const workflowResponseSchema = z.object({
   title: z.string(),
   description: z.string(),
   status: z.string(),
-  actions: z.record(z.array(actionResponseSchema)),
+  actions: z.record(actionResponseSchema),
   object: z.record(z.any()).nullable(),
 })
 

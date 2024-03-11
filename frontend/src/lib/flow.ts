@@ -10,6 +10,8 @@ import {
   actionResponseSchema,
   WorkflowMetadata,
   workflowMetadataSchema,
+  WorkflowResponse,
+  workflowResponseSchema,
 } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
 import { BaseActionSchema } from "@/components/forms/action"
@@ -19,6 +21,7 @@ export async function updateDndFlow(
   workflowId: string,
   reactFlowInstance: ReactFlowInstance
 ) {
+  console.log("Saving flow...")
   try {
     const flowObject = reactFlowInstance.toObject()
     const updateFlowObjectParams = JSON.stringify({
@@ -38,14 +41,14 @@ export async function updateDndFlow(
 export async function fetchWorkflow(
   maybeSession: Session | null,
   workflowId: string
-): Promise<WorkflowMetadata> {
+): Promise<WorkflowResponse> {
   try {
     const client = getAuthenticatedClient(maybeSession)
-    const response = await client.get<WorkflowMetadata>(
+    const response = await client.get<WorkflowResponse>(
       `/workflows/${workflowId}`
     )
     console.log("Workflow fetched successfully", response.data)
-    return workflowMetadataSchema.parse(response.data)
+    return workflowResponseSchema.parse(response.data)
   } catch (error) {
     console.error("Error fetching workflow:", error)
     throw error
