@@ -1,4 +1,7 @@
-import { useSessionContext, useUser } from "@/providers/session"
+"use client"
+
+import { useSessionContext } from "@/providers/session"
+import { User } from "@supabase/supabase-js"
 import { KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -20,10 +23,9 @@ const userDefaults = {
     "https://media.licdn.com/dms/image/C5103AQEXlYZeTKuwyQ/profile-displayphoto-shrink_200_200/0/1582770649112?e=1715212800&v=beta&t=wqVZfVV4YwedybQFzKazeWmlQslMQ11t_NGMCqwpN-k",
   alt: "@daryllimyt",
 }
-export function UserNav() {
-  const { signOut } = useSessionContext()
-  const user = useUser()
-
+export default function UserNav() {
+  const { session, signOut } = useSessionContext()
+  const user = session?.user as User | null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

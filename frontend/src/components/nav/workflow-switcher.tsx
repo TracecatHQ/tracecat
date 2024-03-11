@@ -1,18 +1,16 @@
-"use client"
-
 import React from "react"
-import { redirect, useParams, useRouter } from "next/navigation"
-import { useSessionContext } from "@/providers/session"
+import { useRouter } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import {
   CaretSortIcon,
   CheckIcon,
   PlusCircledIcon,
 } from "@radix-ui/react-icons"
+import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 
 import { WorkflowMetadata } from "@/types/schemas"
-import { fetchAllWorkflows, fetchWorkflow } from "@/lib/flow"
+import { fetchAllWorkflows } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -33,21 +31,26 @@ import {
   NewWorkflowDialogTrigger,
 } from "@/components/new-workflow-dialog"
 
-import { Skeleton } from "./ui/skeleton"
+import { Skeleton } from "../ui/skeleton"
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
-interface WorkflowSwitcherProps extends PopoverTriggerProps {}
+interface WorkflowSwitcherProps extends PopoverTriggerProps {
+  session: Session | null
+}
 
-export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
+export default function WorkflowSwitcher({
+  session,
+  className,
+}: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
-  const { setWorkflowMetadata } = useWorkflowMetadata()
-  const params = useParams<{ id: string }>()
-  const workflowId = params.id as string | undefined
-  const { session } = useSessionContext()
+  const { workflow } = useWorkflowMetadata()
+  const router = useRouter()
+
   if (!session) {
     console.error("Invalid session, redirecting to login")
-    return redirect("/login")
+    router.push("/login")
+    router.refresh()
   }
 
   const { data: workflows } = useQuery<WorkflowMetadata[], Error>({
@@ -63,29 +66,6 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
     },
   })
 
-  const { data: workflowMetadata, isLoading } = useQuery<
-    WorkflowMetadata,
-    Error
-  >({
-    queryKey: ["workflow", workflowId],
-    queryFn: async ({ queryKey }) => {
-      if (!session) {
-        console.error("Invalid session")
-        throw new Error("Invalid session")
-      }
-      const [_, workflowId] = queryKey as [string, string?]
-      if (!workflowId) {
-        throw new Error("No workflow ID provided")
-      }
-      console.log(session)
-      const data = await fetchWorkflow(session, workflowId)
-      setWorkflowMetadata(data)
-      return data
-    },
-  })
-
-  const router = useRouter()
-
   return (
     <NewWorkflowDialog>
       <Popover open={open} onOpenChange={setOpen}>
@@ -97,22 +77,21 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
             aria-label="Select a team"
             className={cn("w-96 justify-between", className)}
           >
-            {workflowMetadata?.title}
+            {workflow?.title}
             <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-96 p-0">
-          <Command defaultValue={workflowMetadata?.title}>
+          <Command defaultValue={workflow?.title}>
             <CommandList>
               <CommandGroup key="workflows" heading="workflows">
-                {!workflows || isLoading ? (
+                {!workflows ? (
                   <Skeleton />
                 ) : (
                   workflows.map((workflow) => (
                     <CommandItem
                       key={workflow.id}
                       onSelect={() => {
-                        setWorkflowMetadata(workflow)
                         router.push(`/workflows/${workflow.id}`)
                         setOpen(false)
                       }}
@@ -130,7 +109,7 @@ export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
                       <CheckIcon
                         className={cn(
                           "ml-auto h-4 w-4 text-xs",
-                          workflowMetadata?.id === workflow.id
+                          workflow?.id === workflow.id
                             ? "opacity-100"
                             : "opacity-0"
                         )}

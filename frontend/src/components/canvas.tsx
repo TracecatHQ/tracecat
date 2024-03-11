@@ -63,6 +63,7 @@ const WorkflowCanvas: React.FC = () => {
           )
           .then((response) => {
             const flow = response.data.object
+            console.log("FLOW", flow)
             if (flow) {
               // If there is a saved React Flow configuration, load it
               setNodes(flow.nodes || [])
@@ -100,53 +101,50 @@ const WorkflowCanvas: React.FC = () => {
   )
 
   // Adding a new node
-  const onDrop = useCallback(
-    async (event: React.DragEvent) => {
-      event.preventDefault()
+  const onDrop = async (event: React.DragEvent) => {
+    event.preventDefault()
 
-      // Limit total number of nodes
-      if (nodes.length >= 50) {
-        toast({
-          title: "Invalid action",
-          description: "Maximum 50 nodes allowed.",
-        })
-        return
-      }
-
-      const reactFlowNodeType = event.dataTransfer.getData(
-        "application/reactflow"
-      )
-      const actionNodeData = JSON.parse(
-        event.dataTransfer.getData("application/json")
-      ) as ActionNodeData
-
-      if (!actionNodeData || !reactFlowNodeType || !reactFlowInstance) return
-
-      const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
+    // Limit total number of nodes
+    if (nodes.length >= 50) {
+      toast({
+        title: "Invalid action",
+        description: "Maximum 50 nodes allowed.",
       })
+      return
+    }
 
-      // Create Action in database
-      const actionId = await createAction(
-        session,
-        actionNodeData.type,
-        actionNodeData.title,
-        workflowId
-      )
-      if (!actionId) return
-      // Then create Action node in React Flow
-      const newNode = {
-        id: actionId,
-        type: reactFlowNodeType,
-        position: reactFlowNodePosition,
-        data: actionNodeData,
-      } as ActionNodeType
+    const reactFlowNodeType = event.dataTransfer.getData(
+      "application/reactflow"
+    )
+    const actionNodeData = JSON.parse(
+      event.dataTransfer.getData("application/json")
+    ) as ActionNodeData
 
-      setNodes((nds) => nds.concat(newNode))
-    },
-    [nodes, createAction]
-  )
+    if (!actionNodeData || !reactFlowNodeType || !reactFlowInstance) return
+
+    const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    })
+
+    // Create Action in database
+    const actionId = await createAction(
+      session,
+      actionNodeData.type,
+      actionNodeData.title,
+      workflowId
+    )
+    if (!actionId) return
+    // Then create Action node in React Flow
+    const newNode = {
+      id: actionId,
+      type: reactFlowNodeType,
+      position: reactFlowNodePosition,
+      data: actionNodeData,
+    } as ActionNodeType
+
+    setNodes((nds) => nds.concat(newNode))
+  }
 
   const onNodesDelete = useCallback(
     (nodesToDelete: ActionNodeType[]) => {
