@@ -2,18 +2,12 @@
 
 import { ColumnDef } from "@tanstack/react-table"
 
-import { cn } from "@/lib/utils"
+import { type Case } from "@/types/schemas"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
-import {
-  indicators,
-  priorities,
-  statuses,
-} from "@/components/cases/data/categories"
+import { priorities, statuses } from "@/components/cases/data/categories"
 import { DataTableColumnHeader } from "@/components/data-table/column-header"
-
-import { Case } from "./data/schema"
 
 export const columns: ColumnDef<Case>[] = [
   {

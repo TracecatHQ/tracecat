@@ -3,9 +3,9 @@ import path from "path"
 import { Metadata } from "next"
 import { z } from "zod"
 
+import { caseSchema } from "@/types/schemas"
 import { columns } from "@/components/cases/columns"
 import { DataTable } from "@/components/cases/data-table"
-import { caseSchema } from "@/components/cases/data/schema"
 
 export const metadata: Metadata = {
   title: "Cases | Tracecat",
