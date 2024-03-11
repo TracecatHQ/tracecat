@@ -23,11 +23,14 @@ from tracecat.db import (
     initialize_db,
 )
 from tracecat.logger import standard_logger
+
+# TODO: Clean up API params / response "zoo"
+# lots of repetition and inconsistency
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
     AuthenticateWebhookResponse,
-    CaseResponse,
+    Case,
     CreateActionParams,
     CreateWebhookParams,
     CreateWorkflowParams,
@@ -565,14 +568,6 @@ def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookRes
 ### Events Management
 
 
-@app.post("/events")
-def index_event(event: Event):
-    index = create_events_index()
-    writer = index.writer()
-    writer.add_document(event.model_dump())
-    writer.commit()
-
-
 SUPPORTED_EVENT_AGGS = {
     "count": pl.count,
     "max": pl.max,
@@ -587,6 +582,10 @@ SUPPORTED_EVENT_AGGS = {
 
 @app.get("/events/search")
 def search_events(params: EventSearchParams) -> list[Event]:
+    """Search for events based on query parameters.
+
+    Note: currently on supports filter by `workflow_id` and sort by `published_at`.
+    """
     index = create_events_index()
     index.reload()
     query = index.parse_query(params.workflow_id, ["workflow_id"])
@@ -599,16 +598,19 @@ def search_events(params: EventSearchParams) -> list[Event]:
 ### Case Management
 
 
-@app.get("/cases")
-def list_cases() -> list[CaseResponse]:
+@app.get("workflows/{workflow_id}/cases")
+def list_cases(workflow_id: str, limit: int = 1000) -> list[Case]:
+    """List all cases under a workflow."""
     pass
 
 
-@app.get("/cases/{case_id}")
-def get_case(case_id: str) -> CaseResponse:
+@app.get("workflows/{workflow_id}/cases/{case_id}")
+def get_case(workflow_id: str, case_id: str) -> Case:
+    """Get a specific case by ID under a workflow."""
     pass
 
 
-@app.post("/cases/{case_id}")
-def update_case(case_id: str) -> CaseResponse:
+@app.post("workflows/{workflow_id}/cases/{case_id}")
+def update_case(workflow_id: str, case_id: str, params: Case) -> Case:
+    """Update a specific case by ID under a workflow."""
     pass
