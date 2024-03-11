@@ -97,7 +97,7 @@ export function Workspace({
               defaultSize={defaultLayout[0]}
               collapsedSize={navCollapsedSize}
               collapsible={true}
-              minSize={8}
+              minSize={12}
               maxSize={20}
               onCollapse={handleCollapse}
               onExpand={handleExpand}
@@ -251,7 +251,7 @@ function PanelToggle({
     <div
       data-collapsed={isCollapsed}
       className={cn(
-        "group flex flex-col gap-4 py-2 data-[collapsed=true]:py-2",
+        "group flex w-full flex-col gap-4 py-2 data-[collapsed=true]:py-2",
         className
       )}
     >
@@ -267,7 +267,7 @@ function PanelToggle({
           {isCollapsed ? (
             <ChevronsRight className="h-4 w-4" />
           ) : (
-            <ChevronsLeft className="mr-2 h-4 w-4" />
+            <ChevronsLeft className="h-4 w-4" />
           )}
         </Button>
       </nav>
