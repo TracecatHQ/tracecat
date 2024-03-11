@@ -2,6 +2,7 @@ import React, { useRef } from "react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneLight } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
+import { type Case } from "@/types/schemas"
 import {
   Select,
   SelectContent,
@@ -21,12 +22,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { StatusBadge } from "@/components/badges"
-import {
-  indicators,
-  priorities,
-  statuses,
-} from "@/components/cases/data/categories"
-import { type Case } from "@/components/cases/data/schema"
+import { statuses } from "@/components/cases/data/categories"
 
 interface CasePanelProps extends Partial<Case> {
   isOpen: boolean
