@@ -1,17 +1,11 @@
-import { Skeleton } from "@/components/ui/skeleton"
+import { Loader2 } from "lucide-react"
+
+import { cn } from "@/lib/utils"
 
 export default function Loading() {
   return (
-    <div className="grid h-full grid-cols-12">
-      <div className="col-span-1">
-        <Skeleton className="h-full w-full" />
-      </div>
-      <div className="col-span-8">
-        <Skeleton className="h-full w-full bg-transparent" />
-      </div>
-      <div className="col-span-3">
-        <Skeleton className="h-full w-full" />
-      </div>
+    <div className="flex h-full w-full items-center justify-center">
+      <Loader2 className={cn("h-6 w-6 animate-spin text-muted-foreground")} />
     </div>
   )
 }
