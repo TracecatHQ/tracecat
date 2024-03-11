@@ -10,6 +10,7 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  type ReactFlowJsonObject,
 } from "reactflow"
 
 import "reactflow/dist/style.css"
@@ -17,9 +18,12 @@ import "reactflow/dist/style.css"
 import { useParams } from "next/navigation"
 import { useSession } from "@/providers/session"
 
-import { WorkflowResponse } from "@/types/schemas"
-import { getAuthenticatedClient } from "@/lib/api"
-import { createAction, deleteAction, updateDndFlow } from "@/lib/flow"
+import {
+  createAction,
+  deleteAction,
+  fetchWorkflow,
+  updateDndFlow,
+} from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, {
   ActionNodeData,
@@ -54,11 +58,8 @@ const WorkflowCanvas: React.FC = () => {
         return
       }
       try {
-        const client = getAuthenticatedClient(session)
-        const response = await client.get<WorkflowResponse>(
-          `/workflows/${workflowId}`
-        )
-        const flow = response.data.object
+        const response = await fetchWorkflow(session, workflowId)
+        const flow = response.object as ReactFlowJsonObject
         if (flow) {
           // If there is a saved React Flow configuration, load it
           setNodes(flow.nodes || [])
@@ -74,7 +75,7 @@ const WorkflowCanvas: React.FC = () => {
       }
     }
     initializeReactFlowInstance()
-  }, [workflowId, setNodes, setEdges, setViewport])
+  }, [workflowId])
 
   // React Flow callbacks
   const onConnect = useCallback(
