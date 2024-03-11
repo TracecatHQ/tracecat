@@ -17,15 +17,13 @@ interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {
 export default async function Navbar({ session, ...props }: NavbarProps) {
   const DynNav = DynamicNavBars["workflows"]
   return (
-    <div className="border-b" {...props}>
-      <div className="flex h-12 items-center px-4">
-        <div className="flex items-center space-x-8">
-          <Link href="/workflows">
-            <Icons.logo className="ml-4 h-5 w-5" />
-          </Link>
-          <DynNav session={session} />
-        </div>
-        <div className="ml-auto flex items-center space-x-6">
+    <div className="w-full space-x-4 border-b" {...props}>
+      <div className="flex h-12 w-full items-center space-x-4 px-4">
+        <Link href="/workflows">
+          <Icons.logo className="ml-4 h-5 w-5" />
+        </Link>
+        <DynNav session={session} />
+        <div className="flex flex-1 items-center justify-end space-x-6">
           <UserNav />
         </div>
       </div>

@@ -60,25 +60,22 @@ export default function WorkflowsNavbar({ session }: NavbarProps) {
   }, [enableWorkflow])
   return (
     workflowId && (
-      <div className="flex w-full">
+      <div className="flex w-full items-center space-x-2">
         <WorkflowSwitcher session={session} />
         <TabSwitcher workflowId={workflowId} />
-        <div className="flex items-center space-x-8">
-          <div className="ml-auto flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="enable-workflow"
-                checked={enableWorkflow}
-                onCheckedChange={setEnableWorkflow}
-              />
-              <Label
-                className="w-30 text-xs text-muted-foreground"
-                htmlFor="enable-workflow"
-              >
-                {enableWorkflow ? "Pause" : "Publish"}
-              </Label>
-            </div>
-          </div>
+        <SearchBar workflowId={workflowId} />
+        <div className="ml-auto flex items-center space-x-6">
+          <Switch
+            id="enable-workflow"
+            checked={enableWorkflow}
+            onCheckedChange={setEnableWorkflow}
+          />
+          <Label
+            className="w-30 text-xs text-muted-foreground"
+            htmlFor="enable-workflow"
+          >
+            {enableWorkflow ? "Pause" : "Publish"}
+          </Label>
         </div>
       </div>
     )
