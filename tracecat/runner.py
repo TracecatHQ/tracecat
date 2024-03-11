@@ -233,11 +233,20 @@ async def start_workflow(
 ) -> StartWorkflowResponse:
     """Start a workflow.
 
-    Optional entrypoint
-
-    We need this endpoint to:
+    Use-cases:
     1. Trigger a workflow from a webhook
     2. Trigger a workflow from a scheduled event
+
+    Parameters
+    ----------
+    entrypoint_id : str
+        The action ID to start the workflow from.
+
+    workflow_id : str
+        The ID of the workflow to start.
+
+    entrypoint_payload : dict
+        The action inputs to pass into the entrypoint action.
     """
     run_id = uuid4().hex
     background_tasks.add_task(
