@@ -19,13 +19,15 @@ import { BaseActionSchema } from "@/components/forms/action"
 export async function updateDndFlow(
   maybeSession: Session | null,
   workflowId: string,
-  reactFlowInstance: ReactFlowInstance
+  reactFlowInstance: ReactFlowInstance | null
 ) {
-  console.log("Saving flow...")
+  console.log("Updating DnD flow object")
   try {
-    const flowObject = reactFlowInstance.toObject()
+    const objectContent = reactFlowInstance
+      ? reactFlowInstance.toObject()
+      : null
     const updateFlowObjectParams = JSON.stringify({
-      object: JSON.stringify(flowObject),
+      object: JSON.stringify(objectContent),
     })
     const client = getAuthenticatedClient(maybeSession)
     await client.post(`/workflows/${workflowId}`, updateFlowObjectParams, {
@@ -34,7 +36,7 @@ export async function updateDndFlow(
       },
     })
   } catch (error) {
-    console.error("Error saving flow:", error)
+    console.error("Error updating DnD flow object:", error)
   }
 }
 
