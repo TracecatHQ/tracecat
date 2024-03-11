@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
-import axios from "axios"
 import ReactFlow, {
   addEdge,
   Background,
@@ -19,6 +18,7 @@ import { useParams } from "next/navigation"
 import { useSession } from "@/providers/session"
 
 import { WorkflowResponse } from "@/types/schemas"
+import { getAuthenticatedClient } from "@/lib/api"
 import { createAction, deleteAction, updateDndFlow } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, {
@@ -49,33 +49,30 @@ const WorkflowCanvas: React.FC = () => {
   const { toast } = useToast()
 
   useEffect(() => {
-    const initializeReactFlowInstance = () => {
-      if (workflowId) {
-        console.log("INITIALIZE REACT FLOW INSTANCE")
-        axios
-          .get<WorkflowResponse>(
-            `http://localhost:8000/workflows/${workflowId}`
-          )
-          .then((response) => {
-            const flow = response.data.object
-            console.log("FLOW", flow)
-            if (flow) {
-              // If there is a saved React Flow configuration, load it
-              setNodes(flow.nodes || [])
-              setEdges(flow.edges || [])
-              setViewport({
-                x: flow.viewport.x,
-                y: flow.viewport.y,
-                zoom: flow.viewport.zoom,
-              })
-            }
+    async function initializeReactFlowInstance() {
+      if (!workflowId) {
+        return
+      }
+      try {
+        const client = getAuthenticatedClient(session)
+        const response = await client.get<WorkflowResponse>(
+          `/workflows/${workflowId}`
+        )
+        const flow = response.data.object
+        if (flow) {
+          // If there is a saved React Flow configuration, load it
+          setNodes(flow.nodes || [])
+          setEdges(flow.edges || [])
+          setViewport({
+            x: flow.viewport.x,
+            y: flow.viewport.y,
+            zoom: flow.viewport.zoom,
           })
-          .catch((error) => {
-            console.error("Failed to fetch workflow data:", error)
-          })
+        }
+      } catch (error) {
+        console.error("Failed to fetch workflow data:", error)
       }
     }
-
     initializeReactFlowInstance()
   }, [workflowId, setNodes, setEdges, setViewport])
 
