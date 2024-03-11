@@ -15,6 +15,10 @@ The action key is a unique identifier for an action within a workflow:
 action_key = <action_id>.<action_slug>
 We can reverse lookup the workflow ID from the action ID.
 
+Entrypoint Key
+--------------
+The entrypoint key is just the action key of the entrypoint action.
+
 Note that this is different from the action ID which is a surrogate key.
 """
 
@@ -79,7 +83,7 @@ ActionType = Literal[
     "receive_email",
 ]
 
-ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s]+$"
+ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s\_]+$"
 # ACtion ID = Hexadecimal workflow ID + lower snake case action title
 ACTION_KEY_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
 
@@ -472,7 +476,10 @@ async def start_action_run(
                 workflow_id=workflow_ref.id,
                 workflow_title=workflow_ref.title,
                 workflow_run_id=action_run.run_id,
-                data={ar_id: trail.data for trail in action_trail.items()},
+                data={
+                    action_run_id: trail.data
+                    for action_run_id, trail in action_trail.items()
+                },
                 published_at=datetime.now(UTC).replace(tzinfo=None),
             )
         )
