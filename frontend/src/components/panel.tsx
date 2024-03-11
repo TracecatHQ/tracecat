@@ -9,7 +9,7 @@ import { WorkflowForm } from "@/components/forms/workflow"
 
 export function WorkflowPanel() {
   const [selectedNode, setSelectedNode] = useState<ActionNodeType | null>(null)
-  const { workflowMetadata } = useWorkflowMetadata()
+  const { workflow } = useWorkflowMetadata()
 
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {
@@ -27,12 +27,12 @@ export function WorkflowPanel() {
           actionId={selectedNode.id}
           actionType={selectedNode.data.type}
         />
-      ) : workflowMetadata ? (
+      ) : workflow ? (
         <WorkflowForm
-          workflowId={workflowMetadata.id}
-          workflowTitle={workflowMetadata.title}
-          workflowDescription={workflowMetadata.description}
-          workflowStatus={workflowMetadata.status}
+          workflowId={workflow.id}
+          workflowTitle={workflow.title}
+          workflowDescription={workflow.description}
+          workflowStatus={workflow.status}
         />
       ) : (
         <div className="w-full space-x-2 p-4">
