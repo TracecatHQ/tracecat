@@ -3,7 +3,7 @@ from functools import partial
 
 import pytest
 
-from tracecat.actions import (
+from tracecat.runner.actions import (
     DEFAULT_TEMPLATE_PATTERN,
     evaluate_jsonpath_str,
     evaluate_templated_fields,

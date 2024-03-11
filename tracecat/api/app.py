@@ -1,8 +1,7 @@
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import polars as pl
 import psycopg
@@ -11,11 +10,9 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from pydantic import BaseModel
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
-from tracecat.actions import ActionType
 from tracecat.db import (
     Action,
     Webhook,
@@ -26,6 +23,26 @@ from tracecat.db import (
     initialize_db,
 )
 from tracecat.logger import standard_logger
+from tracecat.types.api import (
+    ActionMetadataResponse,
+    ActionResponse,
+    AuthenticateWebhookResponse,
+    CaseResponse,
+    CreateActionParams,
+    CreateWebhookParams,
+    CreateWorkflowParams,
+    Event,
+    EventSearchParams,
+    UpdateActionParams,
+    UpdateWorkflowParams,
+    UpdateWorkflowRunParams,
+    WebhookMetadataResponse,
+    WebhookResponse,
+    WorkflowMetadataResponse,
+    WorkflowResponse,
+    WorkflowRunMetadataResponse,
+    WorkflowRunResponse,
+)
 
 
 @asynccontextmanager
@@ -105,54 +122,6 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
-class ActionResponse(BaseModel):
-    id: str
-    type: ActionType
-    title: str
-    description: str
-    status: str
-    inputs: dict[str, Any] | None
-    key: str  # Computed field
-
-
-class WorkflowResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    actions: dict[str, ActionResponse]
-    object: dict[str, Any] | None  # React Flow object
-
-
-class ActionMetadataResponse(BaseModel):
-    id: str
-    workflow_id: str
-    type: ActionType
-    title: str
-    description: str
-    status: str
-    key: str
-
-
-class WorkflowMetadataResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-
-
-class WorkflowRunResponse(BaseModel):
-    id: str
-    workflow_id: str
-    status: str
-
-
-class WorkflowRunMetadataResponse(BaseModel):
-    id: str
-    workflow_id: str
-    status: str
-
-
 ### Workflows
 
 
@@ -176,11 +145,6 @@ def list_workflows(
         for workflow in workflows
     ]
     return workflow_metadata
-
-
-class CreateWorkflowParams(BaseModel):
-    title: str
-    description: str
 
 
 @app.post("/workflows", status_code=201)
@@ -254,13 +218,6 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         object=object,
     )
     return workflow_response
-
-
-class UpdateWorkflowParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    status: str | None = None
-    object: str | None = None
 
 
 @app.post("/workflows/{workflow_id}", status_code=204)
@@ -347,10 +304,6 @@ def get_workflow_run(workflow_id: str, workflow_run_id: str) -> WorkflowRunRespo
     )
 
 
-class UpdateWorkflowRunParams(BaseModel):
-    status: str | None = None
-
-
 @app.post(
     "/workflows/{workflow_id}/runs/{workflow_run_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -400,12 +353,6 @@ def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
         for action in actions
     ]
     return action_metadata
-
-
-class CreateActionParams(BaseModel):
-    workflow_id: str
-    type: str
-    title: str
 
 
 @app.post("/actions")
@@ -465,13 +412,6 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
     )
 
 
-class UpdateActionParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    status: str | None = None
-    inputs: str | None = None
-
-
 @app.post("/actions/{action_id}")
 def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
     with Session(create_db_engine()) as session:
@@ -517,18 +457,6 @@ def delete_action(action_id: str) -> None:
 ### Webhooks
 
 
-class CreateWebhookParams(BaseModel):
-    action_id: str
-    workflow_id: str
-
-
-class WebhookMetadataResponse(BaseModel):
-    id: str
-    action_id: str
-    workflow_id: str
-    secret: str
-
-
 @app.put("/webhooks", status_code=status.HTTP_201_CREATED)
 def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
     """Create a new Webhook."""
@@ -547,18 +475,6 @@ def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
         workflow_id=webhook.workflow_id,
         secret=webhook.secret,
     )
-
-
-class WebhookResponse(BaseModel):
-    id: str
-    secret: str
-    action_id: str
-    workflow_id: str
-
-
-class GetWebhookParams(BaseModel):
-    webhook_id: str | None = None
-    path: str | None = None
 
 
 @app.get("/webhooks/{webhook_id}")
@@ -624,14 +540,6 @@ def search_webhooks(action_id: str | None = None) -> WebhookResponse:
     return webhook_response
 
 
-class AuthenticateWebhookResponse(BaseModel):
-    status: Literal["Authorized", "Unauthorized"]
-    action_key: str | None = None
-    action_id: str | None = None
-    webhook_id: str | None = None
-    workflow_id: str | None = None
-
-
 @app.post("/authenticate/webhooks/{webhook_id}/{secret}")
 def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
     with Session(create_db_engine()) as session:
@@ -657,18 +565,6 @@ def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookRes
 ### Events Management
 
 
-class Event(BaseModel):
-    published_at: datetime
-    action_id: str
-    action_run_id: str
-    action_title: str
-    action_type: str
-    workflow_id: str
-    workflow_title: str
-    workflow_run_id: str
-    data: dict[str, Any]
-
-
 @app.post("/events")
 def index_event(event: Event):
     index = create_events_index()
@@ -689,16 +585,6 @@ SUPPORTED_EVENT_AGGS = {
 }
 
 
-class EventSearchParams(BaseModel):
-    workflow_id: str
-    limit: int = 1000
-    order_by: str = "pubished_at"
-    workflow_run_id: str | None = None
-    query: str | None = None
-    group_by: list[str] | None = None
-    agg: str | None = None
-
-
 @app.get("/events/search")
 def search_events(params: EventSearchParams) -> list[Event]:
     index = create_events_index()
@@ -711,11 +597,6 @@ def search_events(params: EventSearchParams) -> list[Event]:
 
 
 ### Case Management
-
-
-class CaseResponse(BaseModel):
-    id: str
-    title: str
 
 
 @app.get("/cases")

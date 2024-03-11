@@ -1,6 +1,6 @@
 FROM python:3.12-slim-bookworm
 
-ENV API_MODULE=tracecat.api:app
+ENV API_MODULE=tracecat.api.app:app
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
