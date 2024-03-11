@@ -5,6 +5,10 @@ from pydantic import BaseModel
 
 from tracecat.types.actions import ActionType
 
+# TODO: Consistent API design
+# Action and Workflow create / update params
+# should be the same as the metadata responses
+
 
 class ActionResponse(BaseModel):
     id: str
@@ -137,6 +141,14 @@ class EventSearchParams(BaseModel):
     agg: str | None = None
 
 
-class CaseResponse(BaseModel):
-    id: str
+class Case(BaseModel):
+    # Required inputs
     title: str
+    payload: dict[str, Any]
+    malice: Literal["malicious", "benign"]
+    priority: Literal["low", "medium", "high", "critical"]
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
+    # Optional inputs (can be AI suggested)
+    context: dict[str, str] | None = None
+    action: list[str] | None = None
+    suppression: dict[str, bool] | None = None
