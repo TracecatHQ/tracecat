@@ -135,23 +135,15 @@ CaseSchema = pa.schema(
         pa.field("workflow_id", pa.int64(), nullable=False),
         pa.field("title", pa.string(), nullable=False),
         pa.field("payload", pa.string(), nullable=False),  # JSON-serialized
+        pa.field("context", pa.string(), nullable=True),  # JSON-serialized
         pa.field("malice", pa.string(), nullable=False),
-        pa.field("context", pa.string(), nullable=False),  # JSON-serialized
-        pa.field("suppression", pa.string(), nullable=False),  # JSON-serialized
         pa.field("status", pa.string(), nullable=False),
         pa.field("priority", pa.string(), nullable=False),
-        pa.field("_payload_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
-        pa.field("_context_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
-    ]
-)
-
-TaskSchema = pa.schema(
-    [
-        pa.field("id", pa.int64(), nullable=False),
-        pa.field("case_id", pa.int64(), nullable=False),
-        pa.field("description", pa.string(), nullable=False),
-        pa.field("is_done", pa.bool_(), nullable=False),
-        pa.field("_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
+        pa.field("action", pa.string(), nullable=True),
+        pa.field("suppression", pa.string(), nullable=True),  # JSON-serialized
+        # pa.field("_action_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
+        # pa.field("_payload_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
+        # pa.field("_context_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
     ]
 )
 
@@ -164,7 +156,6 @@ def initialize_db() -> None:
     # VectorDB
     db = create_vdb_conn()
     db.create_table("cases", schema=CaseSchema, exist_ok=True)
-    db.create_table("tasks", schema=TaskSchema, exist_ok=True)
 
     # Search
     build_events_index()

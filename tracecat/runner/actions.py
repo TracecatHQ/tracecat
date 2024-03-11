@@ -37,14 +37,15 @@ from uuid import uuid4
 
 import httpx
 import jsonpath_ng
+import orjson
 import tantivy
 from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import MAX_RETRIES
-from tracecat.db import create_events_index
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
+from tracecat.db import create_events_index, create_vdb_conn
 from tracecat.logger import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.runner.llm import (
@@ -86,26 +87,28 @@ def action_key_to_title_snake_case(action_key: str) -> str:
     return action_key.split(".")[1]
 
 
-def get_action_run_id(run_id: str, action_key: str) -> str:
-    return f"{ACTION_RUN_ID_PREFIX}:{action_key}:{run_id}"
+def get_action_run_id(workflow_run_id: str, action_key: str) -> str:
+    return f"{ACTION_RUN_ID_PREFIX}:{action_key}:{workflow_run_id}"
 
 
-def parse_action_run_id(ar_id: str, component: Literal["action_key", "run_id"]) -> str:
+def parse_action_run_id(
+    ar_id: str, component: Literal["action_key", "workflow_run_id"]
+) -> str:
     """Parse an action run ID and return the action key or the run ID.
 
     Example
     -------
-    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "action_key")
+    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:WORKFLOW_RUN_ID", "action_key")
     "TEST_ACTION_ID.receive_sentry_event"
-    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "run_id")
-    "RUN_ID"
+    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:WORKFLOW_RUN_ID", "workflow_run_id")
+    "WORKFLOW_RUN_ID"
     """
     if not ar_id.startswith(f"{ACTION_RUN_ID_PREFIX}:"):
         raise ValueError(f"Invalid action run ID {ar_id!r}")
     match component:
         case "action_key":
             return ar_id.split(":")[1]
-        case "run_id":
+        case "workflow_run_id":
             return ar_id.split(":")[2]
         case _:
             raise ValueError(f"Invalid component {component!r}")
@@ -114,7 +117,7 @@ def parse_action_run_id(ar_id: str, component: Literal["action_key", "run_id"]) 
 class ActionRun(BaseModel):
     """A run of an action to be executed as part of a workflow run."""
 
-    run_id: str = Field(frozen=True)
+    workflow_run_id: str = Field(frozen=True)
     run_kwargs: dict[str, Any] | None = None
     action_key: str = Field(pattern=ACTION_KEY_PATTERN, frozen=True)
 
@@ -127,21 +130,23 @@ class ActionRun(BaseModel):
 
         We need both to uniquely identify an action run.
         """
-        return get_action_run_id(self.run_id, self.action_key)
+        return get_action_run_id(self.workflow_run_id, self.action_key)
 
     def upstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
         upstream_deps_ar_ids = [
-            get_action_run_id(self.run_id, k)
+            get_action_run_id(self.workflow_run_id, k)
             for k in workflow.action_dependencies[action_key]
         ]
         return upstream_deps_ar_ids
 
     def __hash__(self) -> int:
-        return hash(f"{self.run_id}:{self.action_key}")
+        return hash(f"{self.workflow_run_id}:{self.action_key}")
 
     def __eq__(self, other: Any) -> bool:
         match other:
-            case ActionRun(run_id=self.run_id, action_key=self.action_key):
+            case ActionRun(
+                workflow_run_id=self.workflow_run_id, action_key=self.action_key
+            ):
                 return True
             case _:
                 return False
@@ -267,12 +272,28 @@ class SendEmailAction(Action):
         return v
 
 
+class OpenCaseAction(Action):
+    type: Literal["open_case"] = Field("open_case", frozen=True)
+
+    # Required inputs
+    title: str
+    payload: dict[str, Any]
+    malice: Literal["malicious", "benign"]
+    priority: Literal["low", "medium", "high", "critical"]
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
+    # Optional inputs (can be AI suggested)
+    context: dict[str, str] | None = None
+    action: list[str] | None = None
+    suppression: dict[str, bool] | None = None
+
+
 ACTION_FACTORY: dict[str, type[Action]] = {
     "webhook": WebhookAction,
     "http_request": HTTPRequestAction,
     "condition": ConditionAction,
     "llm": LLMAction,
     "send_email": SendEmailAction,
+    "open_case": OpenCaseAction,
 }
 
 
@@ -396,6 +417,36 @@ async def _wait_for_dependencies(
         await asyncio.sleep(random.uniform(0, 0.5))
 
 
+def _index_events(
+    action_id: str,
+    action_run_id: str,
+    action_title: str,
+    action_type: ActionType,
+    workflow_id: str,
+    workflow_title: str,
+    workflow_run_id: str,
+    action_trail: ActionTrail,
+):
+    # Add trail to events store
+    writer = create_events_index().writer()
+    writer.add_document(
+        tantivy.Document(
+            action_id=action_id,
+            action_run_id=action_run_id,
+            action_title=action_title,
+            action_type=action_type,
+            workflow_id=workflow_id,
+            workflow_title=workflow_title,
+            workflow_run_id=workflow_run_id,
+            data={
+                action_run_id: trail.data
+                for action_run_id, trail in action_trail.items()
+            },
+            published_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+    )
+
+
 async def start_action_run(
     action_run: ActionRun,
     # Shared data structures
@@ -431,6 +482,8 @@ async def start_action_run(
         action_run_status_store[ar_id] = ActionRunStatus.RUNNING
         action_ref = workflow_ref.actions[action_key]
         result = await run_action(
+            action_run_id=action_run.id,
+            workflow_id=workflow_ref.id,
             custom_logger=custom_logger,
             action_trail=action_trail,
             action_run_kwargs=action_run.run_kwargs,
@@ -449,26 +502,6 @@ async def start_action_run(
             f"Action run {ar_id!r} completed with trail: {action_trail}."
         )
 
-        # Add trail to events store
-        writer = create_events_index().writer()
-        writer.add_document(
-            tantivy.Document(
-                # NOTE: Not sure where to get the action metadata from...
-                action_id=action_ref.id,
-                action_run_id=ar_id,
-                action_title=action_ref.title,
-                action_type=action_ref.type,
-                workflow_id=workflow_ref.id,
-                workflow_title=workflow_ref.title,
-                workflow_run_id=action_run.run_id,
-                data={
-                    action_run_id: trail.data
-                    for action_run_id, trail in action_trail.items()
-                },
-                published_at=datetime.now(UTC).replace(tzinfo=None),
-            )
-        )
-
         if not result.should_continue:
             custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
             return
@@ -481,7 +514,7 @@ async def start_action_run(
                 action_run_status_store[next_ar_id] = ActionRunStatus.QUEUED
                 ready_jobs_queue.put_nowait(
                     ActionRun(
-                        run_id=action_run.run_id,
+                        workflow_run_id=action_run.workflow_run_id,
                         action_key=parse_action_run_id(next_ar_id, "action_key"),
                     )
                 )
@@ -498,8 +531,21 @@ async def start_action_run(
         if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
             # Exception was raised before the action was marked as successful
             action_run_status_store[ar_id] = ActionRunStatus.FAILURE
+
         running_jobs_store.pop(ar_id, None)
-        custom_logger.debug(f"Remaining acrion runs: {running_jobs_store.keys()}")
+        custom_logger.debug(f"Remaining action runs: {running_jobs_store.keys()}")
+
+        # Add trail to events store
+        _index_events(
+            action_id=action_ref.id,
+            action_run_id=ar_id,
+            action_title=action_ref.title,
+            action_type=action_ref.type,
+            workflow_id=workflow_ref.id,
+            workflow_title=workflow_ref.title,
+            workflow_run_id=action_run.workflow_run_id,
+            action_trail=action_trail,
+        )
 
 
 async def run_webhook_action(
@@ -666,7 +712,7 @@ async def run_send_email_action(
     else:
         msg = "Email provider not recognized"
         custom_logger.warning(f"{msg}: {provider!r}")
-        result = {
+        email_response = {
             "status": "error",
             "message": msg,
             "provider": provider,
@@ -675,14 +721,14 @@ async def run_send_email_action(
             "subject": subject,
             "body": body,
         }
-        return result
+        return email_response
 
     try:
         await email_provider.send()
     except httpx.HTTPError as exc:
         msg = "Failed to post email to provider"
         custom_logger.error(msg, exc_info=exc)
-        result = {
+        email_response = {
             "status": "error",
             "message": msg,
             "provider": provider,
@@ -694,7 +740,7 @@ async def run_send_email_action(
     except (EmailBouncedError, EmailNotFoundError) as exc:
         msg = exc.args[0]
         custom_logger.warning(msg=msg, exc_info=exc)
-        result = {
+        email_response = {
             "status": "warning",
             "message": msg,
             "provider": provider,
@@ -704,7 +750,7 @@ async def run_send_email_action(
             "body": body,
         }
     else:
-        result = {
+        email_response = {
             "status": "ok",
             "message": "Successfully sent email",
             "provider": provider,
@@ -714,11 +760,61 @@ async def run_send_email_action(
             "body": body,
         }
 
-    return result
+    return email_response
+
+
+async def run_open_case_action(
+    # Metadata
+    action_run_id: str,
+    workflow_id: str,
+    # Action Inputs
+    title: str,
+    payload: dict[str, Any],
+    malice: Literal["malicious", "benign"],
+    priority: Literal["low", "medium", "high", "critical"],
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"],
+    context: dict[str, Any] | None = None,
+    action: str | None = None,
+    suppression: dict[str, bool] | None = None,
+    # Common
+    action_run_kwargs: dict[str, Any] | None = None,
+    custom_logger: logging.Logger = logger,
+) -> dict[str, str | dict[str, str] | None]:
+    db = create_vdb_conn()
+    tbl = db.open_table("cases")
+    tbl.add(
+        {
+            "id": action_run_id,
+            "workflow_id": workflow_id,
+            "title": title,
+            "payload": orjson.dumps(payload).decode("utf-8"),
+            "context": orjson.dumps(context).decode("utf-8"),
+            "malice": malice,
+            "priority": priority,
+            "status": status,
+            "action": action,
+            "suppression": orjson.dumps(suppression).decode("utf-8"),
+        }
+    )
+    case_response = {
+        "id": action_run_id,
+        "workflow_id": workflow_id,
+        "title": title,
+        "payload": payload,
+        "context": context,
+        "malice": malice,
+        "priority": priority,
+        "status": status,
+        "action": action,
+        "suppression": suppression,
+    }
+    return case_response
 
 
 async def run_action(
     type: ActionType,
+    action_run_id: str,
+    workflow_id: str,
     key: str,
     title: str,
     action_trail: dict[str, ActionRunResult],
@@ -765,6 +861,13 @@ async def run_action(
     # Only pass the action trail to the LLM action
     if type == "llm":
         processed_action_kwargs.update(action_trail=action_trail)
+
+    elif type == "open_case":
+        processed_action_kwargs.update(
+            action_run_id=action_run_id,
+            workflow_id=workflow_id,
+        )
+
     custom_logger.debug(f"{processed_action_kwargs = }")
 
     try:
@@ -789,4 +892,5 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "condition": run_conditional_action,
     "llm": run_llm_action,
     "send_email": run_send_email_action,
+    "open_case": run_open_case_action,
 }

@@ -248,11 +248,11 @@ async def start_workflow(
     entrypoint_payload : dict
         The action inputs to pass into the entrypoint action.
     """
-    run_id = uuid4().hex
+    workflow_run_id = uuid4().hex
     background_tasks.add_task(
         run_workflow,
         workflow_id=workflow_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         entrypoint_key=entrypoint_key,
         entrypoint_payload=entrypoint_payload,
     )
@@ -263,7 +263,7 @@ async def start_workflow(
 
 async def run_workflow(
     workflow_id: str,
-    run_id: str,
+    workflow_run_id: str,
     entrypoint_key: str,
     entrypoint_payload: dict[str, Any] | None = None,
 ) -> None:
@@ -296,14 +296,14 @@ async def run_workflow(
      associate the worker with a specific workflow.
     - The `start_workflow` function can then just directly enqueue the first action.
     """
-    run_logger = standard_logger(run_id)
+    run_logger = standard_logger(workflow_run_id)
     workflow_response = await get_workflow(workflow_id)
     workflow = Workflow.from_response(workflow_response)
 
     # Initial state
     ready_jobs_queue.put_nowait(
         ActionRun(
-            run_id=run_id,
+            workflow_run_id=workflow_run_id,
             run_kwargs=entrypoint_payload,
             action_key=entrypoint_key,
         )
