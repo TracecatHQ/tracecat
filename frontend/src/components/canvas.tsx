@@ -43,15 +43,10 @@ const WorkflowCanvas: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
-
   const { setViewport } = useReactFlow()
-  const params = useParams<{ id: string }>()
-  const workflowId = params.id
+  const { id: workflowId } = useParams<{ id: string }>()
   const session = useSession()
-
   const { toast } = useToast()
-
-  // CRUD operations
 
   useEffect(() => {
     const initializeReactFlowInstance = () => {
@@ -146,20 +141,20 @@ const WorkflowCanvas: React.FC = () => {
     setNodes((nds) => nds.concat(newNode))
   }
 
-  const onNodesDelete = useCallback(
-    (nodesToDelete: ActionNodeType[]) => {
-      Promise.all(nodesToDelete.map((node) => deleteAction(session, node.id)))
-        .then(() => {
-          setNodes((nds) =>
-            nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
-          )
-        })
-        .catch((error) => {
-          console.error("An error occurred while deleting Action nodes:", error)
-        })
-    },
-    [nodes, setNodes, deleteAction]
-  )
+  const onNodesDelete = async (nodesToDelete: ActionNodeType[]) => {
+    try {
+      await Promise.all(
+        nodesToDelete.map((node) => deleteAction(session, node.id))
+      )
+      setNodes((nds) =>
+        nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
+      )
+      await updateDndFlow(session, workflowId, reactFlowInstance)
+      console.log("Nodes deleted successfully")
+    } catch (error) {
+      console.error("An error occurred while deleting Action nodes:", error)
+    }
+  }
 
   const onEdgesDelete = useCallback(
     (edgesToDelete: Edge[]) => {
