@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { useSession } from "@/providers/session"
 import { ActionType } from "@/types"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import axios from "axios"
 import { CircleIcon, Save } from "lucide-react"
 import { ControllerRenderProps, useForm } from "react-hook-form"
-import { Node } from "reactflow"
+import { type Node } from "reactflow"
 import { z } from "zod"
 
-import { ActionResponse, actionResponseSchema } from "@/types/schemas"
+import { ActionResponse } from "@/types/schemas"
+import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,6 +46,14 @@ import {
   getActionSchema,
 } from "@/components/forms/action-schemas"
 
+type ActionStatus = "online" | "offline"
+
+const baseActionSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+})
+export type BaseActionSchema = z.infer<typeof baseActionSchema>
+
 interface ActionFormProps {
   actionId: string
   actionType: ActionType
@@ -54,40 +63,28 @@ export function ActionForm({
   actionId,
   actionType,
 }: ActionFormProps): React.JSX.Element {
-  const [status, setStatus] = useState("offline")
+  const [status, setStatus] = useState<ActionStatus>("offline")
   const { setNodes } = useWorkflowBuilder()
   const params = useParams<{ id: string }>()
   const workflowId = params.id
-
-  // Fetch Action by ID and Workflow ID
-  const getActionById = async (): Promise<ActionResponse> => {
-    try {
-      const response = await axios.get<ActionResponse>(
-        `http://localhost:8000/actions/${actionId}?workflow_id=${workflowId}`
-      )
-      return actionResponseSchema.parse(response.data)
-    } catch (error) {
-      console.error("Error fetching action:", error)
-      throw error // Rethrow the error to ensure it's caught by useQuery's isError state
-    }
-  }
+  const session = useSession()
 
   const { data: actionResponseData } = useQuery<ActionResponse, Error>({
     queryKey: ["selected_action", actionId, workflowId],
-    queryFn: getActionById,
+    queryFn: async ({ queryKey }) => {
+      // Fetch Action by ID and Workflow ID
+      const [_, actionId, workflowId] = queryKey as [string, string, string]
+      const result = await getActionById(session, actionId, workflowId)
+      return result
+    },
   })
 
-  const { actionSchema, actionFieldSchema } = getActionSchema(actionType) ?? {}
+  const { actionSchema, actionFieldSchema } = getActionSchema(actionType)
+
   // Extend the Zod schema dynamically based on the fetched schema
   const actionFormSchema = actionSchema
-    ? actionSchema.extend({
-        title: z.string(),
-        description: z.string(),
-      })
-    : z.object({
-        title: z.string(),
-        description: z.string(),
-      })
+    ? baseActionSchema.merge(actionSchema)
+    : baseActionSchema
   type actionFormSchemaType = z.infer<typeof actionFormSchema>
 
   const form = useForm<actionFormSchemaType>({
@@ -185,51 +182,35 @@ export function ActionForm({
     }
   }, [actionResponseData, form.reset])
 
-  // Submit form and update Action
-  async function updateAction(actionId: string, values: actionFormSchemaType) {
-    const { title, description, ...inputsObject } = values
-    const inputs = JSON.stringify(inputsObject)
-    const updateActionParams = {
-      title: values.title,
-      description: values.description,
-      inputs: inputs,
-    }
-    console.log("Updating action with:", updateActionParams)
-    const response = await axios.post(
-      `http://localhost:8000/actions/${actionId}`,
-      JSON.stringify(updateActionParams),
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )
-    return response.data // Adjust based on what your API returns
-  }
-
   function useUpdateAction(actionId: string) {
     const mutation = useMutation({
       mutationFn: (values: actionFormSchemaType) =>
-        updateAction(actionId, values),
-      // Configure your mutation behavior here
+        updateAction(session, actionId, values),
       onSuccess: (data, variables, context) => {
-        console.log("Action update successful", data)
         setNodes((nds: Node[]) =>
           nds.map((node: Node) => {
             if (node.id === actionId) {
               node.data = {
-                ...node.data,
-                title: data.title,
-                status: data.status,
-                isConfigured: data.inputs ? true : false,
+                ...node.data, // Overwrite the existing node data
+                ...data, // Update the node data with the new action data
+                isConfigured: data.inputs !== null,
               }
             }
             return node
           })
         )
+        console.log("Action update successful", data)
+        toast({
+          title: "Saved action",
+          description: "Your action has been updated successfully.",
+        })
       },
       onError: (error, variables, context) => {
         console.error("Failed to update action:", error)
+        toast({
+          title: "Failed to save action",
+          description: "Could not update your action. Please try again.",
+        })
       },
     })
 
@@ -239,10 +220,6 @@ export function ActionForm({
   const { mutate } = useUpdateAction(actionId)
   function onSubmit(values: actionFormSchemaType) {
     mutate(values)
-    toast({
-      title: "Saved action",
-      description: "Your action has been updated successfully.",
-    })
   }
 
   // Loading state to defend in a user friendly way

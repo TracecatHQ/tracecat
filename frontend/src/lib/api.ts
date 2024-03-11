@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
-import { Session } from "@supabase/supabase-js"
+import { type Session } from "@supabase/supabase-js"
 import axios from "axios"
 
 const client = axios.create({
