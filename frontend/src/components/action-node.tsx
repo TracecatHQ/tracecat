@@ -23,7 +23,7 @@ import {
   Tags,
   Webhook,
 } from "lucide-react"
-import { Handle, NodeProps, Position } from "reactflow"
+import { Handle, NodeProps, Position, type Node } from "reactflow"
 
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -42,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+export type ActionNodeType = Node<ActionNodeData>
 export interface ActionNodeData {
   type: ActionType
   title: string

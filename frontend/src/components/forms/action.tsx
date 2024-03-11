@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { CircleIcon, Save } from "lucide-react"
 import { ControllerRenderProps, useForm } from "react-hook-form"
-import { type Node } from "reactflow"
 import { z } from "zod"
 
 import { ActionResponse } from "@/types/schemas"
@@ -41,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { ActionNodeType } from "@/components/action-node"
 import {
   ActionFieldOption,
   getActionSchema,
@@ -74,6 +74,12 @@ export function ActionForm({
     queryFn: async ({ queryKey }) => {
       // Fetch Action by ID and Workflow ID
       const [_, actionId, workflowId] = queryKey as [string, string, string]
+      console.log(
+        "Fetching action with ID",
+        actionId,
+        "in workflow",
+        workflowId
+      )
       const result = await getActionById(session, actionId, workflowId)
       return result
     },
@@ -187,8 +193,8 @@ export function ActionForm({
       mutationFn: (values: actionFormSchemaType) =>
         updateAction(session, actionId, values),
       onSuccess: (data, variables, context) => {
-        setNodes((nds: Node[]) =>
-          nds.map((node: Node) => {
+        setNodes((nds: ActionNodeType[]) =>
+          nds.map((node: ActionNodeType) => {
             if (node.id === actionId) {
               node.data = {
                 ...node.data, // Overwrite the existing node data
