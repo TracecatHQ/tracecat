@@ -20,6 +20,7 @@ from tracecat.db import (
     WorkflowRun,
     create_db_engine,
     create_events_index,
+    create_vdb_conn,
     initialize_db,
 )
 from tracecat.logger import standard_logger
@@ -30,7 +31,6 @@ from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
     AuthenticateWebhookResponse,
-    Case,
     CreateActionParams,
     CreateWebhookParams,
     CreateWorkflowParams,
@@ -46,6 +46,7 @@ from tracecat.types.api import (
     WorkflowRunMetadataResponse,
     WorkflowRunResponse,
 )
+from tracecat.types.cases import Case
 
 
 @asynccontextmanager
@@ -599,18 +600,44 @@ def search_events(params: EventSearchParams) -> list[Event]:
 
 
 @app.get("workflows/{workflow_id}/cases")
-def list_cases(workflow_id: str, limit: int = 1000) -> list[Case]:
-    """List all cases under a workflow."""
-    pass
+def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
+    """List all cases under a workflow.
+
+    Note: currently only supports listing the first 100 cases.
+    """
+    db = create_vdb_conn()
+    tbl = db.open_table("cases")
+    result = pl.DataFrame(
+        tbl.search()
+        .where(f"workflow_id == {workflow_id}")
+        .select(list(Case.model_fields().keys()))
+        .limit(limit)
+        .to_arrow()
+    ).to_dicts()
+    return result
 
 
 @app.get("workflows/{workflow_id}/cases/{case_id}")
 def get_case(workflow_id: str, case_id: str) -> Case:
     """Get a specific case by ID under a workflow."""
-    pass
+    db = create_vdb_conn()
+    tbl = db.open_table("cases")
+    result = pl.DataFrame(
+        tbl.search()
+        .where(f"(workflow_id == {workflow_id}) AND (id == {case_id})")
+        .select(list(Case.model_fields().keys()))
+        .limit(1)
+        .to_arrow()
+    ).to_dicts()
+    return result
 
 
 @app.post("workflows/{workflow_id}/cases/{case_id}")
-def update_case(workflow_id: str, case_id: str, params: Case) -> Case:
+def update_case(workflow_id: str, case_id: str, case: Case):
     """Update a specific case by ID under a workflow."""
-    pass
+    db = create_vdb_conn()
+    tbl = db.open_table("cases")
+    tbl.update(
+        where=f"(workflow_id == {workflow_id}) AND (id == {case_id})",
+        values=case.flatten(),
+    )

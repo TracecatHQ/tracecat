@@ -37,7 +37,6 @@ from uuid import uuid4
 
 import httpx
 import jsonpath_ng
-import orjson
 import tantivy
 from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
@@ -61,7 +60,7 @@ from tracecat.runner.mail import (
     ResendMailProvider,
 )
 from tracecat.types.actions import ActionType
-from tracecat.types.api import Case
+from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
     from tracecat.runner.workflows import Workflow
@@ -772,31 +771,28 @@ async def run_open_case_action(
 ) -> dict[str, str | dict[str, str] | None]:
     db = create_vdb_conn()
     tbl = db.open_table("cases")
+    case = Case(
+        title=title,
+        payload=payload,
+        malice=malice,
+        status=status,
+        priority=priority,
+        context=context,
+        action=action,
+        suppression=suppression,
+    )
     tbl.add(
         {
             "id": action_run_id,
             "workflow_id": workflow_id,
             "title": title,
-            "payload": orjson.dumps(payload).decode("utf-8"),
-            "context": orjson.dumps(context).decode("utf-8"),
-            "malice": malice,
-            "priority": priority,
-            "status": status,
-            "action": action,
-            "suppression": orjson.dumps(suppression).decode("utf-8"),
+            **case.flatten(),
         }
     )
     case_response = {
         "id": action_run_id,
         "workflow_id": workflow_id,
-        "title": title,
-        "payload": payload,
-        "context": context,
-        "malice": malice,
-        "priority": priority,
-        "status": status,
-        "action": action,
-        "suppression": suppression,
+        **case.model_dump(),
     }
     return case_response
 

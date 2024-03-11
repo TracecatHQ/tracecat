@@ -139,16 +139,3 @@ class EventSearchParams(BaseModel):
     query: str | None = None
     group_by: list[str] | None = None
     agg: str | None = None
-
-
-class Case(BaseModel):
-    # Required inputs
-    title: str
-    payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    priority: Literal["low", "medium", "high", "critical"]
-    # Optional inputs (can be AI suggested)
-    context: dict[str, str] | None = None
-    action: str | None = None
-    suppression: dict[str, bool] | None = None
