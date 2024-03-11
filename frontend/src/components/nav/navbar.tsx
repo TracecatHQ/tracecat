@@ -20,7 +20,7 @@ export default async function Navbar({ session, ...props }: NavbarProps) {
     <div className="w-full space-x-4 border-b" {...props}>
       <div className="flex h-12 w-full items-center space-x-4 px-4">
         <Link href="/workflows">
-          <Icons.logo className="ml-4 h-5 w-5" />
+          <Icons.logo className="h-5 w-5" />
         </Link>
         <DynNav session={session} />
         <div className="flex flex-1 items-center justify-end space-x-6">
