@@ -18,10 +18,9 @@ import "reactflow/dist/style.css"
 
 import { useParams } from "next/navigation"
 import { useSession } from "@/providers/session"
-import { ActionType } from "@/types"
 
-import { ActionMetadata, WorkflowResponse } from "@/types/schemas"
-import { updateDndFlow } from "@/lib/flow"
+import { WorkflowResponse } from "@/types/schemas"
+import { createAction, deleteAction, updateDndFlow } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, { ActionNodeData } from "@/components/action-node"
 
@@ -81,40 +80,6 @@ const WorkflowCanvas: React.FC = () => {
     initializeReactFlowInstance()
   }, [workflowId, setNodes, setEdges, setViewport])
 
-  const createAction = async (type: ActionType, title: string) => {
-    if (!workflowId || !reactFlowInstance) return
-    try {
-      const createActionMetadata = JSON.stringify({
-        workflow_id: workflowId,
-        type: type,
-        title: title,
-      })
-      const response = await axios.post<ActionMetadata>(
-        "http://localhost:8000/actions",
-        createActionMetadata,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      )
-      console.log("Action created successfully:", response.data)
-      return response.data.id
-    } catch (error) {
-      console.error("Error creating action:", error)
-    }
-  }
-
-  const deleteAction = async (actionId: string) => {
-    try {
-      const url = `http://localhost:8000/actions/${actionId}`
-      await axios.delete(url)
-      console.log(`Action with ID ${actionId} deleted successfully.`)
-    } catch (error) {
-      console.error(`Error deleting action with ID ${actionId}:`, error)
-    }
-  }
-
   // React Flow callbacks
   const onConnect = useCallback(
     (params: Edge | Connection) => {
@@ -161,8 +126,10 @@ const WorkflowCanvas: React.FC = () => {
 
       // Create Action in database
       const actionId = await createAction(
+        session,
         actionNodeData.type,
-        actionNodeData.title
+        actionNodeData.title,
+        workflowId
       )
       if (!actionId) return
       // Then create Action node in React Flow
@@ -180,7 +147,7 @@ const WorkflowCanvas: React.FC = () => {
 
   const onNodesDelete = useCallback(
     (nodesToDelete: Node[]) => {
-      Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
+      Promise.all(nodesToDelete.map((node) => deleteAction(session, node.id)))
         .then(() => {
           setNodes((nds) =>
             nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))

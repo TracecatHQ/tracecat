@@ -256,6 +256,9 @@ export const getActionSchema = (actionType: ActionType) => {
         actionFieldSchema: actionFieldSchemas["llm.summarize"],
       }
     default:
-      return null // No schema or UI hints available for the given action type
+      return {
+        actionSchema: null,
+        actionFieldSchema: null,
+      }
   }
 }

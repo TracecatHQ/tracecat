@@ -7,9 +7,10 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import axios from "axios"
+import { Session } from "@supabase/supabase-js"
 
 import { WorkflowMetadata } from "@/types/schemas"
+import { fetchWorkflow } from "@/lib/flow"
 
 type MaybeWorkflowMetadata = WorkflowMetadata | null
 type WorkflowContextType = {
@@ -23,7 +24,12 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(
   undefined
 )
 
-export const WorkflowProvider: React.FC<{ children: ReactNode }> = ({
+interface WorkflowProviderProps {
+  session: Session | null
+  children: ReactNode
+}
+export const WorkflowProvider: React.FC<WorkflowProviderProps> = ({
+  session,
   children,
 }) => {
   const [workflowMetadata, setWorkflowMetadata] =
@@ -31,10 +37,8 @@ export const WorkflowProvider: React.FC<{ children: ReactNode }> = ({
   const [workflowId, setWorkflowId] = useState<string | null>(null)
   useEffect(() => {
     async function fetchWorkflowId(id: string) {
-      const response = await axios.get<WorkflowMetadata>(
-        `http://localhost:8000/workflows/${id}`
-      )
-      setWorkflowMetadata(response.data)
+      const workflowMetadata = await fetchWorkflow(session, id)
+      setWorkflowMetadata(workflowMetadata)
     }
     if (workflowId) {
       console.log("fetching workflow id", workflowId)

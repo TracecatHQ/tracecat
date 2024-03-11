@@ -1,14 +1,11 @@
 import { promises as fs } from "fs"
 import path from "path"
 import { Metadata } from "next"
-import { DefaultQueryClientProvider } from "@/providers/query"
-import { WorkflowProvider } from "@/providers/workflow"
 import { z } from "zod"
 
 import { columns } from "@/components/cases/columns"
 import { DataTable } from "@/components/cases/data-table"
 import { caseSchema } from "@/components/cases/data/schema"
-import { Navbar } from "@/components/navbar"
 
 export const metadata: Metadata = {
   title: "Cases | Tracecat",

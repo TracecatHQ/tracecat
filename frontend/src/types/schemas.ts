@@ -4,7 +4,7 @@ export const actionResponseSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
-  status: z.string(),
+  status: z.enum(["online", "offline"]),
   inputs: z.record(z.any()).nullable(),
 })
 

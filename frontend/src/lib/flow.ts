@@ -1,9 +1,18 @@
+import { ActionType } from "@/types"
 import { Session } from "@supabase/supabase-js"
 import { ReactFlowInstance } from "reactflow"
 import { z } from "zod"
 
-import { WorkflowMetadata, workflowMetadataSchema } from "@/types/schemas"
+import {
+  ActionMetadata,
+  actionMetadataSchema,
+  ActionResponse,
+  actionResponseSchema,
+  WorkflowMetadata,
+  workflowMetadataSchema,
+} from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
+import { BaseActionSchema } from "@/components/forms/action"
 
 export async function updateDndFlow(
   maybeSession: Session | null,
@@ -99,4 +108,91 @@ export async function updateWorkflow(
   const client = getAuthenticatedClient(maybeSession)
   const response = await client.post(`/workflows/${workflowId}`, values)
   return response.data
+}
+
+export async function getActionById(
+  maybeSession: Session | null,
+  actionId: string,
+  workflowId: string
+): Promise<ActionResponse> {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.get<ActionResponse>(`/actions/${actionId}`, {
+      params: { workflow_id: workflowId },
+    })
+    return actionResponseSchema.parse(response.data)
+  } catch (error) {
+    console.error("Error fetching action:", error)
+    throw error // Rethrow the error to ensure it's caught by useQuery's isError state
+  }
+}
+
+// Form submission
+export async function updateAction(
+  maybeSession: Session | null,
+  actionId: string,
+  actionProps: BaseActionSchema & Record<string, any>
+): Promise<ActionResponse> {
+  const { title, description, ...inputs } = actionProps
+  const inputsJson = JSON.stringify(inputs)
+  const updateActionParams = {
+    title,
+    description,
+    inputs: inputsJson,
+  }
+
+  const client = getAuthenticatedClient(maybeSession)
+  const response = await client.post<ActionResponse>(
+    `/actions/${actionId}`,
+    JSON.stringify(updateActionParams),
+    {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  )
+  return actionResponseSchema.parse(response.data)
+}
+
+export async function deleteAction(
+  maybeSession: Session | null,
+  actionId: string
+): Promise<void> {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    await client.delete(`/actions/${actionId}`)
+    console.log(`Action with ID ${actionId} deleted successfully.`)
+  } catch (error) {
+    console.error(`Error deleting action with ID ${actionId}:`, error)
+  }
+}
+
+export async function createAction(
+  maybeSession: Session | null,
+  type: ActionType,
+  title: string,
+  workflowId: string
+): Promise<string | undefined> {
+  try {
+    const createActionMetadata = JSON.stringify({
+      workflow_id: workflowId,
+      type: type,
+      title: title,
+    })
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.post<ActionMetadata>(
+      "/actions",
+      createActionMetadata,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    )
+    console.log("Action created successfully:", response.data)
+    const validatedResponse = actionMetadataSchema.parse(response.data)
+    return validatedResponse.id
+  } catch (error) {
+    console.error("Error creating action:", error)
+  }
 }

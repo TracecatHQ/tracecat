@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 
-// Define formSchema for type safety
 const workflowFormSchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -48,7 +47,6 @@ export function WorkflowForm({
   workflowStatus,
 }: WorkflowFormProps): React.JSX.Element {
   const session = useSession()
-  console.log("WorkflowForm", session)
   const form = useForm<WorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
@@ -63,9 +61,17 @@ export function WorkflowForm({
         updateWorkflow(session, workflowId, values),
       onSuccess: (data, variables, context) => {
         console.log("Workflow update successful", data)
+        toast({
+          title: "Saved workflow",
+          description: "Workflow updated successfully.",
+        })
       },
       onError: (error, variables, context) => {
         console.error("Failed to update workflow:", error)
+        toast({
+          title: "Error updating workflow",
+          description: "Could not update workflow. Please try again.",
+        })
       },
     })
 
@@ -75,10 +81,6 @@ export function WorkflowForm({
   const { mutate } = useUpdateWorkflow(workflowId)
   function onSubmit(values: WorkflowForm) {
     mutate(values)
-    toast({
-      title: "Saved workflow",
-      description: "Workflow updated successfully.",
-    })
   }
 
   return (
