@@ -81,6 +81,7 @@ ActionType = Literal[
     "llm.summarize",
     "send_email",
     "receive_email",
+    "open_case",
 ]
 
 ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s\_]+$"
