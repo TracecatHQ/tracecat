@@ -44,14 +44,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import MAX_RETRIES
 from tracecat.db import create_events_index
+from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.runner.llm import (
-    DEFAULT_MODEL_TYPE,
-    ModelType,
     TaskFields,
     TaskFieldsSubclass,
-    async_openai_call,
     generate_pydantic_json_response_schema,
     get_system_context,
 )
@@ -73,7 +71,7 @@ T = TypeVar("T", str, list[Any], dict[str, Any])
 
 
 ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s\_]+$"
-# ACtion ID = Hexadecimal workflow ID + lower snake case action title
+# Action Key = Hexadecimal Action ID + Action title slug
 ACTION_KEY_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
 DEFAULT_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
 
