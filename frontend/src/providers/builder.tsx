@@ -10,6 +10,7 @@ import { useSession } from "@/providers/session"
 import { Node, useReactFlow } from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
+import { ActionNodeType } from "@/components/action-node"
 
 interface ReactFlowContextType {
   setNodes: React.Dispatch<SetStateAction<Node[]>>
@@ -32,7 +33,9 @@ export const WorkflowBuilderProvider: React.FC<
   const workflowId = params.id
 
   const setReactFlowNodes = useCallback(
-    (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
+    (
+      nodes: ActionNodeType[] | ((nodes: ActionNodeType[]) => ActionNodeType[])
+    ) => {
       reactFlowInstance.setNodes(nodes)
       updateDndFlow(maybeSession, workflowId, reactFlowInstance)
     },

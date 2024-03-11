@@ -1,20 +1,20 @@
 import React, { useState } from "react"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { ActionType } from "@/types"
-import { Node, useOnSelectionChange } from "reactflow"
+import { useOnSelectionChange } from "reactflow"
 
 import { Skeleton } from "@/components/ui/skeleton"
+import { ActionNodeType } from "@/components/action-node"
 import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
 
 export function WorkflowPanel() {
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null)
+  const [selectedNode, setSelectedNode] = useState<ActionNodeType | null>(null)
   const { workflowMetadata } = useWorkflowMetadata()
 
   useOnSelectionChange({
-    onChange: ({ nodes }: { nodes: Node[] }) => {
+    onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {
       const actionNodeSelected = nodes.find(
-        (node: Node) => node.type === "action"
+        (node: ActionNodeType) => node.type === "action"
       )
       setSelectedNode(actionNodeSelected ?? null)
     },
@@ -25,7 +25,7 @@ export function WorkflowPanel() {
       {selectedNode ? (
         <ActionForm
           actionId={selectedNode.id}
-          actionType={selectedNode.data.type as ActionType}
+          actionType={selectedNode.data.type}
         />
       ) : workflowMetadata ? (
         <WorkflowForm

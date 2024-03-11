@@ -7,7 +7,6 @@ import ReactFlow, {
   Controls,
   Edge,
   MarkerType,
-  Node,
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
@@ -22,7 +21,10 @@ import { useSession } from "@/providers/session"
 import { WorkflowResponse } from "@/types/schemas"
 import { createAction, deleteAction, updateDndFlow } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
-import ActionNode, { ActionNodeData } from "@/components/action-node"
+import ActionNode, {
+  ActionNodeData,
+  ActionNodeType,
+} from "@/components/action-node"
 
 const nodeTypes = {
   action: ActionNode,
@@ -54,6 +56,7 @@ const WorkflowCanvas: React.FC = () => {
   useEffect(() => {
     const initializeReactFlowInstance = () => {
       if (workflowId) {
+        console.log("INITIALIZE REACT FLOW INSTANCE")
         axios
           .get<WorkflowResponse>(
             `http://localhost:8000/workflows/${workflowId}`
@@ -138,7 +141,7 @@ const WorkflowCanvas: React.FC = () => {
         type: reactFlowNodeType,
         position: reactFlowNodePosition,
         data: actionNodeData,
-      } as Node<ActionNodeData>
+      } as ActionNodeType
 
       setNodes((nds) => nds.concat(newNode))
     },
@@ -146,7 +149,7 @@ const WorkflowCanvas: React.FC = () => {
   )
 
   const onNodesDelete = useCallback(
-    (nodesToDelete: Node[]) => {
+    (nodesToDelete: ActionNodeType[]) => {
       Promise.all(nodesToDelete.map((node) => deleteAction(session, node.id)))
         .then(() => {
           setNodes((nds) =>
@@ -176,14 +179,17 @@ const WorkflowCanvas: React.FC = () => {
     }
   }, [edges])
 
-  const onNodesDragStop = useCallback(
-    (event: React.MouseEvent, node: Node, nodes: Node[]) => {
-      if (workflowId && reactFlowInstance) {
-        updateDndFlow(session, workflowId, reactFlowInstance)
-      }
-    },
-    [workflowId, reactFlowInstance]
-  )
+  const onNodesDragStop = (
+    event: React.MouseEvent,
+    node: ActionNodeType,
+    nodes: ActionNodeType[]
+  ) => {
+    console.log("onNodesDragStop", event, node, nodes)
+    if (workflowId && reactFlowInstance) {
+      console.log("Saving react flow instance state")
+      updateDndFlow(session, workflowId, reactFlowInstance)
+    }
+  }
 
   return (
     <div ref={reactFlowWrapper} style={{ height: "100%" }}>
