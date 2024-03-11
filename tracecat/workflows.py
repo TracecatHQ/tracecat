@@ -19,6 +19,7 @@ class Workflow(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     id: str = Field(default_factory=lambda: uuid4().hex)
+    title: str
     adj_list: dict[str, list[str]]
     actions: dict[str, ActionSubclass]
 
@@ -50,10 +51,10 @@ class Workflow(BaseModel):
         adj_list = _graph_obj_to_adj_list(response.object, response.actions)
         actions = {}
         for action in response.actions.values():
+            inputs = action.inputs or {}
             # Handle hierarchical action types
             if action.type.startswith("llm."):
                 # Special case for LLM actions
-                inputs = action.inputs or {}
                 # NOTE!!!!: Tech debt incurring...
                 # This design needs to change
                 data = {
@@ -74,7 +75,6 @@ class Workflow(BaseModel):
                     task_fields={"type": action.type, **inputs},
                 )
             elif action.type.startswith("condition."):
-                inputs = action.inputs or {}
                 inputs.update(type=action.type)
                 data = {
                     "key": action.key,
@@ -88,11 +88,13 @@ class Workflow(BaseModel):
                     "key": action.key,
                     "title": action.title,
                     "type": action.type,
-                    **action.inputs,
+                    **inputs,
                 }
             actions[action.key] = data
 
-        return cls(id=response.id, adj_list=adj_list, actions=actions)
+        return cls(
+            id=response.id, title=response.title, adj_list=adj_list, actions=actions
+        )
 
 
 def _graph_obj_to_adj_list(

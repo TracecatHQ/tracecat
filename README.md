@@ -18,3 +18,9 @@ SUPABASE_JWT_ALGORITHM=HS256
 SUPABASE_JWT_SECRET=your-secret-here
 SUPABASE_PSQL_URL=postgres://postgres.[your-user-name]:[your-password]@[your-supabase-region].pooler.supabase.com:5432/postgres
 ```
+
+You will also need to generate a signing secret for the runner:
+
+```
+export TRACECAT__SIGNING_SECRET=${openssl rand -hex 32}
+```
