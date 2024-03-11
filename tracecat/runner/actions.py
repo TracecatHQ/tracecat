@@ -44,8 +44,8 @@ from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import MAX_RETRIES
-from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.db import create_events_index, create_vdb_conn
+from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.runner.llm import (
@@ -61,6 +61,7 @@ from tracecat.runner.mail import (
     ResendMailProvider,
 )
 from tracecat.types.actions import ActionType
+from tracecat.types.api import Case
 
 if TYPE_CHECKING:
     from tracecat.runner.workflows import Workflow
@@ -272,19 +273,8 @@ class SendEmailAction(Action):
         return v
 
 
-class OpenCaseAction(Action):
+class OpenCaseAction(Action, Case):
     type: Literal["open_case"] = Field("open_case", frozen=True)
-
-    # Required inputs
-    title: str
-    payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    priority: Literal["low", "medium", "high", "critical"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    # Optional inputs (can be AI suggested)
-    context: dict[str, str] | None = None
-    action: list[str] | None = None
-    suppression: dict[str, bool] | None = None
 
 
 ACTION_FACTORY: dict[str, type[Action]] = {
