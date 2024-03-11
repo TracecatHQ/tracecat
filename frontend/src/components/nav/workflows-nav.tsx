@@ -60,11 +60,11 @@ export default function WorkflowsNavbar({ session }: NavbarProps) {
   }, [enableWorkflow])
   return (
     workflowId && (
-      <div className="flex w-full items-center space-x-2">
+      <div className="flex w-full items-center space-x-8">
         <WorkflowSwitcher session={session} />
         <TabSwitcher workflowId={workflowId} />
         <SearchBar workflowId={workflowId} />
-        <div className="ml-auto flex items-center space-x-6">
+        <div className="flex flex-1 items-center justify-end space-x-2">
           <Switch
             id="enable-workflow"
             checked={enableWorkflow}
