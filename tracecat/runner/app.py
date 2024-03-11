@@ -52,16 +52,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
-from tracecat.actions import (
+from tracecat.api.app import AuthenticateWebhookResponse, WorkflowResponse
+from tracecat.config import TRACECAT__API_URL
+from tracecat.logger import standard_logger
+from tracecat.runner.actions import (
     ActionRun,
     ActionRunStatus,
     ActionTrail,
     start_action_run,
 )
-from tracecat.api import AuthenticateWebhookResponse, WorkflowResponse
-from tracecat.config import TRACECAT__API_URL
-from tracecat.logger import standard_logger
-from tracecat.workflows import Workflow
+from tracecat.runner.workflows import Workflow
 
 logger = standard_logger(__name__)
 

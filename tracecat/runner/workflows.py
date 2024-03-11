@@ -4,11 +4,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, validator
 
-from tracecat.actions import (
+from tracecat.runner.actions import (
     Action,
     ActionSubclass,
 )
-from tracecat.api import ActionResponse, WorkflowResponse
+from tracecat.types.api import ActionResponse, WorkflowResponse
 
 
 class Workflow(BaseModel):

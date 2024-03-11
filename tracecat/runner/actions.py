@@ -42,10 +42,11 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.config import MAX_RETRIES
 from tracecat.db import create_events_index
-from tracecat.llm import (
+from tracecat.logger import standard_logger
+from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
+from tracecat.runner.llm import (
     DEFAULT_MODEL_TYPE,
     ModelType,
     TaskFields,
@@ -54,39 +55,62 @@ from tracecat.llm import (
     generate_pydantic_json_response_schema,
     get_system_context,
 )
-from tracecat.logger import standard_logger
-from tracecat.mail import (
+from tracecat.runner.mail import (
     SAFE_EMAIL_PATTERN,
     EmailBouncedError,
     EmailNotFoundError,
     ResendMailProvider,
 )
+from tracecat.types.actions import ActionType
 
 if TYPE_CHECKING:
-    from tracecat.workflows import Workflow
+    from tracecat.runner.workflows import Workflow
 
 logger = standard_logger(__name__)
 
-ActionType = Literal[
-    "webhook",
-    "http_request",
-    "data_transform",
-    "condition.compare",
-    "condition.regex",
-    "condition.membership",
-    "llm.extract",
-    "llm.label",
-    "llm.translate",
-    "llm.choice",
-    "llm.summarize",
-    "send_email",
-    "receive_email",
-    "open_case",
-]
+
+T = TypeVar("T", str, list[Any], dict[str, Any])
+
 
 ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s\_]+$"
 # ACtion ID = Hexadecimal workflow ID + lower snake case action title
 ACTION_KEY_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
+DEFAULT_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
+
+ACTION_RUN_ID_PREFIX = "ar"
+
+
+def action_key_to_id(action_key: str) -> str:
+    return action_key.split(".")[0]
+
+
+def action_key_to_title_snake_case(action_key: str) -> str:
+    return action_key.split(".")[1]
+
+
+def get_action_run_id(run_id: str, action_key: str) -> str:
+    return f"{ACTION_RUN_ID_PREFIX}:{action_key}:{run_id}"
+
+
+def parse_action_run_id(ar_id: str, component: Literal["action_key", "run_id"]) -> str:
+    """Parse an action run ID and return the action key or the run ID.
+
+    Example
+    -------
+    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "action_key")
+    "TEST_ACTION_ID.receive_sentry_event"
+    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "run_id")
+    "RUN_ID"
+    """
+    if not ar_id.startswith(f"{ACTION_RUN_ID_PREFIX}:"):
+        raise ValueError(f"Invalid action run ID {ar_id!r}")
+    match component:
+        case "action_key":
+            return ar_id.split(":")[1]
+        case "run_id":
+            return ar_id.split(":")[2]
+        case _:
+            raise ValueError(f"Invalid component {component!r}")
 
 
 class ActionRun(BaseModel):
@@ -106,6 +130,13 @@ class ActionRun(BaseModel):
         We need both to uniquely identify an action run.
         """
         return get_action_run_id(self.run_id, self.action_key)
+
+    def upstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
+        upstream_deps_ar_ids = [
+            get_action_run_id(self.run_id, k)
+            for k in workflow.action_dependencies[action_key]
+        ]
+        return upstream_deps_ar_ids
 
     def __hash__(self) -> int:
         return hash(f"{self.run_id}:{self.action_key}")
@@ -238,12 +269,6 @@ class SendEmailAction(Action):
         return v
 
 
-ActionTrail = dict[str, ActionRunResult]
-ActionSubclass = (
-    WebhookAction | HTTPRequestAction | ConditionAction | LLMAction | SendEmailAction
-)
-
-
 ACTION_FACTORY: dict[str, type[Action]] = {
     "webhook": WebhookAction,
     "http_request": HTTPRequestAction,
@@ -252,45 +277,11 @@ ACTION_FACTORY: dict[str, type[Action]] = {
     "send_email": SendEmailAction,
 }
 
-ACTION_RUN_ID_PREFIX = "ar"
 
-
-def get_action_run_id(
-    run_id: str, action_key: str, *, prefix: str = ACTION_RUN_ID_PREFIX
-) -> str:
-    return f"{prefix}:{action_key}:{run_id}"
-
-
-def parse_action_run_id(ar_id: str, component: Literal["action_key", "run_id"]) -> str:
-    """Parse an action run ID and return the action key or the run ID.
-
-    Example
-    -------
-    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "action_key")
-    "TEST_ACTION_ID.receive_sentry_event"
-    >>> parse_action_run_id("ar:TEST_ACTION_ID.receive_sentry_event:RUN_ID", "run_id")
-    "RUN_ID"
-    """
-    if not ar_id.startswith(f"{ACTION_RUN_ID_PREFIX}:"):
-        raise ValueError(f"Invalid action run ID {ar_id!r}")
-    match component:
-        case "action_key":
-            return ar_id.split(":")[1]
-        case "run_id":
-            return ar_id.split(":")[2]
-        case _:
-            raise ValueError(f"Invalid component {component!r}")
-
-
-def action_key_to_id(action_key: str) -> str:
-    return action_key.split(".")[0]
-
-
-def action_key_to_title_snake_case(action_key: str) -> str:
-    return action_key.split(".")[1]
-
-
-DEFAULT_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
+ActionTrail = dict[str, ActionRunResult]
+ActionSubclass = (
+    WebhookAction | HTTPRequestAction | ConditionAction | LLMAction | SendEmailAction
+)
 
 
 def evaluate_jsonpath_str(
@@ -332,9 +323,6 @@ def evaluate_jsonpath_str(
         raise ValueError(
             f"jsonpath has no field {jsonpath!r}. Action trail: {action_trail}."
         )
-
-
-T = TypeVar("T", str, list[Any], dict[str, Any])
 
 
 def evaluate_jsonpath(
@@ -424,11 +412,9 @@ async def start_action_run(
 ) -> None:
     ar_id = action_run.id
     action_key = action_run.action_key
-    upstream_deps_ar_ids = [
-        get_action_run_id(action_run.run_id, k)
-        for k in workflow_ref.action_dependencies[action_key]
-    ]
-
+    upstream_deps_ar_ids = action_run.upstream_dependencies(
+        workflow=workflow_ref, action_key=action_key
+    )
     custom_logger = custom_logger or logger
     custom_logger.debug(
         f"Action run {ar_id} waiting for dependencies {upstream_deps_ar_ids}."
@@ -488,10 +474,9 @@ async def start_action_run(
         if not result.should_continue:
             custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
             return
-        downstream_deps_ar_ids = [
-            get_action_run_id(action_run.run_id, k)
-            for k in workflow_ref.adj_list[action_key]
-        ]
+        downstream_deps_ar_ids = action_run.upstream_dependencies(
+            workflow=workflow_ref, action_key=action_key
+        )
         # Broadcast the results to the next actions and enqueue them
         for next_ar_id in downstream_deps_ar_ids:
             if next_ar_id not in action_run_status_store:
@@ -517,70 +502,6 @@ async def start_action_run(
             action_run_status_store[ar_id] = ActionRunStatus.FAILURE
         running_jobs_store.pop(ar_id, None)
         custom_logger.debug(f"Remaining acrion runs: {running_jobs_store.keys()}")
-
-
-async def run_action(
-    type: ActionType,
-    key: str,
-    title: str,
-    action_trail: dict[str, ActionRunResult],
-    tags: dict[str, Any] | None = None,
-    action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
-    **action_kwargs: Any,
-) -> ActionRunResult:
-    """Run an action.
-
-    In this step we should populate the templated fields with actual values.
-    Each action should only receive the actual values it needs to run.
-
-    Actions
-    -------
-     - webhook: Forward the data in the POST body to the next node
-    - http_equest: Send an HTTP request to the specified URL, then parse the result.
-    - conditional: Conditional logic to trigger other actions based on the result of the previous action.
-    - llm: Apply a language model to the data.
-    - receive_email: Receive an email and parse the data.
-    - send_email: Send an email.
-    - transform: Apply a transformation to the data.
-    """
-
-    custom_logger.debug(f"{"*" * 10} Running action {"*" * 10}")
-    custom_logger.debug(f"{key = }")
-    custom_logger.debug(f"{title = }")
-    custom_logger.debug(f"{type = }")
-    custom_logger.debug(f"{tags = }")
-    custom_logger.debug(f"{action_run_kwargs = }")
-    custom_logger.debug(f"{action_kwargs = }")
-    custom_logger.debug(f"{"*" * 20}")
-
-    action_runner = _ACTION_RUNNER_FACTORY[type]
-
-    action_trail_json = {
-        result.action_title_snake_case: result.data for result in action_trail.values()
-    }
-    custom_logger.debug(f"Before template eval: {action_trail_json = }")
-    processed_action_kwargs = evaluate_templated_fields(
-        action_kwargs, action_trail_json
-    )
-
-    # Only pass the action trail to the LLM action
-    if type == "llm":
-        processed_action_kwargs.update(action_trail=action_trail)
-    custom_logger.debug(f"{processed_action_kwargs = }")
-
-    try:
-        result = await action_runner(
-            custom_logger=custom_logger,
-            action_run_kwargs=action_run_kwargs,
-            **processed_action_kwargs,
-        )
-    except Exception as e:
-        custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
-        raise
-
-    should_continue = result.get("__should_continue__", True)
-    return ActionRunResult(action_key=key, data=result, should_continue=should_continue)
 
 
 async def run_webhook_action(
@@ -796,6 +717,70 @@ async def run_send_email_action(
         }
 
     return result
+
+
+async def run_action(
+    type: ActionType,
+    key: str,
+    title: str,
+    action_trail: dict[str, ActionRunResult],
+    tags: dict[str, Any] | None = None,
+    action_run_kwargs: dict[str, Any] | None = None,
+    custom_logger: logging.Logger = logger,
+    **action_kwargs: Any,
+) -> ActionRunResult:
+    """Run an action.
+
+    In this step we should populate the templated fields with actual values.
+    Each action should only receive the actual values it needs to run.
+
+    Actions
+    -------
+     - webhook: Forward the data in the POST body to the next node
+    - http_equest: Send an HTTP request to the specified URL, then parse the result.
+    - conditional: Conditional logic to trigger other actions based on the result of the previous action.
+    - llm: Apply a language model to the data.
+    - receive_email: Receive an email and parse the data.
+    - send_email: Send an email.
+    - transform: Apply a transformation to the data.
+    """
+
+    custom_logger.debug(f"{"*" * 10} Running action {"*" * 10}")
+    custom_logger.debug(f"{key = }")
+    custom_logger.debug(f"{title = }")
+    custom_logger.debug(f"{type = }")
+    custom_logger.debug(f"{tags = }")
+    custom_logger.debug(f"{action_run_kwargs = }")
+    custom_logger.debug(f"{action_kwargs = }")
+    custom_logger.debug(f"{"*" * 20}")
+
+    action_runner = _ACTION_RUNNER_FACTORY[type]
+
+    action_trail_json = {
+        result.action_title_snake_case: result.data for result in action_trail.values()
+    }
+    custom_logger.debug(f"Before template eval: {action_trail_json = }")
+    processed_action_kwargs = evaluate_templated_fields(
+        action_kwargs, action_trail_json
+    )
+
+    # Only pass the action trail to the LLM action
+    if type == "llm":
+        processed_action_kwargs.update(action_trail=action_trail)
+    custom_logger.debug(f"{processed_action_kwargs = }")
+
+    try:
+        result = await action_runner(
+            custom_logger=custom_logger,
+            action_run_kwargs=action_run_kwargs,
+            **processed_action_kwargs,
+        )
+    except Exception as e:
+        custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
+        raise
+
+    should_continue = result.get("__should_continue__", True)
+    return ActionRunResult(action_key=key, data=result, should_continue=should_continue)
 
 
 _ActionRunner = Callable[..., Awaitable[dict[str, Any]]]
