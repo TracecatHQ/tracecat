@@ -1,5 +1,5 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
   src: string
@@ -9,7 +9,7 @@ export default function UserAvatar({ src, alt, className }: UserAvatarProps) {
   return (
     <Avatar className={cn("h-8 w-8", className)}>
       <AvatarImage src={src} alt={alt} />
-      <AvatarFallback>CN</AvatarFallback>
+      <AvatarFallback>TC</AvatarFallback>
     </Avatar>
   )
 }
