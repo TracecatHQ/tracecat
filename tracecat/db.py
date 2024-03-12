@@ -159,8 +159,8 @@ def create_vdb_conn() -> lancedb.DBConnection:
 
 CaseSchema = pa.schema(
     [
-        pa.field("id", pa.int64(), nullable=False),
-        pa.field("workflow_id", pa.int64(), nullable=False),
+        pa.field("id", pa.string(), nullable=False),
+        pa.field("workflow_id", pa.string(), nullable=False),
         pa.field("title", pa.string(), nullable=False),
         pa.field("payload", pa.string(), nullable=False),  # JSON-serialized
         pa.field("context", pa.string(), nullable=True),  # JSON-serialized
