@@ -8,11 +8,13 @@ import psycopg
 import tantivy
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
+from tracecat.api.completions import TagConstraint, stream_case_completions
 from tracecat.db import (
     Action,
     CaseAction,
@@ -712,3 +714,59 @@ def delete_case_context(case_context: CaseContext):
         action = result.one()
         session.delete(action)
         session.commit()
+    pass
+
+
+@app.post("/completions/cases/stream")
+async def streaming_autofill_case_fields(
+    cases: list[Case],  # TODO: Replace this with case IDs
+) -> dict[str, str]:
+    """List of case IDs.
+    Steps
+    -----
+    1. Using Case IDs, fetch case data
+    2. Figure out  which fields need to be populated - these fields are None
+    3. Complete the fields
+
+    """
+    logger.info(f"Received cases: {cases = }")
+    actions_mapping = (
+        pl.DataFrame(list_case_actions())
+        .lazy()
+        .select(
+            pl.col.tag,
+            pl.col.value.str.split(".").list.first(),
+        )
+        .unique()
+        .group_by(pl.col.tag)
+        .agg(pl.col.value)
+        .collect(streaming=True)
+        .to_dicts()
+    )
+
+    contexts_mapping = (
+        pl.DataFrame(list_case_contexts())
+        .lazy()
+        .select(
+            pl.col.tag,
+            pl.col.value.str.split(".").list.first(),
+        )
+        .unique()
+        .group_by(pl.col.tag)
+        .agg(pl.col.value)
+        .collect(streaming=True)
+        .to_dicts()
+    )
+    context_cons = [
+        TagConstraint.model_validate(d, strict=True) for d in contexts_mapping
+    ]
+    action_cons = [
+        TagConstraint.model_validate(d, strict=True) for d in actions_mapping
+    ]
+
+    return StreamingResponse(
+        stream_case_completions(
+            cases, context_cons=context_cons, action_cons=action_cons
+        ),
+        media_type="text/event-stream",
+    )
