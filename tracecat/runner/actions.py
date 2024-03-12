@@ -779,6 +779,8 @@ async def run_open_case_action(
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     case = Case(
+        id=action_run_id,
+        workflow_id=workflow_id,
         title=title,
         payload=payload,
         malice=malice,
@@ -788,20 +790,8 @@ async def run_open_case_action(
         action=action,
         suppression=suppression,
     )
-    tbl.add(
-        {
-            "id": action_run_id,
-            "workflow_id": workflow_id,
-            "title": title,
-            **case.flatten(),
-        }
-    )
-    case_response = {
-        "id": action_run_id,
-        "workflow_id": workflow_id,
-        **case.model_dump(),
-    }
-    return case_response
+    tbl.add(case.flatten())
+    return case.model_dump()
 
 
 async def run_action(
