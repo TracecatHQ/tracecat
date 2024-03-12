@@ -22,6 +22,10 @@ Try out our [tutorial](https://docs.tracecat.com) and deploy your first AI workf
 
 Help Mario, the L1 analyst and part-time pizza chef, automatically flag malicious pizza orders (e.g. pineapple pizza).
 
+<div align="center">
+  <img src="img/workflow.png" alt="Tracecat click-and-drag workflow builder">
+</div>
+
 ## Features
 
 Build AI-assisted workflows, enrich alerts, and close cases fast.
@@ -58,7 +62,7 @@ Tracecat is **not** a 1-to-1 mapping of Tines. Our aim is to give technical team
 
 ## Installation
 
-Tracecat is Cloud agnostic and deploys anywhere that supports Docker. 
+Tracecat is Cloud agnostic and deploys anywhere that supports Docker.
 
 - [x] Authentication
   - [x] Supabase
