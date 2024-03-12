@@ -601,6 +601,15 @@ def search_events(params: EventSearchParams) -> list[Event]:
 ### Case Management
 
 
+@app.put("/workflows/{workflow_id}/cases", status_code=status.HTTP_201_CREATED)
+def create_case(workflow_id: str, cases: list[Case]):
+    db = create_vdb_conn()
+    tbl = db.open_table("cases")
+    # Should probably also add a check for existing case IDs
+    # NOTE: Duplicate workflow_id - ignore for now, use the one given in the case
+    tbl.add([case.flatten() for case in cases])
+
+
 @app.get("workflows/{workflow_id}/cases")
 def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
     """List all cases under a workflow.
