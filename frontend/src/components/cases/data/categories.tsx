@@ -39,6 +39,7 @@ export const statuses = [
     icon: ShieldAlertIcon,
   },
 ]
+export type Status = (typeof statuses)[number]["value"]
 
 export const priorities = [
   {
@@ -62,6 +63,7 @@ export const priorities = [
     icon: AlertTriangleIcon,
   },
 ]
+export type Priority = (typeof priorities)[number]["value"]
 
 export const indicators = [
   {
@@ -75,3 +77,4 @@ export const indicators = [
     icon: InfoIcon,
   },
 ]
+export type Indicator = (typeof indicators)[number]["value"]
