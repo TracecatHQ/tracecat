@@ -1,5 +1,10 @@
-import React, { useState } from "react"
+"use client"
 
+import React, { useState } from "react"
+import { useSession } from "@/providers/session"
+import { type Session } from "@supabase/supabase-js"
+
+import { getAuthenticatedClient, type Client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   ContextMenu,
@@ -17,56 +22,69 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 
-export interface BaseAuxClickMenuOption {
+export interface BaseAuxClickMenuOption<TData> {
   type: "item" | "sub" | "radio" | "checkbox" | "separator"
-  icon?: React.ReactNode
   children?: React.ReactNode
   shortcut?: React.ReactNode
-  onClick?: () => void
+  action?: (data: TData, client?: Client, context?: Record<string, any>) => void
+  data?: TData
+  session?: Session | null
 }
 
-export interface AuxClickMenuItemProps extends BaseAuxClickMenuOption {
+export interface AuxClickMenuItemProps<TData>
+  extends BaseAuxClickMenuOption<TData> {
   type: "item"
 }
 
-export interface AuxClickMenuSubProps extends BaseAuxClickMenuOption {
+export interface AuxClickMenuSubProps<TData>
+  extends BaseAuxClickMenuOption<TData> {
   type: "sub"
-  items?: AuxClickMenuOptionProps[]
+  items?: AuxClickMenuOptionProps<TData>[]
 }
-interface AuxClickMenuRadioProps extends BaseAuxClickMenuOption {
+interface AuxClickMenuRadioProps<TData> extends BaseAuxClickMenuOption<TData> {
   type: "radio"
   defaultValue?: string
   items?: { title: string; value: string }[]
 }
-interface AuxClickMenuCheckboxProps extends BaseAuxClickMenuOption {
+interface AuxClickMenuCheckboxProps<TData>
+  extends BaseAuxClickMenuOption<TData> {
   type: "checkbox"
 }
-interface AuxClickMenuSeparatorProps extends BaseAuxClickMenuOption {
+interface AuxClickMenuSeparatorProps<TData>
+  extends BaseAuxClickMenuOption<TData> {
   type: "separator"
 }
 
-export type AuxClickMenuOptionProps =
-  | AuxClickMenuItemProps
-  | AuxClickMenuSubProps
-  | AuxClickMenuRadioProps
-  | AuxClickMenuCheckboxProps
-  | AuxClickMenuSeparatorProps
+export type AuxClickMenuOptionProps<TData> =
+  | AuxClickMenuItemProps<TData>
+  | AuxClickMenuSubProps<TData>
+  | AuxClickMenuRadioProps<TData>
+  | AuxClickMenuCheckboxProps<TData>
+  | AuxClickMenuSeparatorProps<TData>
 
-export interface AuxClickMenuProps
+export interface AuxClickMenuProps<TData>
   extends React.PropsWithChildren<React.HTMLAttributes<HTMLButtonElement>> {
-  options?: AuxClickMenuOptionProps[]
+  options?: AuxClickMenuOptionProps<TData>[]
+  data: TData // Currently working with a Column<Case> type
 }
-export default function AuxClickMenu({
+export default function AuxClickMenu<TData>({
   className,
   children,
   options,
-}: AuxClickMenuProps) {
+  data,
+}: AuxClickMenuProps<TData>) {
+  const session = useSession()
   return options ? (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className={cn("w-64", className)}>
-        {options.map((option, idx) => (
-          <DynamicAuxClickMenuOption key={idx} {...option} />
+        {options.map((optionProps, idx) => (
+          <DynamicAuxClickMenuOption
+            key={idx}
+            {...optionProps}
+            data={data}
+            session={session}
+          />
         ))}
       </ContextMenuContent>
     </ContextMenu>
@@ -74,33 +92,42 @@ export default function AuxClickMenu({
     children
   )
 }
-function DynamicAuxClickMenuOption(option: AuxClickMenuOptionProps) {
-  switch (option.type) {
+function DynamicAuxClickMenuOption<TData>(
+  props: AuxClickMenuOptionProps<TData>
+) {
+  switch (props.type) {
     case "item":
-      return <AuxClickMenuItem {...option} />
+      return <AuxClickMenuItem {...props} />
     case "sub":
-      return <AuxClickMenuSub {...option} />
+      return <AuxClickMenuSub {...props} />
     case "radio":
-      return <AuxClickMenuRadio {...option} />
+      return <AuxClickMenuRadio {...props} />
     case "checkbox":
-      return <AuxClickMenuCheckbox {...option} />
+      return <AuxClickMenuCheckbox {...props} />
     case "separator":
-      return <AuxClickMenuSeparator {...option} />
+      return <AuxClickMenuSeparator {...props} />
     default:
       return null
   }
 }
 
-export function AuxClickMenuItem({
+export function AuxClickMenuItem<TData>({
   children,
   shortcut,
-  icon,
-  onClick,
-}: AuxClickMenuItemProps) {
+  action,
+  data,
+  session,
+}: AuxClickMenuItemProps<TData>) {
+  // If we fail to get the current session, this should kick us out
+  const client = getAuthenticatedClient(session || null)
   return (
     <ContextMenuItem
       className={cn("hover:cursor-pointer")}
-      onClick={onClick}
+      onClick={() => {
+        if (data) {
+          action?.(data, client)
+        }
+      }}
       inset
     >
       {children}
@@ -109,7 +136,10 @@ export function AuxClickMenuItem({
   )
 }
 
-export function AuxClickMenuSub({ children, items }: AuxClickMenuSubProps) {
+export function AuxClickMenuSub<TData>({
+  children,
+  items,
+}: AuxClickMenuSubProps<TData>) {
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger inset className="hover:cursor-pointer">
@@ -124,12 +154,12 @@ export function AuxClickMenuSub({ children, items }: AuxClickMenuSubProps) {
   )
 }
 
-export function AuxClickMenuRadio({
+export function AuxClickMenuRadio<TData>({
   children,
   defaultValue = "",
   items,
   ...props
-}: AuxClickMenuRadioProps) {
+}: AuxClickMenuRadioProps<TData>) {
   const [currValue, setCurrValue] = useState<string>(defaultValue)
   return (
     <ContextMenuRadioGroup value={currValue} {...props}>
@@ -149,11 +179,11 @@ export function AuxClickMenuRadio({
   )
 }
 
-export function AuxClickMenuCheckbox({
+export function AuxClickMenuCheckbox<TData>({
   children,
   shortcut,
   ...props
-}: AuxClickMenuCheckboxProps) {
+}: AuxClickMenuCheckboxProps<TData>) {
   return (
     <ContextMenuCheckboxItem {...props} className="hover:cursor-pointer">
       {children}
