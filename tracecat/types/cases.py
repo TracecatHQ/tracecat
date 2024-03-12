@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 class Case(BaseModel):
     # Required inputs
+    id: str
+    workflow_id: str
     title: str
     payload: dict[str, Any]
     malice: Literal["malicious", "benign"]
@@ -16,7 +18,7 @@ class Case(BaseModel):
     action: str | None = None
     suppression: dict[str, bool] | None = None
 
-    def flatten(self):
+    def flatten(self) -> dict[str, Any]:
         """Flattens nested object by JSON serializing object fields."""
         return {
             "title": self.title,
