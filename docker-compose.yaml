@@ -13,6 +13,7 @@ services:
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       SUPABASE_JWT_ALGORITHM: ${SUPABASE_JWT_ALGORITHM}
       SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     container_name: api
     restart: unless-stopped
     depends_on:
