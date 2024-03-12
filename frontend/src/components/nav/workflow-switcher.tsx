@@ -60,7 +60,6 @@ export default function WorkflowSwitcher({
         console.error("Invalid session")
         throw new Error("Invalid session")
       }
-      console.log(session)
       const workflows = await fetchAllWorkflows(session)
       return workflows
     },
