@@ -1,0 +1,332 @@
+[
+  {
+    "id": "1",
+    "workflow_id": "wf1",
+    "title": "Pizza Order: Double Anchovy and Chocolate Chips",
+    "payload": {
+      "pizza_order": "Double Anchovy and Chocolate Chips"
+    },
+    "malice": "malicious",
+    "action": "Immediately redirect them to a dessert menu. Offer a classic Margherita as palate cleanser.",
+    "context": {
+      "type": "seafood",
+      "taste": "sweet",
+      "theme": "outrageous"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "escalated",
+    "priority": "medium"
+  },
+  {
+    "id": "2",
+    "workflow_id": "wf2",
+    "title": "Pizza Order: Extra Cheese and Pineapple",
+    "payload": {
+      "pizza_order": "Extra Cheese and Pineapple"
+    },
+    "malice": "malicious",
+    "action": "Reluctantly prepare with a reminder that Italy watches in disappointment. Offer a Napoletana next time.",
+    "context": {
+      "type": "controversial",
+      "taste": "salty",
+      "theme": "fruit"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "closed",
+    "priority": "low"
+  },
+  {
+    "id": "3",
+    "workflow_id": "wf3",
+    "title": "Pizza Order: Classic Margherita with Buffalo Mozzarella",
+    "payload": {
+      "pizza_order": "Classic Margherita with Buffalo Mozzarella"
+    },
+    "malice": "benign",
+    "action": "Praise the customer's exquisite taste. Include a free sample of our finest olive oil.",
+    "context": {
+      "type": "authentic",
+      "taste": "savor",
+      "theme": "vegetarian"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "open",
+    "priority": "critical"
+  },
+  {
+    "id": "4",
+    "workflow_id": "wf4",
+    "title": "Pizza Order: Deep Dish Pepperoni and Mushroom",
+    "payload": {
+      "pizza_order": "Deep Dish Pepperoni and Mushroom"
+    },
+    "malice": "malicious",
+    "action": "Suppress a sigh. Prepare with care but include a brochure on Italian pizza history.",
+    "context": {
+      "type": "hearty",
+      "taste": "rich",
+      "theme": "meat"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": false,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "reported",
+    "priority": "medium"
+  },
+  {
+    "id": "5",
+    "workflow_id": "wf5",
+    "title": "Pizza Order: Quattro Stagioni with Authentic Italian Ham",
+    "payload": {
+      "pizza_order": "Quattro Stagioni with Authentic Italian Ham"
+    },
+    "malice": "benign",
+    "action": "Approve with enthusiasm. Offer a side of marinated artichokes as a compliment.",
+    "context": {
+      "type": "authentic",
+      "taste": "flavorful",
+      "theme": "variety"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "closed",
+    "priority": "high"
+  },
+  {
+    "id": "6",
+    "workflow_id": "wf6",
+    "title": "Pizza Order: Vegan Supreme with Cashew Cheese",
+    "payload": {
+      "pizza_order": "Vegan Supreme with Cashew Cheese"
+    },
+    "malice": "benign",
+    "action": "Acknowledge their dietary preference with respect. Suggest adding a vegan pesto drizzle.",
+    "context": {
+      "type": "plant-based",
+      "taste": "nutty",
+      "theme": "vegetarian"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "open",
+    "priority": "medium"
+  },
+  {
+    "id": "7",
+    "workflow_id": "wf7",
+    "title": "Pizza Order: Spicy Hawaiian with Jalapeños and Pineapple",
+    "payload": {
+      "pizza_order": "Spicy Hawaiian with Jalapeños and Pineapple"
+    },
+    "malice": "malicious",
+    "action": "Prepare under protest. Offer a side of antacids as a gesture of goodwill.",
+    "context": {
+      "type": "bold",
+      "taste": "fiery",
+      "theme": "tropical"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "escalated",
+    "priority": "low"
+  },
+  {
+    "id": "8",
+    "workflow_id": "wf8",
+    "title": "Pizza Order: Pepperoni Smiley Face Design",
+    "payload": {
+      "pizza_order": "Pepperoni Smiley Face Design"
+    },
+    "malice": "benign",
+    "action": "Admire their joy. Comply with a smile; consider featuring it on our social media.",
+    "context": {
+      "type": "playful",
+      "taste": "cheesy",
+      "theme": "fun"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "closed",
+    "priority": "medium"
+  },
+  {
+    "id": "9",
+    "workflow_id": "wf9",
+    "title": "Pizza Order: Sausage and Broccoli Rabe on Thin Crust",
+    "payload": {
+      "pizza_order": "Sausage and Broccoli Rabe on Thin Crust"
+    },
+    "malice": "benign",
+    "action": "Celebrate their choice of greens. Offer a complimentary dipping sauce to enhance flavors.",
+    "context": {
+      "type": "nutritious",
+      "taste": "earthy",
+      "theme": "meat"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "open",
+    "priority": "critical"
+  },
+  {
+    "id": "10",
+    "workflow_id": "wf10",
+    "title": "Pizza Order: Triple Garlic with Anchovy Paste",
+    "payload": {
+      "pizza_order": "Triple Garlic with Anchovy Paste"
+    },
+    "malice": "malicious",
+    "action": "Question their love for vampires. Provide a side of parsley to freshen breath.",
+    "context": {
+      "type": "bold",
+      "taste": "pungent",
+      "theme": "seafood"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "reported",
+    "priority": "medium"
+  },
+  {
+    "id": "11",
+    "workflow_id": "wf11",
+    "title": "Pizza Order: Buffalo Chicken with Blue Cheese Drizzle",
+    "payload": {
+      "pizza_order": "Buffalo Chicken with Blue Cheese Drizzle"
+    },
+    "malice": "malicious",
+    "action": "Suggest a wing night instead. Reluctantly prepare, insisting on Italian seasoning.",
+    "context": {
+      "type": "fiery",
+      "taste": "creamy",
+      "theme": "meat"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "escalated",
+    "priority": "low"
+  },
+  {
+    "id": "12",
+    "workflow_id": "wf12",
+    "title": "Pizza Order: Prosciutto and Arugula with Balsamic Glaze",
+    "payload": {
+      "pizza_order": "Prosciutto and Arugula with Balsamic Glaze"
+    },
+    "malice": "benign",
+    "action": "Commend their gourmet choice. Offer a complimentary glass of Chianti for dine-in.",
+    "context": {
+      "type": "sophisticated",
+      "taste": "tangy",
+      "theme": "authentic"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "open",
+    "priority": "high"
+  },
+  {
+    "id": "13",
+    "workflow_id": "wf13",
+    "title": "Pizza Order: Capricciosa with Artichokes and Ham",
+    "payload": {
+      "pizza_order": "Capricciosa with Artichokes and Ham"
+    },
+    "malice": "benign",
+    "action": "Applaud their classic choice. Offer a side of homemade focaccia.",
+    "context": {
+      "type": "classic",
+      "taste": "savory",
+      "theme": "authentic"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "closed",
+    "priority": "high"
+  },
+  {
+    "id": "14",
+    "workflow_id": "wf14",
+    "title": "Pizza Order: Gluten-Free Crust with Vegan Cheese",
+    "payload": {
+      "pizza_order": "Gluten-Free Crust with Vegan Cheese"
+    },
+    "malice": "benign",
+    "action": "Support their health-conscious choice. Offer a complimentary vegan appetizer.",
+    "context": {
+      "type": "conscious",
+      "taste": "nutritious",
+      "theme": "vegan"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "in_progress",
+    "priority": "medium"
+  },
+  {
+    "id": "15",
+    "workflow_id": "wf15",
+    "title": "Pizza Order: Four Cheese with Honey Drizzle",
+    "payload": {
+      "pizza_order": "Four Cheese with Honey Drizzle"
+    },
+    "malice": "malicious",
+    "action": "Ponder their adventurous palate. Serve with a cautionary note on sweetness overload.",
+    "context": {
+      "type": "cheese-lover",
+      "taste": "sweet",
+      "theme": "indulgent"
+    },
+    "suppression": {
+      "Is between 12 to 14 inches": true,
+      "Is pizza": true,
+      "Order describes only one pizza": true
+    },
+    "status": "in_progress",
+    "priority": "medium"
+  }
+]
