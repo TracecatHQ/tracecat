@@ -1,3 +1,5 @@
+"""Core LLM functionality."""
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -25,6 +27,7 @@ DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True,
 )
 async def async_openai_call(  # type: ignore
     prompt: str,
@@ -74,6 +77,8 @@ async def async_openai_call(  # type: ignore
         stream=stream,
         **kwargs,
     )
+    # TODO: Should track these metrics
+    logger.info(f"🧠 {response.usage}")
     if stream:
         return response
 
