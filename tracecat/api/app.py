@@ -15,6 +15,8 @@ from sqlmodel import Session, select
 
 from tracecat.db import (
     Action,
+    CaseAction,
+    CaseContext,
     Webhook,
     Workflow,
     WorkflowRun,
@@ -641,3 +643,63 @@ def update_case(workflow_id: str, case_id: str, case: Case):
         where=f"(workflow_id == {workflow_id}) AND (id == {case_id})",
         values=case.flatten(),
     )
+
+
+### Available Case Actions
+
+
+@app.get("/case-actions")
+def list_case_actions() -> list[CaseAction]:
+    with Session(create_db_engine()) as session:
+        statement = select(CaseAction)
+        actions = session.exec(statement).all()
+    return actions
+
+
+@app.post("/case-actions")
+def add_case_action(case_action: CaseAction) -> CaseAction:
+    with Session(create_db_engine()) as session:
+        session.add(case_action)
+        session.commit()
+        session.refresh(case_action)
+    return case_action
+
+
+@app.delete("/case-actions")
+def delete_case_action(case_action: CaseAction):
+    with Session(create_db_engine()) as session:
+        statement = select(CaseAction).where(CaseAction.id == case_action.id)
+        result = session.exec(statement)
+        action = result.one()
+        session.delete(action)
+        session.commit()
+
+
+### Available Context Labels
+
+
+@app.get("/case-contexts")
+def list_case_contexts() -> list[CaseContext]:
+    with Session(create_db_engine()) as session:
+        statement = select(CaseContext)
+        actions = session.exec(statement).all()
+    return actions
+
+
+@app.post("/case-contexts")
+def add_case_context(case_context: CaseContext) -> CaseContext:
+    with Session(create_db_engine()) as session:
+        session.add(case_context)
+        session.commit()
+        session.refresh(case_context)
+    return case_context
+
+
+@app.delete("/case-contexts")
+def delete_case_context(case_context: CaseContext):
+    with Session(create_db_engine()) as session:
+        statement = select(CaseContext).where(CaseContext.id == case_context.id)
+        result = session.exec(statement)
+        action = result.one()
+        session.delete(action)
+        session.commit()
