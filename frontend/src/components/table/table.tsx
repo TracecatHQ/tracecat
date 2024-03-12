@@ -25,6 +25,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import AuxClickMenu, {
+  AuxClickMenuOptionProps,
+} from "@/components/aux-click-menu"
 import { DataTablePagination, DataTableToolbar } from "@/components/table"
 
 import { DataTableToolbarProps } from "./toolbar"
@@ -34,6 +37,7 @@ interface DataTableProps<TData, TValue> {
   data: TData[]
   onClickRow?: (row: Row<TData>) => () => void
   toolbarProps?: DataTableToolbarProps
+  tableHeaderAuxOptions?: AuxClickMenuOptionProps[]
 }
 
 export function DataTable<TData, TValue>({
@@ -41,6 +45,7 @@ export function DataTable<TData, TValue>({
   data,
   onClickRow,
   toolbarProps,
+  tableHeaderAuxOptions,
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
@@ -73,61 +78,68 @@ export function DataTable<TData, TValue>({
   })
 
   return (
-    <div className="space-y-4">
-      {toolbarProps && <DataTableToolbar table={table} {...toolbarProps} />}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <TableHead key={header.id} colSpan={header.colSpan}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  )
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  onClick={onClickRow?.(row)}
-                  className="cursor-pointer"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
+    <div>
+      <div className="space-y-4">
+        {toolbarProps && <DataTableToolbar table={table} {...toolbarProps} />}
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => {
+                    return (
+                      <AuxClickMenu
+                        key={header.id}
+                        options={tableHeaderAuxOptions}
+                      >
+                        <TableHead colSpan={header.colSpan}>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      </AuxClickMenu>
+                    )
+                  })}
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
-                  No results.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {table.getRowModel().rows?.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() && "selected"}
+                    onClick={onClickRow?.(row)}
+                    className="cursor-pointer"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={columns.length}
+                    className="h-24 text-center"
+                  >
+                    No results.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <DataTablePagination table={table} />
       </div>
-      <DataTablePagination table={table} />
     </div>
   )
 }
