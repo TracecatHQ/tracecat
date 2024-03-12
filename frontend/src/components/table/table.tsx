@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  Column,
   ColumnDef,
   ColumnFiltersState,
   flexRender,
@@ -32,12 +33,16 @@ import { DataTablePagination, DataTableToolbar } from "@/components/table"
 
 import { DataTableToolbarProps } from "./toolbar"
 
+export type TableCol<TData> = {
+  table: ReturnType<typeof useReactTable<TData>>
+  column: Column<TData>
+}
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data: TData[]
   onClickRow?: (row: Row<TData>) => () => void
   toolbarProps?: DataTableToolbarProps
-  tableHeaderAuxOptions?: AuxClickMenuOptionProps[]
+  tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
 }
 
 export function DataTable<TData, TValue>({
@@ -91,6 +96,7 @@ export function DataTable<TData, TValue>({
                       <AuxClickMenu
                         key={header.id}
                         options={tableHeaderAuxOptions}
+                        data={{ table, column: header.column }}
                       >
                         <TableHead colSpan={header.colSpan}>
                           {header.isPlaceholder
