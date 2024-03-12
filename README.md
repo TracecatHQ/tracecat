@@ -70,11 +70,16 @@ Tracecat is Cloud agnostic and deploys anywhere that supports Docker.
 
 ## Is Tracecat enterprise ready?
 
-Yes and no. Tracecat comes in two versions:
-- Embedded: runs on a single instance and scales vertically
-- Distributed: scales horizontally with self-healing / resillience
+Yes and no. There are two "flavors" of Tracecat.
+Tracecat Embedded, which runs on a single instance and scales vertically, and Tracecat Distributed, which scales horizontally with self-healing / resillience.
+Tracecat embedded is designed to run automation workflows, store event logs, and run search queries with *extreme* efficiency on a single instance (e.g. EC2, laptop).
 
-- [x] Embedded architecture (single instance)
+Embedded Tracecat should already scale beyond Tines' free tier (3 workflows, 500 workflow runs daily) given sufficient memory, cpu, and network capacity.
+With Tracecat on [Quickwit](https://github.com/quickwit-oss/quickwit), you can also store event logs on S3 buckets without limit for as long as you need.
+
+We don't recommend using Tracecat embedded, however, for enterprise use-cases that need 99.99% SLAs.
+
+- [x] Embedded architecture
   - [x] Flunk: homegrown workflow engine based on Flink
   - [x] LanceDB
   - [x] Polars
@@ -83,11 +88,6 @@ Yes and no. Tracecat comes in two versions:
   - [ ] Apache Flink
   - [ ] LanceDB / Lantern
   - [ ] Quickwit
-
-Tracacat embedded already offers more than Tines' free tier (3 workflows, 500 workflow runs daily).
-It is designed to run automation workflows, store event logs, and run search queries with *extreme* efficiency on a single instance (e.g. EC2, laptop).
-You can theorically build and run as many workflows as your RAM, CPU, and network capacity allows.
-We don't recommend using Tracecat for enterprise use-cases until Tracecat distributed is released.
 
 If you'd like to stress test Tracecat, please ping us on [Discord](https://discord.gg/n3GF4qxFU8) and we can help you get started!
 
