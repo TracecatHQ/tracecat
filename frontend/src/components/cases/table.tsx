@@ -5,6 +5,7 @@ import CasePanelProvider, { useCasePanelContext } from "@/providers/case-panel"
 import { type Row } from "@tanstack/react-table"
 
 import { type Case } from "@/types/schemas"
+import { tableHeaderAuxOptions } from "@/components/cases/aux-click-menu-config"
 import { columns } from "@/components/cases/columns"
 import {
   indicators,
@@ -64,6 +65,7 @@ function InternalCaseTable({ cases }: CaseTableProps) {
       columns={columns}
       onClickRow={handleClickRow}
       toolbarProps={toolbarProps}
+      tableHeaderAuxOptions={tableHeaderAuxOptions}
     />
   )
 }
