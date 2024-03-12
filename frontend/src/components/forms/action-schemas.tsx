@@ -105,6 +105,17 @@ const LLMSummarizeTaskActionSchema = z.object({
   response_schema: jsonPayload.optional(),
 })
 
+const OpenCaseActionSchema = z.object({
+  title: z.string(),
+  payload: jsonPayload,
+  malice: z.enum(["malicious", "benign"]),
+  status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
+  priority: z.enum(["low", "medium", "high", "critical"]),
+  context: jsonPayload.optional(),
+  action: z.string().optional(),
+  suppression: jsonPayload.optional(),
+})
+
 type ActionFieldType = "input" | "select" | "textarea"
 export interface ActionFieldOption {
   type: ActionFieldType
@@ -196,6 +207,25 @@ const actionFieldSchemas: Partial<ActionFieldSchemas> = {
     summary: { type: "textarea" },
     response_schema: { type: "textarea" },
   },
+  open_case: {
+    title: { type: "input" },
+    payload: { type: "textarea" },
+    malice: {
+      type: "select",
+      options: ["malicious", "benign"],
+    },
+    status: {
+      type: "select",
+      options: ["open", "closed", "in_progress", "reported", "escalated"],
+    },
+    priority: {
+      type: "select",
+      options: ["low", "medium", "high", "critical"],
+    },
+    context: { type: "textarea" },
+    action: { type: "textarea" },
+    suppression: { type: "textarea" },
+  },
 }
 
 export const getActionSchema = (actionType: ActionType) => {
@@ -254,6 +284,11 @@ export const getActionSchema = (actionType: ActionType) => {
       return {
         actionSchema: LLMSummarizeTaskActionSchema,
         actionFieldSchema: actionFieldSchemas["llm.summarize"],
+      }
+    case "open_case":
+      return {
+        actionSchema: OpenCaseActionSchema,
+        actionFieldSchema: actionFieldSchemas["open_case"],
       }
     default:
       return {
