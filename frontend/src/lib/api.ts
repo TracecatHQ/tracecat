@@ -16,3 +16,5 @@ export const getAuthenticatedClient = (session: Session | null) => {
     `Bearer ${session.access_token}`
   return client
 }
+
+export type Client = typeof client
