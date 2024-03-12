@@ -22,20 +22,21 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
+    "attackcti",
     "colorlog",
     "fastapi",
     "lancedb",
     "openai",
+    "orjson",
     "polars",
+    "psycopg[binary]",
     "pydantic==2.6.1",
+    "python-jose[cryptography]",
     "python-slugify",
     "sqlmodel",
     "tantivy",
     "tenacity",
     "uvicorn",
-    "orjson",
-    "python-jose[cryptography]",
-    "psycopg[binary]",
 ]
 dynamic = ["version"]
 

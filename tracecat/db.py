@@ -7,12 +7,22 @@ import pyarrow as pa
 import tantivy
 from pydantic import computed_field
 from slugify import slugify
-from sqlmodel import Field, Relationship, SQLModel, create_engine
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 from tracecat import auth
+from tracecat.labels.mitre import get_mitre_tactics_techniques
 
 STORAGE_PATH = Path(os.path.expanduser("~/.tracecat/storage"))
 EMBEDDINGS_SIZE = os.environ.get("TRACECAT__EMBEDDINGS_SIZE", 512)
+
+DEFAULT_CASE_ACTIONS = [
+    "Active compromise",
+    "Ignore",
+    "Informational",
+    "Investigate",
+    "Quarantined",
+    "Sinkholed",
+]
 
 
 class User(SQLModel, table=True):
@@ -20,6 +30,8 @@ class User(SQLModel, table=True):
     tier: str = "free"  # "free" or "premium"
     settings: str | None = None  # JSON-serialized String of settings
     owned_workflows: list["Workflow"] = Relationship(back_populates="owner")
+    case_actions: list["CaseAction"] = Relationship(back_populates="user")
+    case_contexts: list["CaseContext"] = Relationship(back_populates="user")
 
 
 class Editor(SQLModel, table=True):
@@ -27,6 +39,22 @@ class Editor(SQLModel, table=True):
     workflow_id: str | None = Field(
         default=None, foreign_key="workflow.id", primary_key=True
     )
+
+
+class CaseAction(SQLModel, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    tag: str
+    value: str
+    user_id: str | None = Field(foreign_key="user.id")
+    user: User | None = Relationship(back_populates="case_actions")
+
+
+class CaseContext(SQLModel, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    tag: str
+    value: str
+    user_id: str | None = Field(foreign_key="user.id")
+    user: User | None = Relationship(back_populates="case_contexts")
 
 
 class Workflow(SQLModel, table=True):
@@ -159,3 +187,23 @@ def initialize_db() -> None:
 
     # Search
     build_events_index()
+
+    # Add TTPs to context table only if context table is empty
+    with Session(engine) as session:
+        case_contexts_count = session.exec(select(CaseContext)).all()
+        if len(case_contexts_count) == 0:
+            mitre_labels = get_mitre_tactics_techniques()
+            mitre_contexts = [
+                CaseContext(tag="mitre", value=label) for label in mitre_labels
+            ]
+            session.add_all(mitre_contexts)
+            session.commit()
+
+        case_actions_count = session.exec(select(CaseAction)).all()
+        if len(case_actions_count) == 0:
+            default_actions = [
+                CaseAction(tag="case_action", value=case_action)
+                for case_action in DEFAULT_CASE_ACTIONS
+            ]
+            session.add_all(default_actions)
+            session.commit()
