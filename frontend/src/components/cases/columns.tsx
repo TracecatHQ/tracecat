@@ -3,6 +3,7 @@
 import { ColumnDef } from "@tanstack/react-table"
 
 import { type Case } from "@/types/schemas"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
@@ -40,7 +41,9 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader className="text-xs" column={column} title="ID" />
     ),
     cell: ({ row }) => (
-      <div className="w-[60px] text-xs">&#x23; {row.getValue("id")}</div>
+      <div className="w-[60px] text-xs">
+        &#x23; {row.getValue<Case["id"]>("id")}
+      </div>
     ),
     enableSorting: true,
     enableHiding: false,
@@ -52,7 +55,7 @@ export const columns: ColumnDef<Case>[] = [
     ),
     cell: ({ row }) => {
       const status = statuses.find(
-        (status) => status.value === row.getValue("status")
+        (status) => status.value === row.getValue<Case["status"]>("status")
       )
 
       if (!status) {
@@ -69,7 +72,7 @@ export const columns: ColumnDef<Case>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
+      return value.includes(row.getValue<Case["id"]>(id))
     },
   },
   {
@@ -79,7 +82,8 @@ export const columns: ColumnDef<Case>[] = [
     ),
     cell: ({ row }) => {
       const priority = priorities.find(
-        (priority) => priority.value === row.getValue("priority")
+        (priority) =>
+          priority.value === row.getValue<Case["priority"]>("priority")
       )
 
       if (!priority) {
@@ -96,7 +100,7 @@ export const columns: ColumnDef<Case>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
+      return value.includes(row.getValue<Case["id"]>(id))
     },
   },
   {
@@ -108,7 +112,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs">
-            {row.getValue("title")}
+            {row.getValue<Case["title"]>("title")}
           </span>
         </div>
       )
@@ -123,7 +127,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {row.getValue("payload")}
+            {row.getValue<Case["payload"]>("payload")}
           </span>
         </div>
       )
@@ -135,7 +139,7 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Malice" />
     ),
     cell: ({ row }) => {
-      const label = row.getValue("malice") as string
+      const label = row.getValue<Case["malice"]>("malice")
       return (
         <div className="flex space-x-2">
           <span className="max-w-[100px] truncate text-xs text-muted-foreground">
@@ -154,10 +158,16 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Action" />
     ),
     cell: ({ row }) => {
+      const action = row.getValue<Case["action"]>("action")
       return (
         <div className="flex space-x-2">
-          <span className="max-w-[300px] truncate text-xs">
-            {row.getValue("action")}
+          <span
+            className={cn(
+              "max-w-[300px] truncate text-xs",
+              !action && "text-muted-foreground"
+            )}
+          >
+            {action ? action : "No action available"}
           </span>
         </div>
       )
@@ -169,15 +179,17 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Context" />
     ),
     cell: ({ row }) => {
-      const context = row.getValue("context") as Record<string, string>
+      const context = row.getValue<Case["context"]>("context")
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-            {Object.values(context).map((label, idx) => (
-              <Badge key={idx} variant="outline">
-                {label}
-              </Badge>
-            ))}
+            {context
+              ? Object.values(context).map((label, idx) => (
+                  <Badge key={idx} variant="outline">
+                    {label}
+                  </Badge>
+                ))
+              : "No context available"}
           </span>
         </div>
       )
@@ -192,7 +204,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {row.getValue("suppression")}
+            {row.getValue<Case["suppression"]>("suppression")}
           </span>
         </div>
       )
