@@ -14,15 +14,17 @@
 - Event-driven data transforms
 - [Practioner-obsessed UI/UX](#faq)
 
-It's designed to be simple but powerful. Try out our [tutorial](https://docs.tracecat.com) and deploy your first AI workflow in 15 minutes.
+It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
 
-Build AI-assisted workflows, enrich alerts, and close cases fast.
+Try out our [tutorial](https://docs.tracecat.com) and deploy your first AI workflow in 15 minutes.
 
 ## Getting started
 
 Help Mario, the L1 analyst and part-time pizza chef, automatically flag malicious pizza orders (e.g. pineapple pizza).
 
 ## Features
+
+Build AI-assisted workflows, enrich alerts, and close cases fast.
 
 - Workflows
   - [x] Drag-and-drop builder
