@@ -38,15 +38,19 @@ export const workflowResponseSchema = z.object({
 export type WorkflowResponse = z.infer<typeof workflowResponseSchema>
 
 export const caseSchema = z.object({
-  id: z.number().int(),
+  id: z.string(),
+  workflow_id: z.string(),
   title: z.string(),
   payload: z.record(z.string()).transform((val) => JSON.stringify(val)),
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  context: z.record(z.string()),
-  action: z.string(),
-  suppression: z.record(z.boolean()).transform((val) => JSON.stringify(val)),
+  context: z.record(z.string()).nullable(),
+  action: z.string().nullable(),
+  suppression: z
+    .record(z.boolean())
+    .transform((val) => JSON.stringify(val))
+    .nullable(),
 })
 
 export type Case = z.infer<typeof caseSchema>
