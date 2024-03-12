@@ -132,6 +132,13 @@ class ActionRun(BaseModel):
         """
         return get_action_run_id(self.workflow_run_id, self.action_key)
 
+    def downstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
+        downstream_deps_ar_ids = [
+            get_action_run_id(self.workflow_run_id, k)
+            for k in workflow.adj_list[action_key]
+        ]
+        return downstream_deps_ar_ids
+
     def upstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
         upstream_deps_ar_ids = [
             get_action_run_id(self.workflow_run_id, k)
@@ -494,7 +501,7 @@ async def start_action_run(
         if not result.should_continue:
             custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
             return
-        downstream_deps_ar_ids = action_run.upstream_dependencies(
+        downstream_deps_ar_ids = action_run.downstream_dependencies(
             workflow=workflow_ref, action_key=action_key
         )
         # Broadcast the results to the next actions and enqueue them
