@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
 import { DataTableColumnHeader } from "@/components/data-table/column-header"
+import { LoadingCellState } from "@/components/loading/table"
 
 export const columns: ColumnDef<Case>[] = [
   {
@@ -160,12 +161,15 @@ export const columns: ColumnDef<Case>[] = [
         column={column}
         title="Action"
         icon={
-          <Sparkles className="mr-1 h-3 w-3 fill-yellow-500 text-yellow-500" />
+          <Sparkles className="mr-1 h-3 w-3 animate-pulse fill-yellow-500 text-yellow-500" />
         }
       />
     ),
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       const action = row.getValue<Case["action"]>("action")
+      if (table.options.meta?.isProcessing && action === null) {
+        return <LoadingCellState />
+      }
       return (
         <div className="flex space-x-2">
           <span
@@ -187,25 +191,47 @@ export const columns: ColumnDef<Case>[] = [
         column={column}
         title="Context"
         icon={
-          <Sparkles className="mr-1 h-3 w-3 fill-yellow-500 text-yellow-500" />
+          <Sparkles className="mr-1 h-3 w-3 animate-pulse fill-yellow-500 text-yellow-500" />
         }
       />
     ),
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       const context = row.getValue<Case["context"]>("context")
-      return (
-        <div className="flex space-x-2">
-          <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-            {context
-              ? Object.values(context).map((label, idx) => (
-                  <Badge key={idx} variant="outline">
-                    {label}
-                  </Badge>
-                ))
-              : "No context available"}
-          </span>
-        </div>
-      )
+      if (table.options.meta?.isProcessing && context === null) {
+        return <LoadingCellState />
+      }
+      switch (typeof context) {
+        case "object":
+          return (
+            <div className="flex space-x-2">
+              <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
+                {context
+                  ? Object.values(context).map((label, idx) => (
+                      <Badge key={idx} variant="outline">
+                        {label}
+                      </Badge>
+                    ))
+                  : "No context available"}
+              </span>
+            </div>
+          )
+        case "string":
+          return (
+            <div className="flex space-x-2">
+              <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+                {context}
+              </span>
+            </div>
+          )
+        default:
+          return (
+            <div className="flex space-x-2">
+              <span className="max-w-[300px] truncate text-xs text-muted-foreground">
+                {JSON.stringify(context)}
+              </span>
+            </div>
+          )
+      }
     },
   },
   {
