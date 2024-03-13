@@ -5,7 +5,7 @@ import {
   Blend,
   BookText,
   CheckSquare,
-  ChevronsDownIcon,
+  ChevronDownIcon,
   CircleIcon,
   Container,
   EyeIcon,
@@ -81,40 +81,45 @@ export default React.memo(function ActionNode({
   return (
     <Card>
       <CardHeader className="grid p-4 pl-5 pr-5">
-        <div className="flex items-center justify-between space-x-16">
-          <div className="flex items-center space-x-4">
-            <Avatar>
-              <AvatarImage src="" alt={avatarImageAlt} />
-              <AvatarFallback>
-                {React.createElement(tileIcon, { className: "h-5 w-5" })}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <CardTitle className="text-sm font-medium leading-none">
-                {title}
+        <div className="flex w-full items-center space-x-4">
+          <Avatar>
+            <AvatarImage src="" alt={avatarImageAlt} />
+            <AvatarFallback>
+              {React.createElement(tileIcon, { className: "h-5 w-5" })}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex w-full flex-1 justify-between space-x-12">
+            <div className="flex flex-col">
+              <CardTitle className="flex w-full items-center justify-between text-sm font-medium leading-none">
+                <div className="flex w-full">
+                  {title}
+                  {type.startsWith("llm.") && (
+                    <Sparkles className="ml-2 h-3 w-3 fill-yellow-500 text-yellow-500" />
+                  )}
+                </div>
               </CardTitle>
               <CardDescription className="mt-1 text-sm text-muted-foreground">
                 {type}
               </CardDescription>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="m-0 h-6 w-6 p-0">
+                  <ChevronDownIcon className="m-1 h-4 w-4 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="p-0" align="end">
+                <DropdownMenuItem>
+                  <ScanSearchIcon className="mr-2 h-4 w-4" />
+                  <span className="text-xs">Search events</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <EyeIcon className="mr-2 h-4 w-4" />
+                  <span className="text-xs">View logs</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="ml-auto">
-                <ChevronsDownIcon className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="p-0" align="end">
-              <DropdownMenuItem>
-                <ScanSearchIcon className="mr-2 h-4 w-4" />
-                <span>Search events</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <EyeIcon className="mr-2 h-4 w-4" />
-                <span>View logs</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </CardHeader>
 
