@@ -1,6 +1,6 @@
 <div align="center">
   <h2>
-    Open source AI-native Tines alternative
+    Open source Tines / Palo XSOAR alternative
   </h2>
   <img src="img/banner.svg" alt="tracecat">
 </div>
@@ -54,11 +54,12 @@ Build AI-assisted workflows, enrich alerts, and close cases fast.
   - [ ] LLM evaluation and security
   - [ ] Bring-your-own LLM (OpenAI, Mistral, Anthropic etc.)
 
-Tracecat is **not** a 1-to-1 mapping of Tines. Our aim is to give technical teams a Tines-like experience, but with a focus on open source, AI features, and unlimited logs storage.
+Tracecat is **not** a 1-to-1 mapping of Tines. Our aim is to give technical teams a Tines-like experience, but with a focus on open source and AI features. [What do we mean by AI-native?](#what-does-ai-native-mean).
 
 ## Installation
 
 Tracecat is Cloud agnostic and deploys anywhere that supports Docker.
+Learn how to [install Tracecat locally](https://docs.tracecat.com/installation).
 
 - [x] Authentication
   - [x] Supabase
@@ -72,14 +73,16 @@ Tracecat is Cloud agnostic and deploys anywhere that supports Docker.
 
 ## Is Tracecat enterprise ready?
 
-Yes and no. There are two "flavors" of Tracecat.
+*We are currently in Public Alpha. We don't recommend using Tracecat for production until Public Beta out! Nevertheless, we are building remarkably fast and expect to get there in the next 3-4 months.*
+
+There are two "flavors" of Tracecat.
 Tracecat Embedded, which runs on a single instance and scales vertically, and Tracecat Distributed, which scales horizontally with self-healing / resillience.
-Tracecat embedded is designed to run automation workflows, store event logs, and run search queries with *extreme* efficiency on a single instance (e.g. EC2, laptop).
+Tracecat Embedded is designed to run automation workflows, store event logs, and run search queries with *extreme* efficiency on a single instance (e.g. EC2, laptop).
 
 Embedded Tracecat should already scale beyond Tines' free tier (3 workflows, 500 workflow runs daily) given sufficient memory, cpu, and network capacity.
-With Tracecat on [Quickwit](https://github.com/quickwit-oss/quickwit), you can also store event logs on S3 buckets without limit for as long as you need.
+With Tracecat on [Quickwit](https://github.com/quickwit-oss/quickwit), you can also store events logs in S3 at unlimited scale and time length.
 
-We don't recommend using Tracecat embedded, however, for enterprise use-cases that need 99.99% SLAs.
+For enterprise use-cases that require 99.99% SLAs, however, we recommend waiting for Tracecat Distributed!
 
 - [x] Embedded architecture
   - [x] Flunk: homegrown workflow engine based on Flink
