@@ -9,11 +9,21 @@ Action Run
 ----------
 An action run is an instance of an action to be executed as part of a workflow run.
 
+Action Slug
+-----------
+Lower snake case of the action title.
+
 Action Key
 ----------
 The action key is a unique identifier for an action within a workflow:
 action_key = <action_id>.<action_slug>
 We can reverse lookup the workflow ID from the action ID.
+
+Action Run ID
+-------------
+action_run_id = <action_run_prefix>:<action_key><:<workflow_run_id>
+
+For example, "ar:689cd16eba7a4d9897074e7c7ceed797.webhook:2e682fd0500f486d8f64beb911a5a74d"
 
 Entrypoint Key
 --------------
@@ -575,6 +585,7 @@ def parse_http_response_data(response: httpx.Response) -> dict[str, Any]:
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True,
 )
 async def run_http_request_action(
     url: str,
