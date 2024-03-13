@@ -47,7 +47,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
 runner = ["aiosmtplib", "httpx[http2]", "jsonpath_ng", "python-multipart"]
-dev = ["pytest", "python-dotenv", "pytest-asyncio"]
+dev = ["respx", "pytest", "python-dotenv", "pytest-asyncio"]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
