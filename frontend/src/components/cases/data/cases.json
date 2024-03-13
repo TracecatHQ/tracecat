@@ -21,7 +21,7 @@
         "priority": "critical"
     },
     {
-        "id": "ID-102",
+        "id": "ID-2",
         "workflow_id": "WID-2",
         "title": "Multiple Failed Login Attempts Detected for IAM User",
         "payload": {
@@ -67,8 +67,8 @@
         "priority": "critical"
     },
     {
-        "id": "ID-10000",
-        "workflow_id": "WID-10000",
+        "id": "ID-4",
+        "workflow_id": "WID-4",
         "title": "Multiple Failed Login Attempts Detected for IAM User",
         "payload": {
             "user": "admin_user",
@@ -88,8 +88,8 @@
         "priority": "high"
     },
     {
-        "id": "ID-10000",
-        "workflow_id": "WID-10000",
+        "id": "ID-5",
+        "workflow_id": "WID-5",
         "title": "Multiple Failed Login Attempts Detected for IAM User",
         "payload": {
             "user": "admin_user",
@@ -109,8 +109,8 @@
         "priority": "high"
     },
     {
-        "id": "ID-10000",
-        "workflow_id": "WID-10000",
+        "id": "ID-6",
+        "workflow_id": "WID-6",
         "title": "Multiple Failed Login Attempts Detected for IAM User",
         "payload": {
             "user": "admin_user",
