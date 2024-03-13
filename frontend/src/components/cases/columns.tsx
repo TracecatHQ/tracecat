@@ -128,7 +128,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {row.getValue<Case["payload"]>("payload")}
+            {JSON.stringify(row.getValue<Case["payload"]>("payload"))}
           </span>
         </div>
       )
@@ -217,7 +217,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {row.getValue<Case["suppression"]>("suppression")}
+            {JSON.stringify(row.getValue<Case["suppression"]>("suppression"))}
           </span>
         </div>
       )
