@@ -209,7 +209,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
             description=action.description,
             status=action.status,
             inputs=json.loads(action.inputs) if action.inputs else None,
-            key=action.action_key,
+            key=action.key,
         )
         for action in actions
     }
@@ -352,7 +352,7 @@ def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
             title=action.title,
             description=action.description,
             status=action.status,
-            key=action.action_key,
+            key=action.key,
         )
         for action in actions
     ]
@@ -383,7 +383,7 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
         title=action.title,
         description=action.description,
         status=action.status,
-        key=action.action_key,
+        key=action.key,
     )
     return action_metadata
 
@@ -412,7 +412,7 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
         description=action.description,
         status=action.status,
         inputs=None if len(inputs) == 0 else inputs,
-        key=action.action_key,
+        key=action.key,
     )
 
 
@@ -444,7 +444,7 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
         description=action.description,
         status=action.status,
         inputs=json.loads(action.inputs) if action.inputs else None,
-        key=action.action_key,
+        key=action.key,
     )
 
 
@@ -560,7 +560,7 @@ def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookRes
     return AuthenticateWebhookResponse(
         status="Authorized",
         action_id=action.id,
-        action_key=action.action_key,
+        action_key=action.key,
         workflow_id=webhook.workflow_id,
         webhook_id=webhook_id,
     )
