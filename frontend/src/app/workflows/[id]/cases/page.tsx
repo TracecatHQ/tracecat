@@ -25,12 +25,6 @@ export default async function CasesPage() {
     <>
       <div className="flex h-screen flex-col">
         <div className="flex-1 space-y-4 px-16 py-24">
-          <div className="items-start space-y-2 text-left">
-            <h2 className="text-2xl font-bold tracking-tight">Cases</h2>
-            <p className="text-md text-muted-foreground">
-              Here are the cases for this workflow.
-            </p>
-          </div>
           <CaseTable cases={cases} />
         </div>
       </div>

@@ -45,9 +45,18 @@ export const caseSchema = z.object({
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  context: z.record(z.string()).nullable(),
+  context: z.record(z.string()).nullable().or(z.string()),
   action: z.string().nullable(),
   suppression: z.record(z.boolean()).nullable(),
 })
 
 export type Case = z.infer<typeof caseSchema>
+
+export const caseCompletionUpdateSchema = z.object({
+  id: z.string(),
+  response: z.object({
+    context: z.record(z.string()),
+    action: z.string(),
+  }),
+})
+export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
