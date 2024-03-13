@@ -1,6 +1,7 @@
 "use client"
 
 import { ColumnDef } from "@tanstack/react-table"
+import { Sparkles } from "lucide-react"
 
 import { type Case } from "@/types/schemas"
 import { cn } from "@/lib/utils"
@@ -155,7 +156,13 @@ export const columns: ColumnDef<Case>[] = [
   {
     accessorKey: "action",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Action" />
+      <DataTableColumnHeader
+        column={column}
+        title="Action"
+        icon={
+          <Sparkles className="mr-1 h-3 w-3 fill-yellow-500 text-yellow-500" />
+        }
+      />
     ),
     cell: ({ row }) => {
       const action = row.getValue<Case["action"]>("action")
@@ -176,7 +183,13 @@ export const columns: ColumnDef<Case>[] = [
   {
     accessorKey: "context",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Context" />
+      <DataTableColumnHeader
+        column={column}
+        title="Context"
+        icon={
+          <Sparkles className="mr-1 h-3 w-3 fill-yellow-500 text-yellow-500" />
+        }
+      />
     ),
     cell: ({ row }) => {
       const context = row.getValue<Case["context"]>("context")
