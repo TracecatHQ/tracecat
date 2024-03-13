@@ -14,7 +14,7 @@ from jose import JWTError, jwt
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
-from tracecat.api.completions import TagConstraint, stream_case_completions
+from tracecat.api.completions import CategoryConstraint, stream_case_completions
 from tracecat.db import (
     Action,
     CaseAction,
@@ -754,10 +754,10 @@ async def streaming_autofill_case_fields(
         .to_dicts()
     )
     context_cons = [
-        TagConstraint.model_validate(d, strict=True) for d in contexts_mapping
+        CategoryConstraint.model_validate(d, strict=True) for d in contexts_mapping
     ]
     action_cons = [
-        TagConstraint.model_validate(d, strict=True) for d in actions_mapping
+        CategoryConstraint.model_validate(d, strict=True) for d in actions_mapping
     ]
 
     return StreamingResponse(
