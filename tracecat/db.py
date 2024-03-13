@@ -70,6 +70,12 @@ class Workflow(SQLModel, table=True):
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     webhooks: list["Webhook"] | None = Relationship(back_populates="workflow")
 
+    @computed_field
+    @property
+    def key(self) -> str:
+        slug = slugify(self.title, separator="_")
+        return f"{self.id}.{slug}"
+
 
 class WorkflowRun(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
@@ -90,7 +96,7 @@ class Action(SQLModel, table=True):
 
     @computed_field
     @property
-    def action_key(self) -> str:
+    def key(self) -> str:
         slug = slugify(self.title, separator="_")
         return f"{self.id}.{slug}"
 
