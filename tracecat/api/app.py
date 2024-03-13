@@ -95,7 +95,6 @@ async def get_auth_user(user_id: str) -> tuple[str, ...] | None:
 
 
 async def authenticate_session(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
-    logger.info(f"Token: {token}")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -109,13 +108,11 @@ async def authenticate_session(token: Annotated[str, Depends(oauth2_scheme)]) ->
             # NOTE: Workaround, not sure if there are alternatives
             options={"verify_aud": False},
         )
-        logger.critical(f"{payload = }")
         user_id: str = payload.get("sub")
-        logger.critical(f"{user_id = }")
         if user_id is None:
             raise credentials_exception
     except JWTError as e:
-        logger.error(f"{e = }")
+        logger.error(e)
         raise credentials_exception from e
 
     # Validate this against supabase
@@ -138,7 +135,6 @@ def list_workflows(
     user_id: Annotated[str, Depends(authenticate_session)],
 ) -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
-    logger.critical(f"{user_id = }")
     with Session(create_db_engine()) as session:
         statement = select(Workflow).where(Workflow.owner_id == user_id)
         results = session.exec(statement)
