@@ -608,7 +608,7 @@ def create_case(workflow_id: str, cases: list[Case]):
     tbl.add([case.flatten() for case in cases])
 
 
-@app.get("workflows/{workflow_id}/cases")
+@app.get("/workflows/{workflow_id}/cases")
 def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
     """List all cases under a workflow.
 
@@ -626,7 +626,7 @@ def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
     return result
 
 
-@app.get("workflows/{workflow_id}/cases/{case_id}")
+@app.get("/workflows/{workflow_id}/cases/{case_id}")
 def get_case(workflow_id: str, case_id: str) -> Case:
     """Get a specific case by ID under a workflow."""
     db = create_vdb_conn()
@@ -641,7 +641,7 @@ def get_case(workflow_id: str, case_id: str) -> Case:
     return result
 
 
-@app.post("workflows/{workflow_id}/cases/{case_id}")
+@app.post("/workflows/{workflow_id}/cases/{case_id}")
 def update_case(workflow_id: str, case_id: str, case: Case):
     """Update a specific case by ID under a workflow."""
     db = create_vdb_conn()
