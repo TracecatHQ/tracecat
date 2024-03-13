@@ -40,7 +40,6 @@ from uuid import uuid4
 import httpx
 from fastapi import (
     BackgroundTasks,
-    Body,
     Depends,
     FastAPI,
     HTTPException,
@@ -97,9 +96,9 @@ ready_jobs_queue: asyncio.Queue[ActionRun] = asyncio.Queue()
 running_jobs_store: dict[str, asyncio.Task[None]] = {}
 
 
-async def get_workflow(id: str) -> WorkflowResponse:
+async def get_workflow(workflow_id: str) -> WorkflowResponse:
     async with httpx.AsyncClient(http2=True) as client:
-        response = await client.get(f"{TRACECAT__API_URL}/workflows/{id}")
+        response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
         response.raise_for_status()
     data = response.json()
     return WorkflowResponse.model_validate(data)
@@ -224,11 +223,15 @@ async def webhook(
     return response
 
 
-@app.post("/workflow/{workflow_id}/run/{entrypoint_key}")
+class StartWorkflowParams(BaseModel):
+    entrypoint_key: str
+    entrypoint_payload: dict[str, Any]
+
+
+@app.post("/workflows/{workflow_id}")
 async def start_workflow(
-    entrypoint_key: str,
     workflow_id: Annotated[str, Depends(valid_workflow)],
-    entrypoint_payload: Annotated[dict[str, Any], Body],
+    start_workflow_params: StartWorkflowParams,
     background_tasks: BackgroundTasks,
 ) -> StartWorkflowResponse:
     """Start a workflow.
@@ -253,8 +256,8 @@ async def start_workflow(
         run_workflow,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
-        entrypoint_key=entrypoint_key,
-        entrypoint_payload=entrypoint_payload,
+        entrypoint_key=start_workflow_params.entrypoint_key,
+        entrypoint_payload=start_workflow_params.entrypoint_payload,
     )
     return StartWorkflowResponse(
         status="ok", message="Workflow started.", id=workflow_id
