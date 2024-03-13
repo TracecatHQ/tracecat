@@ -22,7 +22,6 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "attackcti",
     "colorlog",
     "fastapi",
     "lancedb",
