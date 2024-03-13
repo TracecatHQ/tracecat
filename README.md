@@ -7,7 +7,7 @@
 
 </br>
 
-[Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Torq / Palo Alto XSOAR with:
+[Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Palo Alto XSOAR with:
 
 - Enterprise-grade open source tools
 - Open source AI infra and GPT models
@@ -16,15 +16,11 @@
 
 It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
 
-Try out our [tutorial](https://docs.tracecat.com) and deploy your first AI workflow in 15 minutes.
+Try out our [tutorial](https://docs.tracecat.com/tutorial) and deploy your first AI workflow in 15 minutes.
 
 ## Getting started
 
-Help Mario, the L1 analyst and part-time pizza chef, automatically flag malicious pizza orders (e.g. pineapple pizza).
-
-<div align="center">
-  <img src="img/workflow.png" alt="Tracecat click-and-drag workflow builder">
-</div>
+Help Mario, the L1 analyst and part-time pizza chef, automatically flag malicious pizza orders (e.g. pineapple).
 
 ## Features
 
