@@ -5,6 +5,7 @@ import axios from "axios"
 const client = axios.create({
   baseURL: process.env.NEXT_PUBLIC_APP_URL,
 })
+export type Client = typeof client
 
 export const getAuthenticatedClient = (session: Session | null) => {
   if (!session) {
@@ -17,4 +18,47 @@ export const getAuthenticatedClient = (session: Session | null) => {
   return client
 }
 
-export type Client = typeof client
+export async function streamingResponse(endpoint: string, init?: RequestInit) {
+  return fetch(`${process.env.NEXT_PUBLIC_APP_URL}${endpoint}`, init)
+}
+
+export async function* streamGenerator(
+  endpoint: string,
+  session: Session | null,
+  init?: RequestInit
+) {
+  if (!session) {
+    console.error("Failed to get authenticated client, redirecting to login")
+    return redirect("/login")
+  }
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_APP_URL}${endpoint}`,
+    {
+      headers: {
+        Authorization: `Bearer ${session?.access_token}`,
+        ...init?.headers, // Merge the headers from init object
+      },
+      ...init,
+    }
+  )
+  if (!response.body) {
+    throw new Error("ReadableStream not supported")
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      yield decoder.decode(value, { stream: true })
+    }
+  } catch (error) {
+    console.error("Error reading stream:", error)
+  } finally {
+    reader.releaseLock()
+  }
+}

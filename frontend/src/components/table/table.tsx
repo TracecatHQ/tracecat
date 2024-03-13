@@ -13,6 +13,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   Row,
+  RowData,
   SortingState,
   useReactTable,
   VisibilityState,
@@ -33,6 +34,12 @@ import { DataTablePagination, DataTableToolbar } from "@/components/table"
 
 import { DataTableToolbarProps } from "./toolbar"
 
+declare module "@tanstack/react-table" {
+  interface TableMeta<TData extends RowData> {
+    isProcessing: boolean
+  }
+}
+
 export type TableCol<TData> = {
   table: ReturnType<typeof useReactTable<TData>>
   column: Column<TData>
@@ -43,6 +50,7 @@ interface DataTableProps<TData, TValue> {
   onClickRow?: (row: Row<TData>) => () => void
   toolbarProps?: DataTableToolbarProps
   tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
+  isProcessing?: boolean
 }
 
 export function DataTable<TData, TValue>({
@@ -51,6 +59,7 @@ export function DataTable<TData, TValue>({
   onClickRow,
   toolbarProps,
   tableHeaderAuxOptions,
+  isProcessing = false,
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
@@ -68,6 +77,9 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       rowSelection,
       columnFilters,
+    },
+    meta: {
+      isProcessing,
     },
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
