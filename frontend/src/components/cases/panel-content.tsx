@@ -16,12 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import {
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { StatusBadge } from "@/components/badges"
 import { statuses } from "@/components/cases/data/categories"
 
@@ -29,24 +24,22 @@ interface CasePanelContentProps {
   caseData: Case
 }
 
-function parseCaseData(caseData: Case) {
-  const currentStatus = statuses.find(
-    (status) => status.value === caseData.status
-  )
-  const payload = JSON.stringify(JSON.parse(caseData.payload), null, 2)
-  const context = JSON.stringify(caseData.context, null, 2)
-  return {
-    parsedCaseData: caseData,
-    currentStatus,
+export function CasePanelContent({ caseData }: CasePanelContentProps) {
+  const {
+    id,
+    title,
+    priority,
+    malice,
     payload,
     context,
-  }
-}
+    status: caseStatus,
+  } = caseData
+  const currentStatus = statuses.find((status) => status.value === caseStatus)
+  const renderedPayload = JSON.stringify(payload, null, 2)
+  const renderedContext = context
+    ? JSON.stringify(context, null, 2)
+    : "No context available"
 
-export function CasePanelContent({ caseData }: CasePanelContentProps) {
-  const { parsedCaseData, currentStatus, payload, context } =
-    parseCaseData(caseData)
-  const { id, title, priority, malice } = parsedCaseData
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col space-y-4">
@@ -83,24 +76,24 @@ export function CasePanelContent({ caseData }: CasePanelContentProps) {
           </div>
         </SheetHeader>
         <Separator />
-        <SheetDescription className="flex flex-col space-y-4">
+        <div className="flex flex-col space-y-4 text-sm">
           <div className="flex flex-col space-y-2">
             <div className="text-md">Payload</div>
             <SyntaxHighlighter language="json" style={atomOneLight}>
-              {payload}
+              {renderedPayload}
             </SyntaxHighlighter>
           </div>
           <div className="flex flex-col space-y-2">
             <div className="text-md">Context</div>
             <pre>
               <SyntaxHighlighter language="json" style={atomOneLight}>
-                {context}
+                {renderedContext}
               </SyntaxHighlighter>
             </pre>
           </div>
           <div className="text-md">Runbook</div>
           <div className="text-md">Metrics</div>
-        </SheetDescription>
+        </div>
       </div>
     </ScrollArea>
   )
