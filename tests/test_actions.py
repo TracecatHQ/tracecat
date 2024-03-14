@@ -4,7 +4,7 @@ from functools import partial
 import pytest
 
 from tracecat.runner.actions import (
-    DEFAULT_TEMPLATE_PATTERN,
+    JSONPATH_TEMPLATE_PATTERN,
     evaluate_jsonpath_str,
     evaluate_templated_fields,
     run_send_email_action,
@@ -12,7 +12,7 @@ from tracecat.runner.actions import (
 
 
 def test_evaluate_jsonpath_str_raises_exception():
-    matcher = partial(re.match, DEFAULT_TEMPLATE_PATTERN)
+    matcher = partial(re.match, JSONPATH_TEMPLATE_PATTERN)
     json_data = {
         "question_generation": {
             "questions": [
@@ -51,7 +51,7 @@ def test_evaluate_jsonpath_str_raises_exception():
 
 
 def test_evaluate_jsonpath_str():
-    matcher = partial(re.match, DEFAULT_TEMPLATE_PATTERN)
+    matcher = partial(re.match, JSONPATH_TEMPLATE_PATTERN)
     json_data = {
         "question_generation": {
             "questions": [
@@ -186,7 +186,7 @@ def test_evaluate_templated_fields_matches_multiple_in_string():
     templated_string = "My questions {{ $.question_generation.questions[0] }}, my sentry event: {{ $.receive_sentry_event.event_id }}"
 
     exptected = "My questions What is the capital of France?, my sentry event: 123"
-    actual = DEFAULT_TEMPLATE_PATTERN.sub(
+    actual = JSONPATH_TEMPLATE_PATTERN.sub(
         lambda m: evaluate_jsonpath_str(m, json_data), templated_string
     )
     assert actual == exptected
