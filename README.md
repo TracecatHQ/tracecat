@@ -73,7 +73,7 @@ Learn how to [install Tracecat locally](https://docs.tracecat.com/installation).
 
 ## Is Tracecat enterprise ready?
 
-*We are currently in Public Alpha. We don't recommend using Tracecat for production until Public Beta out! Nevertheless, we are building remarkably fast and expect to get there in the next 3-4 months.*
+*We are currently in Public Alpha. We don't recommend using Tracecat for production until Public Beta is out! Nevertheless, we are building remarkably fast and expect to get there in the next 3-4 months.*
 
 There are two "flavors" of Tracecat.
 Tracecat Embedded, which runs on a single instance and scales vertically, and Tracecat Distributed, which scales horizontally with self-healing / resillience.
@@ -149,7 +149,7 @@ We believe the most useful AI is "boring AI" (e.g. summarization, semantic searc
 
 - We love using and building open source tools.
 - Existing "AI" security products hide behind demo-ware, sales calls, and white papers. We want to build in the open: open community, open tutorials, and open vision.
-- Create safe space for practioners to experiment with open source AI models in their own isolated environments.
+- Create a safe space for practioners to experiment with open source AI models in their own isolated environments.
 
 ## Contributing
 
