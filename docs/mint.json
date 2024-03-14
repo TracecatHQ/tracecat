@@ -5,25 +5,25 @@
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.png",
   "colors": {
-    "primary": "#0D9373",
-    "light": "#07C983",
-    "dark": "#0D9373",
+    "primary": "#1C1C1C",
+    "light": "#CBEB00",
+    "dark": "#1C1C1C",
     "anchors": {
-      "from": "#0D9373",
-      "to": "#07C983"
+      "from": "#1C1C1C",
+      "to": "#FFFFFF"
     }
   },
   "topbarLinks": [
     {
-      "name": "Support",
-      "url": "mailto:hi@mintlify.com"
+      "name": "Join Discord",
+      "url": "https://discord.gg/n3GF4qxFU8"
     }
   ],
   "topbarCtaButton": {
-    "name": "Dashboard",
-    "url": "https://dashboard.mintlify.com"
+    "name": "Try Cloud",
+    "url": "https://tracecat.com"
   },
   "tabs": [
     {
@@ -35,57 +35,41 @@
     {
       "name": "Documentation",
       "icon": "book-open-cover",
-      "url": "https://mintlify.com/docs"
+      "url": "https://docs.tracecat.com"
     },
     {
       "name": "Community",
-      "icon": "slack",
-      "url": "https://mintlify.com/community"
-    },
-    {
-      "name": "Blog",
-      "icon": "newspaper",
-      "url": "https://mintlify.com/blog"
+      "icon": "discord",
+      "url": "https://discord.gg/n3GF4qxFU8"
     }
   ],
   "navigation": [
     {
-      "group": "Get Started",
+      "group": "Getting Started",
+      "pages": ["introduction", "tutorial"]
+    },
+    {
+      "group": "Core Features",
       "pages": [
-        "introduction",
-        "quickstart",
-        "development"
+        "core/workflows",
+        "core/actions",
+        "core/case-management",
+        "core/events-log",
+        "core/integrations"
       ]
     },
     {
-      "group": "Essentials",
-      "pages": [
-        "essentials/markdown",
-        "essentials/code",
-        "essentials/images",
-        "essentials/settings",
-        "essentials/navigation",
-        "essentials/reusable-snippets"
-      ]
+      "group": "Self-hosted",
+      "pages": ["installation", "deployment"]
     },
     {
       "group": "API Documentation",
-      "pages": [
-        "api-reference/introduction"
-      ]
-    },
-    {
-      "group": "Endpoint Examples",
-      "pages": [
-        "api-reference/endpoint/get",
-        "api-reference/endpoint/create",
-        "api-reference/endpoint/delete"
-      ]
+      "pages": ["api-reference/introduction"]
     }
   ],
   "footerSocials": {
-    "twitter": "https://twitter.com/mintlify",
-    "github": "https://github.com/mintlify",
-    "linkedin": "https://www.linkedin.com/company/mintsearch"
+    "discord": "https://discord.gg/n3GF4qxFU8",
+    "github": "https://github.com/TracecatHQ/tracecat",
+    "linkedin": "https://www.linkedin.com/company/tracecat-ai/"
   }
 }
