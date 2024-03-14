@@ -120,8 +120,6 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
       <nav className="grid gap-1 p-4 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
         {tiles.map((tile, index) => {
           const { type, variant, title, icon: TileIcon, hierarchy } = tile
-          const hoverColor = `hover:${getTileColor(type, "bg-transparent")}`
-          console.log("tile", hoverColor)
           return isCollapsed ? (
             <Tooltip key={index} delayDuration={0}>
               <TooltipTrigger asChild>
@@ -159,7 +157,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                 "justify-start ",
                 hierarchy === "groupItem" && "ml-6",
                 hierarchy === "group"
-                  ? "hover:cursor-default"
+                  ? "hover:cursor-default hover:bg-transparent"
                   : "hover:cursor-grab"
                 // hoverColor
               )}
