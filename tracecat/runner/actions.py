@@ -289,8 +289,18 @@ class SendEmailAction(Action):
         return v
 
 
-class OpenCaseAction(Action, Case):
+class OpenCaseAction(Action):
     type: Literal["open_case"] = Field("open_case", frozen=True)
+
+    title: str
+    payload: dict[str, Any]
+    malice: Literal["malicious", "benign"]
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
+    priority: Literal["low", "medium", "high", "critical"]
+    # Optional inputs (can be AI suggested)
+    context: dict[str, str] | None = None
+    action: str | None = None
+    suppression: dict[str, bool] | None = None
 
 
 ACTION_FACTORY: dict[str, type[Action]] = {
@@ -305,7 +315,12 @@ ACTION_FACTORY: dict[str, type[Action]] = {
 
 ActionTrail = dict[str, ActionRunResult]
 ActionSubclass = (
-    WebhookAction | HTTPRequestAction | ConditionAction | LLMAction | SendEmailAction
+    WebhookAction
+    | HTTPRequestAction
+    | ConditionAction
+    | LLMAction
+    | SendEmailAction
+    | OpenCaseAction
 )
 
 
@@ -801,7 +816,7 @@ async def run_open_case_action(
         action=action,
         suppression=suppression,
     )
-    tbl.add(case.flatten())
+    tbl.add([case.flatten()])
     return case.model_dump()
 
 
@@ -858,8 +873,7 @@ async def run_action(
 
     elif type == "open_case":
         processed_action_kwargs.update(
-            action_run_id=action_run_id,
-            workflow_id=workflow_id,
+            action_run_id=action_run_id, workflow_id=workflow_id, title=title
         )
 
     custom_logger.debug(f"{processed_action_kwargs = }")
