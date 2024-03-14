@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 import orjson
 from pydantic import BaseModel
@@ -38,3 +38,33 @@ class Case(BaseModel):
             if self.suppression
             else None,
         }
+
+    @classmethod
+    def from_flattened(cls, flat_dict: dict[str, Any]) -> Self:
+        """Deserializes JSON fields."""
+        return cls(
+            id=flat_dict["id"],
+            workflow_id=flat_dict["workflow_id"],
+            title=flat_dict["title"],
+            payload=orjson.loads(flat_dict["payload"])
+            if flat_dict["payload"]
+            else None,
+            context=orjson.loads(flat_dict["context"])
+            if flat_dict["context"]
+            else None,
+            malice=flat_dict["malice"],
+            priority=flat_dict["priority"],
+            status=flat_dict["status"],
+            action=flat_dict["action"],
+            suppression=orjson.loads(flat_dict["suppression"])
+            if flat_dict["suppression"]
+            else None,
+        )
+
+
+class CaseMetrics(BaseModel):
+    """Summary statistics for cases over a time period."""
+
+    statues: list[dict[str, int | float]]
+    priority: list[dict[str, int | float]]
+    malice: list[dict[str, int | float]]
