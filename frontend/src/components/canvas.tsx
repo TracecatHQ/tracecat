@@ -136,7 +136,11 @@ const WorkflowCanvas: React.FC = () => {
       data: actionNodeData,
     } as ActionNodeType
 
-    setNodes((nds) => nds.concat(newNode))
+    setNodes((prevNodes) =>
+      prevNodes
+        .map((n) => ({ ...n, selected: false }))
+        .concat({ ...newNode, selected: true })
+    )
   }
 
   const onNodesDelete = async (nodesToDelete: ActionNodeType[]) => {
@@ -175,7 +179,6 @@ const WorkflowCanvas: React.FC = () => {
     node: ActionNodeType,
     nodes: ActionNodeType[]
   ) => {
-    console.log("onNodesDragStop", event, node, nodes)
     if (workflowId && reactFlowInstance) {
       console.log("Saving react flow instance state")
       updateDndFlow(session, workflowId, reactFlowInstance)

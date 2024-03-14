@@ -68,23 +68,54 @@ const tileIconMapping: Partial<Record<ActionType, LucideIcon>> = {
   "llm.choice": CheckSquare,
   "llm.summarize": BookText,
 } as const
+export const tileColorMap: Record<string, string> = {
+  llm: "bg-amber-100",
+  condition: "bg-orange-100",
+  data_transform: "bg-cyan-100",
+  http_request: "bg-emerald-100",
+  open_case: "bg-rose-100",
+  receive_email: "bg-purple-100",
+  send_email: "bg-lime-100",
+  webhook: "bg-indigo-100",
+} as const
+type TileColorMap = typeof tileColorMap
 
+export function getTileColor(
+  type?: string,
+  defaultColor: string = "bg-slate-100"
+) {
+  if (type) {
+    // Check for exact matches first
+    const typeKey = type as keyof TileColorMap
+    if (tileColorMap[typeKey]) {
+      return tileColorMap[typeKey]
+    }
+    // Check for prefix matches
+    for (const key in tileColorMap) {
+      if (type.startsWith(key)) {
+        return tileColorMap[key as keyof TileColorMap]
+      }
+    }
+  }
+  return defaultColor
+}
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
   data: { type, title, status, isConfigured, numberOfEvents },
+  selected,
 }: NodeProps<ActionNodeData>) {
   const avatarImageAlt = `${type}-${title}`
   const tileIcon = tileIconMapping[type] ?? Sparkles
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
 
   return (
-    <Card>
+    <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>
       <CardHeader className="grid p-4 pl-5 pr-5">
         <div className="flex w-full items-center space-x-4">
           <Avatar>
-            <AvatarImage src="" alt={avatarImageAlt} />
-            <AvatarFallback>
+            <AvatarImage className="bg-red-600" src="" alt={avatarImageAlt} />
+            <AvatarFallback className={cn(getTileColor(type))}>
               {React.createElement(tileIcon, { className: "h-5 w-5" })}
             </AvatarFallback>
           </Avatar>
