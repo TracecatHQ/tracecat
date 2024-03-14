@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import CasePanelProvider, { useCasePanelContext } from "@/providers/case-panel"
+import { useCasesContext } from "@/providers/cases"
 import { useSession } from "@/providers/session"
 import { type Row } from "@tanstack/react-table"
 import { Loader2, Sparkles } from "lucide-react"
@@ -11,7 +12,8 @@ import {
   caseSchema,
   type Case,
 } from "@/types/schemas"
-import { getAuthenticatedClient, streamGenerator } from "@/lib/api"
+import { streamGenerator } from "@/lib/api"
+import { Button } from "@/components/ui/button"
 import { tableHeaderAuxOptions } from "@/components/cases/aux-click-menu-config"
 import { columns } from "@/components/cases/columns"
 import {
@@ -21,15 +23,10 @@ import {
 } from "@/components/cases/data/categories"
 import { DataTable, type DataTableToolbarProps } from "@/components/table"
 
-import { Button } from "../ui/button"
-
-interface CaseTableProps {
-  cases: Case[]
-}
-export default function CaseTable({ cases }: CaseTableProps) {
+export default function CaseTable() {
   return (
     <CasePanelProvider className="sm:w-3/5 sm:max-w-none md:w-3/5 lg:w-3/5">
-      <InternalCaseTable cases={cases} />
+      <InternalCaseTable />
     </CasePanelProvider>
   )
 }
@@ -56,7 +53,6 @@ const defaultToolbarProps: DataTableToolbarProps = {
     },
   ],
 }
-
 /**
  *
  * Steps to replace:
@@ -65,14 +61,13 @@ const defaultToolbarProps: DataTableToolbarProps = {
  * 3. Replace all the nulls with the actual values according to the case ID
  * 2.
  */
-function InternalCaseTable({ cases: initialCases }: CaseTableProps) {
-  const [cases, setCases] = useState<Case[]>(initialCases)
+function InternalCaseTable() {
+  const { cases, setCases } = useCasesContext()
   const [toolbarProps, setToolbarProps] =
     useState<DataTableToolbarProps>(defaultToolbarProps)
   const { setPanelCase: setSidePanelCase, setIsOpen } = useCasePanelContext()
   const [isProcessing, setIsProcessing] = useState(false)
   const session = useSession()
-  const client = getAuthenticatedClient(session)
 
   const memoizedColumns = useMemo(() => columns, [columns])
 
