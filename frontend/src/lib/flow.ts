@@ -21,7 +21,6 @@ export async function updateDndFlow(
   workflowId: string,
   reactFlowInstance: ReactFlowInstance | null
 ) {
-  console.log("Updating DnD flow object")
   try {
     const objectContent = reactFlowInstance
       ? reactFlowInstance.toObject()
@@ -35,6 +34,7 @@ export async function updateDndFlow(
         "Content-Type": "application/json",
       },
     })
+    console.log("Updated DnD flow object")
   } catch (error) {
     console.error("Error updating DnD flow object:", error)
   }
