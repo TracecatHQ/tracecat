@@ -215,9 +215,10 @@ async def webhook(
 
     # This data refers to the webhook specific data
     response = await start_workflow(
-        entrypoint_key=webhook_metadata.action_key,
         workflow_id=workflow_id,
-        entrypoint_payload=payload,
+        start_workflow_params=StartWorkflowParams(
+            entrypoint_key=webhook_metadata.action_key, entrypoint_payload=payload
+        ),
         background_tasks=background_tasks,
     )
     return response
