@@ -5,8 +5,8 @@ import React, {
   useCallback,
   useContext,
 } from "react"
-import { useParams } from "next/navigation"
 import { useSession } from "@/providers/session"
+import { useWorkflowMetadata } from "@/providers/workflow"
 import { Node, useReactFlow } from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
@@ -29,8 +29,10 @@ export const WorkflowBuilderProvider: React.FC<
 > = ({ children }) => {
   const maybeSession = useSession()
   const reactFlowInstance = useReactFlow()
-  const params = useParams<{ id: string }>()
-  const workflowId = params.id
+  const { workflowId } = useWorkflowMetadata()
+  if (!workflowId) {
+    throw new Error("No workflow ID provided")
+  }
 
   const setReactFlowNodes = useCallback(
     (
