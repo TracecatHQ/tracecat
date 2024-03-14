@@ -38,3 +38,43 @@ export function getDistributionData<T extends Record<string, any> = any>(
     {} as { [key: string]: number }
   )
 }
+export const copyToClipboard = async ({
+  target,
+  message,
+  value,
+}: {
+  target?: string
+  value?: string
+  message?: string
+}) => {
+  try {
+    let copyValue = ""
+    if (!navigator.clipboard) {
+      throw new Error("Browser doesn't have support for native clipboard.")
+    }
+    if (target) {
+      const node = document.querySelector(target)
+      if (!node || !node.textContent) {
+        throw new Error("Element not found")
+      }
+      value = node.textContent
+    }
+    if (value) {
+      copyValue = value
+    }
+    await navigator.clipboard.writeText(copyValue)
+    console.log(message ?? "Copied!!!")
+  } catch (error) {
+    console.log(error)
+  }
+}
+
+export function slugify(value: string, delimiter: string = "_"): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, delimiter)
+}

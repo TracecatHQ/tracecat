@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useCallback } from "react"
 import { ActionType } from "@/types"
 import {
   BellDotIcon,
@@ -8,6 +8,7 @@ import {
   ChevronDownIcon,
   CircleIcon,
   Container,
+  Copy,
   EyeIcon,
   FlaskConical,
   GitCompareArrows,
@@ -25,7 +26,7 @@ import {
 } from "lucide-react"
 import { Handle, NodeProps, Position, type Node } from "reactflow"
 
-import { cn } from "@/lib/utils"
+import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -41,6 +42,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+
+import { useToast } from "./ui/use-toast"
 
 export type ActionNodeType = Node<ActionNodeData>
 export interface ActionNodeData {
@@ -108,6 +111,18 @@ export default React.memo(function ActionNode({
   const avatarImageAlt = `${type}-${title}`
   const tileIcon = tileIconMapping[type] ?? Sparkles
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
+  const { toast } = useToast()
+
+  const handleCopyToClipboard = useCallback(() => {
+    copyToClipboard({
+      value: slugify(title),
+      message: "JSONPath copied to clipboard",
+    })
+    toast({
+      title: "JSONPath copied",
+      description: "The JSONPath has been copied to your clipboard.",
+    })
+  }, [title])
 
   return (
     <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>
@@ -139,7 +154,11 @@ export default React.memo(function ActionNode({
                   <ChevronDownIcon className="m-1 h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="p-0" align="end">
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleCopyToClipboard}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  <span className="text-xs">Copy JSONPath</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem>
                   <ScanSearchIcon className="mr-2 h-4 w-4" />
                   <span className="text-xs">Search events</span>
