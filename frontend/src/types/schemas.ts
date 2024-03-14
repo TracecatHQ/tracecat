@@ -1,14 +1,17 @@
 import { z } from "zod"
 
-export const actionResponseSchema = z.object({
+const actionStatusSchema = z.enum(["online", "offline"])
+export type ActionStatus = z.infer<typeof actionStatusSchema>
+
+export const actionSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
-  status: z.enum(["online", "offline"]),
+  status: actionStatusSchema,
   inputs: z.record(z.any()).nullable(),
 })
 
-export type ActionResponse = z.infer<typeof actionResponseSchema>
+export type Action = z.infer<typeof actionSchema>
 
 export const actionMetadataSchema = z.object({
   id: z.string(),
@@ -18,24 +21,27 @@ export const actionMetadataSchema = z.object({
 })
 export type ActionMetadata = z.infer<typeof actionMetadataSchema>
 
+const workflowStatusSchema = z.enum(["online", "offline"])
+export type WorkflowStatus = z.infer<typeof workflowStatusSchema>
+
+export const workflowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  status: workflowStatusSchema,
+  actions: z.record(actionSchema),
+  object: z.record(z.any()).nullable(),
+})
+
+export type Workflow = z.infer<typeof workflowSchema>
+
 export const workflowMetadataSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
-  status: z.enum(["online", "offline"]),
+  status: workflowStatusSchema,
 })
 export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
-
-export const workflowResponseSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: z.string(),
-  actions: z.record(actionResponseSchema),
-  object: z.record(z.any()).nullable(),
-})
-
-export type WorkflowResponse = z.infer<typeof workflowResponseSchema>
 
 export const caseSchema = z.object({
   id: z.string(),

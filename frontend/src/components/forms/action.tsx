@@ -9,7 +9,7 @@ import { CircleIcon, Save } from "lucide-react"
 import { ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { ActionResponse } from "@/types/schemas"
+import { Action, ActionStatus } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -46,8 +46,6 @@ import {
   getActionSchema,
 } from "@/components/forms/action-schemas"
 
-type ActionStatus = "online" | "offline"
-
 const baseActionSchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -68,7 +66,7 @@ export function ActionForm({
   const { workflowId } = useParams<{ workflowId: string }>()
   const session = useSession()
 
-  const { data: actionResponseData } = useQuery<ActionResponse, Error>({
+  const { data: actionResponseData } = useQuery<Action, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       // Fetch Action by ID and Workflow ID

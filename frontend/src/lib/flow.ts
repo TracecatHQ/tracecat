@@ -4,14 +4,14 @@ import { ReactFlowInstance } from "reactflow"
 import { z } from "zod"
 
 import {
-  ActionMetadata,
   actionMetadataSchema,
-  ActionResponse,
-  actionResponseSchema,
-  WorkflowMetadata,
+  actionSchema,
   workflowMetadataSchema,
-  WorkflowResponse,
-  workflowResponseSchema,
+  workflowSchema,
+  type Action,
+  type ActionMetadata,
+  type Workflow,
+  type WorkflowMetadata,
 } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
 import { BaseActionSchema } from "@/components/forms/action"
@@ -43,14 +43,12 @@ export async function updateDndFlow(
 export async function fetchWorkflow(
   maybeSession: Session | null,
   workflowId: string
-): Promise<WorkflowResponse> {
+): Promise<Workflow> {
   try {
     const client = getAuthenticatedClient(maybeSession)
-    const response = await client.get<WorkflowResponse>(
-      `/workflows/${workflowId}`
-    )
+    const response = await client.get<Workflow>(`/workflows/${workflowId}`)
     console.log("Workflow fetched successfully", response.data)
-    return workflowResponseSchema.parse(response.data)
+    return workflowSchema.parse(response.data)
   } catch (error) {
     console.error("Error fetching workflow:", error)
     throw error
@@ -119,13 +117,13 @@ export async function getActionById(
   maybeSession: Session | null,
   actionId: string,
   workflowId: string
-): Promise<ActionResponse> {
+): Promise<Action> {
   try {
     const client = getAuthenticatedClient(maybeSession)
-    const response = await client.get<ActionResponse>(`/actions/${actionId}`, {
+    const response = await client.get<Action>(`/actions/${actionId}`, {
       params: { workflow_id: workflowId },
     })
-    return actionResponseSchema.parse(response.data)
+    return actionSchema.parse(response.data)
   } catch (error) {
     console.error("Error fetching action:", error)
     throw error // Rethrow the error to ensure it's caught by useQuery's isError state
@@ -137,7 +135,7 @@ export async function updateAction(
   maybeSession: Session | null,
   actionId: string,
   actionProps: BaseActionSchema & Record<string, any>
-): Promise<ActionResponse> {
+): Promise<Action> {
   const { title, description, ...inputs } = actionProps
   const inputsJson = JSON.stringify(inputs)
   const updateActionParams = {
@@ -147,7 +145,7 @@ export async function updateAction(
   }
 
   const client = getAuthenticatedClient(maybeSession)
-  const response = await client.post<ActionResponse>(
+  const response = await client.post<Action>(
     `/actions/${actionId}`,
     JSON.stringify(updateActionParams),
     {
@@ -156,7 +154,7 @@ export async function updateAction(
       },
     }
   )
-  return actionResponseSchema.parse(response.data)
+  return actionSchema.parse(response.data)
 }
 
 export async function deleteAction(
