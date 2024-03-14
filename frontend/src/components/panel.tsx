@@ -1,24 +1,14 @@
-import React, { useState } from "react"
+import React from "react"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { useOnSelectionChange } from "reactflow"
 
 import { Skeleton } from "@/components/ui/skeleton"
-import { ActionNodeType } from "@/components/action-node"
 import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
 
 export function WorkflowPanel() {
-  const [selectedNode, setSelectedNode] = useState<ActionNodeType | null>(null)
+  const { selectedNode } = useWorkflowBuilder()
   const { workflow } = useWorkflowMetadata()
-
-  useOnSelectionChange({
-    onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {
-      const actionNodeSelected = nodes.find(
-        (node: ActionNodeType) => node.type === "action"
-      )
-      setSelectedNode(actionNodeSelected ?? null)
-    },
-  })
 
   return (
     <>

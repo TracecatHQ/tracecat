@@ -4,16 +4,19 @@ import React, {
   SetStateAction,
   useCallback,
   useContext,
+  useState,
 } from "react"
 import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { Node, useReactFlow } from "reactflow"
+import { Edge, Node, useOnSelectionChange, useReactFlow } from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
 import { ActionNodeType } from "@/components/action-node"
 
 interface ReactFlowContextType {
+  selectedNode: ActionNodeType | null
   setNodes: React.Dispatch<SetStateAction<Node[]>>
+  setEdges: React.Dispatch<SetStateAction<Edge[]>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -30,6 +33,8 @@ export const WorkflowBuilderProvider: React.FC<
   const maybeSession = useSession()
   const reactFlowInstance = useReactFlow()
   const { workflowId } = useWorkflowMetadata()
+
+  const [selectedNode, setSelectedNode] = useState<ActionNodeType | null>(null)
   if (!workflowId) {
     throw new Error("No workflow ID provided")
   }
@@ -43,10 +48,29 @@ export const WorkflowBuilderProvider: React.FC<
     },
     [maybeSession, workflowId, reactFlowInstance]
   )
+  const setReactFlowEdges = useCallback(
+    (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
+      reactFlowInstance.setEdges(edges)
+      updateDndFlow(maybeSession, workflowId, reactFlowInstance)
+    },
+    [maybeSession, workflowId, reactFlowInstance]
+  )
+  useOnSelectionChange({
+    onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {
+      const actionNodeSelected = nodes.find(
+        (node: ActionNodeType) => node.type === "action"
+      )
+      setSelectedNode(actionNodeSelected ?? null)
+    },
+  })
 
   return (
     <ReactFlowInteractionsContext.Provider
-      value={{ setNodes: setReactFlowNodes }}
+      value={{
+        selectedNode,
+        setNodes: setReactFlowNodes,
+        setEdges: setReactFlowEdges,
+      }}
     >
       {children}
     </ReactFlowInteractionsContext.Provider>
