@@ -36,20 +36,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
-import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from enum import StrEnum, auto
-from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import uuid4
 
 import httpx
-import jsonpath_ng
 import tantivy
-from jsonpath_ng.exceptions import JsonPathParserError
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -70,6 +65,10 @@ from tracecat.runner.mail import (
     EmailNotFoundError,
     ResendMailProvider,
 )
+from tracecat.runner.templates import (
+    evaluate_templated_fields,
+    evaluate_templated_secrets,
+)
 from tracecat.types.actions import ActionType
 from tracecat.types.cases import Case
 
@@ -85,8 +84,7 @@ T = TypeVar("T", str, list[Any], dict[str, Any])
 ALNUM_AND_WHITESPACE_PATTERN = r"^[a-zA-Z0-9\s\_]+$"
 # Action Key = Hexadecimal Action ID + Action title slug
 ACTION_KEY_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
-JSONPATH_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
-SECRET_TEMPLATE_PATTERN = re.compile(r"{{\s*SECRETS\.(?P<secret_name>.*?)\s*}}")
+
 
 ACTION_RUN_ID_PREFIX = "ar"
 
@@ -324,128 +322,6 @@ ActionSubclass = (
     | SendEmailAction
     | OpenCaseAction
 )
-
-
-def evaluate_jsonpath_str(
-    match: re.Match[str],
-    action_trail: dict[str, Any],
-    regex_group: str = "jsonpath",
-) -> str:
-    """Replacement function to be used with re.sub().
-
-    Note
-    ----
-    This function only gets called when there's a match, i.e. match is not None.
-    This means we don't have to deal with the case where there are no templates.
-
-    Cases
-    -----
-    1. Input was just a plan string. Return the original string.
-    2. Input was a jsonpath. Return the value found in the action trail.
-
-    """
-
-    jsonpath = match.group(regex_group)
-    logger.debug(f"{"*"*10} Evaluating jsonpath {jsonpath} {"*"*10}")
-    try:
-        jsonpath_expr = jsonpath_ng.parse(jsonpath)
-    except JsonPathParserError as e:
-        raise ValueError(f"Invalid jsonpath {jsonpath!r}.") from e
-    logger.debug(f"{jsonpath_expr = }")
-    matches = [found.value for found in jsonpath_expr.find(action_trail)]
-    if len(matches) == 1:
-        logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
-        return str(matches[0])
-    elif len(matches) > 1:
-        logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
-        return str(matches)
-    else:
-        # We know that if this function is called, there was a templated field.
-        # Therefore, it means the jsonpath was valid but there was no match.
-        raise ValueError(
-            f"jsonpath has no field {jsonpath!r}. Action trail: {action_trail}."
-        )
-
-
-def evaluate_secret_str(match: re.Match[str], regex_group: str = "secret_name"):
-    tag = match.group(regex_group)
-    logger.debug(f"{"*"*10} Evaluating secret {tag} {"*"*10}")
-    secret = os.environ.get(tag)
-    if secret is None:
-        raise ValueError(f"Secret {tag!r} not found in environment.")
-    return secret
-
-
-def evaluate_nested_templates_rec(
-    obj: T,
-    pattern: re.Pattern[str],
-    evaluator: Callable[[re.Match[str]], str],
-) -> T:
-    """Process jsonpaths in strings, lists, and dictionaries."""
-    match obj:
-        case str():
-            # Matches anything in {{ ... }}
-            return pattern.sub(evaluator, obj)
-        case list():
-            return [
-                evaluate_nested_templates_rec(item, pattern, evaluator) for item in obj
-            ]
-        case dict():
-            return {
-                evaluate_nested_templates_rec(
-                    k, pattern, evaluator
-                ): evaluate_nested_templates_rec(v, pattern, evaluator)
-                for k, v in obj.items()
-            }
-        case _:
-            return obj
-
-
-def evaluate_templated_secrets(
-    action_kwargs: dict[str, Any],
-    template_pattern: re.Pattern[str] = SECRET_TEMPLATE_PATTERN,
-) -> dict[str, Any]:
-    """Populate templated secrets with actual values."""
-
-    processed_kwargs = {}
-    evaluator = partial(evaluate_secret_str)
-
-    logger.debug(f"{"*"*10} Evaluating templated secrets {"*"*10}")
-    for field_name, field_value in action_kwargs.items():
-        logger.debug(f"{field_name = } {field_value = }")
-
-        processed_kwargs[field_name] = evaluate_nested_templates_rec(
-            field_value,
-            template_pattern,
-            evaluator,
-        )
-    logger.debug(f"{"*"*10}")
-    return processed_kwargs
-
-
-def evaluate_templated_fields(
-    action_kwargs: dict[str, Any],
-    action_trail_json: dict[str, Any],
-    template_pattern: re.Pattern[str] = JSONPATH_TEMPLATE_PATTERN,
-) -> dict[str, Any]:
-    """Populate templated fields with actual values."""
-
-    processed_kwargs = {}
-    jsonpath_str_evaluator = partial(
-        evaluate_jsonpath_str, action_trail=action_trail_json
-    )
-
-    logger.debug(f"{"*"*10} Evaluating templated fields {"*"*10}")
-    for field_name, field_value in action_kwargs.items():
-        logger.debug(f"{field_name = } {field_value = }")
-
-        processed_kwargs[field_name] = evaluate_nested_templates_rec(
-            field_value,
-            template_pattern,
-            jsonpath_str_evaluator,
-        )
-    logger.debug(f"{"*"*10}")
-    return processed_kwargs
 
 
 def _get_dependencies_results(
@@ -898,9 +774,11 @@ async def run_action(
         result.action_title_snake_case: result.data for result in action_trail.values()
     }
     custom_logger.debug(f"Before template eval: {action_trail_json = }")
-    action_kwargs_with_secrets = evaluate_templated_secrets(action_kwargs)
+    action_kwargs_with_secrets = evaluate_templated_secrets(
+        templated_fields=action_kwargs
+    )
     processed_action_kwargs = evaluate_templated_fields(
-        action_kwargs_with_secrets, action_trail_json
+        templated_fields=action_kwargs_with_secrets, source_data=action_trail_json
     )
 
     # Only pass the action trail to the LLM action
