@@ -42,11 +42,10 @@ export const columns: ColumnDef<Case>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader className="text-xs" column={column} title="ID" />
     ),
-    cell: ({ row }) => (
-      <div className="w-[60px] text-xs">
-        &#x23; {row.getValue<Case["id"]>("id")}
-      </div>
-    ),
+    cell: ({ row }) => {
+      const id = row.getValue<Case["id"]>("id").split(":").pop()
+      return <div className="w-[60px] truncate text-xs">#{id}</div>
+    },
     enableSorting: true,
     enableHiding: false,
   },
