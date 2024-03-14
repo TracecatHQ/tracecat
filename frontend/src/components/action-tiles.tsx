@@ -1,9 +1,13 @@
 "use client"
 
-import { DragEvent } from "react"
+import { DragEvent, useCallback } from "react"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useSession } from "@/providers/session"
+import { useWorkflowMetadata } from "@/providers/workflow"
 import { ActionType } from "@/types"
 import { LucideIcon } from "lucide-react"
 
+import { createAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import {
@@ -11,6 +15,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+
+import { ActionNodeType, getTileColor } from "./action-node"
 
 interface ActionTilesProps {
   isCollapsed: boolean
@@ -22,8 +28,65 @@ interface ActionTilesProps {
     hierarchy?: "groupItem" | "group"
   }[]
 }
+const ACTION_NODE_TAG = "action" as const
 
 export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
+  const session = useSession()
+  const { selectedNode, setNodes, setEdges } = useWorkflowBuilder()
+  const { workflowId } = useWorkflowMetadata()
+  const handleTileClick = useCallback(
+    async (type?: ActionType, title?: string) => {
+      if (!type || !selectedNode || !workflowId || !session || !title) {
+        console.error("Missing required data to create action")
+        return
+      }
+      // Proceed to add this action as a child of the selected node
+
+      const newNodeData = {
+        type: type,
+        title: title || `${type} Action`,
+        status: "offline",
+        isConfigured: false,
+        numberOfEvents: 0,
+      }
+      const actionId = await createAction(
+        session,
+        newNodeData.type,
+        newNodeData.title,
+        workflowId
+      )
+      if (!actionId) {
+        throw new Error("Failed to create action")
+      }
+
+      const newNode = {
+        id: actionId,
+        type: ACTION_NODE_TAG,
+        position: {
+          x: selectedNode.position.x,
+          y: selectedNode.position.y + 200,
+        },
+        data: newNodeData,
+      } as ActionNodeType
+
+      setNodes((prevNodes) =>
+        prevNodes
+          .map((n) => ({ ...n, selected: false }))
+          .concat({ ...newNode, selected: true })
+      )
+
+      // Create an edge between the two nodes
+      setEdges((eds) => [
+        ...eds,
+        {
+          id: `${selectedNode.id}-${newNode.id}`,
+          source: selectedNode.id,
+          target: newNode.id,
+        },
+      ])
+    },
+    [selectedNode]
+  )
   const onDragStart = (
     event: DragEvent<HTMLDivElement>,
     tile: {
@@ -40,7 +103,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
       isConfigured: false,
       numberOfEvents: 0,
     }
-    event.dataTransfer.setData("application/reactflow", "action")
+    event.dataTransfer.setData("application/reactflow", ACTION_NODE_TAG)
     event.dataTransfer.setData(
       "application/json",
       JSON.stringify(actionNodeData)
@@ -51,18 +114,21 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
   return (
     <div
       data-collapsed={isCollapsed}
-      className="group flex flex-col gap-4 py-2 data-[collapsed=true]:py-2"
+      className="group flex flex-col gap-4 p-2 py-2 data-[collapsed=true]:py-2"
     >
-      <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
-        {tiles.map((tile, index) =>
-          isCollapsed ? (
+      <nav className="grid gap-1 p-4 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
+        {tiles.map((tile, index) => {
+          const { type, variant, title, icon: TileIcon, hierarchy } = tile
+          const hoverColor = `hover:${getTileColor(type, "bg-transparent")}`
+          console.log("tile", hoverColor)
+          return isCollapsed ? (
             <Tooltip key={index} delayDuration={0}>
               <TooltipTrigger asChild>
                 <div
                   className={cn(
-                    buttonVariants({ variant: tile.variant, size: "icon" }),
+                    buttonVariants({ variant: variant, size: "icon" }),
                     "h-9 w-9",
-                    tile.variant === "default" &&
+                    variant === "default" &&
                       "dark:bg-muted dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-white"
                   )}
                   draggable
@@ -70,16 +136,14 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                   onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
                   onDragStart={(event) => onDragStart(event, tile)}
                 >
-                  <tile.icon className="h-4 w-4" />
-                  <span className="sr-only">{tile.type}</span>
+                  <TileIcon className="h-4 w-4" />
+                  <span className="sr-only">{type}</span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="right" className="flex items-center gap-4">
-                {tile.type}
-                {tile.title && (
-                  <span className="ml-auto text-muted-foreground">
-                    {tile.title}
-                  </span>
+                {type}
+                {title && (
+                  <span className="ml-auto text-muted-foreground">{title}</span>
                 )}
               </TooltipContent>
             </Tooltip>
@@ -87,23 +151,26 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
             <div
               key={index}
               className={cn(
-                buttonVariants({ variant: tile.variant, size: "sm" }),
-                tile.variant === "default" &&
+                buttonVariants({ variant: variant, size: "sm" }),
+                "space-x-1",
+                variant === "default" &&
                   "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
                 "justify-start ",
-                tile.hierarchy === "groupItem" && "ml-6",
-                tile.hierarchy === "group"
-                  ? "hover:cursor-default hover:bg-transparent"
+                hierarchy === "groupItem" && "ml-6",
+                hierarchy === "group"
+                  ? "hover:cursor-default"
                   : "hover:cursor-grab"
+                // hoverColor
               )}
               draggable={tile.hierarchy !== "group"}
               onDragStart={(event) => onDragStart(event, tile)}
+              onClick={() => handleTileClick(tile.type, tile.title)}
             >
-              <tile.icon className="mr-2 h-4 w-4" />
+              <TileIcon className="mr-2 h-4 w-4" />
               {tile.title}
             </div>
           )
-        )}
+        })}
       </nav>
     </div>
   )
