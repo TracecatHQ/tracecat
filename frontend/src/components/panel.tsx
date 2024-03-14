@@ -7,7 +7,8 @@ import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
 
 export function WorkflowPanel() {
-  const { selectedNode } = useWorkflowBuilder()
+  const { selectedNodeId, getNode } = useWorkflowBuilder()
+  const selectedNode = getNode(selectedNodeId ?? "")
   const { workflow } = useWorkflowMetadata()
 
   return (

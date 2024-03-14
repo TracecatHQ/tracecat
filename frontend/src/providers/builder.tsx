@@ -14,7 +14,8 @@ import { updateDndFlow } from "@/lib/flow"
 import { ActionNodeType } from "@/components/action-node"
 
 interface ReactFlowContextType {
-  selectedNode: ActionNodeType | null
+  selectedNodeId: string | null
+  getNode: (id: string) => ActionNodeType | undefined
   setNodes: React.Dispatch<SetStateAction<Node[]>>
   setEdges: React.Dispatch<SetStateAction<Edge[]>>
 }
@@ -34,7 +35,7 @@ export const WorkflowBuilderProvider: React.FC<
   const reactFlowInstance = useReactFlow()
   const { workflowId } = useWorkflowMetadata()
 
-  const [selectedNode, setSelectedNode] = useState<ActionNodeType | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   if (!workflowId) {
     throw new Error("No workflow ID provided")
   }
@@ -60,14 +61,15 @@ export const WorkflowBuilderProvider: React.FC<
       const actionNodeSelected = nodes.find(
         (node: ActionNodeType) => node.type === "action"
       )
-      setSelectedNode(actionNodeSelected ?? null)
+      setSelectedNodeId(actionNodeSelected?.id ?? null)
     },
   })
 
   return (
     <ReactFlowInteractionsContext.Provider
       value={{
-        selectedNode,
+        selectedNodeId,
+        getNode: reactFlowInstance.getNode,
         setNodes: setReactFlowNodes,
         setEdges: setReactFlowEdges,
       }}

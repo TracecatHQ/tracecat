@@ -32,10 +32,11 @@ const ACTION_NODE_TAG = "action" as const
 
 export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
   const session = useSession()
-  const { selectedNode, setNodes, setEdges } = useWorkflowBuilder()
+  const { selectedNodeId, setNodes, setEdges, getNode } = useWorkflowBuilder()
   const { workflowId } = useWorkflowMetadata()
   const handleTileClick = useCallback(
     async (type?: ActionType, title?: string) => {
+      const selectedNode = getNode(selectedNodeId ?? "")
       if (!type || !selectedNode || !workflowId || !session || !title) {
         console.error("Missing required data to create action")
         return
@@ -85,7 +86,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
         },
       ])
     },
-    [selectedNode]
+    [selectedNodeId]
   )
   const onDragStart = (
     event: DragEvent<HTMLDivElement>,
