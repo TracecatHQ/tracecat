@@ -546,16 +546,27 @@ def search_webhooks(action_id: str | None = None) -> WebhookResponse:
 
 @app.post("/authenticate/webhooks/{webhook_id}/{secret}")
 def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
-    with Session(create_db_engine()) as session:
-        statement = select(Webhook).where(Webhook.id == webhook_id)
-        result = session.exec(statement)
-        webhook = result.one()
-        if webhook.secret != secret:
-            return AuthenticateWebhookResponse(status="Unauthorized")
-        # Get slug
-        statement = select(Action).where(Action.id == webhook.action_id)
-        result = session.exec(statement)
-        action = result.one()
+    try:
+        with Session(create_db_engine()) as session:
+            statement = select(Webhook).where(Webhook.id == webhook_id)
+            result = session.exec(statement)
+            webhook = result.one()
+            if webhook.secret != secret:
+                return AuthenticateWebhookResponse(status="Unauthorized")
+            # Get slug
+            statement = select(Action).where(Action.id == webhook.action_id)
+            result = session.exec(statement)
+            action = result.one()
+    except NoResultFound as e:
+        logger.error("Webhook does not exist: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        ) from e
 
     return AuthenticateWebhookResponse(
         status="Authorized",
