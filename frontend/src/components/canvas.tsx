@@ -48,7 +48,7 @@ const WorkflowCanvas: React.FC = () => {
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
   const { setViewport } = useReactFlow()
-  const { id: workflowId } = useParams<{ id: string }>()
+  const { workflowId } = useParams<{ workflowId: string }>()
   const session = useSession()
   const { toast } = useToast()
 

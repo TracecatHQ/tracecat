@@ -65,8 +65,7 @@ export function ActionForm({
 }: ActionFormProps): React.JSX.Element {
   const [status, setStatus] = useState<ActionStatus>("offline")
   const { setNodes } = useWorkflowBuilder()
-  const params = useParams<{ id: string }>()
-  const workflowId = params.id
+  const { workflowId } = useParams<{ workflowId: string }>()
   const session = useSession()
 
   const { data: actionResponseData } = useQuery<ActionResponse, Error>({

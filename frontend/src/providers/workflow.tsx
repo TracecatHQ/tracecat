@@ -30,7 +30,7 @@ interface WorkflowProviderProps {
   children: ReactNode
 }
 export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
-  const { id: workflowId } = useParams<{ id: string }>()
+  const { workflowId } = useParams<{ workflowId: string }>()
 
   const {
     data: workflow,
