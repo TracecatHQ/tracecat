@@ -147,6 +147,39 @@ export function ActionForm({
                   {...fieldProps}
                   className="text-xs"
                   value={form.watch(inputKey, "")}
+                  placeholder="Input text here..."
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )
+        case "json":
+          return (
+            <FormItem>
+              <FormLabel className="text-xs">{inputKey}</FormLabel>
+              <FormControl>
+                <pre>
+                  <Textarea
+                    {...fieldProps}
+                    className="text-xs"
+                    value={form.watch(inputKey, "")}
+                    placeholder="Input JSON here..."
+                  />
+                </pre>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )
+        case "array":
+          return (
+            <FormItem>
+              <FormLabel className="text-xs">{inputKey}</FormLabel>
+              <FormControl>
+                <Input
+                  {...fieldProps}
+                  className="text-xs"
+                  value={form.watch(inputKey, "")}
+                  placeholder="Input a list of comma-separated values here..."
                 />
               </FormControl>
               <FormMessage />
@@ -320,29 +353,36 @@ export function ActionForm({
                 )}
               />
               <Separator />
-              <div className="space-y-2 capitalize">
+              <div className="space-y-2">
                 <h4 className="text-m font-medium">Action Inputs</h4>
                 <p className="text-xs text-muted-foreground">
-                  Define the inputs for this action.
+                  Define the inputs for this action. You may use templated
+                  JSONPath expressions in your input, except for list-type
+                  fields.
                 </p>
-                {Object.entries(actionFieldSchema).map(
-                  ([inputKey, inputField]) => {
-                    return (
-                      <FormField
-                        key={inputKey}
-                        control={form.control}
-                        name={inputKey as keyof actionFormSchemaType}
-                        render={({ field }) =>
-                          renderFormField(
-                            inputKey as keyof actionFormSchemaType,
-                            inputField,
-                            field
-                          )
-                        }
-                      />
-                    )
-                  }
-                )}
+                <p className="text-xs text-muted-foreground">
+                  For example, "This {"{{ $.path.to.input }}"} is valid!"
+                </p>
+                <div className="capitalize">
+                  {Object.entries(actionFieldSchema).map(
+                    ([inputKey, inputField]) => {
+                      return (
+                        <FormField
+                          key={inputKey}
+                          control={form.control}
+                          name={inputKey as keyof actionFormSchemaType}
+                          render={({ field }) =>
+                            renderFormField(
+                              inputKey as keyof actionFormSchemaType,
+                              inputField,
+                              field
+                            )
+                          }
+                        />
+                      )
+                    }
+                  )}
+                </div>
               </div>
             </div>
           </div>

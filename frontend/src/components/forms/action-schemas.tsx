@@ -28,7 +28,7 @@ const WebhookActionSchema = z.object({
 })
 
 const HTTPRequestActionSchema = z.object({
-  url: z.string().url(),
+  url: z.string(),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
   headers: jsonPayload.optional(),
   payload: jsonPayload,
@@ -116,7 +116,8 @@ const OpenCaseActionSchema = z.object({
   suppression: jsonPayload.optional(),
 })
 
-type ActionFieldType = "input" | "select" | "textarea"
+type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
+
 export interface ActionFieldOption {
   type: ActionFieldType
   options?: readonly string[]
@@ -146,8 +147,8 @@ const actionFieldSchemas: Partial<ActionFieldSchemas> = {
       type: "select",
       options: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     },
-    headers: { type: "textarea" },
-    payload: { type: "textarea" },
+    headers: { type: "json" },
+    payload: { type: "json" },
   },
   send_email: {
     recipients: { type: "input" },
@@ -188,28 +189,28 @@ const actionFieldSchemas: Partial<ActionFieldSchemas> = {
   "llm.extract": {
     message: { type: "textarea" },
     // TODO: Replace with Command input and ability to add to list
-    groups: { type: "input" }, // Assuming a comma-separated string to be transformed into an array
-    response_schema: { type: "textarea" },
+    groups: { type: "array" }, // Assuming a comma-separated string to be transformed into an array
+    response_schema: { type: "json" },
   },
   "llm.label": {
     // TODO: Replace with Command input and ability to add to list
     message: { type: "textarea" },
-    labels: { type: "input" }, // Assuming a comma-separated string to be transformed into an array
-    response_schema: { type: "textarea" },
+    labels: { type: "array" }, // Assuming a comma-separated string to be transformed into an array
+    response_schema: { type: "json" },
   },
   "llm.choice": {
     message: { type: "textarea" },
-    choices: { type: "input" },
-    response_schema: { type: "textarea" },
+    choices: { type: "array" },
+    response_schema: { type: "json" },
   },
   "llm.summarize": {
     message: { type: "textarea" },
     summary: { type: "textarea" },
-    response_schema: { type: "textarea" },
+    response_schema: { type: "json" },
   },
   open_case: {
     title: { type: "input" },
-    payload: { type: "textarea" },
+    payload: { type: "json" },
     malice: {
       type: "select",
       options: ["malicious", "benign"],
@@ -222,9 +223,9 @@ const actionFieldSchemas: Partial<ActionFieldSchemas> = {
       type: "select",
       options: ["low", "medium", "high", "critical"],
     },
-    context: { type: "textarea" },
+    context: { type: "json" },
     action: { type: "textarea" },
-    suppression: { type: "textarea" },
+    suppression: { type: "json" },
   },
 }
 
@@ -290,6 +291,7 @@ export const getActionSchema = (actionType: ActionType) => {
         actionSchema: OpenCaseActionSchema,
         actionFieldSchema: actionFieldSchemas["open_case"],
       }
+
     default:
       return {
         actionSchema: null,
