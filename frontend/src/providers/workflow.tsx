@@ -11,11 +11,11 @@ import { useParams } from "next/navigation"
 import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 
-import { WorkflowResponse } from "@/types/schemas"
+import { Workflow } from "@/types/schemas"
 import { fetchWorkflow } from "@/lib/flow"
 
 type WorkflowContextType = {
-  workflow: WorkflowResponse | null
+  workflow: Workflow | null
   workflowId: string | null
   isLoading: boolean
   error: Error | null
@@ -36,7 +36,7 @@ export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
     data: workflow,
     isLoading,
     error,
-  } = useQuery<WorkflowResponse, Error>({
+  } = useQuery<Workflow, Error>({
     queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
       const [_, workflowId] = queryKey as [string, string?]
