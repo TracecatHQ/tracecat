@@ -1,6 +1,6 @@
 <div align="center">
   <h2>
-    Open source Tines / Palo XSOAR alternative
+    Open source Tines / Palo Alto XSOAR alternative
   </h2>
   <img src="img/banner.svg" alt="tracecat">
 </div>
@@ -54,7 +54,7 @@ Build AI-assisted workflows, enrich alerts, and close cases fast.
   - [ ] LLM evaluation and security
   - [ ] Bring-your-own LLM (OpenAI, Mistral, Anthropic etc.)
 
-Tracecat is **not** a 1-to-1 mapping of Tines. Our aim is to give technical teams a Tines-like experience, but with a focus on open source and AI features. [What do we mean by AI-native?](#what-does-ai-native-mean).
+Tracecat is **not** a 1-to-1 mapping of Tines / Palo Alto XSOAR. Our aim is to give technical teams a Tines-like experience, but with a focus on open source and AI features. [What do we mean by AI-native?](#what-does-ai-native-mean).
 
 ## Installation
 
@@ -111,11 +111,11 @@ Join us in building a newer, more open, kind of automation platform.
 - [Tracecat Discord](https://discord.gg/n3GF4qxFU8) for hanging out with the community
 - [GitHub issues](https://github.com/TracecatHQ/tracecat/issues)
 
-## Integrations
+## Integrations and pre-built workflows
 
-We are working hard to reach core feature parity with Tines. Integrations and out-of-the-box automations will be prioritized according to user feedback. If you've got any suggestions, please let us know on Discord 🦾.
+We are working hard to reach core feature parity with Tines. Integrations and out-of-the-box automations will be prioritized according to user feedback. If you've got any suggestions, please let us know on [Discord](https://discord.gg/n3GF4qxFU8) 🦾.
 
-Here are just a few integrations on our roadmap:
+Here are a few integrations on our roadmap:
 
 - [ ] Slack
 - [ ] Microsoft Teams
@@ -155,7 +155,7 @@ We believe the most useful AI is "boring AI" (e.g. summarization, semantic searc
 
 Whether it's big or small, we love contributions.
 There's plenty of opportunity for new integrations and bug fixes.
-The best way to get started is to ping us on Discord!
+The best way to get started is to ping us on [Discord](https://discord.gg/n3GF4qxFU8)!
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
