@@ -408,11 +408,11 @@ export function ActionForm({
 
                                             <Button
                                               type="button"
-                                              variant="outline"
-                                              className="border-rose-300"
+                                              variant="default"
+                                              className="bg-red-400 p-0 px-3"
                                               onClick={() => remove(index)}
                                             >
-                                              <DeleteIcon className="stroke-8 h-4 w-4 fill-rose-300 stroke-rose-300" />
+                                              <DeleteIcon className="stroke-8 h-4 w-4 stroke-white" />
                                             </Button>
                                           </div>
                                         )
