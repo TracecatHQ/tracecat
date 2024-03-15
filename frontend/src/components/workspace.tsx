@@ -35,7 +35,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ActionTiles } from "@/components/action-tiles"
 import { WorkflowCanvas } from "@/components/canvas"
-import { WorkflowPanel } from "@/components/panel"
+import { WorkspacePanel } from "@/components/workspace-panel"
 
 interface WorkspaceProps {
   defaultLayout: number[] | undefined
@@ -230,7 +230,7 @@ export function Workspace({
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={defaultLayout[2]} minSize={25}>
-              <WorkflowPanel />
+              <WorkspacePanel />
             </ResizablePanel>
           </ResizablePanelGroup>
         </TooltipProvider>
