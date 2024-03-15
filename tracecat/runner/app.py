@@ -33,6 +33,7 @@ Stores
 from __future__ import annotations
 
 import asyncio
+import os
 from enum import StrEnum, auto
 from typing import Annotated, Any
 from uuid import uuid4
@@ -355,3 +356,15 @@ async def run_workflow(
         run_logger.info("Shutting down running tasks")
         for running_task in running_jobs_store.values():
             running_task.cancel()
+
+
+class DemoKeyParams(BaseModel):
+    name: str
+    value: str
+
+
+# NOTE: This is a temporary backdoor to set environment variables. USE AT YUOR OWN RISK.
+@app.post("/demo/key")
+def demo_key(params: DemoKeyParams):
+    os.environ[params.name] = params.value
+    return {"message": f"{params.name} key set."}

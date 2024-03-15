@@ -14,6 +14,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  NewCredentialsDialog,
+  NewCredentialsDialogTrigger,
+} from "@/components/new-credential-dialog"
 import UserAvatar from "@/components/user-avatar"
 
 const userDefaults = {
@@ -50,10 +54,17 @@ export default function UserNav() {
             <Settings className="mr-2 h-4 w-4" />
             Settings
           </DropdownMenuItem>
-          <DropdownMenuItem className="text-xs hover:cursor-pointer">
-            <KeyRound className="mr-2 h-4 w-4" />
-            <span>Credentials</span>
-          </DropdownMenuItem>
+          <NewCredentialsDialog>
+            <NewCredentialsDialogTrigger asChild>
+              <Button
+                className="h-8 w-full justify-start p-2 text-xs hover:cursor-pointer"
+                variant="ghost"
+              >
+                <KeyRound className="mr-2 h-4 w-4" />
+                <span>Credentials</span>
+              </Button>
+            </NewCredentialsDialogTrigger>
+          </NewCredentialsDialog>
           <DropdownMenuItem className="text-xs hover:cursor-pointer">
             <UsersRound className="mr-2 h-4 w-4" />
             <span>Manage users</span>
