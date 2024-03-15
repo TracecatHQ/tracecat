@@ -1,5 +1,5 @@
 import { ActionType } from "@/types"
-import { z, ZodObject, ZodUnion } from "zod"
+import { z } from "zod"
 
 const jsonPayload = z
   .string()
@@ -16,11 +16,10 @@ const jsonPayload = z
 
 // const stringArray = z
 //   .string()
-//   .optional()
 //   .transform((val) => (val ? val.split(",") : []))
 //   .pipe(z.string().array())
 //   .or(z.array(z.string()))
-const stringArray = z.string().array()
+const stringArray = z.string().array().optional()
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
@@ -38,7 +37,7 @@ const HTTPRequestActionSchema = z.object({
 
 const SendEmailActionSchema = z.object({
   // recipients is a comma delimited list of email addresses. Pasrse it into an array
-  recipients: z.string().array(),
+  recipients: z.string().email().array(),
   subject: z.string(),
   contents: z.string(),
 })
@@ -120,25 +119,7 @@ export const baseActionSchema = z.object({
 })
 export type BaseActionForm = z.infer<typeof baseActionSchema>
 
-// Ugly, but recommended by the author
-// https://github.com/colinhacks/zod/issues/147#issuecomment-694065226
-const dynamicSubActionFormSchema = z.union([
-  baseActionSchema.merge(WebhookActionSchema),
-  baseActionSchema.merge(HTTPRequestActionSchema),
-  baseActionSchema.merge(SendEmailActionSchema),
-  baseActionSchema.merge(ConditionCompareActionSchema),
-  baseActionSchema.merge(ConditionRegexActionSchema),
-  baseActionSchema.merge(ConditionMembershipActionSchema),
-  baseActionSchema.merge(LLMTranslateActionSchema),
-  baseActionSchema.merge(LLMExtractActionSchema),
-  baseActionSchema.merge(LLMLabelTaskActionSchema),
-  baseActionSchema.merge(LLMChoiceTaskActionSchema),
-  baseActionSchema.merge(LLMSummarizeTaskActionSchema),
-  baseActionSchema.merge(OpenCaseActionSchema),
-])
-export type DynamicSubActionForm = z.infer<typeof dynamicSubActionFormSchema>
 export type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
-
 export interface ActionFieldOption {
   type: ActionFieldType
   options?: readonly string[]
@@ -152,29 +133,26 @@ export type AllActionFieldSchemas = {
   [actionType in ActionType]?: ActionFieldSchema
 }
 
-const actionSchemaMap: Partial<
-  Record<ActionType, z.ZodType<DynamicSubActionForm>>
-> = {
-  http_request: baseActionSchema.merge(HTTPRequestActionSchema),
-  webhook: baseActionSchema.merge(WebhookActionSchema),
-  send_email: baseActionSchema.merge(SendEmailActionSchema),
-  "condition.compare": baseActionSchema.merge(ConditionCompareActionSchema),
-  "condition.regex": baseActionSchema.merge(ConditionRegexActionSchema),
-  "condition.membership": baseActionSchema.merge(
-    ConditionMembershipActionSchema
-  ),
-  "llm.translate": baseActionSchema.merge(LLMTranslateActionSchema),
-  "llm.extract": baseActionSchema.merge(LLMExtractActionSchema),
-  "llm.label": baseActionSchema.merge(LLMLabelTaskActionSchema),
-  "llm.choice": baseActionSchema.merge(LLMChoiceTaskActionSchema),
-  "llm.summarize": baseActionSchema.merge(LLMSummarizeTaskActionSchema),
-  open_case: baseActionSchema.merge(OpenCaseActionSchema),
+export const actionSchemaMap = {
+  http_request: HTTPRequestActionSchema,
+  webhook: WebhookActionSchema,
+  send_email: SendEmailActionSchema,
+  "condition.compare": ConditionCompareActionSchema,
+  "condition.regex": ConditionRegexActionSchema,
+  "condition.membership": ConditionMembershipActionSchema,
+  "llm.translate": LLMTranslateActionSchema,
+  "llm.extract": LLMExtractActionSchema,
+  "llm.label": LLMLabelTaskActionSchema,
+  "llm.choice": LLMChoiceTaskActionSchema,
+  "llm.summarize": LLMSummarizeTaskActionSchema,
+  open_case: OpenCaseActionSchema,
 }
 
-export const getActionSchema = (actionType: ActionType) => {
+export const getSubActionSchema = (actionType: ActionType) => {
   return {
-    actionSchema: actionSchemaMap[actionType],
-    actionFieldSchema: actionFieldSchemas[actionType],
+    subActionSchema:
+      actionSchemaMap[actionType as keyof typeof actionSchemaMap],
+    fieldSchema: actionFieldSchemas[actionType] || {},
   }
 }
 const actionFieldSchemas: Partial<AllActionFieldSchemas> = {

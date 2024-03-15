@@ -3,10 +3,10 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useSession } from "@/providers/session"
 import { ActionType } from "@/types"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { CircleIcon, Save } from "lucide-react"
-import { useForm } from "react-hook-form"
-import { ZodType } from "zod"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { CircleIcon, DeleteIcon, Save } from "lucide-react"
+import { useFieldArray, useForm } from "react-hook-form"
+import { z } from "zod"
 
 import { Action, ActionStatus } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
@@ -41,43 +41,58 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { ActionNodeType } from "@/components/action-node"
 import {
-  ActionFieldSchema,
-  DynamicSubActionForm,
-  getActionSchema,
+  baseActionSchema,
+  getSubActionSchema,
 } from "@/components/forms/action-schemas"
 
 const processInputs = (inputs: Record<string, any>): Record<string, any> => {
   return Object.entries(inputs).reduce(
-    (stringInputs: Record<string, any>, [key, value]) => {
-      if (!value) {
+    (newInputs: Record<string, any>, [key, value]) => {
+      if (value === null || value === undefined) {
         // Is null or undefined
-        stringInputs[key] = ""
+        newInputs[key] = ""
       } else if (
-        // Is a serializable object
+        // Is a serializable object (not an array or date)
         typeof value === "object" &&
         value !== null &&
-        // !Array.isArray(value) &&
+        !Array.isArray(value) &&
         !(value instanceof Date)
       ) {
-        stringInputs[key] = JSON.stringify(value) // Stringify object values
+        newInputs[key] = JSON.stringify(value) // Stringify object values
       } else {
-        stringInputs[key] = value // Keep non-object values as is
+        // Includes arrays
+        newInputs[key] = value // Keep non-object values as is
       }
-      return stringInputs
+      return newInputs
     },
     {}
   )
 }
-interface ActionFormProps {
+export function ActionForm({
+  actionId,
+  actionType,
+  workflowId,
+}: {
   actionId: string
   actionType: ActionType
   workflowId: string | null
-}
-
-export function ActionForm(props: ActionFormProps) {
-  const { actionId, actionType, workflowId } = props
+}) {
+  const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
   const session = useSession()
+  const { subActionSchema, fieldSchema } = getSubActionSchema(actionType)
+  const schema = baseActionSchema.merge(subActionSchema)
+  type Schema = z.infer<typeof schema>
+  const [status, setStatus] = useState<ActionStatus>("offline")
+  const form = useForm<Schema>({
+    resolver: zodResolver(schema),
+  })
+
+  const { fields, append, remove } = useFieldArray<Schema>({
+    control: form.control,
+    name: "arrayField",
+  })
+  const values = form.watch()
 
   const { data: action } = useQuery<Action, Error>({
     queryKey: ["selected_action", actionId, workflowId],
@@ -96,9 +111,8 @@ export function ActionForm(props: ActionFormProps) {
   })
 
   const { mutate } = useMutation({
-    mutationFn: (values: DynamicSubActionForm) =>
-      updateAction(session, actionId, values),
-    onSuccess: (data, variables, context) => {
+    mutationFn: (values: Schema) => updateAction(session, actionId, values),
+    onSuccess: (data) => {
       setNodes((nds: ActionNodeType[]) =>
         nds.map((node: ActionNodeType) => {
           if (node.id === actionId) {
@@ -116,8 +130,11 @@ export function ActionForm(props: ActionFormProps) {
         title: "Saved action",
         description: "Your action has been updated successfully.",
       })
+      queryClient.invalidateQueries({
+        queryKey: ["selected_action", actionId, workflowId],
+      })
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       console.error("Failed to update action:", error)
       toast({
         title: "Failed to save action",
@@ -125,62 +142,19 @@ export function ActionForm(props: ActionFormProps) {
       })
     },
   })
-  const onSubmit = (values: DynamicSubActionForm) => {
-    // Need to handle parsing CSV
-    console.log("Submitting action form with values", values)
-    mutate(values)
-  }
-  const { actionSchema, actionFieldSchema } = getActionSchema(actionType)
-  if (!actionSchema || !actionFieldSchema) {
-    console.error(`Action schema for ${actionType} is unavailable`)
-    return <span>Action schema unavailable.</span>
-  }
-  return (
-    <ActionFormInternal
-      action={action}
-      actionSchema={actionSchema}
-      actionFieldSchema={actionFieldSchema}
-      onSubmit={onSubmit}
-    />
-  )
-}
-function ActionFormInternal({
-  action,
-  actionSchema,
-  actionFieldSchema,
-  onSubmit,
-}: {
-  action: Action | undefined
-  actionSchema: ZodType<DynamicSubActionForm>
-  actionFieldSchema: ActionFieldSchema
-  onSubmit: (values: DynamicSubActionForm) => void
-}) {
-  const [status, setStatus] = useState<ActionStatus>("offline")
-
-  const form = useForm<DynamicSubActionForm>({
-    resolver: zodResolver(actionSchema),
-    defaultValues: {
-      title: "",
-      description: "",
-      ...Object.keys(actionFieldSchema).reduce(
-        (acc, key) => ({ ...acc, [key]: "" }),
-        {}
-      ),
-    },
-  })
 
   useEffect(() => {
     if (action) {
       const { title, description, status, inputs } = action
-      form.reset()
-      form.reset({
+      const newValue = {
         // Use reset method to set form values
         title,
         description,
         ...(inputs ? processInputs(inputs) : {}), // Process and unpack the inputs object
-      })
+      }
+      form.reset()
+      form.reset(newValue)
       setStatus(status)
-      form.setValue
     }
   }, [action, form.reset])
 
@@ -197,11 +171,18 @@ function ActionFormInternal({
       </div>
     )
   }
+  const onSubmit = form.handleSubmit((values) => {
+    console.log("SUBMITTING", JSON.stringify(values, null, 2))
+    mutate(values)
+  })
 
   return (
     <ScrollArea className="h-full">
+      <pre>
+        <code>{JSON.stringify(values, null, 2)}</code>
+      </pre>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
+        <form onSubmit={onSubmit}>
           <div className="space-y-4 p-4">
             <div className="space-y-3">
               <h4 className="text-sm font-medium">Action Status</h4>
@@ -290,12 +271,12 @@ function ActionFormInternal({
                   For example, "This {"{{ $.path.to.input }}"} is valid!"
                 </p>
                 <div className="capitalize">
-                  {Object.entries(actionFieldSchema)
+                  {Object.entries(fieldSchema)
                     .filter(
                       ([key, _]) => key !== "title" && key !== "description"
                     )
                     .map(([inputKey, inputOption]) => {
-                      const typedKey = inputKey as keyof DynamicSubActionForm
+                      const typedKey = inputKey as keyof Schema
                       return (
                         <FormField
                           key={inputKey}
@@ -385,16 +366,56 @@ function ActionFormInternal({
                                   </FormItem>
                                 )
                               case "array":
+                                const { fields, append, remove } =
+                                  useFieldArray<Schema>({
+                                    control: form.control,
+                                    name: inputKey,
+                                  })
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
                                       {inputKey}
                                     </FormLabel>
-                                    <Input
-                                      {...field}
-                                      className="text-xs"
-                                      value={form.watch(typedKey, "")}
-                                    />
+                                    <div className="flex flex-col space-y-2">
+                                      {fields.map((field, index) => {
+                                        return (
+                                          <div
+                                            key={`${field.id}.${index}`}
+                                            className="flex w-full items-center gap-2"
+                                          >
+                                            <FormControl>
+                                              <Input
+                                                key={`${field.id}.${index}`}
+                                                {...form.register(
+                                                  // @ts-ignore
+                                                  `${inputKey}.${index}` as const
+                                                )}
+                                                value={form.watch(
+                                                  // @ts-ignore
+                                                  `${inputKey}.${index}` as const,
+                                                  ""
+                                                )}
+                                              />
+                                            </FormControl>
+
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              className="border-rose-300"
+                                              onClick={() => remove(index)}
+                                            >
+                                              <DeleteIcon className="stroke-8 h-4 w-4 fill-rose-300 stroke-rose-300" />
+                                            </Button>
+                                          </div>
+                                        )
+                                      })}
+                                      <Button
+                                        type="button"
+                                        onClick={() => append("")}
+                                      >
+                                        Add Item
+                                      </Button>
+                                    </div>
                                     <FormMessage />
                                   </FormItem>
                                 )
