@@ -82,16 +82,11 @@ export function ActionForm({
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
   const session = useSession()
+
+  // Set the schema for the action type
   const { subActionSchema, fieldSchema } = getSubActionSchema(actionType)
   const schema = baseActionSchema.merge(subActionSchema)
   type Schema = z.infer<typeof schema>
-  const [status, setStatus] = useState<ActionStatus>("offline")
-  const form = useForm<Schema>({
-    resolver: zodResolver(schema),
-  })
-
-  // Temprarly watch form values for debugging
-  const values = form.watch()
 
   const {
     data: action,
@@ -145,22 +140,15 @@ export function ActionForm({
       })
     },
   })
-
-  useEffect(() => {
-    if (action) {
-      const { title, description, status, inputs } = action
-      const newValue = {
-        // Use reset method to set form values
-        title,
-        description,
-        ...(inputs ? processInputs(inputs) : {}), // Process and unpack the inputs object
-      }
-      form.reset()
-      form.reset(newValue)
-      setStatus(status)
-    }
-  }, [action, form.reset])
-
+  // Set the initial form values
+  const form = useForm<Schema>({
+    resolver: zodResolver(schema),
+    values: {
+      title: action?.title ?? "",
+      description: action?.description ?? "",
+      ...(action?.inputs ? processInputs(action.inputs) : {}), // Unpack the inputs object
+    },
+  })
   // Loading state to defend in a user friendly way
   // against undefined schemas or data
   if (isLoading) {
@@ -192,20 +180,22 @@ export function ActionForm({
   }
 
   const onSubmit = form.handleSubmit((values) => {
-    console.log("SUBMITTING", JSON.stringify(values, null, 2))
     mutate(values)
   })
 
+  const status = action?.status ?? "offline"
   return (
     <ScrollArea className="h-full">
-      <pre>
-        <code>{JSON.stringify(values, null, 2)}</code>
-      </pre>
       <Form {...form}>
         <form onSubmit={onSubmit}>
           <div className="space-y-4 p-4">
-            <div className="space-y-3">
+            <div className="flex w-full flex-col space-y-3 overflow-hidden">
               <h4 className="text-sm font-medium">Action Status</h4>
+              {process.env.NODE_ENV === "development" && (
+                <div className="w-full">
+                  <pre>{JSON.stringify(form.watch(), null, 2)}</pre>
+                </div>
+              )}
               <div className="flex justify-between">
                 <Badge
                   variant="outline"
