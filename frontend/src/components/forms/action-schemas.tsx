@@ -1,5 +1,5 @@
 import { ActionType } from "@/types"
-import { z } from "zod"
+import { z, ZodObject, ZodUnion } from "zod"
 
 const jsonPayload = z
   .string()
@@ -14,11 +14,13 @@ const jsonPayload = z
     }
   })
 
-const stringArray = z
-  .string()
-  .optional()
-  .transform((val) => (val ? val.split(",") : []))
-  .pipe(z.string().array())
+// const stringArray = z
+//   .string()
+//   .optional()
+//   .transform((val) => (val ? val.split(",") : []))
+//   .pipe(z.string().array())
+//   .or(z.array(z.string()))
+const stringArray = z.string().array()
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
@@ -36,10 +38,7 @@ const HTTPRequestActionSchema = z.object({
 
 const SendEmailActionSchema = z.object({
   // recipients is a comma delimited list of email addresses. Pasrse it into an array
-  recipients: z
-    .string()
-    .transform((val) => (val ? val.split(",") : []))
-    .pipe(z.string().email().array()),
+  recipients: z.string().array(),
   subject: z.string(),
   contents: z.string(),
 })
@@ -115,23 +114,70 @@ const OpenCaseActionSchema = z.object({
   action: z.string().optional(),
   suppression: jsonPayload.optional(),
 })
+export const baseActionSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+})
+export type BaseActionForm = z.infer<typeof baseActionSchema>
 
-type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
+// Ugly, but recommended by the author
+// https://github.com/colinhacks/zod/issues/147#issuecomment-694065226
+const dynamicSubActionFormSchema = z.union([
+  baseActionSchema.merge(WebhookActionSchema),
+  baseActionSchema.merge(HTTPRequestActionSchema),
+  baseActionSchema.merge(SendEmailActionSchema),
+  baseActionSchema.merge(ConditionCompareActionSchema),
+  baseActionSchema.merge(ConditionRegexActionSchema),
+  baseActionSchema.merge(ConditionMembershipActionSchema),
+  baseActionSchema.merge(LLMTranslateActionSchema),
+  baseActionSchema.merge(LLMExtractActionSchema),
+  baseActionSchema.merge(LLMLabelTaskActionSchema),
+  baseActionSchema.merge(LLMChoiceTaskActionSchema),
+  baseActionSchema.merge(LLMSummarizeTaskActionSchema),
+  baseActionSchema.merge(OpenCaseActionSchema),
+])
+export type DynamicSubActionForm = z.infer<typeof dynamicSubActionFormSchema>
+export type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
 
 export interface ActionFieldOption {
   type: ActionFieldType
   options?: readonly string[]
 }
 
-interface ActionFieldSchema {
+export interface ActionFieldSchema {
   [key: string]: ActionFieldOption
 }
 
-export type ActionFieldSchemas = {
-  [actionType in ActionType]: ActionFieldSchema
+export type AllActionFieldSchemas = {
+  [actionType in ActionType]?: ActionFieldSchema
 }
 
-const actionFieldSchemas: Partial<ActionFieldSchemas> = {
+const actionSchemaMap: Partial<
+  Record<ActionType, z.ZodType<DynamicSubActionForm>>
+> = {
+  http_request: baseActionSchema.merge(HTTPRequestActionSchema),
+  webhook: baseActionSchema.merge(WebhookActionSchema),
+  send_email: baseActionSchema.merge(SendEmailActionSchema),
+  "condition.compare": baseActionSchema.merge(ConditionCompareActionSchema),
+  "condition.regex": baseActionSchema.merge(ConditionRegexActionSchema),
+  "condition.membership": baseActionSchema.merge(
+    ConditionMembershipActionSchema
+  ),
+  "llm.translate": baseActionSchema.merge(LLMTranslateActionSchema),
+  "llm.extract": baseActionSchema.merge(LLMExtractActionSchema),
+  "llm.label": baseActionSchema.merge(LLMLabelTaskActionSchema),
+  "llm.choice": baseActionSchema.merge(LLMChoiceTaskActionSchema),
+  "llm.summarize": baseActionSchema.merge(LLMSummarizeTaskActionSchema),
+  open_case: baseActionSchema.merge(OpenCaseActionSchema),
+}
+
+export const getActionSchema = (actionType: ActionType) => {
+  return {
+    actionSchema: actionSchemaMap[actionType],
+    actionFieldSchema: actionFieldSchemas[actionType],
+  }
+}
+const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
   webhook: {
     url: { type: "input" },
     method: {
@@ -227,75 +273,4 @@ const actionFieldSchemas: Partial<ActionFieldSchemas> = {
     action: { type: "textarea" },
     suppression: { type: "json" },
   },
-}
-
-export const getActionSchema = (actionType: ActionType) => {
-  switch (actionType) {
-    case "http_request":
-      return {
-        actionSchema: HTTPRequestActionSchema,
-        actionFieldSchema: actionFieldSchemas.http_request,
-      }
-    case "webhook":
-      return {
-        actionSchema: WebhookActionSchema,
-        actionFieldSchema: actionFieldSchemas.webhook,
-      }
-    case "send_email":
-      return {
-        actionSchema: SendEmailActionSchema,
-        actionFieldSchema: actionFieldSchemas.send_email,
-      }
-    case "condition.compare":
-      return {
-        actionSchema: ConditionCompareActionSchema,
-        actionFieldSchema: actionFieldSchemas["condition.compare"],
-      }
-    case "condition.regex":
-      return {
-        actionSchema: ConditionRegexActionSchema,
-        actionFieldSchema: actionFieldSchemas["condition.regex"],
-      }
-    case "condition.membership":
-      return {
-        actionSchema: ConditionMembershipActionSchema,
-        actionFieldSchema: actionFieldSchemas["condition.membership"],
-      }
-    case "llm.translate":
-      return {
-        actionSchema: LLMTranslateActionSchema,
-        actionFieldSchema: actionFieldSchemas["llm.translate"],
-      }
-    case "llm.extract":
-      return {
-        actionSchema: LLMExtractActionSchema,
-        actionFieldSchema: actionFieldSchemas["llm.extract"],
-      }
-    case "llm.label":
-      return {
-        actionSchema: LLMLabelTaskActionSchema,
-        actionFieldSchema: actionFieldSchemas["llm.label"],
-      }
-    case "llm.choice":
-      return {
-        actionSchema: LLMChoiceTaskActionSchema,
-        actionFieldSchema: actionFieldSchemas["llm.choice"],
-      }
-    case "llm.summarize":
-      return {
-        actionSchema: LLMSummarizeTaskActionSchema,
-        actionFieldSchema: actionFieldSchemas["llm.summarize"],
-      }
-    case "open_case":
-      return {
-        actionSchema: OpenCaseActionSchema,
-        actionFieldSchema: actionFieldSchemas["open_case"],
-      }
-
-    default:
-      return {
-        actionSchema: null,
-        actionFieldSchema: null,
-      }
-  }
 }
