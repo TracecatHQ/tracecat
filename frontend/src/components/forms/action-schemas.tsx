@@ -14,12 +14,9 @@ const jsonPayload = z
     }
   })
 
-// const stringArray = z
-//   .string()
-//   .transform((val) => (val ? val.split(",") : []))
-//   .pipe(z.string().array())
-//   .or(z.array(z.string()))
-const stringArray = z.string().array().optional()
+const stringArray = z
+  .array(z.string().min(1, { message: "Strings cannot be empty" }))
+  .min(1, { message: "List cannot be empty" })
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
