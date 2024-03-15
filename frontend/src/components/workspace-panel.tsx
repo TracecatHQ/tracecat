@@ -6,15 +6,16 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
 
-export function WorkflowPanel() {
+export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const selectedNode = getNode(selectedNodeId ?? "")
-  const { workflow } = useWorkflowMetadata()
+  const { workflow, workflowId } = useWorkflowMetadata()
 
   return (
     <>
       {selectedNode ? (
         <ActionForm
+          workflowId={workflowId}
           actionId={selectedNode.id}
           actionType={selectedNode.data.type}
         />
