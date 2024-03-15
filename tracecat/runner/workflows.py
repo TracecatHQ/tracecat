@@ -64,7 +64,7 @@ class Workflow(BaseModel):
                     "key": action.key,
                     "title": action.title,
                     "type": "llm",
-                    "message": inputs.pop("message"),
+                    "message": inputs.pop("message", ""),
                 }
                 if system_context := inputs.pop("system_context", None):
                     data.update(system_context=system_context)
