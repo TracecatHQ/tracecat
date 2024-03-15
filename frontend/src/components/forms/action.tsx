@@ -40,12 +40,13 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ActionNodeType } from "@/components/action-node"
+import { AlertDestructive } from "@/components/alert-destructive"
 import {
   baseActionSchema,
   getSubActionSchema,
 } from "@/components/forms/action-schemas"
 
-const processInputs = (inputs: Record<string, any>): Record<string, any> => {
+function processInputs(inputs: Record<string, any>): Record<string, any> {
   return Object.entries(inputs).reduce(
     (newInputs: Record<string, any>, [key, value]) => {
       if (value === null || value === undefined) {
@@ -68,6 +69,7 @@ const processInputs = (inputs: Record<string, any>): Record<string, any> => {
     {}
   )
 }
+
 export function ActionForm({
   actionId,
   actionType,
@@ -88,13 +90,14 @@ export function ActionForm({
     resolver: zodResolver(schema),
   })
 
-  const { fields, append, remove } = useFieldArray<Schema>({
-    control: form.control,
-    name: "arrayField",
-  })
+  // Temprarly watch form values for debugging
   const values = form.watch()
 
-  const { data: action } = useQuery<Action, Error>({
+  const {
+    data: action,
+    isLoading,
+    error,
+  } = useQuery<Action, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       // Fetch Action by ID and Workflow ID
@@ -160,7 +163,7 @@ export function ActionForm({
 
   // Loading state to defend in a user friendly way
   // against undefined schemas or data
-  if (!action) {
+  if (isLoading) {
     // TODO: Make this loading state look more like a form
     return (
       <div className="flex items-center space-x-2 p-4">
@@ -171,6 +174,23 @@ export function ActionForm({
       </div>
     )
   }
+  if (error) {
+    return (
+      <div className="flex items-center space-x-2 p-4">
+        <div className="space-y-2">
+          <AlertDestructive
+            message="Error occurred when loading action"
+            reset={() =>
+              queryClient.invalidateQueries({
+                queryKey: ["selected_action", actionId, workflowId],
+              })
+            }
+          />
+        </div>
+      </div>
+    )
+  }
+
   const onSubmit = form.handleSubmit((values) => {
     console.log("SUBMITTING", JSON.stringify(values, null, 2))
     mutate(values)
@@ -271,11 +291,8 @@ export function ActionForm({
                   For example, "This {"{{ $.path.to.input }}"} is valid!"
                 </p>
                 <div className="capitalize">
-                  {Object.entries(fieldSchema)
-                    .filter(
-                      ([key, _]) => key !== "title" && key !== "description"
-                    )
-                    .map(([inputKey, inputOption]) => {
+                  {Object.entries(fieldSchema).map(
+                    ([inputKey, inputOption]) => {
                       const typedKey = inputKey as keyof Schema
                       return (
                         <FormField
@@ -366,6 +383,8 @@ export function ActionForm({
                                   </FormItem>
                                 )
                               case "array":
+                                // NOTE: Need to use this hook inside the render prop to ensure
+                                // the form state is updated and reloaded correctly
                                 const { fields, append, remove } =
                                   useFieldArray<Schema>({
                                     control: form.control,
@@ -439,7 +458,8 @@ export function ActionForm({
                           }}
                         />
                       )
-                    })}
+                    }
+                  )}
                 </div>
               </div>
             </div>
