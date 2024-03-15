@@ -180,7 +180,6 @@ const WorkflowCanvas: React.FC = () => {
     nodes: ActionNodeType[]
   ) => {
     if (workflowId && reactFlowInstance) {
-      console.log("Saving react flow instance state")
       updateDndFlow(session, workflowId, reactFlowInstance)
     }
   }
