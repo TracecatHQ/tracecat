@@ -14,7 +14,7 @@ import {
   type WorkflowMetadata,
 } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
-import { BaseActionSchema } from "@/components/forms/action"
+import type { BaseActionForm } from "@/components/forms/action-schemas"
 
 export async function updateDndFlow(
   maybeSession: Session | null,
@@ -134,7 +134,7 @@ export async function getActionById(
 export async function updateAction(
   maybeSession: Session | null,
   actionId: string,
-  actionProps: BaseActionSchema & Record<string, any>
+  actionProps: BaseActionForm & Record<string, any>
 ): Promise<Action> {
   const { title, description, ...inputs } = actionProps
   const inputsJson = JSON.stringify(inputs)
