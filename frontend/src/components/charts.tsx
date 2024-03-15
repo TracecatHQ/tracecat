@@ -9,6 +9,9 @@ export type PlotDataType = {
   y: number
 }
 export function EventDistributionPlot({ data }: { data: PlotDataType[] }) {
+  if (!data || data.length === 0) {
+    return <NoDataView />
+  }
   const options: EChartsOption = {
     grid: { top: 8, right: 8, bottom: 24, left: 36 },
     xAxis: {
@@ -39,5 +42,11 @@ export function EventDistributionPlot({ data }: { data: PlotDataType[] }) {
     />
   )
 }
-
+function NoDataView() {
+  return (
+    <span className="flex h-full items-center justify-center text-xs text-muted-foreground">
+      No data available.
+    </span>
+  )
+}
 export default EventDistributionPlot
