@@ -1,4 +1,3 @@
-import React, { useEffect, useState } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useSession } from "@/providers/session"
 import { ActionType } from "@/types"
@@ -8,7 +7,7 @@ import { CircleIcon, DeleteIcon, Save } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { Action, ActionStatus } from "@/types/schemas"
+import { Action } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
