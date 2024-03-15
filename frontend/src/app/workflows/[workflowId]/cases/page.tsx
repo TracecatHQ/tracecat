@@ -55,33 +55,33 @@ function CasesStatsBanner() {
     <>
       <div className="flex-1 space-y-8 pt-6">
         <div className="grid min-h-36 gap-16 md:grid-cols-3 lg:grid-cols-3">
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-bold">
+              <CardTitle className="text-sm font-semibold">
                 Status Distribution
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="h-full">
               <EventDistributionPlot data={statusDistData} />
             </CardContent>
           </Card>
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-bold">
+              <CardTitle className="text-sm font-semibold">
                 Priority Distribution
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="h-full">
               <EventDistributionPlot data={priorityDistData} />
             </CardContent>
           </Card>
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-bold">
+              <CardTitle className="text-sm font-semibold">
                 Malice Distribution
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="h-full">
               <EventDistributionPlot data={maliceDistData} />
             </CardContent>
           </Card>
