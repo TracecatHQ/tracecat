@@ -3,7 +3,7 @@
 // Error components must be Client Components
 import { useEffect } from "react"
 
-import { AlertDestructive } from "@/components/alert-destructive"
+import { AlertNotification } from "@/components/notifications"
 
 export default function Error({
   error,
@@ -19,7 +19,7 @@ export default function Error({
 
   return (
     <main className="container flex h-full w-full max-w-[400px] items-center justify-center">
-      <AlertDestructive message={error.message} reset={reset} />
+      <AlertNotification level="error" message={error.message} reset={reset} />
     </main>
   )
 }

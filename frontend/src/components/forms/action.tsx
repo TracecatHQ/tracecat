@@ -40,12 +40,12 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ActionNodeType } from "@/components/action-node"
-import { AlertDestructive } from "@/components/alert-destructive"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import {
   baseActionSchema,
   getSubActionSchema,
 } from "@/components/forms/action-schemas"
+import { AlertNotification } from "@/components/notifications"
 
 function processInputs(inputs: Record<string, any>): Record<string, any> {
   return Object.entries(inputs).reduce(
@@ -167,7 +167,8 @@ export function ActionForm({
     return (
       <div className="flex items-center space-x-2 p-4">
         <div className="space-y-2">
-          <AlertDestructive
+          <AlertNotification
+            level="error"
             message="Error occurred when loading action"
             reset={() =>
               queryClient.invalidateQueries({
