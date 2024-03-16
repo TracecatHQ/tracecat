@@ -28,6 +28,7 @@ import { ReactFlowProvider } from "reactflow"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
+  CustomResizableHandle,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
@@ -216,15 +217,23 @@ export function Workspace({
                   },
                 ]}
               />
-              <div className="flex h-full flex-col items-start justify-end">
-                <PanelToggle
-                  className="mt-auto"
-                  isCollapsed={isCollapsed}
-                  toggleSidePanel={toggleSidePanel}
-                />
-              </div>
+              {/* For items that should align at the end of the side nav */}
+              {/* <div className="flex h-full flex-col items-start justify-end">
+              </div> */}
             </ResizablePanel>
-            <ResizableHandle withHandle />
+            <CustomResizableHandle>
+              <Button
+                variant="ghost"
+                className="rounded-full shadow-sm hover:bg-transparent"
+                onClick={toggleSidePanel}
+              >
+                {isCollapsed ? (
+                  <ChevronsRight className="h-3 w-3" />
+                ) : (
+                  <ChevronsLeft className="h-3 w-3" />
+                )}
+              </Button>
+            </CustomResizableHandle>
             <ResizablePanel defaultSize={defaultLayout[1]}>
               <WorkflowCanvas />
             </ResizablePanel>
@@ -238,39 +247,40 @@ export function Workspace({
     </ReactFlowProvider>
   )
 }
-interface PanelToggleProps extends React.HTMLAttributes<HTMLDivElement> {
-  isCollapsed: any
-  toggleSidePanel: React.MouseEventHandler<HTMLButtonElement> | undefined
-}
-function PanelToggle({
-  isCollapsed,
-  toggleSidePanel,
-  className,
-}: PanelToggleProps) {
-  return (
-    <div
-      data-collapsed={isCollapsed}
-      className={cn(
-        "group flex w-full flex-col gap-4 py-2 data-[collapsed=true]:py-2",
-        className
-      )}
-    >
-      <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
-        <Button
-          variant="ghost"
-          className={cn(
-            "hover:bg-transparent",
-            !isCollapsed && "justify-start"
-          )}
-          onClick={toggleSidePanel}
-        >
-          {isCollapsed ? (
-            <ChevronsRight className="h-4 w-4" />
-          ) : (
-            <ChevronsLeft className="h-4 w-4" />
-          )}
-        </Button>
-      </nav>
-    </div>
-  )
-}
+
+// interface PanelToggleProps extends React.HTMLAttributes<HTMLDivElement> {
+//   isCollapsed: any
+//   toggleSidePanel: React.MouseEventHandler<HTMLButtonElement> | undefined
+// }
+// function PanelToggle({
+//   isCollapsed,
+//   toggleSidePanel,
+//   className,
+// }: PanelToggleProps) {
+//   return (
+//     <div
+//       data-collapsed={isCollapsed}
+//       className={cn(
+//         "group flex w-full flex-col gap-4 py-2 data-[collapsed=true]:py-2",
+//         className
+//       )}
+//     >
+//       <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
+//         <Button
+//           variant="ghost"
+//           className={cn(
+//             "hover:bg-transparent",
+//             !isCollapsed && "justify-start"
+//           )}
+//           onClick={toggleSidePanel}
+//         >
+//           {isCollapsed ? (
+//             <ChevronsRight className="h-4 w-4" />
+//           ) : (
+//             <ChevronsLeft className="h-4 w-4" />
+//           )}
+//         </Button>
+//       </nav>
+//     </div>
+//   )
+// }
