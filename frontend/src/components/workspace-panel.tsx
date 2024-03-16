@@ -12,7 +12,7 @@ export function WorkspacePanel() {
   const { workflow, workflowId } = useWorkflowMetadata()
 
   return (
-    <>
+    <div className="h-full w-full">
       {selectedNode ? (
         <ActionForm
           workflowId={workflowId}
@@ -34,6 +34,6 @@ export function WorkspacePanel() {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
