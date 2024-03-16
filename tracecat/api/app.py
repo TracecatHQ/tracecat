@@ -90,7 +90,6 @@ async def get_auth_user(user_id: str) -> tuple[str, ...] | None:
             )
 
             record = await acur.fetchone()
-    logger.critical(f"{record = }")
     return record
 
 
@@ -224,7 +223,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
     return workflow_response
 
 
-@app.post("/workflows/{workflow_id}", status_code=204)
+@app.post("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 def update_workflow(
     workflow_id: str,
     params: UpdateWorkflowParams,
@@ -676,7 +675,6 @@ def get_case_metrics(workflow_id: str, case_id: str) -> CaseMetrics:
         .select(list(Case.model_fields.keys()))
         .to_arrow()
     ).to_dicts()
-    logger.critical(df)
     return df
 
 

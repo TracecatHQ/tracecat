@@ -155,7 +155,6 @@ async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookRe
     2. If the secret is not found, return a 404.
     """
     # Change this to make a db call
-    logger.critical(f"{TRACECAT__API_URL =}")
     async with httpx.AsyncClient(http2=True) as client:
         response = await client.post(
             f"{TRACECAT__API_URL}/authenticate/webhooks/{path}/{secret}"
