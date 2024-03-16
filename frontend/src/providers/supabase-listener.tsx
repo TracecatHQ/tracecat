@@ -28,7 +28,7 @@ export default function SupabaseListener({
         router.refresh()
       }
       if (event === "SIGNED_OUT" || session === null) {
-        router.push("/login")
+        router.push("/")
       }
     })
 

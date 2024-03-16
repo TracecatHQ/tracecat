@@ -17,7 +17,7 @@ export async function signInFlow(formData: FormData) {
   })
 
   if (error) {
-    return redirect("/login?level=error&message=Could not authenticate user")
+    return redirect("/?level=error&message=Could not authenticate user")
   }
 
   return redirect("/workflows")
@@ -38,10 +38,10 @@ export async function signUpFlow(formData: FormData) {
   })
 
   if (error) {
-    return redirect("/login?level=error&message=Could not authenticate user")
+    return redirect("/?level=error&message=Could not authenticate user")
   }
 
-  return redirect("/login?message=Check email to continue sign in process")
+  return redirect("/?message=Check email to continue sign in process")
 }
 
 export async function thirdPartyAuthFlow(provider: ThirdPartyAuthProvider) {
@@ -59,7 +59,7 @@ export async function thirdPartyAuthFlow(provider: ThirdPartyAuthProvider) {
   })
 
   if (error) {
-    return redirect("/login?level=error&message=Could not authenticate user")
+    return redirect("/?level=error&message=Could not authenticate user")
   }
 
   return redirect(data.url)
@@ -78,7 +78,7 @@ export async function signInWithEmailMagicLink(formData: FormData) {
   console.log(data, error)
 
   if (error) {
-    return redirect("/login?level=error&message=Could not authenticate user")
+    return redirect("/?level=error&message=Could not authenticate user")
   }
-  return redirect("/login?message=Check email to continue sign in process")
+  return redirect("/?message=Check email to continue sign in process")
 }

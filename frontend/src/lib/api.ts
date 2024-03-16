@@ -10,7 +10,7 @@ export type Client = typeof client
 export const getAuthenticatedClient = (session: Session | null) => {
   if (!session) {
     console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/login")
+    return redirect("/")
   }
 
   client.defaults.headers.common["Authorization"] =
@@ -29,7 +29,7 @@ export async function* streamGenerator(
 ) {
   if (!session) {
     console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/login")
+    return redirect("/")
   }
   const response = await fetch(
     `${process.env.NEXT_PUBLIC_APP_URL}${endpoint}`,

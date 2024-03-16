@@ -1,6 +1,6 @@
 import React from "react"
 import Image from "next/image"
-import Link from "next/link"
+// import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/utils/supabase/server"
 import TracecatIcon from "public/icon.png"
@@ -34,7 +34,7 @@ export default async function Login({
   return (
     <div className="container flex h-full w-full items-center justify-center">
       <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
-        <Link
+        {/* <Link
           href="/"
           className="bg-btn-background hover:bg-btn-background-hover group absolute left-8 top-8 flex items-center rounded-md px-4 py-2 text-sm text-foreground no-underline"
         >
@@ -53,7 +53,7 @@ export default async function Login({
             <polyline points="15 18 9 12 15 6" />
           </svg>{" "}
           Back
-        </Link>
+        </Link> */}
         <CardHeader className="items-center space-y-2 text-center">
           <Image src={TracecatIcon} alt="Tracecat" className="mb-8 h-16 w-16" />
           <CardTitle className="text-2xl">Sign into your account</CardTitle>

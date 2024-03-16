@@ -125,7 +125,7 @@ export const SessionContextProvider = ({
 
   const signOut = useCallback(async () => {
     await supabaseClient.auth.signOut()
-    router.push("/login")
+    router.push("/")
     router.refresh()
   }, [supabaseClient])
 
