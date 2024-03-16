@@ -1,5 +1,7 @@
 import React from "react"
+import Image from "next/image"
 import Link from "next/link"
+import TracecatIcon from "public/icon.png"
 
 import {
   CardContent,
@@ -41,15 +43,15 @@ export default async function Login({
           </svg>{" "}
           Back
         </Link>
-
-        <CardHeader className="space-y-1 text-center">
+        <CardHeader className="items-center space-y-2 text-center">
+          <Image src={TracecatIcon} alt="Tracecat" className="mb-8 h-16 w-16" />
           <CardTitle className="text-2xl">Sign into your account</CardTitle>
           <CardDescription>
             Enter your email below to create your account
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-6">
-          <div className="grid grid-cols-2 gap-2">
+        <CardContent className="flex-col space-y-2">
+          <div className="mb-8 grid grid-cols-2 gap-2">
             <GoogleOAuthButton />
             <GithubOAuthButton />
           </div>
