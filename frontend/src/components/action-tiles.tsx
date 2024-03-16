@@ -134,16 +134,15 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                   onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
                   onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
                   onDragStart={(event) => onDragStart(event, tile)}
+                  onClick={() => handleTileClick(tile.type, tile.title)}
                 >
                   <TileIcon className="h-4 w-4" />
                   <span className="sr-only">{type}</span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="right" className="flex items-center gap-4">
-                {type}
-                {title && (
-                  <span className="ml-auto text-muted-foreground">{title}</span>
-                )}
+                {type?.startsWith("llm.") && "AI "}
+                {title}
               </TooltipContent>
             </Tooltip>
           ) : (
