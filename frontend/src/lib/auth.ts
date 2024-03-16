@@ -17,7 +17,7 @@ export async function signInFlow(formData: FormData) {
   })
 
   if (error) {
-    return redirect("/login?message=Could not authenticate user")
+    return redirect("/login?level=error&message=Could not authenticate user")
   }
 
   return redirect("/workflows")
@@ -38,7 +38,7 @@ export async function signUpFlow(formData: FormData) {
   })
 
   if (error) {
-    return redirect("/login?message=Could not authenticate user")
+    return redirect("/login?level=error&message=Could not authenticate user")
   }
 
   return redirect("/login?message=Check email to continue sign in process")
@@ -59,8 +59,26 @@ export async function thirdPartyAuthFlow(provider: ThirdPartyAuthProvider) {
   })
 
   if (error) {
-    return redirect("/login?message=Could not authenticate user")
+    return redirect("/login?level=error&message=Could not authenticate user")
   }
 
   return redirect(data.url)
+}
+
+export async function signInWithEmailMagicLink(formData: FormData) {
+  const origin = headers().get("origin")
+  const email = formData.get("email") as string
+  const supabase = createClient()
+  const { data, error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: `${origin}/auth/callback`,
+    },
+  })
+  console.log(data, error)
+
+  if (error) {
+    return redirect("/login?level=error&message=Could not authenticate user")
+  }
+  return redirect("/login?message=Check email to continue sign in process")
 }
