@@ -25,33 +25,31 @@ export function SignInForm({
   return (
     <form className="w-full" onSubmit={onSubmit}>
       <CardContent className="grid gap-4">
-        <div className="space-y-2">
-          <div className="grid gap-2">
-            <Label className="text-sm" htmlFor="email">
-              Email
-            </Label>
-            <Input
-              id="email"
-              className="mb-6 rounded-md border bg-inherit px-4 py-2"
-              name="email"
-              placeholder="you@example.com"
-              required
-            />
-          </div>
+        <div className="grid gap-2">
+          <Label className="text-sm" htmlFor="email">
+            Email
+          </Label>
+          <Input
+            id="email"
+            className="rounded-md border bg-inherit px-4 py-2"
+            name="email"
+            placeholder="you@example.com"
+            required
+          />
+        </div>
 
-          <div className="grid gap-2">
-            <Label className="text-sm" htmlFor="password">
-              Password
-            </Label>
-            <Input
-              id="password"
-              className="mb-6 rounded-md border bg-inherit px-4 py-2"
-              type="password"
-              name="password"
-              placeholder="••••••••"
-              required
-            />
-          </div>
+        <div className="grid gap-2">
+          <Label className="text-sm" htmlFor="password">
+            Password
+          </Label>
+          <Input
+            id="password"
+            className="rounded-md border bg-inherit px-4 py-2"
+            type="password"
+            name="password"
+            placeholder="••••••••"
+            required
+          />
         </div>
       </CardContent>
       <CardFooter className="flex-col space-y-4">
