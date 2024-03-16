@@ -1,6 +1,8 @@
 import React from "react"
 import Image from "next/image"
 import Link from "next/link"
+import { redirect } from "next/navigation"
+import { createClient } from "@/utils/supabase/server"
 import TracecatIcon from "public/icon.png"
 
 import {
@@ -20,6 +22,15 @@ export default async function Login({
 }: {
   searchParams: { message: string }
 }) {
+  const supabase = createClient()
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  if (session) {
+    return redirect("/workflows")
+  }
+
   return (
     <div className="container flex h-full w-full items-center justify-center">
       <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
@@ -47,7 +58,7 @@ export default async function Login({
           <Image src={TracecatIcon} alt="Tracecat" className="mb-8 h-16 w-16" />
           <CardTitle className="text-2xl">Sign into your account</CardTitle>
           <CardDescription>
-            Enter your email below to create your account
+            Enter your email below to create your account or sign in
           </CardDescription>
         </CardHeader>
         <CardContent className="flex-col space-y-2">
