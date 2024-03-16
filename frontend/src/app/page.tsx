@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button"
 import { UserAuthForm } from "@/components/auth/user-auth-form"
 import { Icons } from "@/components/icons"
 
-export default function AuthenticationPage() {
+export default function HomePage() {
   return (
     <>
       <div className="container relative hidden h-screen flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0">
