@@ -5,6 +5,8 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleIcon, DeleteIcon, Save } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
+import SyntaxHighlighter from "react-syntax-highlighter"
+import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
 import { Action } from "@/types/schemas"
@@ -21,7 +23,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -40,6 +41,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { ActionNodeType } from "@/components/action-node"
 import { AlertDestructive } from "@/components/alert-destructive"
+import { CollapsibleSection } from "@/components/collapsible-section"
 import {
   baseActionSchema,
   getSubActionSchema,
@@ -184,17 +186,16 @@ export function ActionForm({
 
   const status = action?.status ?? "offline"
   return (
-    <ScrollArea className="h-full">
-      <Form {...form}>
-        <form onSubmit={onSubmit}>
-          <div className="space-y-4 p-4">
+    <Form {...form}>
+      <div
+        className="flex flex-col overflow-auto"
+        id="INSIDE SCROLL"
+        style={{ display: "block" }}
+      >
+        <form onSubmit={onSubmit} className="flex max-w-full overflow-auto">
+          <div id="WRAPPER" className="max-w-full space-y-4 p-4">
             <div className="flex w-full flex-col space-y-3 overflow-hidden">
               <h4 className="text-sm font-medium">Action Status</h4>
-              {process.env.NODE_ENV === "development" && (
-                <div className="w-full">
-                  <pre>{JSON.stringify(form.watch(), null, 2)}</pre>
-                </div>
-              )}
               <div className="flex justify-between">
                 <Badge
                   variant="outline"
@@ -231,6 +232,7 @@ export function ActionForm({
                 </Tooltip>
               </div>
             </div>
+
             <Separator />
             <div className="mb-4 space-y-4">
               <FormField
@@ -269,7 +271,7 @@ export function ActionForm({
                 )}
               />
               <Separator />
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <h4 className="text-m font-medium">Action Inputs</h4>
                 <p className="text-xs text-muted-foreground">
                   Define the inputs for this action. You may use templated
@@ -450,11 +452,39 @@ export function ActionForm({
                     }
                   )}
                 </div>
+                <CollapsibleSection
+                  title="JSON View"
+                  showToggleText={false}
+                  className="text-md truncate text-start font-medium"
+                  size="lg"
+                  iconSize="md"
+                >
+                  <SyntaxHighlighter
+                    language="json"
+                    style={atomOneDark}
+                    wrapLines
+                    customStyle={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      overflowX: "auto",
+                    }}
+                    codeTagProps={{
+                      className:
+                        "text-xs text-background rounded-lg max-w-full overflow-auto",
+                    }}
+                    {...{
+                      className:
+                        "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
+                    }}
+                  >
+                    {JSON.stringify(form.watch(), null, 2)}
+                  </SyntaxHighlighter>
+                </CollapsibleSection>
               </div>
             </div>
           </div>
         </form>
-      </Form>
-    </ScrollArea>
+      </div>
+    </Form>
   )
 }
