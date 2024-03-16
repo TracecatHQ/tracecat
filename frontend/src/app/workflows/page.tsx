@@ -11,7 +11,7 @@ export default async function Page() {
     data: { session },
   } = await supabase.auth.getSession()
   if (!session) {
-    redirect("/login")
+    redirect("/")
   }
   return <WorkflowsDashboard session={session} />
 }

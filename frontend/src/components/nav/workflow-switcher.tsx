@@ -48,7 +48,7 @@ export default function WorkflowSwitcher({
 
   if (!session) {
     console.error("Invalid session, redirecting to login")
-    router.push("/login")
+    router.push("/")
     router.refresh()
   }
 

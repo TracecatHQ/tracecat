@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 
-const UNPROTECTED_PATHS = ["/", "/login", "/auth/callback"]
+const UNPROTECTED_PATHS = ["/", "/auth/callback"]
 
 export const updateSession = async (request: NextRequest) => {
   // Create an unmodified response
@@ -66,11 +66,11 @@ export const updateSession = async (request: NextRequest) => {
     error,
   } = await supabase.auth.getUser()
 
-  // Not logged in and on a protected page -> redirect to /login
+  // Not logged in and on a protected page -> redirect to /
   if (!user && !UNPROTECTED_PATHS.includes(request.nextUrl.pathname)) {
-    console.debug("User logged out, redirecting to /login")
+    console.debug("User logged out, redirecting to /")
     console.debug("Error:", error)
-    const redirectUrl = new URL("/login", request.nextUrl.origin)
+    const redirectUrl = new URL("/", request.nextUrl.origin)
     return NextResponse.redirect(redirectUrl)
   }
 
