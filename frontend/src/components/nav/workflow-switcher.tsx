@@ -26,12 +26,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   NewWorkflowDialog,
   NewWorkflowDialogTrigger,
 } from "@/components/new-workflow-dialog"
-
-import { Skeleton } from "../ui/skeleton"
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
