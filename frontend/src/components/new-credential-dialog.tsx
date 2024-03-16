@@ -1,17 +1,13 @@
 "use client"
 
-import React, { PropsWithChildren, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import React, { PropsWithChildren } from "react"
 import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
-import { useQueryClient } from "@tanstack/react-query"
 import axios from "axios"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { getAuthenticatedClient } from "@/lib/api"
-import { createWorkflow } from "@/lib/flow"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -83,7 +79,10 @@ export function NewCredentialsDialog({
       <DialogContent className={className}>
         <DialogHeader>
           <DialogTitle>New credential</DialogTitle>
-          <DialogDescription>Create a new secret.</DialogDescription>
+          <DialogDescription>
+            Create a new secret. You can refer to this as{" "}
+            <code>{"{{ SECRETS.<SECRET_NAME>}}"}</code>
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form
@@ -95,7 +94,6 @@ export function NewCredentialsDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Secret Name</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="Secret Name"
@@ -112,12 +110,12 @@ export function NewCredentialsDialog({
               name="value"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Secret Value</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="Secret Value"
                       {...field}
                       value={form.watch("value", "")}
+                      type="password"
                     />
                   </FormControl>
                   <FormMessage />
@@ -126,7 +124,7 @@ export function NewCredentialsDialog({
             />
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="submit">Create Workflow</Button>
+                <Button type="submit">Create</Button>
               </DialogClose>
             </DialogFooter>
           </form>
