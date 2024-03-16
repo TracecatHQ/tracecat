@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { SignInForm } from "@/components/auth/forms"
+import { PasswordlessSignInForm } from "@/components/auth/forms"
 import {
   GithubOAuthButton,
   GoogleOAuthButton,
@@ -66,7 +66,7 @@ export default async function Login({
             </div>
           </div>
         </CardContent>
-        <SignInForm searchParams={searchParams} />
+        <PasswordlessSignInForm searchParams={searchParams} />
       </div>
     </div>
   )
