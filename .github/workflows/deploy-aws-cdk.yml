@@ -21,6 +21,7 @@ jobs:
       AWS_ROUTE53__HOSTED_ZONE_ID: ${{ secrets.AWS_ROUTE53__HOSTED_ZONE_ID }}
       AWS_ROUTE53__HOSTED_ZONE_NAME: ${{ secrets.AWS_ROUTE53__HOSTED_ZONE_NAME }}
       AWS_ACM__CERTIFICATE_ARN: ${{ secrets.AWS_ACM__CERTIFICATE_ARN }}
+      AWS_SECRET__ARN: ${{ secrets.AWS_SECRET__ARN }}
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
