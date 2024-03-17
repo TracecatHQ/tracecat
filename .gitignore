@@ -1,3 +1,6 @@
+# CDK stack
+cdk.out/
+
 # Database
 db.sqlite3
 
