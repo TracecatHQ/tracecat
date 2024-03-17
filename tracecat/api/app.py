@@ -19,6 +19,7 @@ from tracecat.db import (
     Action,
     CaseAction,
     CaseContext,
+    User,
     Webhook,
     Workflow,
     WorkflowRun,
@@ -36,11 +37,13 @@ from tracecat.types.api import (
     ActionResponse,
     AuthenticateWebhookResponse,
     CreateActionParams,
+    CreateUserParams,
     CreateWebhookParams,
     CreateWorkflowParams,
     Event,
     EventSearchParams,
     UpdateActionParams,
+    UpdateUserParams,
     UpdateWorkflowParams,
     UpdateWorkflowRunParams,
     WebhookMetadataResponse,
@@ -860,3 +863,85 @@ async def streaming_autofill_case_fields(
         ),
         media_type="text/event-stream",
     )
+
+
+### Users
+
+
+@app.post("/users", status_code=status.HTTP_201_CREATED)
+def create_user(
+    user_id: Annotated[str, Depends(authenticate_session)], params: CreateUserParams
+) -> User:
+    """Create new user.
+
+    Note that this is just for user config, auth is done separately."""
+
+    user = User(id=user_id, tier=params.tier, settings=params.settings)
+    with Session(create_db_engine()) as session:
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user
+
+
+@app.get("/users/{user_id}")
+def get_user(
+    user_id: Annotated[str, Depends(authenticate_session)],
+) -> User:
+    """Return user as title, description, list of Action JSONs, adjacency list of Action IDs."""
+
+    with Session(create_db_engine()) as session:
+        # Get user given user_id
+        statement = select(User).where(User.id == user_id)
+        result = session.exec(statement)
+        try:
+            return result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            ) from e
+
+
+@app.post("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def update_user(
+    user_id: Annotated[str, Depends(authenticate_session)],
+    params: UpdateUserParams,
+) -> None:
+    """Update user."""
+
+    with Session(create_db_engine()) as session:
+        statement = select(User).where(User.id == user_id)
+        result = session.exec(statement)
+        try:
+            user = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            ) from e
+
+        if params.tier is not None:
+            user.tier = params.tier
+        if params.settings is not None:
+            user.settings = params.settings
+
+        session.add(user)
+        session.commit()
+
+
+@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: Annotated[str, Depends(authenticate_session)],
+) -> None:
+    """Delete user."""
+
+    with Session(create_db_engine()) as session:
+        statement = select(User).where(User.id == user_id)
+        result = session.exec(statement)
+        try:
+            user = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            ) from e
+        session.delete(user)
+        session.commit()
