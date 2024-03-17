@@ -3,7 +3,7 @@ title: Workflows
 description: Powerful automation made easy
 ---
 
-Workflows are a series of steps called [Actions](/core/actions).
+Workflows are a series of steps called [Actions](/actions).
 Think of a workflow as a recipe that runs each step needed to complete a task, from start to finish.
 
 {/* <Tip>Looking for a real-world example? Check out our CTF-styled phishing email tutorial.</Tip> */}
@@ -11,13 +11,13 @@ Think of a workflow as a recipe that runs each step needed to complete a task, f
 ## Build a workflow
 <Steps>
   <Step title="Add starting action">
-    Drag and drop Action blocks from the sidebar into the workflow canvas.
-    Most workflows start with a [Webhook action](/core/actions/webhook).
+    Drag and drop an action block from the sidebar onto the workflow canvas.
+    Most workflows start with a [Webhook Action](/actions/types/webhook).
     Webhooks allow you to receive data from external systems (e.g. Crowdstrike alerts).
   </Step>
-  <Step title="Add next action">
-    Click or drag another Action block into the workflow canvas.
-    This action could be a [AI summarize action](/core/actions/http-request),
+  <Step title="Add receiving action">
+    Add another action onto the workflow canvas.
+    This action could be a [AI Summarize Action](/actions/types/ai-summarize),
     which uses a large language model (LLM) to summarize the alert received in the previous action.
   </Step>
   <Step title="Connect actions">
@@ -32,13 +32,15 @@ Think of a workflow as a recipe that runs each step needed to complete a task, f
   </Step>
 </Steps>
 
+<Tip>You can quickly add and connect actions by clicking, instead of dragging, action blocks.</Tip>
+
 ## What next?
 
 ### Deploy
 
 You can deploy your workflow.
 
-A deployed workflow runs automatically whenever a starting [Webhook action](/core/actions/webhook) receives new data.
+<Info>Deployed workflows runs automatically whenever a starting [Webhook action](/actions/types/webhook) receives new data.</Info>
 
 ### Schedule
 
@@ -46,6 +48,6 @@ You can schedule your workflow to run as a cron job.
 
 ### Build bigger
 
-You can build more complex workflows with [conditional logic](/core/conditions),
-[AI tasks](/core/ai), [data transforms](/core/transforms) and more.
-See all available [Actions](/actions).
+You can build more complex workflows with [conditional logic](/actions/types/if-conditions/overview),
+[AI actions](/actions/types/ai-actions), [data transforms](/actions/types/data-transforms) and more.
+See all available [Actions](core//actions).
