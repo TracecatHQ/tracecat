@@ -1,0 +1,53 @@
+---
+title: Workflows
+description: Powerful automation made easy
+---
+
+Workflows are a series of steps called [Actions](/actions).
+Think of a workflow as a recipe that runs each step needed to complete a task, from start to finish.
+
+{/* <Tip>Looking for a real-world example? Check out our CTF-styled phishing email tutorial.</Tip> */}
+
+## Build a workflow
+<Steps>
+  <Step title="Add starting action">
+    Drag and drop an action block from the sidebar onto the workflow canvas.
+    Most workflows start with a [Webhook Action](/actions/types/webhook).
+    Webhooks allow you to receive data from external systems (e.g. Crowdstrike alerts).
+  </Step>
+  <Step title="Add receiving action">
+    Add another action onto the workflow canvas.
+    This action could be a [AI Summarize Action](/actions/types/ai-summarize),
+    which uses a large language model (LLM) to summarize the alert received in the previous action.
+  </Step>
+  <Step title="Connect actions">
+    Connect the actions together.
+    This creates a sequence of actions that run in order.
+  </Step>
+  <Step title="🎉 Run your workflow">
+    Press the `run` button to execute your workflow.
+
+    To view the results of each action, check out the [event logs](/core/events) search panel.
+    Event logs contain the results of each action alongside additional metadata (e.g. published time).
+  </Step>
+</Steps>
+
+<Tip>You can quickly add and connect actions by clicking, instead of dragging, action blocks.</Tip>
+
+## What next?
+
+### Deploy
+
+You can deploy your workflow.
+
+<Info>Deployed workflows runs automatically whenever a starting [Webhook action](/actions/types/webhook) receives new data.</Info>
+
+### Schedule
+
+You can schedule your workflow to run as a cron job.
+
+### Build bigger
+
+You can build more complex workflows with [conditional logic](/actions/types/if-conditions/overview),
+[AI actions](/actions/types/ai-actions), [data transforms](/actions/types/data-transforms) and more.
+See all available [Actions](core//actions).
