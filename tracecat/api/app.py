@@ -248,7 +248,7 @@ def update_workflow(
         session.commit()
 
 
-@app.delete("/workflows/{workflow_id}")
+@app.delete("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_workflow(workflow_id: str) -> None:
     """Delete Workflow."""
 
