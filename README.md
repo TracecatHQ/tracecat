@@ -145,7 +145,7 @@ We believe the most useful AI is "boring AI" (e.g. summarization, semantic searc
 - Open source SOARs were popular two years ago, but failed to mature from side-projects into enterprise-ready software.
 - Most SIEMs are bundled with a SOAR, but lack flexibility for security teams (e.g. MSSPs) that work across multiple SIEMs or no SIEM at all.
 
-### Tracecat is a venture-backed start up. Why build open source?
+### Why build open source?
 
 - We love using and building open source tools.
 - Existing "AI" security products hide behind demo-ware, sales calls, and white papers. We want to build in the open: open community, open tutorials, and open vision.
