@@ -1,0 +1,180 @@
+---
+title: Actions
+description: Building blocks for automation workflows
+---
+
+<Tip>Need help? The `#help` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8) is the place to be!</Tip>
+
+Actions are individual tasks performed at each step of a workflow.
+You can find all available Actions in the workspace sidebar.
+
+There are only ten Action types, but they can be configured to perform almost any task.
+For example, a [HTTP request](/actions/types/http-request) can be configured to send a Slack message.
+See [Tutorial](/tutorial) for a worked example.
+
+## Build an Action
+
+<Steps>
+  <Step title="Add action">
+    Click or drag-and-drop an action block onto the workflow canvas.
+  </Step>
+  <Step title="Configure action">
+    Select your action onto the canvas to open its configuration panel.
+    Update the action name, description, and inputs here.
+    Press `save`.
+  </Step>
+</Steps>
+
+## Connecting Actions
+
+When you link action blocks together, the output of previous actions are passed on to next actions.
+
+<Note>
+Outputs from previous actions don't auto-fill inputs for the next action.
+You need to do this manually.
+Find out how in the next section.
+</Note>
+
+### Using Action Outputs as Inputs
+
+Every action has an output. Outputs are JSON objects stored as [Event Logs](/core/event-logs).
+You can use the output of one action as the input of another action.
+
+The data within event logs are accessed using JSONPaths.
+
+Check out [using JSONPaths with event logs](/core/event-logs#select-data-in-events) to learn more.
+Don't worry if this is new to you! It's designed to be a simple extension of JSON.
+
+### Worked Example
+
+Let's use the three-step workflow from [Connecting Actions](#connecting-actions) as an example.
+
+<Steps>
+  <Step title="Pass malware sample to webhook">
+    Let's assume the [Webhook](/actions/types/http-request) action (titled "Receive malware sample")
+    has the following URL: `https://runner.tracecat.com/webhooks/<path>/<secret>`.
+    This URL will differ for every user and action block.
+
+    You can pass data into the webhook using cURL.
+    In the following example, we send the webhook a SHA-256 malware sample:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" \
+      -d '{"malware_sha256": "78dc6e1d4fbb80814f5c6d7a7da57aaac32a50a97b9963461ff0a19834246d94"}' \
+      https://runner.tracecat.com/webhooks/<path>/<secret>
+    ```
+
+    Tracecat receives the data and stores it as an [event log](/core/event-logs), which looks like this:
+    ```json
+    {
+      "receive_malware_sample": {
+        "title": "Receive malware sample",
+        "payload": {
+          "malware_sha256": "78dc6e1d4fbb80814f5c6d7a7da57aaac32a50a97b9963461ff0a19834246d94"
+        }
+      }
+    }
+    ```
+    <Note>
+    Every event log is a nested JSON that contains the output of every connected action.
+
+    The output of different actions are stored under a unique key.
+    Keys are automatically generated from the action title.
+    Keys are always lower snakecase.
+
+    For example, an action with the title `Receive URL` will have the key `receive_url`.
+    </Note>
+  </Step>
+  <Step title="Get malware report">
+    Let's send the malware sample to [MalwareBazaar](https://bazaar.abuse.ch/) for a report.
+    Select the [HTTP Request](/actions/types/http-request) action (titled "Get malware report").
+
+    1. Fill in the action's `url` input field with the following:
+    `https://mb-api.abuse.ch/api/v1/query=get_info&hash={{ $.receive_malware_sample.payload.malware_sha256 }}`
+    2. Set the `method` input field to `POST`.
+    3. Save the action.
+
+    Your configuration form should look like this:
+
+    <Note>
+    `{{ $.receive_malware_sample.payload.malware_sha256 }}`
+    is the JSONPath query to get the malware sample from the previous action's output.
+    </Note>
+    <Tip>
+    Need JSONPath help? We got you.
+    Just share your code in the `#help` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8)!
+    </Tip>
+  </Step>
+  <Step title="Send malware report to yourself">
+    Select the [Send Email](/actions/types/send-email) action (titled "Send malware report").
+
+    1. Fill in the action's `receivers` input field with your email address.
+    2. Set the `subject` input field to `Malware report for {{ $.receive_malware_sample.payload.malware_sha256 }}`.
+    3. Set the `content` input field to `{{ $.get_malware_report.payload }}`.
+    4. Save the action.
+
+    Your configuration form should look like this:
+
+    <Note>
+    Check out the [MalwareBazaar API](ttps://bazaar.abuse.ch/api/#query_hash) to see what the full response looks like.
+
+    </Note>
+
+  </Step>
+  <Step title="🎉 Congratulations">
+    You just learned how to configure three different action types!
+
+    <Tip>Looking for a more advanced CTF-styled tutorial? Check out our [phishing email investigation](/) walkthrough.</Tip>
+
+  </Step>
+</Steps>
+
+## Action Types
+
+<CardGroup cols={2}>
+  <Card title="Webhook" icon="link" href="/actions/types/webhook">
+    Perform actions based on external triggers.
+  </Card>
+  <Card title="HTTP Request" icon="globe" href="/actions/types/http-request">
+    Make HTTP requests to interact with external APIs.
+  </Card>
+  <Card title="Data Transform" icon="code" href="/actions/types/data-transform">
+    Transform streams of JSON data.
+  </Card>
+  <Card title="Send Email" icon="envelope" href="/actions/types/send-email">
+    Send emails to specified recipients.
+  </Card>
+  <Card title="If Conditions" icon="question" href="/actions/types/conditions/overview">
+    Create branching workflows using predefined rules.
+  </Card>
+  <Card title="AI Actions" icon="robot" href="/actions/types/ai-actions/overview">
+    Perform AI-powered tasks (e.g. summarize, label, translate).
+  </Card>
+  <Card title="Open Case" icon="folder-open" href="/actions/types/open-case">
+    Open and prepopulate a case in the case management system.
+  </Card>
+</CardGroup>
+
+## How about pre-built Actions?
+
+*Work-in-progress: we plan to release pre-built actions mid-April 2024.*
+
+Actions can be configured to do almost any tasks, but it's best to use pre-built ones if available.
+Pre-built actions have pre-configured inputs to perform tasks for commonly used products.
+
+Here are a few examples:
+- `URLScan` Perform a security scan on a given URL
+- `VirusTotal` Get detailed report for a malware sample
+- `Microsoft Defender` Trigger a scan on a specific file
+- `EmailRep` Retrieve reputation information for a given email address
+- `GeoIP Lookup` Get the geographical location information for a given IP address.
+- `Slack` Send a message to a specific channel on Slack
+
+<Note>
+Can't find a pre-built action for a specific product?
+
+We love suggestions. Just let us know in the `#feedback` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8):
+- What task you want to achieve
+- What product you want to integrate
+
+And we will respond to every suggestion!
+</Note>
