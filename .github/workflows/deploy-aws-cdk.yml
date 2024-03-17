@@ -1,0 +1,40 @@
+name: Deploy Tracecat to AWS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy FastAPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write # This line allows GitHub Actions to request an OIDC token
+      contents: read
+    env:
+      TRACECAT__APP_ENV: prod
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActions
+          role-duration-seconds: 3600
+
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk@2.133 && cdk --version
+
+      - name: Install Python CDK
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements-cdk.txt
+
+      - name: CDK bootstrap
+        run: cdk bootstrap --app "python3 aws_cdk_app.py"
+
+      - name: CDK deploy
+        run: cdk deploy --app "python3 aws_cdk_app.py" --require-approval never
