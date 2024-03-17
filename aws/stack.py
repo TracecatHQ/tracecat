@@ -32,7 +32,7 @@ class TracecatEngineStack(Stack):
             "SupabaseJwtSecret",
             secret_name=f"{SECRET_NAME_PREFIX}/supbase-jwt-secret",
         )
-        psql_url_secret = Secret.Secret.from_secret_name_v2(
+        psql_url_secret = Secret.from_secret_name_v2(
             self, "SupabasePsqlUrl", f"{SECRET_NAME_PREFIX}/supabase-psql-url"
         )
         openai_api_key = Secret.from_secret_name_v2(
