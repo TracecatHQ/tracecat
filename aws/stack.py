@@ -7,11 +7,11 @@ from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_wafv2 as wafv2
-from aws_cdk.aws_secretsmanager import Secret
+from aws_cdk.aws_secretsmanager import SecretValue
 from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "dev")
-SECRET_NAME_PREFIX = f"tracecat/{TRACECAT__APP_ENV}"
+AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
@@ -40,19 +40,17 @@ class TracecatEngineStack(Stack):
         )
 
         # Secrets
-        tracecat_signing_secret = Secret.from_secret_name_v2(
-            self, "ApiSigningSecret", secret_name="tracecat/signing-secret"
+        tracecat_signing_secret = SecretValue.secrets_manager(
+            AWS_SECRET__ARN, json_field="signing-secret"
         )
-        supabase_jwt_secret = Secret.from_secret_name_v2(
-            self,
-            "SupabaseJwtSecret",
-            secret_name=f"{SECRET_NAME_PREFIX}/supabase-jwt-secret",
+        supabase_jwt_secret = SecretValue.secrets_manager(
+            AWS_SECRET__ARN, json_field="supabase-jwt-secret"
         )
-        psql_url_secret = Secret.from_secret_name_v2(
-            self, "SupabasePsqlUrl", f"{SECRET_NAME_PREFIX}/supabase-psql-url"
+        psql_url_secret = SecretValue.secrets_manager(
+            AWS_SECRET__ARN, json_field="supabase-psql-url"
         )
-        openai_api_key = Secret.from_secret_name_v2(
-            self, "OpenAIApiKey", secret_name=f"{SECRET_NAME_PREFIX}/openai-api-key"
+        openai_api_key = SecretValue.secrets_manager(
+            AWS_SECRET__ARN, json_field="openai-api-key"
         )
 
         # Task execution IAM role (used across API and runner)
