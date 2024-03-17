@@ -150,7 +150,7 @@ def list_workflows(
     return workflow_metadata
 
 
-@app.post("/workflows", status_code=201)
+@app.post("/workflows", status_code=status.HTTP_201_CREATED)
 def create_workflow(
     params: CreateWorkflowParams,
     user_id: Annotated[str, Depends(authenticate_session)],
@@ -248,24 +248,19 @@ def update_workflow(
         session.commit()
 
 
-### Workflow Runs
+@app.delete("/workflows/{workflow_id}")
+def delete_workflow(workflow_id: str) -> None:
+    """Delete Workflow."""
 
-
-@app.post("/workflows/{workflow_id}/runs", status_code=status.HTTP_201_CREATED)
-def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
-    """Create a Workflow Run."""
-
-    workflow_run = WorkflowRun(workflow_id=workflow_id)
     with Session(create_db_engine()) as session:
-        session.add(workflow_run)
+        statement = select(Workflow).where(Workflow.id == workflow_id)
+        result = session.exec(statement)
+        workflow = result.one()
+        session.delete(workflow)
         session.commit()
-        session.refresh(workflow_run)
 
-    return WorkflowRunMetadataResponse(
-        id=workflow_run.id,
-        workflow_id=workflow_id,
-        status=workflow_run.status,
-    )
+
+### Workflow Runs
 
 
 @app.get("/workflows/{workflow_id}/runs")
@@ -285,6 +280,23 @@ def list_workflow_runs(workflow_id: str) -> list[WorkflowRunMetadataResponse]:
         for workflow_run in workflow_runs
     ]
     return workflow_runs_metadata
+
+
+@app.post("/workflows/{workflow_id}/runs", status_code=status.HTTP_201_CREATED)
+def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
+    """Create a Workflow Run."""
+
+    workflow_run = WorkflowRun(workflow_id=workflow_id)
+    with Session(create_db_engine()) as session:
+        session.add(workflow_run)
+        session.commit()
+        session.refresh(workflow_run)
+
+    return WorkflowRunMetadataResponse(
+        id=workflow_run.id,
+        workflow_id=workflow_id,
+        status=workflow_run.status,
+    )
 
 
 @app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
@@ -460,7 +472,26 @@ def delete_action(action_id: str) -> None:
 ### Webhooks
 
 
-@app.put("/webhooks", status_code=status.HTTP_201_CREATED)
+@app.get("/webhooks")
+def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
+    """List all Webhooks for a workflow."""
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook).where(Webhook.workflow_id == workflow_id)
+        result = session.exec(statement)
+        webhooks = result.all()
+    webhook_responses = [
+        WebhookResponse(
+            id=webhook.id,
+            path=webhook.path,
+            action_id=webhook.action_id,
+            workflow_id=webhook.workflow_id,
+        )
+        for webhook in webhooks
+    ]
+    return webhook_responses
+
+
+@app.post("/webhooks", status_code=status.HTTP_201_CREATED)
 def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
     """Create a new Webhook."""
     webhook = Webhook(
@@ -504,25 +535,6 @@ def delete_webhook(webhook_id: str) -> None:
         webhook = result.one()
         session.delete(webhook)
         session.commit()
-
-
-@app.get("/webhooks")
-def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
-    """List all Webhooks for a workflow."""
-    with Session(create_db_engine()) as session:
-        statement = select(Webhook).where(Webhook.workflow_id == workflow_id)
-        result = session.exec(statement)
-        webhooks = result.all()
-    webhook_responses = [
-        WebhookResponse(
-            id=webhook.id,
-            path=webhook.path,
-            action_id=webhook.action_id,
-            workflow_id=webhook.workflow_id,
-        )
-        for webhook in webhooks
-    ]
-    return webhook_responses
 
 
 @app.get("/webhooks/search")
@@ -609,7 +621,7 @@ def search_events(params: EventSearchParams) -> list[Event]:
 ### Case Management
 
 
-@app.put("/workflows/{workflow_id}/cases", status_code=status.HTTP_201_CREATED)
+@app.post("/workflows/{workflow_id}/cases", status_code=status.HTTP_201_CREATED)
 def create_case(workflow_id: str, cases: list[Case]):
     db = create_vdb_conn()
     tbl = db.open_table("cases")
