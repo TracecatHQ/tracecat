@@ -29,7 +29,10 @@ class User(SQLModel, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     tier: str = "free"  # "free" or "premium"
     settings: str | None = None  # JSON-serialized String of settings
-    owned_workflows: list["Workflow"] = Relationship(back_populates="owner")
+    owned_workflows: list["Workflow"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "delete"},
+    )
     case_actions: list["CaseAction"] = Relationship(back_populates="user")
     case_contexts: list["CaseContext"] = Relationship(back_populates="user")
 
