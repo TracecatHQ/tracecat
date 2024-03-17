@@ -1,6 +1,7 @@
 import os
 
-from aws_cdk import Duration, Stack
+from aws_cdk import Duration, Stack, route53
+from aws_cdk import aws_acm as acm
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
@@ -12,6 +13,10 @@ from constructs import Construct
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "dev")
 SECRET_NAME_PREFIX = f"tracecat/{TRACECAT__APP_ENV}"
 
+AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
+AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
+AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
+
 
 class TracecatEngineStack(Stack):
     def __init__(self, scope: Construct, id: str, **kwargs) -> None:
@@ -21,6 +26,17 @@ class TracecatEngineStack(Stack):
         vpc = ec2.Vpc(self, "Vpc", vpc_name="tracecat-vpc")
         cluster = ecs.Cluster(
             self, "Cluster", cluster_name="tracecat-ecs-cluster", vpc=vpc
+        )
+
+        # Get hosted zone and certificate (created from AWS console)
+        hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
+            self,
+            "HostedZone",
+            hosted_zone_id=AWS_ROUTE53__HOSTED_ZONE_ID,
+            zone_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
+        )
+        cert = acm.Certificate.from_certificate_arn(
+            self, "Certificate", AWS_ACM__CERTIFICATE_ARN
         )
 
         # Secrets
@@ -127,13 +143,46 @@ class TracecatEngineStack(Stack):
         service = ecs_patterns.ApplicationLoadBalancedFargateService(
             self,
             "TracecatEngineALBFargateService",
-            service_name="tracecat-fargate-fastapi",
             cluster=cluster,
             desired_count=1,
-            task_definition=task_definition,
+            domain_zone=hosted_zone,
+            health_check_grace_period=Duration.seconds(150),
             public_load_balancer=True,
             redirect_http=True,
-            health_check_grace_period=Duration.seconds(150),
+            service_name="tracecat-fargate-fastapi",
+            task_definition=task_definition,
+            certificate=cert,
+        )
+
+        # Add routing based on hostname or path
+        listener = service.load_balancer.add_listener(
+            "Listener",
+            port=443,
+            certificates=[cert],  # Define your certificate
+        )
+
+        # API target
+        listener.add_targets(
+            "ApiTarget",
+            priority=10,
+            path_pattern="/api/*",
+            targets=[
+                service.service.load_balancer_target(
+                    container_name="ApiContainer", container_port=8000
+                )
+            ],
+        )
+
+        # Runner target
+        listener.add_targets(
+            "RunnerTarget",
+            priority=20,
+            path_pattern="/runner/*",
+            targets=[
+                service.service.load_balancer_target(
+                    container_name="RunnerContainer", container_port=8001
+                )
+            ],
         )
 
         # Add WAF to block all traffic not from platform.tracecat.com
