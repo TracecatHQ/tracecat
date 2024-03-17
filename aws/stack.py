@@ -1,13 +1,15 @@
 import os
 
-from aws_cdk import Duration, Stack, route53
-from aws_cdk import aws_acm as acm
+from aws_cdk import Duration, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
+from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_wafv2 as wafv2
-from aws_cdk.aws_secretsmanager import SecretValue
+from aws_cdk.aws_certificatemanager import Certificate
+from aws_cdk.aws_route53 import HostedZone
 from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "dev")
@@ -29,28 +31,14 @@ class TracecatEngineStack(Stack):
         )
 
         # Get hosted zone and certificate (created from AWS console)
-        hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
+        hosted_zone = HostedZone.from_hosted_zone_attributes(
             self,
             "HostedZone",
             hosted_zone_id=AWS_ROUTE53__HOSTED_ZONE_ID,
             zone_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
         )
-        cert = acm.Certificate.from_certificate_arn(
+        cert = Certificate.from_certificate_arn(
             self, "Certificate", AWS_ACM__CERTIFICATE_ARN
-        )
-
-        # Secrets
-        tracecat_signing_secret = SecretValue.secrets_manager(
-            AWS_SECRET__ARN, json_field="signing-secret"
-        )
-        supabase_jwt_secret = SecretValue.secrets_manager(
-            AWS_SECRET__ARN, json_field="supabase-jwt-secret"
-        )
-        psql_url_secret = SecretValue.secrets_manager(
-            AWS_SECRET__ARN, json_field="supabase-psql-url"
-        )
-        openai_api_key = SecretValue.secrets_manager(
-            AWS_SECRET__ARN, json_field="openai-api-key"
         )
 
         # Task execution IAM role (used across API and runner)
@@ -77,12 +65,7 @@ class TracecatEngineStack(Stack):
                         "secretsmanager:GetSecretValue",
                         "secretsmanager:DescribeSecret",
                     ],
-                    resources=[
-                        tracecat_signing_secret.secret_arn,
-                        supabase_jwt_secret.secret_arn,
-                        psql_url_secret.secret_arn,
-                        openai_api_key.secret_arn,
-                    ],
+                    resources=[AWS_SECRET__ARN],
                 ),
             ],
             roles=[execution_role],
@@ -94,16 +77,27 @@ class TracecatEngineStack(Stack):
         )
 
         # Secrets
+        tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "TracecatEngineSecret", secret_complete_arn=AWS_SECRET__ARN
+        )
         api_secrets = {
             "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
-                tracecat_signing_secret
+                tracecat_secret, field="signing-secret"
             ),
-            "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(supabase_jwt_secret),
-            "SUPABASE_PSQL_URL": ecs.Secret.from_secrets_manager(psql_url_secret),
-            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(openai_api_key),
+            "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="supabase-jwt-secret"
+            ),
+            "SUPABASE_PSQL_URL": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="supabase-psql-url"
+            ),
+            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="openai-api-key"
+            ),
         }
         runner_secrets = {
-            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(openai_api_key)
+            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="openai-api-key"
+            )
         }
 
         # Tracecat API
@@ -138,9 +132,10 @@ class TracecatEngineStack(Stack):
         runner_container.add_port_mappings(ecs.PortMapping(container_port=8001))
 
         # Create Fargate service
-        service = ecs_patterns.ApplicationLoadBalancedFargateService(
+        ecs_service = ecs_patterns.ApplicationLoadBalancedFargateService(
             self,
             "TracecatEngineALBFargateService",
+            certificate=cert,
             cluster=cluster,
             desired_count=1,
             domain_zone=hosted_zone,
@@ -149,36 +144,46 @@ class TracecatEngineStack(Stack):
             redirect_http=True,
             service_name="tracecat-fargate-fastapi",
             task_definition=task_definition,
-            certificate=cert,
         )
 
         # Add routing based on hostname or path
-        listener = service.load_balancer.add_listener(
+        listener = ecs_service.load_balancer.add_listener(
             "Listener",
             port=443,
-            certificates=[cert],  # Define your certificate
+            certificates=[cert],
+            default_action=elbv2.ListenerAction.fixed_response(404),
         )
 
         # API target
         listener.add_targets(
-            "ApiTarget",
+            "TracecatApiTarget",
             priority=10,
-            path_pattern="/api/*",
+            port=8000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            conditions=[
+                elbv2.ListenerCondition.host_headers([AWS_ROUTE53__HOSTED_ZONE_NAME]),
+                elbv2.ListenerCondition.path_patterns(["/api/*"]),
+            ],
             targets=[
-                service.service.load_balancer_target(
-                    container_name="ApiContainer", container_port=8000
+                ecs_service.service.load_balancer_target(
+                    container_name="TracecatApiContainer", container_port=8000
                 )
             ],
         )
 
         # Runner target
         listener.add_targets(
-            "RunnerTarget",
+            "TracecatRunnerTarget",
             priority=20,
-            path_pattern="/runner/*",
+            port=8001,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            conditions=[
+                elbv2.ListenerCondition.host_headers([AWS_ROUTE53__HOSTED_ZONE_NAME]),
+                elbv2.ListenerCondition.path_patterns(["/runner/*"]),
+            ],
             targets=[
-                service.service.load_balancer_target(
-                    container_name="RunnerContainer", container_port=8001
+                ecs_service.service.load_balancer_target(
+                    container_name="TracecatRunnerContainer", container_port=8001
                 )
             ],
         )
@@ -214,15 +219,65 @@ class TracecatEngineStack(Stack):
                                             single_header={"name": "Host"}
                                         ),
                                         positional_constraint="EXACTLY",
+                                        text_transformations=[
+                                            wafv2.CfnWebACL.TextTransformationProperty(
+                                                priority=0, type="LOWERCASE"
+                                            )
+                                        ],
                                     )
                                 ),
                                 wafv2.CfnWebACL.StatementProperty(
                                     byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-                                        search_string="443",
+                                        search_string="https",
                                         field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-                                            single_header={"name": "X-Forwarded-Port"}
+                                            single_header={"name": "X-Forwarded-Proto"}
                                         ),
                                         positional_constraint="EXACTLY",
+                                        text_transformations=[
+                                            wafv2.CfnWebACL.TextTransformationProperty(
+                                                priority=0, type="NONE"
+                                            )
+                                        ],
+                                    )
+                                ),
+                                wafv2.CfnWebACL.StatementProperty(
+                                    or_statement=wafv2.CfnWebACL.OrStatementProperty(
+                                        statements=[
+                                            wafv2.CfnWebACL.StatementProperty(
+                                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                                    search_string="/api/",
+                                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
+                                                        single_query_argument={
+                                                            "name": "uri"
+                                                        }
+                                                    ),
+                                                    positional_constraint="STARTS_WITH",
+                                                    text_transformations=[
+                                                        wafv2.CfnWebACL.TextTransformationProperty(
+                                                            priority=0,
+                                                            type="URL_DECODE",
+                                                        )
+                                                    ],
+                                                )
+                                            ),
+                                            wafv2.CfnWebACL.StatementProperty(
+                                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                                    search_string="/runner/",
+                                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
+                                                        single_query_argument={
+                                                            "name": "uri"
+                                                        }
+                                                    ),
+                                                    positional_constraint="STARTS_WITH",
+                                                    text_transformations=[
+                                                        wafv2.CfnWebACL.TextTransformationProperty(
+                                                            priority=0,
+                                                            type="URL_DECODE",
+                                                        )
+                                                    ],
+                                                )
+                                            ),
+                                        ]
                                     )
                                 ),
                             ]
@@ -241,11 +296,11 @@ class TracecatEngineStack(Stack):
         wafv2.CfnWebACLAssociation(
             self,
             "WebAclAssociation",
-            resource_arn=service.load_balancer.load_balancer_arn,
+            resource_arn=ecs_service.load_balancer.load_balancer_arn,
             web_acl_arn=web_acl.attr_arn,
         )
 
         # Retrieve the target group
-        target_group = self.ecs_service.target_group
-        # Change the success codes
+        target_group = ecs_service.target_group
+        # Explicitly set the success codes
         target_group.configure_health_check(path="/", healthy_http_codes="200")
