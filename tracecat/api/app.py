@@ -233,7 +233,12 @@ def update_workflow(
     with Session(create_db_engine()) as session:
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
-        workflow = result.one()
+        try:
+            workflow = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
         if params.title is not None:
             workflow.title = params.title
@@ -255,7 +260,12 @@ def delete_workflow(workflow_id: str) -> None:
     with Session(create_db_engine()) as session:
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
-        workflow = result.one()
+        try:
+            workflow = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
         session.delete(workflow)
         session.commit()
 
@@ -310,7 +320,12 @@ def get_workflow_run(workflow_id: str, workflow_run_id: str) -> WorkflowRunRespo
             WorkflowRun.workflow_id == workflow_id,  # Redundant, but for clarity
         )
         result = session.exec(statement)
-        workflow_run = result.one()
+        try:
+            workflow_run = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
     return WorkflowRunResponse(
         id=workflow_run.id,
@@ -336,7 +351,12 @@ def update_workflow_run(
             WorkflowRun.workflow_id == workflow_id,
         )
         result = session.exec(statement)
-        workflow_run = result.one()
+        try:
+            workflow_run = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
         if params.status is not None:
             workflow_run.status = params.status
@@ -408,7 +428,12 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
             .where(Action.workflow_id == workflow_id)
         )
         result = session.exec(statement)
-        action = result.one()
+        try:
+            action = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
         inputs: dict[str, Any] = json.loads(action.inputs) if action.inputs else {}
         # Precompute webhook response
@@ -433,7 +458,12 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
         # Fetch the action by id
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
-        action = result.one()
+        try:
+            action = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
         if params.title is not None:
             action.title = params.title
@@ -464,7 +494,12 @@ def delete_action(action_id: str) -> None:
     with Session(create_db_engine()) as session:
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
-        action = result.one()
+        try:
+            action = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
         session.delete(action)
         session.commit()
 
@@ -516,7 +551,12 @@ def get_webhook(webhook_id: str) -> WebhookResponse:
     with Session(create_db_engine()) as session:
         statement = select(Webhook).where(Webhook.id == webhook_id)
         result = session.exec(statement)
-        webhook = result.one()
+        try:
+            webhook = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
     webhook_response = WebhookResponse(
         id=webhook.id,
         secret=webhook.secret,
@@ -545,7 +585,12 @@ def search_webhooks(action_id: str | None = None) -> WebhookResponse:
         if action_id is not None:
             statement = statement.where(Webhook.action_id == action_id)
         result = session.exec(statement)
-        webhook = result.one()
+        try:
+            webhook = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
     webhook_response = WebhookResponse(
         id=webhook.id,
         secret=webhook.secret,
@@ -557,28 +602,28 @@ def search_webhooks(action_id: str | None = None) -> WebhookResponse:
 
 @app.post("/authenticate/webhooks/{webhook_id}/{secret}")
 def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
-    try:
-        with Session(create_db_engine()) as session:
-            statement = select(Webhook).where(Webhook.id == webhook_id)
-            result = session.exec(statement)
+    with Session(create_db_engine()) as session:
+        statement = select(Webhook).where(Webhook.id == webhook_id)
+        result = session.exec(statement)
+        try:
             webhook = result.one()
-            if webhook.secret != secret:
-                return AuthenticateWebhookResponse(status="Unauthorized")
-            # Get slug
-            statement = select(Action).where(Action.id == webhook.action_id)
-            result = session.exec(statement)
+        except NoResultFound as e:
+            logger.error("Webhook does not exist: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        if webhook.secret != secret:
+            return AuthenticateWebhookResponse(status="Unauthorized")
+        # Get slug
+        statement = select(Action).where(Action.id == webhook.action_id)
+        result = session.exec(statement)
+        try:
             action = result.one()
-    except NoResultFound as e:
-        logger.error("Webhook does not exist: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        ) from e
-
+        except Exception as e:
+            logger.error("Action does not exist: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
     return AuthenticateWebhookResponse(
         status="Authorized",
         action_id=action.id,
@@ -715,7 +760,12 @@ def delete_case_action(case_action: CaseAction):
     with Session(create_db_engine()) as session:
         statement = select(CaseAction).where(CaseAction.id == case_action.id)
         result = session.exec(statement)
-        action = result.one()
+        try:
+            action = result.one()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
         session.delete(action)
         session.commit()
 
@@ -745,7 +795,13 @@ def delete_case_context(case_context: CaseContext):
     with Session(create_db_engine()) as session:
         statement = select(CaseContext).where(CaseContext.id == case_context.id)
         result = session.exec(statement)
-        action = result.one()
+        try:
+            action = result.one()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        session.delete(action)
         session.delete(action)
         session.commit()
     pass
