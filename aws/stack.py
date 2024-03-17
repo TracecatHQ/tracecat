@@ -30,7 +30,7 @@ class TracecatEngineStack(Stack):
         supabase_jwt_secret = Secret.from_secret_name_v2(
             self,
             "SupabaseJwtSecret",
-            secret_name=f"{SECRET_NAME_PREFIX}/supbase-jwt-secret",
+            secret_name=f"{SECRET_NAME_PREFIX}/supabase-jwt-secret",
         )
         psql_url_secret = Secret.from_secret_name_v2(
             self, "SupabasePsqlUrl", f"{SECRET_NAME_PREFIX}/supabase-psql-url"
