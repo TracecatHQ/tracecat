@@ -2,6 +2,11 @@ name: Deploy Tracecat to AWS
 
 on:
   workflow_dispatch:
+    inputs:
+      app_env:
+        description: "App Environment"
+        required: false
+        default: "dev"
 
 jobs:
   deploy:
@@ -12,7 +17,10 @@ jobs:
       id-token: write # This line allows GitHub Actions to request an OIDC token
       contents: read
     env:
-      TRACECAT__APP_ENV: prod
+      TRACECAT__APP_ENV: ${{ github.event.inputs.app_env }}
+      AWS_ROUTE53__HOSTED_ZONE_ID: ${{ secrets.AWS_ROUTE53__HOSTED_ZONE_ID }}
+      AWS_ROUTE53__HOSTED_ZONE_NAME: ${{ secrets.AWS_ROUTE53__HOSTED_ZONE_NAME }}
+      AWS_ACM__CERTIFICATE_ARN: ${{ secrets.AWS_ACM__CERTIFICATE_ARN }}
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
