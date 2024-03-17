@@ -66,9 +66,15 @@ class Workflow(SQLModel, table=True):
     # Owner
     owner_id: str | None = Field(default=None, foreign_key="user.id")
     owner: User | None = Relationship(back_populates="owned_workflows")
-    actions: list["Action"] | None = Relationship(back_populates="workflow")
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
-    webhooks: list["Webhook"] | None = Relationship(back_populates="workflow")
+    actions: list["Action"] | None = Relationship(
+        back_populates="workflow",
+        sa_relationship_kwargs={"cascade": "delete"},
+    )
+    webhooks: list["Webhook"] | None = Relationship(
+        back_populates="workflow",
+        sa_relationship_kwargs={"cascade": "delete"},
+    )
 
     @computed_field
     @property
