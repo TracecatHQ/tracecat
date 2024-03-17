@@ -10,7 +10,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy FastAPI
+    name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -42,8 +42,11 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install -r requirements-cdk.txt
 
+      - name: CDK synth
+        run: cdk synth --app "python3 aws_cdk_app.py"
+
       - name: CDK bootstrap
-        run: cdk bootstrap --app "python3 aws_cdk_app.py"
+        run: cdk bootstrap --app cdk.out
 
       - name: CDK deploy
-        run: cdk deploy --app "python3 aws_cdk_app.py" --require-approval never
+        run: cdk deploy --app cdk.out --require-approval never
