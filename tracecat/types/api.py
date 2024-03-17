@@ -139,3 +139,11 @@ class EventSearchParams(BaseModel):
     query: str | None = None
     group_by: list[str] | None = None
     agg: str | None = None
+
+
+class UpdateUserParams(BaseModel):
+    tier: Literal["free", "pro", "enterprise"] = "free"  # "free" or "premium"
+    settings: str | None = None  # JSON-serialized String of settings
+
+
+CreateUserParams = UpdateUserParams
