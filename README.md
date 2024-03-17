@@ -7,6 +7,16 @@
 
 </br>
 
+<div align="center">
+  
+  ![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge&logo=apache)
+  ![Commit Activity](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github)
+  ![Next.js](https://img.shields.io/badge/next.js-%23000000.svg?style=for-the-badge&logo=next.js&logoColor=white)
+  ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+  [![Discord](https://img.shields.io/discord/1212548097624903681.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/WbEXhn6Sfx)
+
+</div>
+
 [Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Palo Alto XSOAR with:
 
 - Enterprise-grade open source tools
