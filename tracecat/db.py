@@ -26,6 +26,7 @@ DEFAULT_CASE_ACTIONS = [
 
 
 class User(SQLModel, table=True):
+    # The id is also the JWT 'sub' claim
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     tier: str = "free"  # "free" or "premium"
     settings: str | None = None  # JSON-serialized String of settings
