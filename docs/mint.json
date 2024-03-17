@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Documentation",
+  "name": "Tracecat",
   "logo": {
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
@@ -53,9 +53,36 @@
       "pages": [
         "core/workflows",
         "core/actions",
-        "core/case-management",
         "core/events-log",
+        "core/case-management",
+        "core/metrics",
+        "core/ai-features",
         "core/integrations"
+      ]
+    },
+    {
+      "group": "Action Types",
+      "pages": [
+        "actions/types/webhook",
+        "actions/types/http-request",
+        "actions/types/send-email",
+        {
+          "group": "If Conditions",
+          "pages": [
+            "actions/types/if-conditions/overview",
+            "actions/types/if-conditions/regex",
+            "actions/types/if-conditions/membership"
+          ]
+        },
+        {
+          "group": "AI Actions",
+          "pages": [
+            "actions/types/ai-actions/overview",
+            "actions/types/ai-actions/label",
+            "actions/types/ai-actions/summarize"
+          ]
+        },
+        "actions/types/open-case"
       ]
     },
     {
