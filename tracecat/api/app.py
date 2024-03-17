@@ -37,7 +37,6 @@ from tracecat.types.api import (
     ActionResponse,
     AuthenticateWebhookResponse,
     CreateActionParams,
-    CreateUserParams,
     CreateWebhookParams,
     CreateWorkflowParams,
     Event,
@@ -82,6 +81,7 @@ logger = standard_logger("api")
 
 
 async def get_auth_user(user_id: str) -> tuple[str, ...] | None:
+    """Check that a user exists in supabase and is authenticated."""
     conn_manager = await psycopg.AsyncConnection.connect(
         os.environ["SUPABASE_PSQL_URL"]
     )
@@ -97,6 +97,7 @@ async def get_auth_user(user_id: str) -> tuple[str, ...] | None:
 
 
 async def authenticate_session(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
+    """Authenticate a JWT and return the 'sub' claim as the user_id."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -118,7 +119,6 @@ async def authenticate_session(token: Annotated[str, Depends(oauth2_scheme)]) ->
         raise credentials_exception from e
 
     # Validate this against supabase
-
     if await get_auth_user(user_id) is None:
         raise credentials_exception
     return user_id
@@ -868,23 +868,34 @@ async def streaming_autofill_case_fields(
 ### Users
 
 
-@app.post("/users", status_code=status.HTTP_201_CREATED)
+@app.put("/users", status_code=status.HTTP_201_CREATED)
 def create_user(
-    user_id: Annotated[str, Depends(authenticate_session)], params: CreateUserParams
+    user_id: Annotated[str, Depends(authenticate_session)],
 ) -> User:
     """Create new user.
 
     Note that this is just for user config, auth is done separately."""
 
-    user = User(id=user_id, tier=params.tier, settings=params.settings)
+    # Check if user exists
+
     with Session(create_db_engine()) as session:
+        # Check if user exists
+        statement = select(User).where(User.id == user_id).limit(1)
+        result = session.exec(statement)
+        user = result.one_or_none()
+        if user is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="User already exists"
+            )
+        user = User(id=user_id)
+
         session.add(user)
         session.commit()
         session.refresh(user)
         return user
 
 
-@app.get("/users/{user_id}")
+@app.get("/users")
 def get_user(
     user_id: Annotated[str, Depends(authenticate_session)],
 ) -> User:
@@ -895,14 +906,15 @@ def get_user(
         statement = select(User).where(User.id == user_id)
         result = session.exec(statement)
         try:
-            return result.one()
+            user = result.one()
+            return user
         except NoResultFound as e:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             ) from e
 
 
-@app.post("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.post("/users", status_code=status.HTTP_204_NO_CONTENT)
 def update_user(
     user_id: Annotated[str, Depends(authenticate_session)],
     params: UpdateUserParams,
@@ -928,7 +940,7 @@ def update_user(
         session.commit()
 
 
-@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/users", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: Annotated[str, Depends(authenticate_session)],
 ) -> None:

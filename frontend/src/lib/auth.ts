@@ -61,7 +61,6 @@ export async function thirdPartyAuthFlow(provider: ThirdPartyAuthProvider) {
   if (error) {
     return redirect("/?level=error&message=Could not authenticate user")
   }
-
   return redirect(data.url)
 }
 

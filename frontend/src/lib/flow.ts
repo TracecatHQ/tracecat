@@ -85,17 +85,6 @@ export async function fetchAllWorkflows(
     const response = await client.get<WorkflowMetadata[]>("/workflows")
     let workflows = response.data
 
-    console.log("Workflows fetched successfully", workflows)
-
-    if (workflows.length === 0) {
-      console.log("No workflows found. Creating a new one.")
-      const newWorkflow = await createWorkflow(
-        maybeSession,
-        "My first workflow",
-        "Welcome to Tracecat. This is your first workflow!"
-      )
-      workflows = [newWorkflow]
-    }
     return z.array(workflowMetadataSchema).parse(workflows)
   } catch (error) {
     console.error("Error fetching workflows:", error)
