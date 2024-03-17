@@ -56,7 +56,7 @@
         "core/events-log",
         "core/case-management",
         "core/metrics",
-        "core/ai-native",
+        "core/ai-features",
         "core/integrations"
       ]
     },
