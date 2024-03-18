@@ -167,7 +167,7 @@ class TracecatEngineStack(Stack):
         # API target
         listener.add_targets(
             "TracecatApiTarget",
-            priority=10,
+            priority=0,
             port=8000,
             protocol=elbv2.ApplicationProtocol.HTTP,
             health_check=elbv2.HealthCheck(
@@ -179,7 +179,7 @@ class TracecatEngineStack(Stack):
                 timeout=Duration.seconds(10),
             ),
             conditions=[
-                elbv2.ListenerCondition.path_patterns(["/api/*"]),
+                elbv2.ListenerCondition.path_patterns(["/api", "/api/*"]),
             ],
             targets=[
                 ecs_service.service.load_balancer_target(
@@ -191,7 +191,7 @@ class TracecatEngineStack(Stack):
         # Runner target
         listener.add_targets(
             "TracecatRunnerTarget",
-            priority=20,
+            priority=0,
             port=8001,
             protocol=elbv2.ApplicationProtocol.HTTP,
             health_check=elbv2.HealthCheck(
@@ -203,7 +203,7 @@ class TracecatEngineStack(Stack):
                 timeout=Duration.seconds(10),
             ),
             conditions=[
-                elbv2.ListenerCondition.path_patterns(["/runner/*"]),
+                elbv2.ListenerCondition.path_patterns(["/runner", "/runner/*"]),
             ],
             targets=[
                 ecs_service.service.load_balancer_target(
