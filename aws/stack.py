@@ -179,7 +179,6 @@ class TracecatEngineStack(Stack):
                 timeout=Duration.seconds(10),
             ),
             conditions=[
-                elbv2.ListenerCondition.host_headers([AWS_ROUTE53__HOSTED_ZONE_NAME]),
                 elbv2.ListenerCondition.path_patterns(["/api/*"]),
             ],
             targets=[
@@ -204,7 +203,6 @@ class TracecatEngineStack(Stack):
                 timeout=Duration.seconds(10),
             ),
             conditions=[
-                elbv2.ListenerCondition.host_headers([AWS_ROUTE53__HOSTED_ZONE_NAME]),
                 elbv2.ListenerCondition.path_patterns(["/runner/*"]),
             ],
             targets=[
