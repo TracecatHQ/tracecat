@@ -64,7 +64,9 @@ export async function WorkflowList({ session }: WorkflowListProps) {
   return (
     <div className="flex flex-col gap-2 pt-4">
       {workflows.length === 0 ? (
-        <span className="my-4">No workflows created.</span>
+        <span className="my-4 text-center text-sm text-muted-foreground">
+          No workflows created.
+        </span>
       ) : (
         <>
           {workflows.map((wf) => (
