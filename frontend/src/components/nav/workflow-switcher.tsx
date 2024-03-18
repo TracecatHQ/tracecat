@@ -1,5 +1,5 @@
 import React from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import {
   CaretSortIcon,
@@ -45,6 +45,7 @@ export default function WorkflowSwitcher({
   const [open, setOpen] = React.useState(false)
   const { workflow } = useWorkflowMetadata()
   const router = useRouter()
+  const pathname = usePathname()
 
   if (!session) {
     console.error("Invalid session, redirecting to login")
@@ -90,7 +91,11 @@ export default function WorkflowSwitcher({
                     <CommandItem
                       key={workflow.id}
                       onSelect={() => {
-                        router.push(`/workflows/${workflow.id}`)
+                        // If we're on cases page, stay at /workflows/{workflowId}/cases
+                        const nextPath = pathname.endsWith("/cases")
+                          ? `/workflows/${workflow.id}/cases`
+                          : `/workflows/${workflow.id}`
+                        router.push(nextPath)
                         setOpen(false)
                       }}
                       className="text-xs hover:cursor-pointer"
