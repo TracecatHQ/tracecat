@@ -126,10 +126,7 @@ class Action(SQLModel, table=True):
     status: str = "offline"  # "online" or "offline"
     inputs: str | None = None  # JSON-serialized String of inputs
     workflow_id: str | None = Field(foreign_key="workflow.id")
-    workflow: Workflow | None = Relationship(
-        back_populates="actions",
-        sa_relationship_kwargs={"cascade": "delete"},
-    )
+    workflow: Workflow | None = Relationship(back_populates="actions")
 
     @computed_field
     @property
@@ -154,10 +151,7 @@ class Webhook(SQLModel, table=True):
     )
     action_id: str | None = Field(foreign_key="action.id")
     workflow_id: str | None = Field(foreign_key="workflow.id")
-    workflow: Workflow | None = Relationship(
-        back_populates="webhooks",
-        sa_relationship_kwargs={"cascade": "delete"},
-    )
+    workflow: Workflow | None = Relationship(back_populates="webhooks")
 
     @computed_field
     @property
