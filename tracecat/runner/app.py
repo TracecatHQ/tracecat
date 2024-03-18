@@ -33,7 +33,6 @@ Stores
 from __future__ import annotations
 
 import asyncio
-import os
 from enum import StrEnum, auto
 from typing import Annotated, Any
 from uuid import uuid4
@@ -52,7 +51,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
-from tracecat.api.app import AuthenticateWebhookResponse, WorkflowResponse
 from tracecat.config import TRACECAT__API_URL
 from tracecat.logger import standard_logger
 from tracecat.runner.actions import (
@@ -62,6 +60,7 @@ from tracecat.runner.actions import (
     start_action_run,
 )
 from tracecat.runner.workflows import Workflow
+from tracecat.types.api import AuthenticateWebhookResponse, WorkflowResponse
 
 logger = standard_logger(__name__)
 
@@ -355,15 +354,3 @@ async def run_workflow(
         run_logger.info("Shutting down running tasks")
         for running_task in running_jobs_store.values():
             running_task.cancel()
-
-
-class DemoKeyParams(BaseModel):
-    name: str
-    value: str
-
-
-# NOTE: This is a temporary backdoor to set environment variables. USE AT YUOR OWN RISK.
-@app.post("/demo/key")
-def demo_key(params: DemoKeyParams):
-    os.environ[params.name] = params.value
-    return {"message": f"{params.name} key set."}
