@@ -9,7 +9,7 @@ import { WorkflowForm } from "@/components/forms/workflow"
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const selectedNode = getNode(selectedNodeId ?? "")
-  const { workflow, workflowId } = useWorkflowMetadata()
+  const { workflow, workflowId, isOnline } = useWorkflowMetadata()
 
   return (
     <div className="h-full w-full">
@@ -24,7 +24,7 @@ export function WorkspacePanel() {
           workflowId={workflow.id}
           workflowTitle={workflow.title}
           workflowDescription={workflow.description}
-          workflowStatus={workflow.status}
+          isOnline={isOnline}
         />
       ) : (
         <div className="w-full space-x-2 p-4">

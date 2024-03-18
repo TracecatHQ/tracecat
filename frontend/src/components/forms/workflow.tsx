@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { updateWorkflow } from "@/lib/flow"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -37,14 +38,14 @@ interface WorkflowFormProps {
   workflowId: string
   workflowTitle: string
   workflowDescription: string
-  workflowStatus: string
+  isOnline: boolean
 }
 
 export function WorkflowForm({
   workflowId,
   workflowTitle,
   workflowDescription,
-  workflowStatus,
+  isOnline,
 }: WorkflowFormProps): React.JSX.Element {
   const session = useSession()
   const form = useForm<WorkflowForm>({
@@ -92,15 +93,23 @@ export function WorkflowForm({
             <div className="flex justify-between">
               <Badge
                 variant="outline"
-                className={`px-4 py-1 ${workflowStatus === "online" ? "bg-green-600/10" : "bg-gray-100"}`}
+                className={cn(
+                  "px-4 py-1 capitalize",
+                  isOnline ? "bg-green-600/10" : "bg-gray-100"
+                )}
               >
                 <CircleIcon
-                  className={`mr-2 h-3 w-3 ${workflowStatus === "online" ? "fill-green-600 text-green-600" : "fill-gray-400 text-gray-400"}`}
+                  className={cn(
+                    "mr-2 h-3 w-3",
+                    isOnline
+                      ? "fill-green-600 text-green-600"
+                      : "fill-gray-400 text-gray-400"
+                  )}
                 />
                 <span
-                  className={`${workflowStatus === "online" ? "text-green-600" : "text-gray-600"}`}
+                  className={cn(isOnline ? "text-green-600" : "text-gray-600")}
                 >
-                  {workflowStatus}
+                  {isOnline ? "online" : "offline"}
                 </span>
               </Badge>
               <Tooltip>
