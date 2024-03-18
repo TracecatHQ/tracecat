@@ -25,6 +25,7 @@ class Workflow(BaseModel):
     title: str
     adj_list: dict[str, list[str]]
     actions: dict[str, ActionSubclass]
+    owner_id: str
 
     @cached_property
     def action_dependencies(self) -> dict[str, set[str]]:
@@ -96,7 +97,11 @@ class Workflow(BaseModel):
             actions[action.key] = data
 
         return cls(
-            id=response.id, title=response.title, adj_list=adj_list, actions=actions
+            id=response.id,
+            title=response.title,
+            adj_list=adj_list,
+            actions=actions,
+            owner_id=response.owner_id,
         )
 
 

@@ -222,6 +222,7 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
         status=workflow.status,
         actions=actions_responses,
         object=object,
+        owner_id=workflow.owner_id,
     )
     return workflow_response
 
