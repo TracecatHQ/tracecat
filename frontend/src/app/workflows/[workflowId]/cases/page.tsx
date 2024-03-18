@@ -11,7 +11,7 @@ import EventDistributionPlot, { PlotDataType } from "@/components/charts"
 export default function CasesPage() {
   return (
     <CasesProvider>
-      <div className="flex h-screen flex-col">
+      <div className="flex h-screen flex-col overflow-auto">
         <div className="flex-1 space-y-16 px-16 py-16">
           <CasesStatsBanner />
           <CaseTable />
