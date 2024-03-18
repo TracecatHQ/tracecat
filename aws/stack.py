@@ -160,7 +160,7 @@ class TracecatEngineStack(Stack):
             health_check=elbv2.HealthCheck(
                 path="/api",
                 enabled=True,
-                interval=Duration.minutes(120),
+                interval=Duration.seconds(120),
                 unhealthy_threshold_count=3,
                 healthy_threshold_count=5,
                 timeout=Duration.seconds(10),
@@ -185,7 +185,7 @@ class TracecatEngineStack(Stack):
             health_check=elbv2.HealthCheck(
                 path="/runner",
                 enabled=True,
-                interval=Duration.minutes(120),
+                interval=Duration.seconds(120),
                 unhealthy_threshold_count=3,
                 healthy_threshold_count=5,
                 timeout=Duration.seconds(10),
