@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 from collections.abc import Awaitable, Callable
 from functools import partial
@@ -9,7 +8,7 @@ import httpx
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
-from tracecat.config import TRACECAT__API_URL
+from tracecat.auth import AuthenticatedClient
 from tracecat.contexts import ctx_workflow
 from tracecat.db import Secret
 from tracecat.logger import standard_logger
@@ -107,18 +106,6 @@ def evaluate_templated_fields(
     logger.debug(f"{"*"*10} Evaluating templated fields {"*"*10}")
     processed_kwargs = _evaluate_templated_dict(templated_fields, operator)
     return processed_kwargs
-
-
-class AuthenticatedClient(httpx.AsyncClient):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.base_url = TRACECAT__API_URL
-
-    async def __aenter__(self):
-        """Inject the service role and api key to the headers at query time."""
-        self.headers["Service-Role"] = "tracecat-runner"
-        self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
-        return await super().__aenter__()
 
 
 async def _load_secret(secret_name: str) -> str:
