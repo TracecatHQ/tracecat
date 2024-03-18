@@ -413,6 +413,7 @@ export function ActionForm({
                                           >
                                             <FormControl>
                                               <Input
+                                                className="text-xs"
                                                 key={`${field.id}.${index}`}
                                                 {...form.register(
                                                   // @ts-ignore
