@@ -146,13 +146,9 @@ class TracecatEngineStack(Stack):
             task_definition=task_definition,
         )
 
-        # Add routing based on hostname or path
-        listener = ecs_service.load_balancer.add_listener(
-            "Listener",
-            port=443,
-            certificates=[cert],
-            default_action=elbv2.ListenerAction.fixed_response(404),
-        )
+        # Add routing based on hostname or path with the single listern
+        listener = ecs_service.load_balancer.listeners[0]
+        listener.default_action = elbv2.ListenerAction.fixed_response(status_code=404)
 
         # API target
         listener.add_targets(
