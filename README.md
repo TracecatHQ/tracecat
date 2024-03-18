@@ -153,19 +153,6 @@ Looking to report a security vulnerability? Please don't post about it in GitHub
 
 Core features, user-interfaces, and day-to-day workflows are based on existing best-practices from [best-in-class security teams](https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c). We won't throw in a Clippy chatbot just for the sake of it.
 
-### What does AI-native mean?
-
-We believe the most useful AI is "boring AI" (e.g. summarization, semantic search, data enrichment, labelling) that integrates with existing workflows, but with modern UI/UX and robust data engineering. Here are just a couple of ways we are doing this:
-
-#### Pre-configured AI Actions
-
-![Workflow Builder](img/dnd.gif)
-
-#### Automated MITRE ATT&CK Labelling
-
-![MITRE ATT&CK Labels](img/labelling.gif)
-
-
 ### Does the world really need another SOAR?
 
 - Big enterprise SOARs are too expensive. They also lack transparency regarding their AI features.
@@ -177,6 +164,18 @@ We believe the most useful AI is "boring AI" (e.g. summarization, semantic searc
 - We love using and building open source tools.
 - Existing "AI" security products hide behind demo-ware, sales calls, and white papers. We want to build in the open: open community, open tutorials, and open vision.
 - Create a safe space for practioners to experiment with open source AI models in their own isolated environments.
+
+### What does AI-native mean?
+
+We believe the most useful AI is "boring AI" (e.g. summarization, semantic search, data enrichment, labelling) that integrates with existing workflows, but with modern UI/UX and robust data engineering. Here are just a couple of ways we are doing this:
+
+#### Pre-configured AI Actions
+
+<img src="img/dnd.gif" width="600" />
+
+#### Automated MITRE ATT&CK Labels
+
+<img src="img/labelling.gif" width="600" />
 
 ## Contributing
 
