@@ -7,8 +7,6 @@ import { useWorkflowMetadata } from "@/providers/workflow"
 import { Session } from "@supabase/supabase-js"
 import { BellRingIcon, WorkflowIcon } from "lucide-react"
 
-import { WorkflowStatus } from "@/types/schemas"
-import { getAuthenticatedClient } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {

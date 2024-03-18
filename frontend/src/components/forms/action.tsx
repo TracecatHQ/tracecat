@@ -232,7 +232,7 @@ export function ActionForm({
                   />
                   <span
                     className={cn(
-                      "text-muted-foreground",
+                      "capitalize text-muted-foreground",
                       status === "online" ? "text-green-600" : "text-gray-600"
                     )}
                   >
