@@ -130,17 +130,17 @@ class TracecatEngineStack(Stack):
             image=ecs.ContainerImage.from_asset(
                 directory=".",
                 file="Dockerfile",
-                build_args={"API_MODULE": "tracecat.runner.app:app"},
+                build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             ),
             health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -f http://localhost:8000"],
+                command=["CMD-SHELL", "curl -f http://localhost:8001"],
                 interval=Duration.seconds(120),
                 retries=5,
                 start_period=Duration.seconds(60),
                 timeout=Duration.seconds(10),
             ),
             memory_limit_mib=512,
-            environment={"API_MODULE": "tracecat.runner.app:app"},
+            environment={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             secrets=runner_secrets,
         )
         runner_container.add_port_mappings(ecs.PortMapping(container_port=8001))
