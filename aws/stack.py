@@ -167,7 +167,7 @@ class TracecatEngineStack(Stack):
         # API target
         listener.add_targets(
             "TracecatApiTarget",
-            priority=0,
+            priority=1,
             port=8000,
             protocol=elbv2.ApplicationProtocol.HTTP,
             health_check=elbv2.HealthCheck(
@@ -191,7 +191,7 @@ class TracecatEngineStack(Stack):
         # Runner target
         listener.add_targets(
             "TracecatRunnerTarget",
-            priority=0,
+            priority=1,
             port=8001,
             protocol=elbv2.ApplicationProtocol.HTTP,
             health_check=elbv2.HealthCheck(
