@@ -155,7 +155,16 @@ Core features, user-interfaces, and day-to-day workflows are based on existing b
 
 ### What does AI-native mean?
 
-We believe the most useful AI is "boring AI" (e.g. summarization, semantic search, data enrichment, labelling) that integrates with existing workflows, but with modern UI/UX and robust data engineering. Here are a few ways we are doing this:
+We believe the most useful AI is "boring AI" (e.g. summarization, semantic search, data enrichment, labelling) that integrates with existing workflows, but with modern UI/UX and robust data engineering. Here are just a couple of ways we are doing this:
+
+#### Pre-configured AI Actions
+
+![Workflow Builder](img/dnd.gif)
+
+#### Automated MITRE ATT&CK Labelling
+
+![MITRE ATT&CK Labels](img/labelling.gif)
+
 
 ### Does the world really need another SOAR?
 
