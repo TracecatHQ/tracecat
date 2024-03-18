@@ -12,10 +12,12 @@ from aws_cdk import Duration, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
+from aws_cdk import aws_efs as efs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_wafv2 as wafv2
 from aws_cdk.aws_certificatemanager import Certificate
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
@@ -103,13 +105,32 @@ class TracecatEngineStack(Stack):
             )
         }
 
+        # Define EFS
+        file_system = efs.FileSystem(
+            self,
+            "FileSystem",
+            vpc=vpc,
+            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
+            throughput_mode=efs.ThroughputMode.BURSTING,
+        )
+
         # Create task definition
         task_definition = ecs.FargateTaskDefinition(
-            self, "TaskDefinition", execution_role=execution_role
+            self,
+            "TaskDefinition",
+            execution_role=execution_role,
+            volumes=[
+                ecs.Volume(
+                    name="Volume",
+                    efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                        file_system_id=file_system.file_system_id
+                    ),
+                )
+            ],
         )
 
         # Tracecat API
-        task_definition.add_container(
+        api_container = task_definition.add_container(
             "ApiContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
@@ -131,9 +152,16 @@ class TracecatEngineStack(Stack):
             secrets=api_secrets,
             port_mappings=[ecs.PortMapping(container_port=8000)],
         )
+        api_container.add_mount_points(
+            ecs.MountPoint(
+                container_path="/home/apiuser/.tracecat",
+                read_only=False,
+                source_volume="Volume",
+            )
+        )
 
         # Tracecat Runner
-        task_definition.add_container(
+        runner_container = task_definition.add_container(
             "RunnerContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
@@ -151,6 +179,13 @@ class TracecatEngineStack(Stack):
             environment={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             secrets=runner_secrets,
             port_mappings=[ecs.PortMapping(container_port=8001)],
+        )
+        runner_container.add_mount_points(
+            ecs.MountPoint(
+                container_path="/home/apiuser/.tracecat",
+                read_only=False,
+                source_volume="Volume",
+            )
         )
 
         # Create fargate service
@@ -192,117 +227,117 @@ class TracecatEngineStack(Stack):
             "DefaultAction", action=elbv2.ListenerAction.fixed_response(status_code=200)
         )
 
-        # # Add WAF to block all traffic not from platform.tracecat.com
-        # # NOTE: Please change this to the domain you deployed Tracecat frontend to
-        # web_acl = wafv2.CfnWebACL(
-        #     self,
-        #     "WebAcl",
-        #     scope="REGIONAL",
-        #     # Block ALL requests by default
-        #     default_action=wafv2.CfnWebACL.DefaultActionProperty(block={}),
-        #     visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-        #         cloud_watch_metrics_enabled=True,
-        #         metric_name="tracecatWebaclMetric",
-        #         sampled_requests_enabled=True,
-        #     ),
-        #     rules=[
-        #         wafv2.CfnWebACL.RuleProperty(
-        #             name="AllowSpecificDomainOverHttps",
-        #             priority=10,
-        #             action=wafv2.CfnWebACL.RuleActionProperty(allow={}),
-        #             statement=wafv2.CfnWebACL.StatementProperty(
-        #                 and_statement=wafv2.CfnWebACL.AndStatementProperty(
-        #                     statements=[
-        #                         wafv2.CfnWebACL.StatementProperty(
-        #                             byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                 search_string=os.environ.get(
-        #                                     "TRACECAT__UI_SUBDOMAIN",
-        #                                     "platform.tracecat.com",
-        #                                 ),
-        #                                 field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                     single_header={"name": "Host"}
-        #                                 ),
-        #                                 positional_constraint="EXACTLY",
-        #                                 text_transformations=[
-        #                                     wafv2.CfnWebACL.TextTransformationProperty(
-        #                                         priority=0, type="LOWERCASE"
-        #                                     )
-        #                                 ],
-        #                             )
-        #                         ),
-        #                         wafv2.CfnWebACL.StatementProperty(
-        #                             byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                 search_string="https",
-        #                                 field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                     single_header={"name": "X-Forwarded-Proto"}
-        #                                 ),
-        #                                 positional_constraint="EXACTLY",
-        #                                 text_transformations=[
-        #                                     wafv2.CfnWebACL.TextTransformationProperty(
-        #                                         priority=0, type="NONE"
-        #                                     )
-        #                                 ],
-        #                             )
-        #                         ),
-        #                         wafv2.CfnWebACL.StatementProperty(
-        #                             or_statement=wafv2.CfnWebACL.OrStatementProperty(
-        #                                 statements=[
-        #                                     wafv2.CfnWebACL.StatementProperty(
-        #                                         byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                             search_string="/api/",
-        #                                             field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                                 single_query_argument={
-        #                                                     "name": "uri"
-        #                                                 }
-        #                                             ),
-        #                                             positional_constraint="STARTS_WITH",
-        #                                             text_transformations=[
-        #                                                 wafv2.CfnWebACL.TextTransformationProperty(
-        #                                                     priority=0,
-        #                                                     type="URL_DECODE",
-        #                                                 )
-        #                                             ],
-        #                                         )
-        #                                     ),
-        #                                     wafv2.CfnWebACL.StatementProperty(
-        #                                         byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                             search_string="/runner/",
-        #                                             field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                                 single_query_argument={
-        #                                                     "name": "uri"
-        #                                                 }
-        #                                             ),
-        #                                             positional_constraint="STARTS_WITH",
-        #                                             text_transformations=[
-        #                                                 wafv2.CfnWebACL.TextTransformationProperty(
-        #                                                     priority=0,
-        #                                                     type="URL_DECODE",
-        #                                                 )
-        #                                             ],
-        #                                         )
-        #                                     ),
-        #                                 ]
-        #                             )
-        #                         ),
-        #                     ]
-        #                 )
-        #             ),
-        #             visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-        #                 cloud_watch_metrics_enabled=True,
-        #                 metric_name="allowSpecificDomainOverHttpsMetric",
-        #                 sampled_requests_enabled=True,
-        #             ),
-        #         )
-        #     ],
-        # )
+        # Add WAF to block all traffic not from platform.tracecat.com
+        # NOTE: Please change this to the domain you deployed Tracecat frontend to
+        web_acl = wafv2.CfnWebACL(
+            self,
+            "WebAcl",
+            scope="REGIONAL",
+            # Block ALL requests by default
+            default_action=wafv2.CfnWebACL.DefaultActionProperty(block={}),
+            visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                cloud_watch_metrics_enabled=True,
+                metric_name="tracecatWebaclMetric",
+                sampled_requests_enabled=True,
+            ),
+            rules=[
+                wafv2.CfnWebACL.RuleProperty(
+                    name="AllowSpecificDomainOverHttps",
+                    priority=10,
+                    action=wafv2.CfnWebACL.RuleActionProperty(allow={}),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        and_statement=wafv2.CfnWebACL.AndStatementProperty(
+                            statements=[
+                                wafv2.CfnWebACL.StatementProperty(
+                                    byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                        search_string=os.environ.get(
+                                            "TRACECAT__UI_SUBDOMAIN",
+                                            "platform.tracecat.com",
+                                        ),
+                                        field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
+                                            single_header={"name": "Host"}
+                                        ),
+                                        positional_constraint="EXACTLY",
+                                        text_transformations=[
+                                            wafv2.CfnWebACL.TextTransformationProperty(
+                                                priority=0, type="LOWERCASE"
+                                            )
+                                        ],
+                                    )
+                                ),
+                                wafv2.CfnWebACL.StatementProperty(
+                                    byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                        search_string="https",
+                                        field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
+                                            single_header={"name": "X-Forwarded-Proto"}
+                                        ),
+                                        positional_constraint="EXACTLY",
+                                        text_transformations=[
+                                            wafv2.CfnWebACL.TextTransformationProperty(
+                                                priority=0, type="NONE"
+                                            )
+                                        ],
+                                    )
+                                ),
+                                wafv2.CfnWebACL.StatementProperty(
+                                    or_statement=wafv2.CfnWebACL.OrStatementProperty(
+                                        statements=[
+                                            wafv2.CfnWebACL.StatementProperty(
+                                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                                    search_string="/api/",
+                                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
+                                                        single_query_argument={
+                                                            "name": "uri"
+                                                        }
+                                                    ),
+                                                    positional_constraint="STARTS_WITH",
+                                                    text_transformations=[
+                                                        wafv2.CfnWebACL.TextTransformationProperty(
+                                                            priority=0,
+                                                            type="URL_DECODE",
+                                                        )
+                                                    ],
+                                                )
+                                            ),
+                                            wafv2.CfnWebACL.StatementProperty(
+                                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                                    search_string="/runner/",
+                                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
+                                                        single_query_argument={
+                                                            "name": "uri"
+                                                        }
+                                                    ),
+                                                    positional_constraint="STARTS_WITH",
+                                                    text_transformations=[
+                                                        wafv2.CfnWebACL.TextTransformationProperty(
+                                                            priority=0,
+                                                            type="URL_DECODE",
+                                                        )
+                                                    ],
+                                                )
+                                            ),
+                                        ]
+                                    )
+                                ),
+                            ]
+                        )
+                    ),
+                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                        cloud_watch_metrics_enabled=True,
+                        metric_name="allowSpecificDomainOverHttpsMetric",
+                        sampled_requests_enabled=True,
+                    ),
+                )
+            ],
+        )
 
-        # # Associate the Web ACL with the ALB
-        # wafv2.CfnWebACLAssociation(
-        #     self,
-        #     "WebAclAssociation",
-        #     resource_arn=ecs_service.load_balancer.load_balancer_arn,
-        #     web_acl_arn=web_acl.attr_arn,
-        # )
+        # Associate the Web ACL with the ALB
+        wafv2.CfnWebACLAssociation(
+            self,
+            "WebAclAssociation",
+            resource_arn=ecs_service.load_balancer.load_balancer_arn,
+            web_acl_arn=web_acl.attr_arn,
+        )
 
         # Create A record to point the hosted zone domain to the ALB
         route53.ARecord(
