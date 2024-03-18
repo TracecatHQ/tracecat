@@ -500,11 +500,11 @@ def parse_http_response_data(response: httpx.Response) -> dict[str, Any]:
     """Parse an HTTP response."""
 
     data: dict[str, Any]
-    match response.headers.get("Content-Type"):
-        case "application/json":
-            data = response.json()
-        case _:
-            data = {"text": response.text}
+    content_type = response.headers.get("Content-Type")
+    if content_type.startswith("application/json"):
+        data = response.json()
+    else:
+        data = {"text": response.text}
     return data
 
 
