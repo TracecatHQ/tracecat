@@ -1,12 +1,13 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { Session } from "@supabase/supabase-js"
 import { BellRingIcon, WorkflowIcon } from "lucide-react"
 
+import { WorkflowStatus } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -29,35 +30,11 @@ interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export default function WorkflowsNavbar({ session }: NavbarProps) {
-  const { workflowId, workflow } = useWorkflowMetadata()
-  const [enableWorkflow, setEnableWorkflow] = useState(
-    workflow?.status === "online"
-  )
+  const { workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
-  useEffect(() => {
-    async function handleChange(change: boolean) {
-      if (!workflowId) return
-      const status = change ? "online" : "offline"
-      try {
-        const client = getAuthenticatedClient(session)
-        await client.post(
-          `/workflows/${workflowId}`,
-          JSON.stringify({
-            status: status,
-          }),
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        )
-        console.log(`Workflow ${workflowId} set to ${status}`)
-      } catch (error) {
-        console.error("Failed to update workflow status:", error)
-      }
-    }
-    handleChange(enableWorkflow)
-  }, [enableWorkflow])
+  if (isLoading) {
+    return null
+  }
   return (
     workflowId && (
       <div className="flex w-full items-center space-x-8">
@@ -67,14 +44,14 @@ export default function WorkflowsNavbar({ session }: NavbarProps) {
         <div className="flex flex-1 items-center justify-end space-x-2">
           <Switch
             id="enable-workflow"
-            checked={enableWorkflow}
-            onCheckedChange={setEnableWorkflow}
+            checked={isOnline}
+            onCheckedChange={setIsOnline}
           />
           <Label
             className="w-30 text-xs text-muted-foreground"
             htmlFor="enable-workflow"
           >
-            {enableWorkflow ? "Pause" : "Publish"}
+            {isOnline ? "Pause" : "Publish"}
           </Label>
         </div>
       </div>

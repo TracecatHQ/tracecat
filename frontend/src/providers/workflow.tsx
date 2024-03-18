@@ -1,18 +1,27 @@
 "use client"
 
-import React, { createContext, ReactNode, useContext } from "react"
+import React, {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react"
 import { useParams } from "next/navigation"
 import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 
 import { Workflow } from "@/types/schemas"
-import { fetchWorkflow } from "@/lib/flow"
+import { fetchWorkflow, updateWorkflow } from "@/lib/flow"
 
 type WorkflowContextType = {
   workflow: Workflow | null
   workflowId: string | null
   isLoading: boolean
   error: Error | null
+  isOnline: boolean
+  setIsOnline: (isOnline: boolean) => void
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(
@@ -41,6 +50,24 @@ export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
       return data
     },
   })
+  const [isOnlineVisual, setIsOnlineVisual] = useState<boolean>(
+    workflow?.status === "online"
+  )
+  useEffect(() => {
+    if (workflow?.status) {
+      setIsOnlineVisual(workflow.status === "online")
+    }
+  }, [workflow?.status])
+
+  const setIsOnline = useCallback(
+    (isOnline: boolean) => {
+      updateWorkflow(session, workflowId, {
+        status: isOnline ? "online" : "offline",
+      })
+      setIsOnlineVisual(isOnline)
+    },
+    [session, workflowId]
+  )
   return (
     <WorkflowContext.Provider
       value={{
@@ -48,6 +75,8 @@ export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
         workflowId,
         isLoading,
         error,
+        isOnline: isOnlineVisual,
+        setIsOnline,
       }}
     >
       {children}
