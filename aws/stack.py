@@ -45,7 +45,7 @@ class TracecatEngineStack(Stack):
         execution_role = iam.Role(
             self,
             "ExecutionRole",
-            role_name="TracecatEngineExecutionRole",
+            role_name="TracecatFargateServiceExecutionRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
         iam.Policy(
@@ -73,12 +73,12 @@ class TracecatEngineStack(Stack):
 
         # Create task definition
         task_definition = ecs.FargateTaskDefinition(
-            self, "TracecatEngineTaskDefinition", execution_role=execution_role
+            self, "TaskDefinition", execution_role=execution_role
         )
 
         # Secrets
         tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
-            self, "TracecatEngineSecret", secret_complete_arn=AWS_SECRET__ARN
+            self, "Secret", secret_complete_arn=AWS_SECRET__ARN
         )
         api_secrets = {
             "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
@@ -102,7 +102,7 @@ class TracecatEngineStack(Stack):
 
         # Tracecat API
         api_container = task_definition.add_container(
-            "TracecatApiContainer",
+            "ApiContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
                 file="Dockerfile",
@@ -126,7 +126,7 @@ class TracecatEngineStack(Stack):
 
         # Tracecat Runner
         runner_container = task_definition.add_container(
-            "TracecatRunnerContainer",
+            "RunnerContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
                 file="Dockerfile",
@@ -145,78 +145,50 @@ class TracecatEngineStack(Stack):
         )
         runner_container.add_port_mappings(ecs.PortMapping(container_port=8001))
 
-        # Set default container
-        task_definition.default_container = api_container
-
-        # Create Fargate service
-        ecs_service = ecs_patterns.ApplicationLoadBalancedFargateService(
+        # Create fargate service
+        ecs_service = ecs_patterns.ApplicationMultipleTargetGroupsFargateService(
             self,
-            "TracecatEngineALBFargateService",
-            certificate=cert,
+            "FargateService",
             cluster=cluster,
-            desired_count=1,
-            domain_zone=hosted_zone,
-            health_check_grace_period=Duration.seconds(150),
-            public_load_balancer=True,
-            redirect_http=True,
-            service_name="tracecat-fargate-fastapi",
             task_definition=task_definition,
-        )
-
-        # Add routing based on hostname or path with the single listern
-        listener = ecs_service.load_balancer.listeners[0]
-
-        # API target
-        listener.add_targets(
-            "TracecatApiTarget",
-            priority=10,
-            protocol=elbv2.ApplicationProtocol.HTTP,
-            health_check=elbv2.HealthCheck(
-                path="/api",
-                enabled=True,
-                interval=Duration.seconds(120),
-                unhealthy_threshold_count=3,
-                healthy_threshold_count=5,
-                timeout=Duration.seconds(10),
-            ),
-            conditions=[
-                elbv2.ListenerCondition.path_patterns(["/api", "/api/*"]),
-            ],
-            targets=[
-                ecs_service.service.load_balancer_target(
-                    container_name="TracecatApiContainer", container_port=8000
+            load_balancers=[
+                ecs_patterns.ApplicationLoadBalancerProps(
+                    name="alb",
+                    domain_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
+                    domain_zone=hosted_zone,
+                    public_load_balancer=True,
+                    listeners=[
+                        ecs_patterns.ApplicationListenerProps(
+                            name="listener", certificate=cert
+                        )
+                    ],
                 )
             ],
+            target_groups=[
+                ecs_patterns.ApplicationTargetProps(
+                    container_port=8000,
+                    priority=10,
+                    path_pattern="/api/*",
+                    listener="listener",
+                ),
+                ecs_patterns.ApplicationTargetProps(
+                    container_port=8001,
+                    priority=20,
+                    path_pattern="/runner/*",
+                    listener="listener",
+                ),
+            ],
         )
-
-        # Runner target
-        listener.add_targets(
-            "TracecatRunnerTarget",
-            priority=20,
-            protocol=elbv2.ApplicationProtocol.HTTP,
-            health_check=elbv2.HealthCheck(
-                path="/runner",
-                enabled=True,
-                interval=Duration.seconds(120),
-                unhealthy_threshold_count=3,
-                healthy_threshold_count=5,
-                timeout=Duration.seconds(10),
-            ),
-            conditions=[
-                elbv2.ListenerCondition.path_patterns(["/runner", "/runner/*"]),
-            ],
-            targets=[
-                ecs_service.service.load_balancer_target(
-                    container_name="TracecatRunnerContainer", container_port=8001
-                )
-            ],
+        listener = ecs_service.load_balancers[0].listeners[0]
+        listener.add_action(
+            "DefaultAction", action=elbv2.ListenerAction.fixed_response(status_code=200)
         )
 
         # # Add WAF to block all traffic not from platform.tracecat.com
         # # NOTE: Please change this to the domain you deployed Tracecat frontend to
         # web_acl = wafv2.CfnWebACL(
         #     self,
-        #     "TracecatWebAcl",
+        #     "WebAcl",
         #     scope="REGIONAL",
         #     # Block ALL requests by default
         #     default_action=wafv2.CfnWebACL.DefaultActionProperty(block={}),
