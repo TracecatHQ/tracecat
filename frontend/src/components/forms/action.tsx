@@ -364,7 +364,7 @@ export function ActionForm({
                                     <FormControl>
                                       <Textarea
                                         {...field}
-                                        className="text-xs"
+                                        className="min-h-48 text-xs"
                                         value={form.watch(typedKey, "")}
                                         placeholder="Input text here..."
                                       />
@@ -382,7 +382,7 @@ export function ActionForm({
                                       <pre>
                                         <Textarea
                                           {...field}
-                                          className="text-xs"
+                                          className="min-h-48 text-xs"
                                           value={form.watch(typedKey, "")}
                                           placeholder="Input JSON here..."
                                         />
