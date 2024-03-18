@@ -774,7 +774,7 @@ async def run_action(
         result.action_title_snake_case: result.data for result in action_trail.values()
     }
     custom_logger.debug(f"Before template eval: {action_trail_json = }")
-    action_kwargs_with_secrets = evaluate_templated_secrets(
+    action_kwargs_with_secrets = await evaluate_templated_secrets(
         templated_fields=action_kwargs
     )
     processed_action_kwargs = evaluate_templated_fields(

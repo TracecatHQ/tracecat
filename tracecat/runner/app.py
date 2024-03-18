@@ -52,6 +52,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
 from tracecat.config import TRACECAT__API_URL
+from tracecat.contexts import ctx_workflow
 from tracecat.logger import standard_logger
 from tracecat.runner.actions import (
     ActionRun,
@@ -302,6 +303,7 @@ async def run_workflow(
     run_logger = standard_logger(workflow_run_id)
     workflow_response = await get_workflow(workflow_id)
     workflow = Workflow.from_response(workflow_response)
+    ctx_workflow.set(workflow)
 
     # Initial state
     ready_jobs_queue.put_nowait(

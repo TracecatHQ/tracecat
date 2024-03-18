@@ -7,9 +7,11 @@ import pyarrow as pa
 import tantivy
 from pydantic import computed_field
 from slugify import slugify
+from sqlalchemy import Engine
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 from tracecat import auth
+from tracecat.auth import decrypt_key, encrypt_key
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 
 STORAGE_PATH = Path(os.path.expanduser("~/.tracecat/storage"))
@@ -36,6 +38,28 @@ class User(SQLModel, table=True):
     )
     case_actions: list["CaseAction"] = Relationship(back_populates="user")
     case_contexts: list["CaseContext"] = Relationship(back_populates="user")
+    secrets: list["Secret"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"cascade": "delete"},
+    )
+
+
+class Secret(SQLModel, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    name: str | None = Field(default=None, max_length=255, index=True, nullable=True)
+    encrypted_api_key: bytes | None = Field(default=None, nullable=True)
+    user_id: str | None = Field(foreign_key="user.id")
+    user: User | None = Relationship(back_populates="secrets")
+
+    @property
+    def key(self) -> str | None:
+        if not self.encrypted_api_key:
+            return None
+        return decrypt_key(self.encrypted_api_key)
+
+    @key.setter
+    def key(self, value: str) -> None:
+        self.encrypted_api_key = encrypt_key(value)
 
 
 class Editor(SQLModel, table=True):
@@ -102,7 +126,10 @@ class Action(SQLModel, table=True):
     status: str = "offline"  # "online" or "offline"
     inputs: str | None = None  # JSON-serialized String of inputs
     workflow_id: str | None = Field(foreign_key="workflow.id")
-    workflow: Workflow | None = Relationship(back_populates="actions")
+    workflow: Workflow | None = Relationship(
+        back_populates="actions",
+        sa_relationship_kwargs={"cascade": "delete"},
+    )
 
     @computed_field
     @property
@@ -127,7 +154,10 @@ class Webhook(SQLModel, table=True):
     )
     action_id: str | None = Field(foreign_key="action.id")
     workflow_id: str | None = Field(foreign_key="workflow.id")
-    workflow: Workflow | None = Relationship(back_populates="webhooks")
+    workflow: Workflow | None = Relationship(
+        back_populates="webhooks",
+        sa_relationship_kwargs={"cascade": "delete"},
+    )
 
     @computed_field
     @property
@@ -135,7 +165,7 @@ class Webhook(SQLModel, table=True):
         return auth.compute_hash(self.id)
 
 
-def create_db_engine():
+def create_db_engine() -> Engine:
     STORAGE_PATH.mkdir(parents=True, exist_ok=True)
     sqlite_uri = f"sqlite:////{STORAGE_PATH}/database.db"
     engine = create_engine(
@@ -192,7 +222,7 @@ CaseSchema = pa.schema(
 )
 
 
-def initialize_db() -> None:
+def initialize_db() -> Engine:
     # Relational table
     engine = create_db_engine()
     SQLModel.metadata.create_all(engine)
@@ -223,3 +253,4 @@ def initialize_db() -> None:
             ]
             session.add_all(default_actions)
             session.commit()
+    return engine

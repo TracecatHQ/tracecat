@@ -10,6 +10,8 @@ services:
     environment:
       API_MODULE: "tracecat.api.app:app"
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       SUPABASE_JWT_ALGORITHM: ${SUPABASE_JWT_ALGORITHM}
       SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
@@ -30,8 +32,10 @@ services:
       - ./.tracecat:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     container_name: runner
     restart: unless-stopped
     depends_on:
