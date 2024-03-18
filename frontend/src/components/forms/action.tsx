@@ -86,6 +86,23 @@ export function ActionForm({
 
   // Set the schema for the action type
   const { subActionSchema, fieldSchema } = getSubActionSchema(actionType)
+  if (!subActionSchema) {
+    return (
+      <div className="flex h-full items-center justify-center space-x-2 p-4">
+        <div className="space-y-2">
+          <AlertNotification
+            level="info"
+            message={`Action type ${actionType} is not yet supported.`}
+            reset={() =>
+              queryClient.invalidateQueries({
+                queryKey: ["selected_action", actionId, workflowId],
+              })
+            }
+          />
+        </div>
+      </div>
+    )
+  }
   const schema = baseActionSchema.merge(subActionSchema)
   type Schema = z.infer<typeof schema>
 
