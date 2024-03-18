@@ -4,6 +4,7 @@ import hashlib
 import os
 from typing import Annotated
 
+import httpx
 import psycopg
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, Security, status
@@ -14,6 +15,7 @@ from fastapi.security import (
 from jose import JWTError, jwt
 
 import tracecat.config as cfg
+from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_session_role
 from tracecat.logger import standard_logger
 from tracecat.types.session import Role
@@ -28,6 +30,18 @@ CREDENTIALS_EXCEPTION = HTTPException(
     detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
 )
+
+
+class AuthenticatedClient(httpx.AsyncClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base_url = TRACECAT__API_URL
+
+    async def __aenter__(self):
+        """Inject the service role and api key to the headers at query time."""
+        self.headers["Service-Role"] = "tracecat-runner"
+        self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
+        return await super().__aenter__()
 
 
 def compute_hash(object_id: str) -> str:
