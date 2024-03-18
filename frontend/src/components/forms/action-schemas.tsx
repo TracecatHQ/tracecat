@@ -96,7 +96,6 @@ const LLMChoiceTaskActionSchema = z.object({
 
 const LLMSummarizeTaskActionSchema = z.object({
   message: z.string(),
-  summary: z.string(),
   response_schema: jsonPayload.optional(),
 })
 
@@ -226,7 +225,6 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
   },
   "llm.summarize": {
     message: { type: "textarea" },
-    summary: { type: "textarea" },
     response_schema: { type: "json" },
   },
   open_case: {
