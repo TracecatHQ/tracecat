@@ -6,10 +6,11 @@ from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_wafv2 as wafv2
 from aws_cdk.aws_certificatemanager import Certificate
-from aws_cdk.aws_route53 import HostedZone
+from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "dev")
@@ -31,7 +32,7 @@ class TracecatEngineStack(Stack):
         )
 
         # Get hosted zone and certificate (created from AWS console)
-        hosted_zone = HostedZone.from_hosted_zone_attributes(
+        hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
             self,
             "HostedZone",
             hosted_zone_id=AWS_ROUTE53__HOSTED_ZONE_ID,
@@ -156,6 +157,14 @@ class TracecatEngineStack(Stack):
             priority=10,
             port=8000,
             protocol=elbv2.ApplicationProtocol.HTTP,
+            health_check=elbv2.HealthCheck(
+                path="/api",
+                enabled=True,
+                interval=Duration.minutes(120),
+                unhealthy_threshold_count=3,
+                healthy_threshold_count=5,
+                timeout=Duration.seconds(10),
+            ),
             conditions=[
                 elbv2.ListenerCondition.host_headers([AWS_ROUTE53__HOSTED_ZONE_NAME]),
                 elbv2.ListenerCondition.path_patterns(["/api/*"]),
@@ -173,6 +182,14 @@ class TracecatEngineStack(Stack):
             priority=20,
             port=8001,
             protocol=elbv2.ApplicationProtocol.HTTP,
+            health_check=elbv2.HealthCheck(
+                path="/runner",
+                enabled=True,
+                interval=Duration.minutes(120),
+                unhealthy_threshold_count=3,
+                healthy_threshold_count=5,
+                timeout=Duration.seconds(10),
+            ),
             conditions=[
                 elbv2.ListenerCondition.host_headers([AWS_ROUTE53__HOSTED_ZONE_NAME]),
                 elbv2.ListenerCondition.path_patterns(["/runner/*"]),
@@ -296,7 +313,13 @@ class TracecatEngineStack(Stack):
             web_acl_arn=web_acl.attr_arn,
         )
 
-        # Retrieve the target group
-        target_group = ecs_service.target_group
-        # Explicitly set the success codes
-        target_group.configure_health_check(path="/", healthy_http_codes="200")
+        # Create A record to point the hosted zone domain to the ALB
+        route53.ARecord(
+            self,
+            "AliasRecord",
+            record_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
+            target=route53.RecordTarget.from_alias(
+                LoadBalancerTarget(ecs_service.load_balancer)
+            ),
+            zone=hosted_zone,
+        )
