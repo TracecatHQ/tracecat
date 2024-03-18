@@ -4,10 +4,10 @@ import React, { PropsWithChildren } from "react"
 import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
-import axios from "axios"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { getAuthenticatedClient } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -57,15 +57,12 @@ export function NewCredentialsDialog({
       if (!session) {
         throw new Error("Invalid session")
       }
-      const response = await axios.post(
-        "http://localhost:8001/demo/key",
-        JSON.stringify(data),
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      )
+      const client = getAuthenticatedClient(session)
+      const response = await client.put("/secrets", JSON.stringify(data), {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
       form.reset()
       console.log("New credentials added", response.data)
     } catch (error) {

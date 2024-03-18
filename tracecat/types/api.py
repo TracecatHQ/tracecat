@@ -142,9 +142,21 @@ class EventSearchParams(BaseModel):
     agg: str | None = None
 
 
-class UpdateUserParams(BaseModel):
+class CreateUserParams(BaseModel):
     tier: Literal["free", "pro", "enterprise"] = "free"  # "free" or "premium"
     settings: str | None = None  # JSON-serialized String of settings
 
 
-CreateUserParams = UpdateUserParams
+UpdateUserParams = CreateUserParams
+
+
+class CreateSecretParams(BaseModel):
+    name: str
+    value: str
+
+
+UpdateSecretParams = CreateSecretParams
+
+
+class SearchSecretsParams(BaseModel):
+    names: list[str]

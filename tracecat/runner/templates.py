@@ -1,12 +1,17 @@
+import asyncio
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import partial
 from typing import Any, TypeVar
 
+import httpx
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
+from tracecat.config import TRACECAT__API_URL
+from tracecat.contexts import ctx_workflow
+from tracecat.db import Secret
 from tracecat.logger import standard_logger
 
 logger = standard_logger(__name__)
@@ -58,61 +63,32 @@ def _evaluate_jsonpath_str(
         )
 
 
-def _evaluate_secret_str(match: re.Match[str], regex_group: str = "secret_name") -> str:
-    tag = match.group(regex_group)
-    logger.debug(f"{"*"*10} Evaluating secret {tag} {"*"*10}")
-    secret = os.environ.get(tag)
-    if secret is None:
-        raise ValueError(f"Secret {tag!r} not found in environment.")
-    return secret
+def _evaluate_templated_dict(
+    obj: dict[str, T], operator: Callable[[re.Match[str]], str]
+) -> dict[str, T]:
+    return {
+        _evaluate_nested_templates_rec(k, operator): _evaluate_nested_templates_rec(
+            v, operator
+        )
+        for k, v in obj.items()
+    }
 
 
 def _evaluate_nested_templates_rec(
     obj: T,
-    pattern: re.Pattern[str],
-    evaluator: Callable[[re.Match[str]], str],
+    operator: Callable[[re.Match[str]], str],
 ) -> T:
     """Process jsonpaths in strings, lists, and dictionaries."""
     match obj:
         case str():
             # Matches anything in {{ ... }}
-            return pattern.sub(evaluator, obj)
+            return operator(obj)
         case list():
-            return [
-                _evaluate_nested_templates_rec(item, pattern, evaluator) for item in obj
-            ]
+            return [_evaluate_nested_templates_rec(item, operator) for item in obj]
         case dict():
-            return {
-                _evaluate_nested_templates_rec(
-                    k, pattern, evaluator
-                ): _evaluate_nested_templates_rec(v, pattern, evaluator)
-                for k, v in obj.items()
-            }
+            return _evaluate_templated_dict(obj, operator)
         case _:
             return obj
-
-
-def evaluate_templated_secrets(
-    *,
-    templated_fields: dict[str, Any],
-    template_pattern: re.Pattern[str] = SECRET_TEMPLATE_PATTERN,
-) -> dict[str, Any]:
-    """Populate templated secrets with actual values."""
-
-    processed_kwargs = {}
-    evaluator = partial(_evaluate_secret_str)
-
-    logger.debug(f"{"*"*10} Evaluating templated secrets {"*"*10}")
-    for field_name, field_value in templated_fields.items():
-        logger.debug(f"{field_name = } {field_value = }")
-
-        processed_kwargs[field_name] = _evaluate_nested_templates_rec(
-            field_value,
-            template_pattern,
-            evaluator,
-        )
-    logger.debug(f"{"*"*10}")
-    return processed_kwargs
 
 
 def evaluate_templated_fields(
@@ -123,17 +99,127 @@ def evaluate_templated_fields(
 ) -> dict[str, Any]:
     """Populate templated fields with actual values."""
 
-    processed_kwargs = {}
     jsonpath_str_evaluator = partial(_evaluate_jsonpath_str, action_trail=source_data)
 
-    logger.debug(f"{"*"*10} Evaluating templated fields {"*"*10}")
-    for field_name, field_value in templated_fields.items():
-        logger.debug(f"{field_name = } {field_value = }")
+    def operator(obj: T) -> str:
+        return template_pattern.sub(jsonpath_str_evaluator, obj)
 
-        processed_kwargs[field_name] = _evaluate_nested_templates_rec(
-            field_value,
-            template_pattern,
-            jsonpath_str_evaluator,
-        )
-    logger.debug(f"{"*"*10}")
+    logger.debug(f"{"*"*10} Evaluating templated fields {"*"*10}")
+    processed_kwargs = _evaluate_templated_dict(templated_fields, operator)
+    return processed_kwargs
+
+
+class AuthenticatedClient(httpx.AsyncClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base_url = TRACECAT__API_URL
+
+    async def __aenter__(self):
+        """Inject the service role and api key to the headers at query time."""
+        self.headers["Service-Role"] = "tracecat-runner"
+        self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
+        return await super().__aenter__()
+
+
+async def _load_secret(secret_name: str) -> str:
+    """Load a secret on behalf of the current workflow run."""
+    try:
+        # NOTE(perf): We can frontload these requests before starting
+        # the workflow, then look up the encrypted secrets in a local cache.
+
+        curr_workflow = ctx_workflow.get()
+        async with AuthenticatedClient() as client:
+            response = await client.get(
+                f"/secrets/{secret_name}", params={"user_id": curr_workflow.owner_id}
+            )
+            response.raise_for_status()
+        secret = Secret.model_validate_json(response.content)
+        return secret.key  # Decrypt secret value
+    except httpx.HTTPStatusError as e:
+        msg = f"Error loading {secret_name!r}. {response.text}"
+        logger.error(msg)
+        raise ValueError(msg) from e
+    except ValueError as e:
+        msg = f"Could not parse secret response for {secret_name!r}."
+        logger.error(msg)
+        raise ValueError(msg) from e
+    except Exception as e:
+        logger.error(e)
+        raise ValueError(f"Secret {secret_name!r} could not be loaded.") from e
+
+
+async def _evaluate_secret_str(
+    templated_str: str,
+    *,
+    template_pattern: re.Pattern[str] = SECRET_TEMPLATE_PATTERN,
+    regex_group: str = "secret_name",
+    secret_getter: Awaitable[str, str] = _load_secret,
+) -> str:
+    """2 pass: 1. Compute all the secret values 2. Substitute the secret value."""
+
+    # NOTE: Need to call a funciton repl to evaluate multiple appearances
+    matches = [
+        match.group(regex_group) for match in template_pattern.finditer(templated_str)
+    ]
+    logger.debug(f"{"*"*10} Evaluating secrets {"*"*10}")
+    tasks = [secret_getter(m) for m in matches]
+    secret_values = await asyncio.gather(*tasks)
+    replacement_map = dict(zip(matches, secret_values, strict=True))
+
+    def evaluator(match: re.Match[str]) -> str:
+        key = match.group(regex_group)
+        return replacement_map[key]
+
+    replaced_str = template_pattern.sub(evaluator, templated_str)
+
+    return replaced_str
+
+
+async def _async_evaluate_dict(
+    obj: dict[str, T], operator: Awaitable[re.Match[str], str]
+) -> dict[str, T]:
+    """Parallelize the evaluation of the keys and values of a dictionary."""
+    task_dict = {}
+    async with asyncio.TaskGroup() as tg:
+        for k, v in obj.items():
+            key_task = tg.create_task(_async_evaluate_nested_templates_rec(k, operator))
+            value_task = tg.create_task(
+                _async_evaluate_nested_templates_rec(v, operator)
+            )
+            task_dict[key_task] = value_task
+    # At this point, all the tasks have completed. Safe to call result on all.
+    return {k.result(): v.result() for k, v in task_dict.items()}
+
+
+async def _async_evaluate_nested_templates_rec(
+    obj: T,
+    operator: Awaitable[re.Match[str], str],
+) -> T:
+    """Process jsonpaths in strings, lists, and dictionaries."""
+    match obj:
+        case str():
+            # Matches anything in {{ ... }}
+            return await operator(obj)
+        case list():
+            tasks = [
+                _async_evaluate_nested_templates_rec(item, operator) for item in obj
+            ]
+            return await asyncio.gather(*tasks)
+        case dict():
+            return await _async_evaluate_dict(obj, operator)
+        case _:
+            return obj
+
+
+async def evaluate_templated_secrets(
+    *,
+    templated_fields: dict[str, Any],
+    template_pattern: re.Pattern[str] = SECRET_TEMPLATE_PATTERN,
+) -> dict[str, Any]:
+    """Populate templated secrets with actual values."""
+
+    operator = partial(_evaluate_secret_str, template_pattern=template_pattern)
+
+    logger.debug(f"{"*"*10} Evaluating templated secrets {"*"*10}")
+    processed_kwargs = await _async_evaluate_dict(templated_fields, operator)
     return processed_kwargs

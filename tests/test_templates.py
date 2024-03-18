@@ -3,27 +3,80 @@ import re
 from functools import partial
 
 import pytest
+import respx
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+from httpx import Response
 
+from tracecat.config import TRACECAT__API_URL
+from tracecat.db import Secret
+from tracecat.runner.app import app
 from tracecat.runner.templates import (
     JSONPATH_TEMPLATE_PATTERN,
+    SECRET_TEMPLATE_PATTERN,
     _evaluate_jsonpath_str,
+    _evaluate_secret_str,
     evaluate_templated_fields,
     evaluate_templated_secrets,
 )
 
+client = TestClient(app)
+
 
 @pytest.fixture(autouse=True)
 def setup_enrionment():
+    from tracecat.contexts import ctx_workflow
+    from tracecat.runner.workflows import Workflow
+
     os.environ["TEST_API_KEY_1"] = "1234567890"
     os.environ["test_api_key_2"] = "asdfghjkl"
+    os.environ["TRACECAT__SERVICE_KEY"] = "test_service_key"
+    os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+
+    mock_workflow = Workflow(
+        title="Test Workflow", adj_list={}, actions={}, owner_id="test_user_id"
+    )
+    # We need to set the workflow context for the tests
+    ctx_workflow.set(mock_workflow)
     yield
 
 
-def test_evaluate_templated_secret():
+@pytest.mark.asyncio
+async def test_evaluate_secret_string():
+    mock_secret_manager = {
+        "TEST_API_KEY_1": "not_so_secret",
+        "ANOTHER_SECRET": "not_a_secret",
+    }
+
+    async def mock_secret_getter(secret_name: str):
+        return mock_secret_manager[secret_name]
+
+    mock_templated_string = (
+        "This is a {{ SECRETS.TEST_API_KEY_1 }} secret {{ SECRETS.ANOTHER_SECRET }}"
+    )
+    expected = "This is a not_so_secret secret not_a_secret"
+    actual = await _evaluate_secret_str(
+        mock_templated_string,
+        template_pattern=SECRET_TEMPLATE_PATTERN,
+        secret_getter=mock_secret_getter,
+    )
+    assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_evaluate_templated_secret():
+    # Health check
+    client.get("/")
+
+    TEST_SECRETS = {
+        "TEST_API_KEY_1": "1234567890",
+        "test_api_key_2": "asdfghjkl",
+    }
+
     mock_templated_kwargs = {
         "question_generation": {
             "questions": [
-                "This is a {{ SECRETS.TEST_API_KEY_1 }} secret",
+                "This is a {{ SECRETS.TEST_API_KEY_1 }} secret {{ SECRETS.test_api_key_2 }}",
                 "This is a {{ SECRETS.test_api_key_2 }} secret",
             ],
         },
@@ -44,7 +97,7 @@ def test_evaluate_templated_secret():
     exptected = {
         "question_generation": {
             "questions": [
-                "This is a 1234567890 secret",
+                "This is a 1234567890 secret asdfghjkl",
                 "This is a asdfghjkl secret",
             ],
         },
@@ -62,7 +115,30 @@ def test_evaluate_templated_secret():
             },
         ],
     }
-    actual = evaluate_templated_secrets(templated_fields=mock_templated_kwargs)
+
+    base_secrets_url = f"{TRACECAT__API_URL}/secrets"
+    with respx.mock:
+        # Mock workflow getter from API side
+        for secret_name, secret_value in TEST_SECRETS.items():
+            secret = Secret(
+                name=secret_name,
+                user_id="test_user_id",
+            )
+            secret.key = secret_value  # Encrypt the secret
+
+            # Mock hitting get secrets endpoint
+            print(secret)
+            respx.get(f"{base_secrets_url}/{secret_name}").mock(
+                return_value=Response(
+                    200,
+                    json=secret.model_dump(mode="json"),
+                )
+            )
+
+        # Start test
+        actual = await evaluate_templated_secrets(
+            templated_fields=mock_templated_kwargs
+        )
     assert actual == exptected
 
 

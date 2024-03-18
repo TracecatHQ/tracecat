@@ -1,24 +1,27 @@
 import json
-import os
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import polars as pl
-import psycopg
 import tantivy
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from sqlalchemy import Engine
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
 from tracecat.api.completions import CategoryConstraint, stream_case_completions
+from tracecat.auth import (
+    Role,
+    authenticate_user_or_service,
+    authenticate_user_session,
+)
 from tracecat.db import (
     Action,
     CaseAction,
     CaseContext,
+    Secret,
     User,
     Webhook,
     Workflow,
@@ -37,11 +40,14 @@ from tracecat.types.api import (
     ActionResponse,
     AuthenticateWebhookResponse,
     CreateActionParams,
+    CreateSecretParams,
     CreateWebhookParams,
     CreateWorkflowParams,
     Event,
     EventSearchParams,
+    SearchSecretsParams,
     UpdateActionParams,
+    UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
     UpdateWorkflowRunParams,
@@ -54,10 +60,13 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 
+engine: Engine
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    initialize_db()
+    global engine
+    engine = initialize_db()
     yield
 
 
@@ -75,53 +84,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
 
 logger = standard_logger("api")
-
-
-async def get_auth_user(user_id: str) -> tuple[str, ...] | None:
-    """Check that a user exists in supabase and is authenticated."""
-    conn_manager = await psycopg.AsyncConnection.connect(
-        os.environ["SUPABASE_PSQL_URL"]
-    )
-    async with conn_manager as aconn:
-        async with aconn.cursor() as acur:
-            await acur.execute(
-                "SELECT id, aud, role FROM auth.users WHERE (id=%s AND aud=%s AND role=%s)",
-                (user_id, "authenticated", "authenticated"),
-            )
-
-            record = await acur.fetchone()
-    return record
-
-
-async def authenticate_session(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
-    """Authenticate a JWT and return the 'sub' claim as the user_id."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(
-            token,
-            key=os.environ["SUPABASE_JWT_SECRET"],
-            algorithms=os.environ["SUPABASE_JWT_ALGORITHM"],
-            # NOTE: Workaround, not sure if there are alternatives
-            options={"verify_aud": False},
-        )
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError as e:
-        logger.error(e)
-        raise credentials_exception from e
-
-    # Validate this against supabase
-    if await get_auth_user(user_id) is None:
-        raise credentials_exception
-    return user_id
 
 
 @app.get("/")
@@ -134,11 +99,11 @@ def root() -> dict[str, str]:
 
 @app.get("/workflows")
 def list_workflows(
-    user_id: Annotated[str, Depends(authenticate_session)],
+    role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
     with Session(create_db_engine()) as session:
-        statement = select(Workflow).where(Workflow.owner_id == user_id)
+        statement = select(Workflow).where(Workflow.owner_id == role.id)
         results = session.exec(statement)
         workflows = results.all()
     workflow_metadata = [
@@ -156,14 +121,13 @@ def list_workflows(
 @app.post("/workflows", status_code=status.HTTP_201_CREATED)
 def create_workflow(
     params: CreateWorkflowParams,
-    user_id: Annotated[str, Depends(authenticate_session)],
+    role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
-
     workflow = Workflow(
         title=params.title,
         description=params.description,
-        owner_id=user_id,
+        owner_id=role.id,
     )
     with Session(create_db_engine()) as session:
         session.add(workflow)
@@ -871,7 +835,7 @@ async def streaming_autofill_case_fields(
 
 @app.put("/users", status_code=status.HTTP_201_CREATED)
 def create_user(
-    user_id: Annotated[str, Depends(authenticate_session)],
+    role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> User:
     """Create new user.
 
@@ -881,14 +845,14 @@ def create_user(
 
     with Session(create_db_engine()) as session:
         # Check if user exists
-        statement = select(User).where(User.id == user_id).limit(1)
+        statement = select(User).where(User.id == role.id).limit(1)
         result = session.exec(statement)
         user = result.one_or_none()
         if user is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="User already exists"
             )
-        user = User(id=user_id)
+        user = User(id=role.id)
 
         session.add(user)
         session.commit()
@@ -898,13 +862,13 @@ def create_user(
 
 @app.get("/users")
 def get_user(
-    user_id: Annotated[str, Depends(authenticate_session)],
+    role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> User:
     """Return user as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
     with Session(create_db_engine()) as session:
         # Get user given user_id
-        statement = select(User).where(User.id == user_id)
+        statement = select(User).where(User.id == role.id)
         result = session.exec(statement)
         try:
             user = result.one()
@@ -917,13 +881,13 @@ def get_user(
 
 @app.post("/users", status_code=status.HTTP_204_NO_CONTENT)
 def update_user(
-    user_id: Annotated[str, Depends(authenticate_session)],
+    role: Annotated[Role, Depends(authenticate_user_session)],
     params: UpdateUserParams,
 ) -> None:
     """Update user."""
 
     with Session(create_db_engine()) as session:
-        statement = select(User).where(User.id == user_id)
+        statement = select(User).where(User.id == role.id)
         result = session.exec(statement)
         try:
             user = result.one()
@@ -943,12 +907,12 @@ def update_user(
 
 @app.delete("/users", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
-    user_id: Annotated[str, Depends(authenticate_session)],
+    role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> None:
     """Delete user."""
 
     with Session(create_db_engine()) as session:
-        statement = select(User).where(User.id == user_id)
+        statement = select(User).where(User.id == role.id)
         result = session.exec(statement)
         try:
             user = result.one()
@@ -958,3 +922,130 @@ def delete_user(
             ) from e
         session.delete(user)
         session.commit()
+
+
+### Secrets
+
+
+@app.get("/secrets")
+def list_secrets(
+    role: Annotated[Role, Depends(authenticate_user_session)],
+) -> list[Secret]:
+    """Get a secret by ID."""
+    with Session(engine) as session:
+        statement = select(Secret).where(Secret.user_id == role.id)
+        result = session.exec(statement)
+        secrets = result.all()
+        return secrets
+
+
+@app.get("/secrets/{secret_name}")
+def get_secret(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    secret_name: str,
+    user_id: str | None = None,
+) -> Secret:
+    """Get a secret by ID.
+
+    Support access for both user and service roles."""
+
+    query_id: str
+    logger.info(f"Role: {role}")
+    match role:
+        case Role(variant="user"):
+            query_id = role.id
+        case Role(variant="service", id="tracecat-runner"):
+            if user_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Missing 'user_id' query parameter",
+                )
+            query_id = user_id
+        case _:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Role {role!r} unauthorized",
+            )
+    with Session(engine) as session:
+        # Check if secret exists
+        statement = (
+            select(Secret)
+            .where(Secret.user_id == query_id, Secret.name == secret_name)
+            .limit(1)
+        )
+        result = session.exec(statement)
+        secret = result.one_or_none()
+        if secret is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found"
+            )
+        return secret
+
+
+@app.put("/secrets", status_code=status.HTTP_201_CREATED)
+def create_secret(
+    role: Annotated[Role, Depends(authenticate_user_session)],
+    params: CreateSecretParams,
+) -> Secret:
+    """Get a secret by ID."""
+    with Session(engine) as session:
+        # Check if secret exists
+        statement = (
+            select(Secret)
+            .where(Secret.user_id == role.id, Secret.name == params.name)
+            .limit(1)
+        )
+        result = session.exec(statement)
+        secret = result.one_or_none()
+        if secret is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
+            )
+        new_secret = Secret(name=params.name, user_id=role.id)
+        new_secret.key = params.value  # Set and encrypt the key
+
+        session.add(new_secret)
+        session.commit()
+        session.refresh(new_secret)
+
+
+@app.post("/secrets", status_code=status.HTTP_201_CREATED)
+def update_secret(
+    role: Annotated[Role, Depends(authenticate_user_session)],
+    params: UpdateSecretParams,
+) -> Secret:
+    """Get a secret by ID."""
+    with Session(engine) as session:
+        # Check if secret exists
+        statement = (
+            select(Secret)
+            .where(Secret.user_id == role.id, Secret.name == params.name)
+            .limit(1)
+        )
+        result = session.exec(statement)
+        secret = result.one_or_none()
+        if secret is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
+            )
+        secret.key = params.value  # Set and encrypt the key
+        session.add(secret)
+        session.commit()
+        session.refresh(secret)
+
+
+@app.post("/secrets/search")
+def search_secrets(
+    role: Annotated[Role, Depends(authenticate_user_session)],
+    params: SearchSecretsParams,
+) -> list[Secret]:
+    """Get a secret by ID."""
+    with Session(engine) as session:
+        statement = (
+            select(Secret)
+            .where(Secret.user_id == role.id)
+            .filter(*[Secret.name == name for name in params.names])
+        )
+        result = session.exec(statement)
+        secrets = result.all()
+        return secrets
