@@ -184,7 +184,7 @@ export default React.memo(function ActionNode({
                   : "fill-gray-400 text-gray-400"
               )}
             />
-            <span>{status}</span>
+            <span className="capitalize">{status}</span>
           </div>
           <div className="flex items-center">
             <CircleIcon
@@ -195,7 +195,7 @@ export default React.memo(function ActionNode({
                   : "fill-gray-400 text-gray-400"
               )}
             />
-            <span>{isConfiguredMessage}</span>
+            <span className="capitalize">{isConfiguredMessage}</span>
           </div>
           <div className="flex items-center">
             <BellDotIcon className="mr-1 h-3 w-3" />
