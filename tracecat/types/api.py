@@ -27,6 +27,7 @@ class WorkflowResponse(BaseModel):
     status: str
     actions: dict[str, ActionResponse]
     object: dict[str, Any] | None  # React Flow object
+    owner_id: str
 
 
 class ActionMetadataResponse(BaseModel):

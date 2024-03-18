@@ -46,6 +46,7 @@ def sample_workflow(request) -> tuple[WorkflowResponse, str, dict[str, any]]:
             title=workflow_response_object["title"],
             description=workflow_response_object["description"],
             status=workflow_response_object["status"],
+            owner_id="test_owner_id",
             actions={
                 action_id: ActionResponse(
                     # NOTE: This is not very nice at all...
