@@ -94,11 +94,11 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="openai-api-key"
             ),
         }
-        # runner_secrets = {
-        #     "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
-        #         tracecat_secret, field="openai-api-key"
-        #     )
-        # }
+        runner_secrets = {
+            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="openai-api-key"
+            )
+        }
 
         # Tracecat API
         api_container = task_definition.add_container(
@@ -124,26 +124,29 @@ class TracecatEngineStack(Stack):
         )
         api_container.add_port_mappings(ecs.PortMapping(container_port=8000))
 
-        # # Tracecat Runner
-        # runner_container = task_definition.add_container(
-        #     "TracecatRunnerContainer",
-        #     image=ecs.ContainerImage.from_asset(
-        #         directory=".",
-        #         file="Dockerfile",
-        #         build_args={"API_MODULE": "tracecat.runner.app:app"},
-        #     ),
-        #     health_check=ecs.HealthCheck(
-        #         command=["CMD-SHELL", "curl -f http://localhost:8000"],
-        #         interval=Duration.seconds(120),
-        #         retries=5,
-        #         start_period=Duration.seconds(60),
-        #         timeout=Duration.seconds(10),
-        #     ),
-        #     memory_limit_mib=512,
-        #     environment={"API_MODULE": "tracecat.runner.app:app"},
-        #     secrets=runner_secrets,
-        # )
-        # runner_container.add_port_mappings(ecs.PortMapping(container_port=8001))
+        # Tracecat Runner
+        runner_container = task_definition.add_container(
+            "TracecatRunnerContainer",
+            image=ecs.ContainerImage.from_asset(
+                directory=".",
+                file="Dockerfile",
+                build_args={"API_MODULE": "tracecat.runner.app:app"},
+            ),
+            health_check=ecs.HealthCheck(
+                command=["CMD-SHELL", "curl -f http://localhost:8000"],
+                interval=Duration.seconds(120),
+                retries=5,
+                start_period=Duration.seconds(60),
+                timeout=Duration.seconds(10),
+            ),
+            memory_limit_mib=512,
+            environment={"API_MODULE": "tracecat.runner.app:app"},
+            secrets=runner_secrets,
+        )
+        runner_container.add_port_mappings(ecs.PortMapping(container_port=8001))
+
+        # Set default container
+        task_definition.default_container = api_container
 
         # Create Fargate service
         ecs_service = ecs_patterns.ApplicationLoadBalancedFargateService(
@@ -155,6 +158,7 @@ class TracecatEngineStack(Stack):
             domain_zone=hosted_zone,
             health_check_grace_period=Duration.seconds(150),
             public_load_balancer=True,
+            load_balancer=elbv2.Application,
             redirect_http=True,
             service_name="tracecat-fargate-fastapi",
             task_definition=task_definition,
@@ -186,28 +190,28 @@ class TracecatEngineStack(Stack):
             ],
         )
 
-        # # Runner target
-        # listener.add_targets(
-        #     "TracecatRunnerTarget",
-        #     priority=20,
-        #     protocol=elbv2.ApplicationProtocol.HTTP,
-        #     health_check=elbv2.HealthCheck(
-        #         path="/runner",
-        #         enabled=True,
-        #         interval=Duration.seconds(120),
-        #         unhealthy_threshold_count=3,
-        #         healthy_threshold_count=5,
-        #         timeout=Duration.seconds(10),
-        #     ),
-        #     conditions=[
-        #         elbv2.ListenerCondition.path_patterns(["/runner", "/runner/*"]),
-        #     ],
-        #     targets=[
-        #         ecs_service.service.load_balancer_target(
-        #             container_name="TracecatRunnerContainer", container_port=8001
-        #         )
-        #     ],
-        # )
+        # Runner target
+        listener.add_targets(
+            "TracecatRunnerTarget",
+            priority=20,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            health_check=elbv2.HealthCheck(
+                path="/runner",
+                enabled=True,
+                interval=Duration.seconds(120),
+                unhealthy_threshold_count=3,
+                healthy_threshold_count=5,
+                timeout=Duration.seconds(10),
+            ),
+            conditions=[
+                elbv2.ListenerCondition.path_patterns(["/runner", "/runner/*"]),
+            ],
+            targets=[
+                ecs_service.service.load_balancer_target(
+                    container_name="TracecatRunnerContainer", container_port=8001
+                )
+            ],
+        )
 
         # # Add WAF to block all traffic not from platform.tracecat.com
         # # NOTE: Please change this to the domain you deployed Tracecat frontend to
