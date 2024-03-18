@@ -1,3 +1,11 @@
+"""WARNING: the following code has an unresolved issue with multi-container deployments.
+See https://github.com/aws/aws-cdk/issues/24013.
+
+You must manually:
+- Delete the silently added port mapping in the API container task definition
+- Change the container name under fargate service load balancer to "RunnerContainer".
+"""
+
 import os
 
 from aws_cdk import Duration, Stack
@@ -71,11 +79,6 @@ class TracecatEngineStack(Stack):
             roles=[execution_role],
         )
 
-        # Create task definition
-        task_definition = ecs.FargateTaskDefinition(
-            self, "TaskDefinition", execution_role=execution_role
-        )
-
         # Secrets
         tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
             self, "Secret", secret_complete_arn=AWS_SECRET__ARN
@@ -99,6 +102,11 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="openai-api-key"
             )
         }
+
+        # Create task definition
+        task_definition = ecs.FargateTaskDefinition(
+            self, "TaskDefinition", execution_role=execution_role
+        )
 
         # Tracecat API
         task_definition.add_container(
@@ -153,13 +161,13 @@ class TracecatEngineStack(Stack):
             task_definition=task_definition,
             load_balancers=[
                 ecs_patterns.ApplicationLoadBalancerProps(
-                    name="alb",
+                    name="Alb",
                     domain_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
                     domain_zone=hosted_zone,
                     public_load_balancer=True,
                     listeners=[
                         ecs_patterns.ApplicationListenerProps(
-                            name="listener", certificate=cert
+                            name="Listener", port=443, certificate=cert
                         )
                     ],
                 )
@@ -169,13 +177,13 @@ class TracecatEngineStack(Stack):
                     container_port=8000,
                     priority=10,
                     path_pattern="/api/*",
-                    listener="listener",
+                    listener="Listener",
                 ),
                 ecs_patterns.ApplicationTargetProps(
                     container_port=8001,
                     priority=20,
                     path_pattern="/runner/*",
-                    listener="listener",
+                    listener="Listener",
                 ),
             ],
         )
