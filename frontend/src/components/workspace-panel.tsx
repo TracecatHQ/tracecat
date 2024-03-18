@@ -12,7 +12,7 @@ export function WorkspacePanel() {
   const { workflow, workflowId, isOnline } = useWorkflowMetadata()
 
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full overflow-auto">
       {selectedNode ? (
         <ActionForm
           workflowId={workflowId}

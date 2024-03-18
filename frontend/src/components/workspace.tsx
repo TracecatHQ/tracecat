@@ -86,6 +86,7 @@ export function Workspace({
       <WorkflowBuilderProvider>
         <TooltipProvider delayDuration={0}>
           <ResizablePanelGroup
+            className="h-full"
             direction="horizontal"
             onLayout={(sizes: number[]) => {
               document.cookie = `react-resizable-panels:layout=${JSON.stringify(
@@ -103,7 +104,6 @@ export function Workspace({
               onCollapse={handleCollapse}
               onExpand={handleExpand}
               className={cn(
-                "flex flex-col",
                 isCollapsed &&
                   "min-w-[50px] transition-all duration-300 ease-in-out"
               )}
@@ -247,40 +247,3 @@ export function Workspace({
     </ReactFlowProvider>
   )
 }
-
-// interface PanelToggleProps extends React.HTMLAttributes<HTMLDivElement> {
-//   isCollapsed: any
-//   toggleSidePanel: React.MouseEventHandler<HTMLButtonElement> | undefined
-// }
-// function PanelToggle({
-//   isCollapsed,
-//   toggleSidePanel,
-//   className,
-// }: PanelToggleProps) {
-//   return (
-//     <div
-//       data-collapsed={isCollapsed}
-//       className={cn(
-//         "group flex w-full flex-col gap-4 py-2 data-[collapsed=true]:py-2",
-//         className
-//       )}
-//     >
-//       <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
-//         <Button
-//           variant="ghost"
-//           className={cn(
-//             "hover:bg-transparent",
-//             !isCollapsed && "justify-start"
-//           )}
-//           onClick={toggleSidePanel}
-//         >
-//           {isCollapsed ? (
-//             <ChevronsRight className="h-4 w-4" />
-//           ) : (
-//             <ChevronsLeft className="h-4 w-4" />
-//           )}
-//         </Button>
-//       </nav>
-//     </div>
-//   )
-// }

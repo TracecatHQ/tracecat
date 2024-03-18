@@ -30,11 +30,11 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   } = await supabase.auth.getSession()
   return (
     <>
-      <html lang="en" className="h-full" suppressHydrationWarning>
+      <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
         <head />
         <body
           className={cn(
-            "h-full min-h-screen bg-background font-sans antialiased",
+            "h-screen min-h-screen overflow-hidden bg-background font-sans antialiased",
             fontSans.className
           )}
         >
