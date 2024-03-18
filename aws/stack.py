@@ -101,7 +101,7 @@ class TracecatEngineStack(Stack):
         }
 
         # Tracecat API
-        api_container = task_definition.add_container(
+        task_definition.add_container(
             "ApiContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
@@ -121,11 +121,11 @@ class TracecatEngineStack(Stack):
                 "SUPABASE_JWT_ALGORITHM": "HS256",
             },
             secrets=api_secrets,
+            port_mappings=[ecs.PortMapping(container_port=8000)],
         )
-        api_container.add_port_mappings(ecs.PortMapping(container_port=8000))
 
         # Tracecat Runner
-        runner_container = task_definition.add_container(
+        task_definition.add_container(
             "RunnerContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
@@ -142,8 +142,8 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=512,
             environment={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             secrets=runner_secrets,
+            port_mappings=[ecs.PortMapping(container_port=8001)],
         )
-        runner_container.add_port_mappings(ecs.PortMapping(container_port=8001))
 
         # Create fargate service
         ecs_service = ecs_patterns.ApplicationMultipleTargetGroupsFargateService(
