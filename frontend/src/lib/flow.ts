@@ -73,7 +73,6 @@ export async function createWorkflow(
       },
     }
   )
-  console.log("Workflow created successfully", response.data)
   return workflowMetadataSchema.parse(response.data)
 }
 

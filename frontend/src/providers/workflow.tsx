@@ -1,12 +1,6 @@
 "use client"
 
-import React, {
-  createContext,
-  ReactNode,
-  useContext,
-  useEffect,
-  useState,
-} from "react"
+import React, { createContext, ReactNode, useContext } from "react"
 import { useParams } from "next/navigation"
 import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
