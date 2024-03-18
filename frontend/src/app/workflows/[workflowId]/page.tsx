@@ -26,12 +26,10 @@ export default function WorkflowBuilderPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <Workspace
-        defaultLayout={defaultLayout}
-        defaultCollapsed={defaultCollapsed}
-        navCollapsedSize={2}
-      />
-    </div>
+    <Workspace
+      defaultLayout={defaultLayout}
+      defaultCollapsed={defaultCollapsed}
+      navCollapsedSize={2}
+    />
   )
 }
