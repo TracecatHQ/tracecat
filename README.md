@@ -23,6 +23,8 @@
 
 </div>
 
+*Note: Want to take Tracecat for a spin? We are launching a Cloud version and updating our self-hosted documentation tomorrow!*
+
 [Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Palo Alto XSOAR with:
 
 - Enterprise-grade open source tools
