@@ -162,13 +162,25 @@ class TracecatEngineStack(Stack):
 
         # Add routing based on hostname or path with the single listern
         listener = ecs_service.load_balancer.listeners[0]
-        listener.default_action = elbv2.ListenerAction.fixed_response(status_code=404)
 
         # API target
         listener.add_targets(
+            "DefaultTarget",
+            priority=1,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            conditions=[
+                elbv2.ListenerCondition.path_patterns(["/", "/*"]),
+            ],
+            targets=[
+                ecs_service.service.load_balancer_target(
+                    container_name="TracecatApiContainer", container_port=8000
+                )
+            ],
+        )
+
+        listener.add_targets(
             "TracecatApiTarget",
             priority=10,
-            port=8000,
             protocol=elbv2.ApplicationProtocol.HTTP,
             health_check=elbv2.HealthCheck(
                 path="/api",
@@ -192,7 +204,6 @@ class TracecatEngineStack(Stack):
         listener.add_targets(
             "TracecatRunnerTarget",
             priority=20,
-            port=8001,
             protocol=elbv2.ApplicationProtocol.HTTP,
             health_check=elbv2.HealthCheck(
                 path="/runner",
