@@ -34,7 +34,7 @@ It's designed to be simple but powerful. Security automation should be accessibl
 
 Try out our [tutorial](https://docs.tracecat.com/tutorial) and deploy your first AI workflow in 15 minutes.
 
-![Phishing email investigation](img/screenshot.png)
+![Phishing email investigation](img/animation.gif)
 
 ## Getting started
 
