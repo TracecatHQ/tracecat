@@ -34,6 +34,8 @@ It's designed to be simple but powerful. Security automation should be accessibl
 
 Try out our [tutorial](https://docs.tracecat.com/tutorial) and deploy your first AI workflow in 15 minutes.
 
+![Phishing email investigation](img/screenshot.png)
+
 ## Getting started
 
 Help Mario, the L1 analyst and part-time pizza chef, automatically flag malicious pizza orders (e.g. pineapple).
