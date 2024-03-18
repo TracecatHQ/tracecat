@@ -158,7 +158,6 @@ class TracecatEngineStack(Stack):
             domain_zone=hosted_zone,
             health_check_grace_period=Duration.seconds(150),
             public_load_balancer=True,
-            load_balancer=elbv2.Application,
             redirect_http=True,
             service_name="tracecat-fargate-fastapi",
             task_definition=task_definition,
