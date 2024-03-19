@@ -121,7 +121,12 @@ async def valid_workflow(workflow_id: str) -> str:
 # Endpoints
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "Hello. I am a runner."}
+    return {"message": "Hello. I am the runner."}
+
+
+@app.get("/health")
+def check_health() -> dict[str, str]:
+    return {"message": "Hello world. I am the runner. This is the health endpoint."}
 
 
 class StartWorkflowResponse(BaseModel):

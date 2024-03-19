@@ -136,7 +136,7 @@ class TracecatEngineStack(Stack):
                 build_args={"API_MODULE": "tracecat.api.app:app"},
             ),
             health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -f http://localhost:8000"],
+                command=["CMD-SHELL", "curl -f http://localhost:8000/health"],
                 interval=Duration.seconds(120),
                 retries=5,
                 start_period=Duration.seconds(60),
@@ -167,7 +167,7 @@ class TracecatEngineStack(Stack):
                 build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             ),
             health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -f http://localhost:8001"],
+                command=["CMD-SHELL", "curl -f http://localhost:8001/health"],
                 interval=Duration.seconds(120),
                 retries=5,
                 start_period=Duration.seconds(60),
