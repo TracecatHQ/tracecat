@@ -316,9 +316,11 @@ class TracecatEngineStack(Stack):
         )
 
         # Main HTTPS listener
-        listener = alb.add_listener("Listener", port=443, certificates=[cert])
-        listener.add_action(
-            "DefaultAction", action=elbv2.ListenerAction.fixed_response(status_code=404)
+        listener = alb.add_listener(
+            "DefaultHttpsListener",
+            port=443,
+            certificates=[cert, api_cert, runner_cert],
+            default_action=elbv2.ListenerAction.fixed_response(404),
         )
         listener.add_action(
             "RootRedirect",
@@ -334,13 +336,7 @@ class TracecatEngineStack(Stack):
         )
 
         # Add subdomain listeners
-        api_listener = alb.add_listener(
-            "ApiHttpsListener",
-            port=443,
-            certificates=[api_cert],
-            default_action=elbv2.ListenerAction.fixed_response(404),
-        )
-        api_listener.add_action(
+        listener.add_action(
             "ApiTarget",
             priority=10,
             conditions=[
@@ -350,14 +346,7 @@ class TracecatEngineStack(Stack):
             ],
             action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
         )
-
-        runner_listener = alb.add_listener(
-            "RunnerHttpsListener",
-            port=443,
-            certificates=[runner_cert],
-            default_action=elbv2.ListenerAction.fixed_response(404),
-        )
-        runner_listener.add_action(
+        listener.add_action(
             "RunnerTarget",
             priority=20,
             conditions=[
