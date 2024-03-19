@@ -45,6 +45,7 @@ export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
 
 export const caseSchema = z.object({
   id: z.string(),
+  owner_id: z.string(),
   workflow_id: z.string(),
   title: z.string(),
   payload: z.record(z.string()),

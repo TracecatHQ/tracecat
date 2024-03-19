@@ -40,7 +40,7 @@ class User(SQLModel, table=True):
     case_actions: list["CaseAction"] = Relationship(back_populates="user")
     case_contexts: list["CaseContext"] = Relationship(back_populates="user")
     secrets: list["Secret"] = Relationship(
-        back_populates="user",
+        back_populates="owner",
         sa_relationship_kwargs={"cascade": "delete"},
     )
 
@@ -70,8 +70,8 @@ class Secret(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     name: str | None = Field(default=None, max_length=255, index=True, nullable=True)
     encrypted_api_key: bytes | None = Field(default=None, nullable=True)
-    user_id: str | None = Field(foreign_key="user.id")
-    user: User | None = Relationship(back_populates="secrets")
+    owner_id: str = Field(foreign_key="user.id")
+    owner: User | None = Relationship(back_populates="secrets")
 
     @property
     def key(self) -> str | None:
