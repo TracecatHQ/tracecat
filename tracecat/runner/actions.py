@@ -48,7 +48,7 @@ import tantivy
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.config import MAX_RETRIES
+from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.db import create_events_index, create_vdb_conn
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
@@ -509,7 +509,7 @@ def parse_http_response_data(response: httpx.Response) -> dict[str, Any]:
 
 
 @retry(
-    stop=stop_after_attempt(MAX_RETRIES),
+    stop=stop_after_attempt(HTTP_MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True,
 )
