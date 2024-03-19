@@ -92,7 +92,7 @@ class Workflow(SQLModel, table=True):
     status: str = "offline"  # "online" or "offline"
     object: str | None = None  # JSON-serialized String of react flow object
     # Owner
-    owner_id: str | None = Field(default=None, foreign_key="user.id")
+    owner_id: str = Field(foreign_key="user.id")
     owner: User | None = Relationship(back_populates="owned_workflows")
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     actions: list["Action"] | None = Relationship(
