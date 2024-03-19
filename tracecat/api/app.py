@@ -94,6 +94,11 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
+@app.get("/health")
+def check_health() -> dict[str, str]:
+    return {"message": "Hello world. I am the API. This is the health endpoint."}
+
+
 ### Workflows
 
 
