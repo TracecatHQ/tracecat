@@ -7,7 +7,8 @@ import { PostHogProvider } from "posthog-js/react"
 if (typeof window !== "undefined") {
   const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY || "" // Ensure that the variable is defined
   posthog.init(posthogKey, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_INGEST_HOST,
+    ui_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     capture_pageview: false, // Disable automatic pageview capture, as we capture manually
   })
 }
