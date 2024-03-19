@@ -1,19 +1,11 @@
-"""WARNING: the following code has an unresolved issue with multi-container deployments.
-See https://github.com/aws/aws-cdk/issues/24013.
-
-You must manually:
-- Delete the silently added port mapping in the API container task definition
-- Change the container name under fargate service load balancer to "RunnerContainer".
-"""
-
 import os
 
-from aws_cdk import Duration, Stack
+from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
-from aws_cdk import aws_efs as efs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_logs as logs
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk.aws_certificatemanager import Certificate
@@ -79,14 +71,59 @@ class TracecatEngineStack(Stack):
             roles=[execution_role],
         )
 
+        # Task role
+        task_role = iam.Role(
+            self,
+            "TaskRole",
+            role_name="TracecatTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        iam.Policy(
+            self,
+            "TaskRolePolicy",
+            statements=[
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "elasticfilesystem:ClientMount",
+                        "elasticfilesystem:ClientWrite",
+                        "elasticfilesystem:DescribeFileSystems",
+                        "elasticfilesystem:DescribeMountTargets",
+                        "elasticfilesystem:DescribeMountTargetSecurityGroups",
+                    ],
+                    resources=[
+                        f"arn:aws:elasticfilesystem:{self.region}:{self.account}:file-system/{vpc.vpc_id}"
+                    ],
+                ),
+            ],
+            roles=[task_role],
+        )
+
+        # Set up a log group
+        log_group = logs.LogGroup(
+            self,
+            "TracecatLogGroup",
+            log_group_name="/ecs/tracecat",
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         # Secrets
         tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
             self, "Secret", secret_complete_arn=AWS_SECRET__ARN
         )
-        api_secrets = {
+        shared_secrets = {
             "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="signing-secret"
             ),
+            "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="service-key"
+            ),
+            "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="db-encryption-key"
+            ),
+        }
+        api_secrets = {
+            **shared_secrets,
             "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="supabase-jwt-secret"
             ),
@@ -98,50 +135,44 @@ class TracecatEngineStack(Stack):
             ),
         }
         runner_secrets = {
+            **shared_secrets,
             "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="openai-api-key"
-            )
+            ),
         }
 
-        # Define EFS
-        file_system = efs.FileSystem(
-            self,
-            "FileSystem",
-            vpc=vpc,
-            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
-            throughput_mode=efs.ThroughputMode.BURSTING,
-        )
+        # # Define EFS
+        # file_system = efs.FileSystem(
+        #     self,
+        #     "FileSystem",
+        #     vpc=vpc,
+        #     performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
+        #     throughput_mode=efs.ThroughputMode.BURSTING,
+        # )
 
-        # Create task definition
-        task_definition = ecs.FargateTaskDefinition(
+        # Tracecat API Fargate Service
+        api_task_definition = ecs.FargateTaskDefinition(
             self,
-            "TaskDefinition",
+            "ApiTaskDefinition",
             execution_role=execution_role,
-            volumes=[
-                ecs.Volume(
-                    name="Volume",
-                    efs_volume_configuration=ecs.EfsVolumeConfiguration(
-                        file_system_id=file_system.file_system_id
-                    ),
-                )
-            ],
+            task_role=task_role,
+            # volumes=[
+            #     ecs.Volume(
+            #         name="Volume",
+            #         efs_volume_configuration=ecs.EfsVolumeConfiguration(
+            #             file_system_id=file_system.file_system_id
+            #         ),
+            #     )
+            # ],
         )
-
-        # Tracecat API
-        api_container = task_definition.add_container(
+        api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
                 file="Dockerfile",
                 build_args={"API_MODULE": "tracecat.api.app:app"},
             ),
-            health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -f http://localhost:8000/health"],
-                interval=Duration.seconds(120),
-                retries=5,
-                start_period=Duration.seconds(60),
-                timeout=Duration.seconds(10),
-            ),
+            cpu=256,
             memory_limit_mib=512,
             environment={
                 "API_MODULE": "tracecat.api.app:app",
@@ -149,73 +180,121 @@ class TracecatEngineStack(Stack):
             },
             secrets=api_secrets,
             port_mappings=[ecs.PortMapping(container_port=8000)],
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="tracecat-api", log_group=log_group
+            ),
         )
-        api_container.add_mount_points(
-            ecs.MountPoint(
-                container_path="/home/apiuser/.tracecat",
-                read_only=False,
-                source_volume="Volume",
+        # api_container.add_mount_points(
+        #     ecs.MountPoint(
+        #         container_path="/home/apiuser/.tracecat",
+        #         read_only=False,
+        #         source_volume="Volume",
+        #     )
+        # )
+        api_ecs_service = ecs.FargateService(
+            self,
+            "TracecatApiFargateService",
+            cluster=cluster,
+            task_definition=api_task_definition,
+        )
+        # API target group
+        api_target_group = elbv2.ApplicationTargetGroup(
+            self,
+            "TracecatApiTargetGroup",
+            target_type=elbv2.TargetType.IP,
+            port=8000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            vpc=cluster.vpc,
+            health_check=elbv2.HealthCheck(
+                path="/health",
+                interval=Duration.seconds(120),
+                timeout=Duration.seconds(10),
+                healthy_threshold_count=5,
+                unhealthy_threshold_count=2,
+            ),
+        )
+        api_target_group.add_target(
+            api_ecs_service.load_balancer_target(
+                container_name="ApiContainer", container_port=8000
             )
         )
 
-        # Tracecat Runner
-        runner_container = task_definition.add_container(
+        # Tracecat Runner Fargate Service
+        runner_task_definition = ecs.FargateTaskDefinition(
+            self,
+            "RunnerTaskDefinition",
+            execution_role=execution_role,
+            task_role=task_role,
+            # volumes=[
+            #     ecs.Volume(
+            #         name="Volume",
+            #         efs_volume_configuration=ecs.EfsVolumeConfiguration(
+            #             file_system_id=file_system.file_system_id
+            #         ),
+            #     )
+            # ],
+        )
+        runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=".",
                 file="Dockerfile",
                 build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             ),
-            health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -f http://localhost:8001/health"],
-                interval=Duration.seconds(120),
-                retries=5,
-                start_period=Duration.seconds(60),
-                timeout=Duration.seconds(10),
-            ),
+            cpu=256,
             memory_limit_mib=512,
             environment={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             secrets=runner_secrets,
             port_mappings=[ecs.PortMapping(container_port=8001)],
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="tracecat-runner", log_group=log_group
+            ),
         )
-        runner_container.add_mount_points(
-            ecs.MountPoint(
-                container_path="/home/apiuser/.tracecat",
-                read_only=False,
-                source_volume="Volume",
-            )
-        )
-
-        # Create ALB Fargate service
-        ecs_service = ecs.FargateService(
+        # runner_container.add_mount_points(
+        #     ecs.MountPoint(
+        #         container_path="/home/apiuser/.tracecat",
+        #         read_only=False,
+        #         source_volume="Volume",
+        #     )
+        # )
+        runner_ecs_service = ecs.FargateService(
             self,
-            "FargateService",
+            "TracecatRunnerFargateService",
             cluster=cluster,
-            task_definition=task_definition,
+            task_definition=runner_task_definition,
         )
-
-        service_health_check = elbv2.HealthCheck(
-            enabled=True,
-            interval=Duration.seconds(120),
-            timeout=Duration.seconds(10),
-            healthy_threshold_count=5,
-            unhealthy_threshold_count=2,
-            path="/health",
+        # Runner target group
+        runner_target_group = elbv2.ApplicationTargetGroup(
+            self,
+            "TracecatRunnerTargetGroup",
+            target_type=elbv2.TargetType.IP,
+            port=8001,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            vpc=cluster.vpc,
+            health_check=elbv2.HealthCheck(
+                path="/health",
+                interval=Duration.seconds(120),
+                timeout=Duration.seconds(10),
+                healthy_threshold_count=5,
+                unhealthy_threshold_count=2,
+            ),
+        )
+        runner_target_group.add_target(
+            runner_ecs_service.load_balancer_target(
+                container_name="RunnerContainer", container_port=8001
+            )
         )
 
         # Load balancer
         alb = elbv2.ApplicationLoadBalancer(
-            self, "Alb", vpc=cluster.vpc, internet_facing=True, load_balancer_name="Alb"
+            self,
+            "TracecatEngineAlb",
+            vpc=cluster.vpc,
+            internet_facing=True,
+            load_balancer_name="tracecat-engine-alb",
         )
-
-        # Main HTTPS listener
-        listener = alb.add_listener("Listener", port=443, certificates=[cert])
-        listener.add_action(
-            "DefaultAction", action=elbv2.ListenerAction.fixed_response(status_code=200)
-        )
-
-        # Redirect HTTP to HTTPS
         alb.add_listener(
+            # Redirect HTTP to HTTPS
             "HttpListener",
             port=80,
             default_action=elbv2.ListenerAction.redirect(
@@ -228,33 +307,35 @@ class TracecatEngineStack(Stack):
             ),
         )
 
-        listener.add_targets(
-            "TargetGroup-ApiContainer",
-            port=8000,
-            protocol=elbv2.ApplicationProtocol.HTTP,
-            priority=10,
-            health_check=service_health_check,
-            conditions=[elbv2.ListenerCondition.path_patterns(["/api", "/api/*"])],
-            targets=[
-                ecs_service.load_balancer_target(
-                    container_name="ApiContainer", container_port=8000
-                )
-            ],
+        # Main HTTPS listener
+        listener = alb.add_listener("Listener", port=443, certificates=[cert])
+        listener.add_action(
+            "DefaultAction", action=elbv2.ListenerAction.fixed_response(status_code=404)
         )
-        listener.add_targets(
-            "TargetGroup-RunnerContainer",
-            port=8001,
-            protocol=elbv2.ApplicationProtocol.HTTP,
+        listener.add_action(
+            "RootRedirect",
+            priority=30,
+            conditions=[elbv2.ListenerCondition.path_patterns(["/"])],
+            action=elbv2.ListenerAction.redirect(
+                host="#{host}", path="/api/", protocol="HTTPS"
+            ),
+        )
+
+        # Add path-based routing rules
+        listener.add_action(
+            "ApiTarget",
+            priority=10,
+            conditions=[elbv2.ListenerCondition.path_patterns(["/api/*", "/api"])],
+            action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
+        )
+
+        listener.add_action(
+            "RunnerTarget",
             priority=20,
-            health_check=service_health_check,
             conditions=[
-                elbv2.ListenerCondition.path_patterns(["/runner", "/runner/*"])
+                elbv2.ListenerCondition.path_patterns(["/runner/*", "/runner"])
             ],
-            targets=[
-                ecs_service.load_balancer_target(
-                    container_name="RunnerContainer", container_port=8001
-                )
-            ],
+            action=elbv2.ListenerAction.forward(target_groups=[runner_target_group]),
         )
 
         # Add WAFv2 WebACL to the ALB

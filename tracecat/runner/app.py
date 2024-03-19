@@ -67,14 +67,17 @@ logger = standard_logger(__name__)
 
 
 app = FastAPI(debug=True, default_response_class=ORJSONResponse)
+
+# TODO: Check TRACECAT__APP_ENV to set origins
 origins = [
-    "http://localhost",
-    "http://localhost:8080",
+    "http://localhost:3000",
+    "http://localhost:8001",
 ]
 
+# TODO: Check TRACECAT__APP_ENV to set methods and headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
