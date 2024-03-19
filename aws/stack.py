@@ -18,6 +18,8 @@ AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
 AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
+AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__API_CERTIFICATE_ARN"]
+AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ["AWS_ACM__RUNNER_CERTIFICATE_ARN"]
 
 
 class TracecatEngineStack(Stack):
@@ -39,6 +41,12 @@ class TracecatEngineStack(Stack):
         )
         cert = Certificate.from_certificate_arn(
             self, "Certificate", AWS_ACM__CERTIFICATE_ARN
+        )
+        api_cert = Certificate.from_certificate_arn(
+            self, "ApiCertificate", certificate_arn=AWS_ACM__API_CERTIFICATE_ARN
+        )
+        runner_cert = Certificate.from_certificate_arn(
+            self, "RunnerCertificate", certificate_arn=AWS_ACM__RUNNER_CERTIFICATE_ARN
         )
 
         # Task execution IAM role (used across API and runner)
@@ -317,25 +325,73 @@ class TracecatEngineStack(Stack):
             priority=30,
             conditions=[elbv2.ListenerCondition.path_patterns(["/"])],
             action=elbv2.ListenerAction.redirect(
-                host="#{host}", path="/api/", protocol="HTTPS"
+                host=f"api.{AWS_ROUTE53__HOSTED_ZONE_NAME}",  # Redirect to the API subdomain
+                protocol="HTTPS",
+                port="443",
+                path="/",
+                permanent=True,  # Permanent redirect
             ),
         )
 
-        # Add path-based routing rules
-        listener.add_action(
+        # Add subdomain listeners
+        api_listener = alb.add_listener(
+            "ApiHttpsListener",
+            port=443,
+            certificates=[api_cert],
+            default_action=elbv2.ListenerAction.fixed_response(404),
+        )
+        api_listener.add_action(
             "ApiTarget",
             priority=10,
-            conditions=[elbv2.ListenerCondition.path_patterns(["/api/*", "/api"])],
+            conditions=[
+                elbv2.ListenerCondition.host_headers(
+                    [f"api.{AWS_ROUTE53__HOSTED_ZONE_NAME}"]
+                )
+            ],
             action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
         )
 
-        listener.add_action(
+        runner_listener = alb.add_listener(
+            "RunnerHttpsListener",
+            port=443,
+            certificates=[runner_cert],
+            default_action=elbv2.ListenerAction.fixed_response(404),
+        )
+        runner_listener.add_action(
             "RunnerTarget",
             priority=20,
             conditions=[
-                elbv2.ListenerCondition.path_patterns(["/runner/*", "/runner"])
+                elbv2.ListenerCondition.host_headers(
+                    [f"runner.{AWS_ROUTE53__HOSTED_ZONE_NAME}"]
+                )
             ],
             action=elbv2.ListenerAction.forward(target_groups=[runner_target_group]),
+        )
+
+        # Create A record to point the hosted zone domain to the ALB
+        route53.ARecord(
+            self,
+            "AliasRecord",
+            record_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
+            target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
+            zone=hosted_zone,
+        )
+        # Create A record for api.domain.com pointing to the ALB
+        route53.ARecord(
+            self,
+            "ApiAliasRecord",
+            record_name=f"api.{AWS_ROUTE53__HOSTED_ZONE_NAME}",
+            target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
+            zone=hosted_zone,
+        )
+
+        # Create A record for runner.domain.com pointing to the ALB
+        route53.ARecord(
+            self,
+            "RunnerAliasRecord",
+            record_name=f"runner.{AWS_ROUTE53__HOSTED_ZONE_NAME}",
+            target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
+            zone=hosted_zone,
         )
 
         # Add WAFv2 WebACL to the ALB
@@ -476,12 +532,3 @@ class TracecatEngineStack(Stack):
         #     resource_arn=alb.load_balancer_arn,
         #     web_acl_arn=web_acl.attr_arn,
         # )
-
-        # Create A record to point the hosted zone domain to the ALB
-        route53.ARecord(
-            self,
-            "AliasRecord",
-            record_name=AWS_ROUTE53__HOSTED_ZONE_NAME,
-            target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
-            zone=hosted_zone,
-        )
