@@ -26,7 +26,6 @@ from tracecat.db import (
     Webhook,
     Workflow,
     WorkflowRun,
-    create_db_engine,
     create_events_index,
     create_vdb_conn,
     initialize_db,
@@ -109,7 +108,7 @@ def list_workflows(
     role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Workflow).where(Workflow.owner_id == role.id)
         results = session.exec(statement)
         workflows = results.all()
@@ -136,7 +135,7 @@ def create_workflow(
         description=params.description,
         owner_id=role.id,
     )
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         session.add(workflow)
         session.commit()
         session.refresh(workflow)
@@ -153,7 +152,7 @@ def create_workflow(
 def get_workflow(workflow_id: str) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         # Get Workflow given workflow_id
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
@@ -205,7 +204,7 @@ def update_workflow(
 ) -> None:
     """Update Workflow."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
         try:
@@ -232,7 +231,7 @@ def update_workflow(
 def delete_workflow(workflow_id: str) -> None:
     """Delete Workflow."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Workflow).where(Workflow.id == workflow_id)
         result = session.exec(statement)
         try:
@@ -251,7 +250,7 @@ def delete_workflow(workflow_id: str) -> None:
 @app.get("/workflows/{workflow_id}/runs")
 def list_workflow_runs(workflow_id: str) -> list[WorkflowRunMetadataResponse]:
     """List all Workflow Runs for a Workflow."""
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(WorkflowRun).where(WorkflowRun.id == workflow_id)
         results = session.exec(statement)
         workflow_runs = results.all()
@@ -272,7 +271,7 @@ def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
     """Create a Workflow Run."""
 
     workflow_run = WorkflowRun(workflow_id=workflow_id)
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         session.add(workflow_run)
         session.commit()
         session.refresh(workflow_run)
@@ -288,7 +287,7 @@ def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
 def get_workflow_run(workflow_id: str, workflow_run_id: str) -> WorkflowRunResponse:
     """Return WorkflowRun as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         # Get Workflow given workflow_id
         statement = select(WorkflowRun).where(
             WorkflowRun.id == workflow_run_id,
@@ -320,7 +319,7 @@ def update_workflow_run(
 ) -> None:
     """Update Workflow."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(WorkflowRun).where(
             WorkflowRun.id == workflow_run_id,
             WorkflowRun.workflow_id == workflow_id,
@@ -346,7 +345,7 @@ def update_workflow_run(
 @app.get("/actions")
 def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
     """List all Actions related to `workflow_id`."""
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Action).where(Action.workflow_id == workflow_id)
         results = session.exec(statement)
         actions = results.all()
@@ -367,7 +366,7 @@ def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
 
 @app.post("/actions")
 def create_action(params: CreateActionParams) -> ActionMetadataResponse:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         action = Action(
             workflow_id=params.workflow_id,
             type=params.type,
@@ -396,7 +395,7 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
 
 @app.get("/actions/{action_id}")
 def get_action(action_id: str, workflow_id: str) -> ActionResponse:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = (
             select(Action)
             .where(Action.id == action_id)
@@ -429,7 +428,7 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
 
 @app.post("/actions/{action_id}")
 def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         # Fetch the action by id
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
@@ -466,7 +465,7 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
 
 @app.delete("/actions/{action_id}", status_code=204)
 def delete_action(action_id: str) -> None:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Action).where(Action.id == action_id)
         result = session.exec(statement)
         try:
@@ -485,7 +484,7 @@ def delete_action(action_id: str) -> None:
 @app.get("/webhooks")
 def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
     """List all Webhooks for a workflow."""
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Webhook).where(Webhook.workflow_id == workflow_id)
         result = session.exec(statement)
         webhooks = result.all()
@@ -508,7 +507,7 @@ def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
         action_id=params.action_id,
         workflow_id=params.workflow_id,
     )
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         session.add(webhook)
         session.commit()
         session.refresh(webhook)
@@ -523,7 +522,7 @@ def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
 
 @app.get("/webhooks/{webhook_id}")
 def get_webhook(webhook_id: str) -> WebhookResponse:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Webhook).where(Webhook.id == webhook_id)
         result = session.exec(statement)
         try:
@@ -544,7 +543,7 @@ def get_webhook(webhook_id: str) -> WebhookResponse:
 @app.delete("/webhooks/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_webhook(webhook_id: str) -> None:
     """Delete a Webhook by ID."""
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Webhook).where(Webhook.id == webhook_id)
         result = session.exec(statement)
         webhook = result.one()
@@ -554,7 +553,7 @@ def delete_webhook(webhook_id: str) -> None:
 
 @app.get("/webhooks/search")
 def search_webhooks(action_id: str | None = None) -> WebhookResponse:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Webhook)
 
         if action_id is not None:
@@ -577,7 +576,7 @@ def search_webhooks(action_id: str | None = None) -> WebhookResponse:
 
 @app.post("/authenticate/webhooks/{webhook_id}/{secret}")
 def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(Webhook).where(Webhook.id == webhook_id)
         result = session.exec(statement)
         try:
@@ -715,7 +714,7 @@ def get_case_metrics(workflow_id: str, case_id: str) -> CaseMetrics:
 
 @app.get("/case-actions")
 def list_case_actions() -> list[CaseAction]:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(CaseAction)
         actions = session.exec(statement).all()
     return actions
@@ -723,7 +722,7 @@ def list_case_actions() -> list[CaseAction]:
 
 @app.post("/case-actions")
 def add_case_action(case_action: CaseAction) -> CaseAction:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         session.add(case_action)
         session.commit()
         session.refresh(case_action)
@@ -732,7 +731,7 @@ def add_case_action(case_action: CaseAction) -> CaseAction:
 
 @app.delete("/case-actions")
 def delete_case_action(case_action: CaseAction):
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(CaseAction).where(CaseAction.id == case_action.id)
         result = session.exec(statement)
         try:
@@ -750,7 +749,7 @@ def delete_case_action(case_action: CaseAction):
 
 @app.get("/case-contexts")
 def list_case_contexts() -> list[CaseContext]:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(CaseContext)
         actions = session.exec(statement).all()
     return actions
@@ -758,7 +757,7 @@ def list_case_contexts() -> list[CaseContext]:
 
 @app.post("/case-contexts")
 def add_case_context(case_context: CaseContext) -> CaseContext:
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         session.add(case_context)
         session.commit()
         session.refresh(case_context)
@@ -767,7 +766,7 @@ def add_case_context(case_context: CaseContext) -> CaseContext:
 
 @app.delete("/case-contexts")
 def delete_case_context(case_context: CaseContext):
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(CaseContext).where(CaseContext.id == case_context.id)
         result = session.exec(statement)
         try:
@@ -850,7 +849,7 @@ def create_user(
 
     # Check if user exists
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         # Check if user exists
         statement = select(User).where(User.id == role.id).limit(1)
         result = session.exec(statement)
@@ -873,7 +872,7 @@ def get_user(
 ) -> User:
     """Return user as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         # Get user given user_id
         statement = select(User).where(User.id == role.id)
         result = session.exec(statement)
@@ -893,7 +892,7 @@ def update_user(
 ) -> None:
     """Update user."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(User).where(User.id == role.id)
         result = session.exec(statement)
         try:
@@ -918,7 +917,7 @@ def delete_user(
 ) -> None:
     """Delete user."""
 
-    with Session(create_db_engine()) as session:
+    with Session(engine) as session:
         statement = select(User).where(User.id == role.id)
         result = session.exec(statement)
         try:
