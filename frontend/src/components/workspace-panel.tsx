@@ -2,9 +2,9 @@ import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflowMetadata } from "@/providers/workflow"
 
-import { Skeleton } from "@/components/ui/skeleton"
 import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -27,12 +27,7 @@ export function WorkspacePanel() {
           isOnline={isOnline}
         />
       ) : (
-        <div className="w-full space-x-2 p-4">
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-[250px]" />
-            <Skeleton className="h-4 w-[200px]" />
-          </div>
-        </div>
+        <CenteredSpinner />
       )}
     </div>
   )
