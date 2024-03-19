@@ -24,7 +24,7 @@ classifiers = [
 dependencies = [
     "colorlog",
     "fastapi",
-    "lancedb",
+    "lancedb==0.6.3",
     "openai",
     "orjson",
     "polars",
