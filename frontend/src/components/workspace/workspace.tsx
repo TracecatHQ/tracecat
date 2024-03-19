@@ -34,9 +34,9 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { ActionTiles } from "@/components/action-tiles"
-import { WorkflowCanvas } from "@/components/canvas"
-import { WorkspacePanel } from "@/components/workspace-panel"
+import { ActionTiles } from "@/components/workspace/action-tiles"
+import { WorkflowCanvas } from "@/components/workspace/canvas"
+import { WorkspacePanel } from "@/components/workspace/workspace-panel"
 
 interface WorkspaceProps {
   defaultLayout: number[] | undefined

@@ -38,14 +38,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { ActionNodeType } from "@/components/action-node"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import {
   baseActionSchema,
   getSubActionSchema,
 } from "@/components/forms/action-schemas"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
+import { ActionNodeType } from "@/components/workspace/action-node"
 
 function processInputs(inputs: Record<string, any>): Record<string, any> {
   return Object.entries(inputs).reduce(
@@ -171,7 +171,7 @@ export function ActionForm({
   // against undefined schemas or data
   if (isLoading) {
     // TODO: Make this loading state look more like a form
-    return <CenteredSpinner />
+    return <FormLoading className="bg-slate-100" />
   }
   if (error) {
     return (

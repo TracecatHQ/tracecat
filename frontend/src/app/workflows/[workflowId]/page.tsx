@@ -1,7 +1,7 @@
 import { Metadata } from "next"
 import { cookies } from "next/headers"
 
-import { Workspace } from "@/components/workspace"
+import { Workspace } from "@/components/workspace/workspace"
 
 export const metadata: Metadata = {
   title: "Workflows | Tracecat",

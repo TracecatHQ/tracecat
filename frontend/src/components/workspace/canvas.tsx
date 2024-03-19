@@ -28,7 +28,7 @@ import { useToast } from "@/components/ui/use-toast"
 import ActionNode, {
   ActionNodeData,
   ActionNodeType,
-} from "@/components/action-node"
+} from "@/components/workspace/action-node"
 
 const nodeTypes = {
   action: ActionNode,
