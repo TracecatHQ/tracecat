@@ -31,7 +31,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -45,6 +44,7 @@ import {
   baseActionSchema,
   getSubActionSchema,
 } from "@/components/forms/action-schemas"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
 function processInputs(inputs: Record<string, any>): Record<string, any> {
@@ -171,14 +171,7 @@ export function ActionForm({
   // against undefined schemas or data
   if (isLoading) {
     // TODO: Make this loading state look more like a form
-    return (
-      <div className="flex items-center space-x-2 p-4">
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-[250px]" />
-          <Skeleton className="h-4 w-[200px]" />
-        </div>
-      </div>
-    )
+    return <CenteredSpinner />
   }
   if (error) {
     return (
