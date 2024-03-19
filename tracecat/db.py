@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,7 +8,7 @@ import pyarrow as pa
 import tantivy
 from pydantic import computed_field
 from slugify import slugify
-from sqlalchemy import Engine
+from sqlalchemy import TIMESTAMP, Engine, text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 from tracecat import auth
@@ -44,7 +45,28 @@ class User(SQLModel, table=True):
     )
 
 
-class Secret(SQLModel, table=True):
+class Resource(SQLModel):
+    """Base class for all resources in the system."""
+
+    owner_id: str
+    created_at: datetime = Field(
+        sa_type=TIMESTAMP(),  # UTC Timestamp
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        },
+    )
+    updated_at: datetime = Field(
+        sa_type=TIMESTAMP(),  # UTC Timestamp
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "server_onupdate": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        },
+    )
+
+
+class Secret(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     name: str | None = Field(default=None, max_length=255, index=True, nullable=True)
     encrypted_api_key: bytes | None = Field(default=None, nullable=True)
@@ -69,7 +91,7 @@ class Editor(SQLModel, table=True):
     )
 
 
-class CaseAction(SQLModel, table=True):
+class CaseAction(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     tag: str
     value: str
@@ -77,7 +99,7 @@ class CaseAction(SQLModel, table=True):
     user: User | None = Relationship(back_populates="case_actions")
 
 
-class CaseContext(SQLModel, table=True):
+class CaseContext(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     tag: str
     value: str
@@ -85,7 +107,7 @@ class CaseContext(SQLModel, table=True):
     user: User | None = Relationship(back_populates="case_contexts")
 
 
-class Workflow(SQLModel, table=True):
+class Workflow(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     title: str
     description: str
@@ -111,14 +133,14 @@ class Workflow(SQLModel, table=True):
         return f"{self.id}.{slug}"
 
 
-class WorkflowRun(SQLModel, table=True):
+class WorkflowRun(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     status: str = "pending"  # "online" or "offline"
     workflow_id: str = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="runs")
 
 
-class Action(SQLModel, table=True):
+class Action(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     type: str
     title: str
@@ -135,7 +157,7 @@ class Action(SQLModel, table=True):
         return f"{self.id}.{slug}"
 
 
-class Webhook(SQLModel, table=True):
+class Webhook(Resource, table=True):
     """Webhook is a URL that can be called to trigger a workflow.
 
     Notes
@@ -200,6 +222,7 @@ def create_vdb_conn() -> lancedb.DBConnection:
 CaseSchema = pa.schema(
     [
         pa.field("id", pa.string(), nullable=False),
+        pa.field("owner_id", pa.string(), nullable=False),
         pa.field("workflow_id", pa.string(), nullable=False),
         pa.field("title", pa.string(), nullable=False),
         pa.field("payload", pa.string(), nullable=False),  # JSON-serialized
@@ -234,7 +257,8 @@ def initialize_db() -> Engine:
         if len(case_contexts_count) == 0:
             mitre_labels = get_mitre_tactics_techniques()
             mitre_contexts = [
-                CaseContext(tag="mitre", value=label) for label in mitre_labels
+                CaseContext(owner_id="tracecat", tag="mitre", value=label)
+                for label in mitre_labels
             ]
             session.add_all(mitre_contexts)
             session.commit()
@@ -242,7 +266,7 @@ def initialize_db() -> Engine:
         case_actions_count = session.exec(select(CaseAction)).all()
         if len(case_actions_count) == 0:
             default_actions = [
-                CaseAction(tag="case_action", value=case_action)
+                CaseAction(owner_id="tracecat", tag="case_action", value=case_action)
                 for case_action in DEFAULT_CASE_ACTIONS
             ]
             session.add_all(default_actions)

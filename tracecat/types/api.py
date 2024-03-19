@@ -160,3 +160,36 @@ UpdateSecretParams = CreateSecretParams
 
 class SearchSecretsParams(BaseModel):
     names: list[str]
+
+
+class CaseParams(BaseModel):
+    title: str
+    payload: dict[str, Any]
+    malice: Literal["malicious", "benign"]
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
+    priority: Literal["low", "medium", "high", "critical"]
+    context: dict[str, str] | str | None = None
+    action: str | None = None
+    suppression: dict[str, bool] | None = None
+
+
+class CaseActionParams(BaseModel):
+    tag: str
+    value: str
+    user_id: str | None = None
+
+
+class CaseContextParams(BaseModel):
+    tag: str
+    value: str
+    user_id: str | None = None
+
+
+class SearchWebhooksParams(BaseModel):
+    action_id: str | None = None
+    workflow_id: str | None = None
+    limit: int = 100
+    order_by: str = "created_at"
+    query: str | None = None
+    group_by: list[str] | None = None
+    agg: str | None = None

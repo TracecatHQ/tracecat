@@ -32,7 +32,7 @@ CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 
-class AuthenticatedClient(httpx.AsyncClient):
+class AuthenticatedServiceClient(httpx.AsyncClient):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.base_url = TRACECAT__API_URL
@@ -80,11 +80,7 @@ async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
     return record
 
 
-async def authenticate_user_session(
-    token: Annotated[str, Depends(oauth2_scheme)],
-) -> Role:
-    """Authenticate a JWT and return the 'sub' claim as the user_id."""
-
+async def _get_role_from_jwt(token: str | bytes) -> Role:
     try:
         payload = jwt.decode(
             token,
@@ -110,7 +106,7 @@ async def authenticate_user_session(
     return role
 
 
-async def authenticate_service(request: Request, api_key: str | None = None) -> Role:
+async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
     service_role_name = request.headers.get("Service-Role")
     if (
         not service_role_name
@@ -129,6 +125,21 @@ async def authenticate_service(request: Request, api_key: str | None = None) -> 
     return role
 
 
+async def authenticate_user_session(
+    token: Annotated[str, Depends(oauth2_scheme)],
+) -> Role:
+    """Authenticate a JWT and return the 'sub' claim as the user_id."""
+    return await _get_role_from_jwt(token)
+
+
+async def authenticate_service(
+    request: Request,
+    api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
+) -> Role:
+    """Authenticate a service using an API key."""
+    return await _get_role_from_service_key(request, api_key)
+
+
 async def authenticate_user_or_service(
     token: Annotated[str | None, Depends(oauth2_scheme)] = None,
     api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
@@ -139,7 +150,7 @@ async def authenticate_user_or_service(
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
     if token:
-        return await authenticate_user_session(token)
+        return await _get_role_from_jwt(token)
     if api_key:
-        return await authenticate_service(request, api_key)
+        return await _get_role_from_service_key(request, api_key)
     raise CREDENTIALS_EXCEPTION

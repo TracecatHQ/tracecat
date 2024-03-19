@@ -31,14 +31,15 @@ export async function* streamGenerator(
     console.error("Failed to get authenticated client, redirecting to login")
     return redirect("/")
   }
+  const { headers, ...rest } = init ?? {}
   const response = await fetch(
     `${process.env.NEXT_PUBLIC_APP_URL}${endpoint}`,
     {
+      ...rest,
       headers: {
+        ...headers, // Merge the headers from init object
         Authorization: `Bearer ${session?.access_token}`,
-        ...init?.headers, // Merge the headers from init object
       },
-      ...init,
     }
   )
   if (!response.body) {
