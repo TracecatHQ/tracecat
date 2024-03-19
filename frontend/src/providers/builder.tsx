@@ -13,7 +13,7 @@ import { useWorkflowMetadata } from "@/providers/workflow"
 import { Edge, Node, useOnSelectionChange, useReactFlow } from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
-import { ActionNodeType } from "@/components/action-node"
+import { ActionNodeType } from "@/components/workspace/action-node"
 
 interface ReactFlowContextType {
   selectedNodeId: string | null

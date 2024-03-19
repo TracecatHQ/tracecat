@@ -4,7 +4,7 @@ import { useWorkflowMetadata } from "@/providers/workflow"
 
 import { ActionForm } from "@/components/forms/action"
 import { WorkflowForm } from "@/components/forms/workflow"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { FormLoading } from "@/components/loading/form"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -27,7 +27,7 @@ export function WorkspacePanel() {
           isOnline={isOnline}
         />
       ) : (
-        <CenteredSpinner />
+        <FormLoading className="bg-slate-100" />
       )}
     </div>
   )
