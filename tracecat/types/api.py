@@ -114,6 +114,7 @@ class GetWebhookParams(BaseModel):
 
 class AuthenticateWebhookResponse(BaseModel):
     status: Literal["Authorized", "Unauthorized"]
+    owner_id: str | None = None
     action_key: str | None = None
     action_id: str | None = None
     webhook_id: str | None = None

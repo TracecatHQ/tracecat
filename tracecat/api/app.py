@@ -7,15 +7,16 @@ import tantivy
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy import Engine
+from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
 from tracecat.api.completions import CategoryConstraint, stream_case_completions
 from tracecat.auth import (
     Role,
+    authenticate_service,
+    authenticate_user,
     authenticate_user_or_service,
-    authenticate_user_session,
 )
 from tracecat.db import (
     Action,
@@ -38,6 +39,9 @@ from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
     AuthenticateWebhookResponse,
+    CaseActionParams,
+    CaseContextParams,
+    CaseParams,
     CreateActionParams,
     CreateSecretParams,
     CreateWebhookParams,
@@ -45,6 +49,7 @@ from tracecat.types.api import (
     Event,
     EventSearchParams,
     SearchSecretsParams,
+    SearchWebhooksParams,
     UpdateActionParams,
     UpdateSecretParams,
     UpdateUserParams,
@@ -105,11 +110,11 @@ def check_health() -> dict[str, str]:
 
 @app.get("/workflows")
 def list_workflows(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
 ) -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
     with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.owner_id == role.id)
+        statement = select(Workflow).where(Workflow.owner_id == role.user_id)
         results = session.exec(statement)
         workflows = results.all()
     workflow_metadata = [
@@ -126,14 +131,14 @@ def list_workflows(
 
 @app.post("/workflows", status_code=status.HTTP_201_CREATED)
 def create_workflow(
+    role: Annotated[Role, Depends(authenticate_user)],
     params: CreateWorkflowParams,
-    role: Annotated[Role, Depends(authenticate_user_session)],
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
     workflow = Workflow(
         title=params.title,
         description=params.description,
-        owner_id=role.id,
+        owner_id=role.user_id,
     )
     with Session(engine) as session:
         session.add(workflow)
@@ -149,12 +154,17 @@ def create_workflow(
 
 
 @app.get("/workflows/{workflow_id}")
-def get_workflow(workflow_id: str) -> WorkflowResponse:
+def get_workflow(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
-
     with Session(engine) as session:
         # Get Workflow given workflow_id
-        statement = select(Workflow).where(Workflow.id == workflow_id)
+        statement = select(Workflow).where(
+            Workflow.owner_id == role.user_id,
+            Workflow.id == workflow_id,
+        )
         result = session.exec(statement)
         try:
             workflow = result.one()
@@ -199,13 +209,17 @@ def get_workflow(workflow_id: str) -> WorkflowResponse:
 
 @app.post("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 def update_workflow(
+    role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     params: UpdateWorkflowParams,
 ) -> None:
     """Update Workflow."""
 
     with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.id == workflow_id)
+        statement = select(Workflow).where(
+            Workflow.owner_id == role.user_id,
+            Workflow.id == workflow_id,
+        )
         result = session.exec(statement)
         try:
             workflow = result.one()
@@ -228,11 +242,17 @@ def update_workflow(
 
 
 @app.delete("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_workflow(workflow_id: str) -> None:
+def delete_workflow(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+) -> None:
     """Delete Workflow."""
 
     with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.id == workflow_id)
+        statement = select(Workflow).where(
+            Workflow.owner_id == role.user_id,
+            Workflow.id == workflow_id,
+        )
         result = session.exec(statement)
         try:
             workflow = result.one()
@@ -248,10 +268,17 @@ def delete_workflow(workflow_id: str) -> None:
 
 
 @app.get("/workflows/{workflow_id}/runs")
-def list_workflow_runs(workflow_id: str) -> list[WorkflowRunMetadataResponse]:
+def list_workflow_runs(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+) -> list[WorkflowRunMetadataResponse]:
     """List all Workflow Runs for a Workflow."""
     with Session(engine) as session:
-        statement = select(WorkflowRun).where(WorkflowRun.id == workflow_id)
+        # Being here means the user has access to the workflow
+        statement = select(WorkflowRun).where(
+            WorkflowRun.owner_id == role.user_id,
+            WorkflowRun.workflow_id == workflow_id,
+        )
         results = session.exec(statement)
         workflow_runs = results.all()
 
@@ -267,11 +294,14 @@ def list_workflow_runs(workflow_id: str) -> list[WorkflowRunMetadataResponse]:
 
 
 @app.post("/workflows/{workflow_id}/runs", status_code=status.HTTP_201_CREATED)
-def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
+def create_workflow_run(
+    role: Annotated[Role, Depends(authenticate_service)],  # M2M
+    workflow_id: str,
+) -> WorkflowRunMetadataResponse:
     """Create a Workflow Run."""
 
-    workflow_run = WorkflowRun(workflow_id=workflow_id)
     with Session(engine) as session:
+        workflow_run = WorkflowRun(owner_id=role.user_id, workflow_id=workflow_id)
         session.add(workflow_run)
         session.commit()
         session.refresh(workflow_run)
@@ -284,12 +314,17 @@ def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
 
 
 @app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
-def get_workflow_run(workflow_id: str, workflow_run_id: str) -> WorkflowRunResponse:
+def get_workflow_run(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    workflow_run_id: str,
+) -> WorkflowRunResponse:
     """Return WorkflowRun as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
     with Session(engine) as session:
         # Get Workflow given workflow_id
         statement = select(WorkflowRun).where(
+            WorkflowRun.owner_id == role.user_id,
             WorkflowRun.id == workflow_run_id,
             WorkflowRun.workflow_id == workflow_id,  # Redundant, but for clarity
         )
@@ -313,6 +348,7 @@ def get_workflow_run(workflow_id: str, workflow_run_id: str) -> WorkflowRunRespo
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def update_workflow_run(
+    role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
     workflow_run_id: str,
     params: UpdateWorkflowRunParams,
@@ -321,6 +357,7 @@ def update_workflow_run(
 
     with Session(engine) as session:
         statement = select(WorkflowRun).where(
+            WorkflowRun.owner_id == role.user_id,
             WorkflowRun.id == workflow_run_id,
             WorkflowRun.workflow_id == workflow_id,
         )
@@ -343,10 +380,16 @@ def update_workflow_run(
 
 
 @app.get("/actions")
-def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
+def list_actions(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+) -> list[ActionMetadataResponse]:
     """List all Actions related to `workflow_id`."""
     with Session(engine) as session:
-        statement = select(Action).where(Action.workflow_id == workflow_id)
+        statement = select(Action).where(
+            Action.owner_id == role.user_id,
+            Action.workflow_id == workflow_id,
+        )
         results = session.exec(statement)
         actions = results.all()
     action_metadata = [
@@ -365,9 +408,13 @@ def list_actions(workflow_id: str) -> list[ActionMetadataResponse]:
 
 
 @app.post("/actions")
-def create_action(params: CreateActionParams) -> ActionMetadataResponse:
+def create_action(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: CreateActionParams,
+) -> ActionMetadataResponse:
     with Session(engine) as session:
         action = Action(
+            owner_id=role.user_id,
             workflow_id=params.workflow_id,
             type=params.type,
             title=params.title,
@@ -379,7 +426,10 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
 
         if params.type.lower() == "webhook":
             create_webhook(
-                CreateWebhookParams(action_id=action.id, workflow_id=params.workflow_id)
+                role=role,
+                params=CreateWebhookParams(
+                    action_id=action.id, workflow_id=params.workflow_id
+                ),
             )
     action_metadata = ActionMetadataResponse(
         id=action.id,
@@ -394,12 +444,16 @@ def create_action(params: CreateActionParams) -> ActionMetadataResponse:
 
 
 @app.get("/actions/{action_id}")
-def get_action(action_id: str, workflow_id: str) -> ActionResponse:
+def get_action(
+    role: Annotated[Role, Depends(authenticate_user)],
+    action_id: str,
+    workflow_id: str,
+) -> ActionResponse:
     with Session(engine) as session:
-        statement = (
-            select(Action)
-            .where(Action.id == action_id)
-            .where(Action.workflow_id == workflow_id)
+        statement = select(Action).where(
+            Action.owner_id == role.user_id,
+            Action.id == action_id,
+            Action.workflow_id == workflow_id,
         )
         result = session.exec(statement)
         try:
@@ -413,7 +467,10 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
         # Precompute webhook response
         # Alias webhook.id as path
         if action.type.lower() == "webhook":
-            webhook_response = search_webhooks(action_id=action.id)
+            webhook_response = search_webhooks(
+                role=role,
+                params=SearchWebhooksParams(action_id=action.id),
+            )
             inputs |= {"path": webhook_response.id, "secret": webhook_response.secret}
     return ActionResponse(
         id=action.id,
@@ -427,10 +484,17 @@ def get_action(action_id: str, workflow_id: str) -> ActionResponse:
 
 
 @app.post("/actions/{action_id}")
-def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
+def update_action(
+    role: Annotated[Role, Depends(authenticate_user)],
+    action_id: str,
+    params: UpdateActionParams,
+) -> ActionResponse:
     with Session(engine) as session:
         # Fetch the action by id
-        statement = select(Action).where(Action.id == action_id)
+        statement = select(Action).where(
+            Action.owner_id == role.user_id,
+            Action.id == action_id,
+        )
         result = session.exec(statement)
         try:
             action = result.one()
@@ -464,9 +528,15 @@ def update_action(action_id: str, params: UpdateActionParams) -> ActionResponse:
 
 
 @app.delete("/actions/{action_id}", status_code=204)
-def delete_action(action_id: str) -> None:
+def delete_action(
+    role: Annotated[Role, Depends(authenticate_user)],
+    action_id: str,
+) -> None:
     with Session(engine) as session:
-        statement = select(Action).where(Action.id == action_id)
+        statement = select(Action).where(
+            Action.owner_id == role.user_id,
+            Action.id == action_id,
+        )
         result = session.exec(statement)
         try:
             action = result.one()
@@ -474,6 +544,7 @@ def delete_action(action_id: str) -> None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
+        # If the user doesn't own this workflow, they can't delete the action
         session.delete(action)
         session.commit()
 
@@ -482,10 +553,16 @@ def delete_action(action_id: str) -> None:
 
 
 @app.get("/webhooks")
-def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
+def list_webhooks(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+) -> list[WebhookResponse]:
     """List all Webhooks for a workflow."""
     with Session(engine) as session:
-        statement = select(Webhook).where(Webhook.workflow_id == workflow_id)
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.workflow_id == workflow_id,
+        )
         result = session.exec(statement)
         webhooks = result.all()
     webhook_responses = [
@@ -501,9 +578,13 @@ def list_webhooks(workflow_id: str) -> list[WebhookResponse]:
 
 
 @app.post("/webhooks", status_code=status.HTTP_201_CREATED)
-def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
+def create_webhook(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: CreateWebhookParams,
+) -> WebhookMetadataResponse:
     """Create a new Webhook."""
     webhook = Webhook(
+        owner_id=role.user_id,
         action_id=params.action_id,
         workflow_id=params.workflow_id,
     )
@@ -521,9 +602,15 @@ def create_webhook(params: CreateWebhookParams) -> WebhookMetadataResponse:
 
 
 @app.get("/webhooks/{webhook_id}")
-def get_webhook(webhook_id: str) -> WebhookResponse:
+def get_webhook(
+    role: Annotated[Role, Depends(authenticate_user)],
+    webhook_id: str,
+) -> WebhookResponse:
     with Session(engine) as session:
-        statement = select(Webhook).where(Webhook.id == webhook_id)
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.id == webhook_id,
+        )
         result = session.exec(statement)
         try:
             webhook = result.one()
@@ -541,10 +628,16 @@ def get_webhook(webhook_id: str) -> WebhookResponse:
 
 
 @app.delete("/webhooks/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_webhook(webhook_id: str) -> None:
+def delete_webhook(
+    role: Annotated[Role, Depends(authenticate_user)],
+    webhook_id: str,
+) -> None:
     """Delete a Webhook by ID."""
     with Session(engine) as session:
-        statement = select(Webhook).where(Webhook.id == webhook_id)
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.id == webhook_id,
+        )
         result = session.exec(statement)
         webhook = result.one()
         session.delete(webhook)
@@ -552,12 +645,18 @@ def delete_webhook(webhook_id: str) -> None:
 
 
 @app.get("/webhooks/search")
-def search_webhooks(action_id: str | None = None) -> WebhookResponse:
+def search_webhooks(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: SearchWebhooksParams,
+) -> WebhookResponse:
     with Session(engine) as session:
         statement = select(Webhook)
 
-        if action_id is not None:
-            statement = statement.where(Webhook.action_id == action_id)
+        if params.action_id is not None:
+            statement = statement.where(
+                Webhook.owner_id == role.user_id,
+                Webhook.action_id == params.action_id,
+            )
         result = session.exec(statement)
         try:
             webhook = result.one()
@@ -575,7 +674,12 @@ def search_webhooks(action_id: str | None = None) -> WebhookResponse:
 
 
 @app.post("/authenticate/webhooks/{webhook_id}/{secret}")
-def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookResponse:
+def authenticate_webhook(
+    # TODO: Add user id to Role
+    _role: Annotated[Role, Depends(authenticate_service)],  # M2M
+    webhook_id: str,
+    secret: str,
+) -> AuthenticateWebhookResponse:
     with Session(engine) as session:
         statement = select(Webhook).where(Webhook.id == webhook_id)
         result = session.exec(statement)
@@ -600,6 +704,7 @@ def authenticate_webhook(webhook_id: str, secret: str) -> AuthenticateWebhookRes
             ) from e
     return AuthenticateWebhookResponse(
         status="Authorized",
+        owner_id=action.owner_id,
         action_id=action.id,
         action_key=action.key,
         workflow_id=webhook.workflow_id,
@@ -623,11 +728,22 @@ SUPPORTED_EVENT_AGGS = {
 
 
 @app.get("/events/search")
-def search_events(params: EventSearchParams) -> list[Event]:
+def search_events(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: EventSearchParams,
+) -> list[Event]:
     """Search for events based on query parameters.
 
     Note: currently on supports filter by `workflow_id` and sort by `published_at`.
     """
+    # TODO: Change this to use tantivy filtered query
+    with Session(engine) as session:
+        statement = select(Workflow.owner_id).where(Workflow.id == params.workflow_id)
+        workflow_owner_id = session.exec(statement).one_or_none()
+        if not workflow_owner_id or workflow_owner_id != role.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
     index = create_events_index()
     index.reload()
     query = index.parse_query(params.workflow_id, ["workflow_id"])
@@ -641,16 +757,26 @@ def search_events(params: EventSearchParams) -> list[Event]:
 
 
 @app.post("/workflows/{workflow_id}/cases", status_code=status.HTTP_201_CREATED)
-def create_case(workflow_id: str, cases: list[Case]):
+def create_case(
+    role: Annotated[Role, Depends(authenticate_service)],  # M2M
+    workflow_id: str,
+    cases: list[CaseParams],
+):
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     # Should probably also add a check for existing case IDs
-    # NOTE: Duplicate workflow_id - ignore for now, use the one given in the case
-    tbl.add([case.flatten() for case in cases])
+    new_cases = [
+        Case(**c, owner_id=role.user_id, workflow_id=workflow_id) for c in cases
+    ]
+    tbl.add([case.flatten() for case in new_cases])
 
 
 @app.get("/workflows/{workflow_id}/cases")
-def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
+def list_cases(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    limit: int = 100,
+) -> list[Case]:
     """List all cases under a workflow.
 
     Note: currently only supports listing the first 100 cases.
@@ -659,7 +785,7 @@ def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
     tbl = db.open_table("cases")
     result = (
         tbl.search()
-        .where(f"workflow_id = {workflow_id!r}")
+        .where(f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r})")
         .select(list(Case.model_fields.keys()))
         .limit(limit)
         .to_polars()
@@ -669,13 +795,19 @@ def list_cases(workflow_id: str, limit: int = 100) -> list[Case]:
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}")
-def get_case(workflow_id: str, case_id: str) -> Case:
+def get_case(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    case_id: str,
+) -> Case:
     """Get a specific case by ID under a workflow."""
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     result = (
         tbl.search()
-        .where(f"(workflow_id = {workflow_id!r}) AND (id = {case_id!r})")
+        .where(
+            f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})"
+        )
         .select(list(Case.model_fields.keys()))
         .limit(1)
         .to_polars()
@@ -685,24 +817,36 @@ def get_case(workflow_id: str, case_id: str) -> Case:
 
 
 @app.post("/workflows/{workflow_id}/cases/{case_id}")
-def update_case(workflow_id: str, case_id: str, case: Case):
+def update_case(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    case_id: str,
+    params: CaseParams,
+):
     """Update a specific case by ID under a workflow."""
+    updated_case = Case.from_params(params, owner_id=role.user_id, id=case_id)
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     tbl.update(
-        where=f"(workflow_id = {workflow_id!r}) AND (id = {case_id!r})",
-        values=case.flatten(),
+        where=f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})",
+        values=updated_case.flatten(),
     )
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}/metrics")
-def get_case_metrics(workflow_id: str, case_id: str) -> CaseMetrics:
+def get_case_metrics(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    case_id: str,
+) -> CaseMetrics:
     """Get a specific case by ID under a workflow."""
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     df = pl.DataFrame(
         tbl.search()
-        .where(f"(workflow_id = {workflow_id!r}) AND (id = {case_id!r})")
+        .where(
+            f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})"
+        )
         .select(list(Case.model_fields.keys()))
         .to_arrow()
     ).to_dicts()
@@ -713,15 +857,26 @@ def get_case_metrics(workflow_id: str, case_id: str) -> CaseMetrics:
 
 
 @app.get("/case-actions")
-def list_case_actions() -> list[CaseAction]:
+def list_case_actions(
+    role: Annotated[Role, Depends(authenticate_user)],
+) -> list[CaseAction]:
     with Session(engine) as session:
-        statement = select(CaseAction)
+        statement = select(CaseAction).where(
+            or_(
+                CaseAction.owner_id == "tracecat",
+                CaseAction.owner_id == role.user_id,
+            )
+        )
         actions = session.exec(statement).all()
     return actions
 
 
 @app.post("/case-actions")
-def add_case_action(case_action: CaseAction) -> CaseAction:
+def create_case_action(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: CaseActionParams,
+) -> CaseAction:
+    case_action = CaseAction(owner_id=role.user_id, **params.model_dump())
     with Session(engine) as session:
         session.add(case_action)
         session.commit()
@@ -729,10 +884,16 @@ def add_case_action(case_action: CaseAction) -> CaseAction:
     return case_action
 
 
-@app.delete("/case-actions")
-def delete_case_action(case_action: CaseAction):
+@app.delete("/case-actions/{case_action_id}")
+def delete_case_action(
+    role: Annotated[Role, Depends(authenticate_user)],
+    case_action_id: str,
+):
     with Session(engine) as session:
-        statement = select(CaseAction).where(CaseAction.id == case_action.id)
+        statement = select(CaseAction).where(
+            CaseAction.owner_id == role.user_id,
+            CaseAction.id == case_action_id,
+        )
         result = session.exec(statement)
         try:
             action = result.one()
@@ -748,26 +909,43 @@ def delete_case_action(case_action: CaseAction):
 
 
 @app.get("/case-contexts")
-def list_case_contexts() -> list[CaseContext]:
+def list_case_contexts(
+    role: Annotated[Role, Depends(authenticate_user)],
+) -> list[CaseContext]:
     with Session(engine) as session:
-        statement = select(CaseContext)
+        statement = select(CaseContext).where(
+            or_(
+                CaseContext.owner_id == "tracecat",
+                CaseContext.owner_id == role.user_id,
+            )
+        )
         actions = session.exec(statement).all()
     return actions
 
 
 @app.post("/case-contexts")
-def add_case_context(case_context: CaseContext) -> CaseContext:
+def create_case_context(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: CaseContextParams,
+) -> CaseContext:
+    case_context = CaseContext(owner_id=role.user_id, **params.model_dump())
     with Session(engine) as session:
         session.add(case_context)
         session.commit()
         session.refresh(case_context)
-    return case_context
+    return params
 
 
-@app.delete("/case-contexts")
-def delete_case_context(case_context: CaseContext):
+@app.delete("/case-contexts/{case_context_id}")
+def delete_case_context(
+    role: Annotated[Role, Depends(authenticate_user)],
+    case_context_id: str,
+):
     with Session(engine) as session:
-        statement = select(CaseContext).where(CaseContext.id == case_context.id)
+        statement = select(CaseContext).where(
+            CaseContext.owner_id == role.user_id,
+            CaseContext.id == case_context_id,
+        )
         result = session.exec(statement)
         try:
             action = result.one()
@@ -783,6 +961,7 @@ def delete_case_context(case_context: CaseContext):
 
 @app.post("/completions/cases/stream")
 async def streaming_autofill_case_fields(
+    role: Annotated[Role, Depends(authenticate_user)],
     cases: list[Case],  # TODO: Replace this with case IDs
 ) -> dict[str, str]:
     """List of case IDs.
@@ -793,9 +972,10 @@ async def streaming_autofill_case_fields(
     3. Complete the fields
 
     """
-    logger.info(f"Received cases: {cases = }")
+    logger.info(f"Received cases: {cases = }, {role = }")
+    case_actions = list_case_actions(role)
     actions_mapping = (
-        pl.DataFrame(list_case_actions())
+        pl.DataFrame(case_actions)
         .lazy()
         .select(
             pl.col.tag,
@@ -808,8 +988,9 @@ async def streaming_autofill_case_fields(
         .to_dicts()
     )
 
+    case_contexts = list_case_contexts(role)
     contexts_mapping = (
-        pl.DataFrame(list_case_contexts())
+        pl.DataFrame(case_contexts)
         .lazy()
         .select(
             pl.col.tag,
@@ -841,7 +1022,7 @@ async def streaming_autofill_case_fields(
 
 @app.put("/users", status_code=status.HTTP_201_CREATED)
 def create_user(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
     """Create new user.
 
@@ -851,14 +1032,15 @@ def create_user(
 
     with Session(engine) as session:
         # Check if user exists
-        statement = select(User).where(User.id == role.id).limit(1)
+        statement = select(User).where(User.id == role.user_id).limit(1)
         result = session.exec(statement)
+
         user = result.one_or_none()
         if user is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="User already exists"
             )
-        user = User(id=role.id)
+        user = User(id=role.user_id)
 
         session.add(user)
         session.commit()
@@ -868,13 +1050,13 @@ def create_user(
 
 @app.get("/users")
 def get_user(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
     """Return user as title, description, list of Action JSONs, adjacency list of Action IDs."""
 
     with Session(engine) as session:
         # Get user given user_id
-        statement = select(User).where(User.id == role.id)
+        statement = select(User).where(User.id == role.user_id)
         result = session.exec(statement)
         try:
             user = result.one()
@@ -887,13 +1069,13 @@ def get_user(
 
 @app.post("/users", status_code=status.HTTP_204_NO_CONTENT)
 def update_user(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
     params: UpdateUserParams,
 ) -> None:
     """Update user."""
 
     with Session(engine) as session:
-        statement = select(User).where(User.id == role.id)
+        statement = select(User).where(User.id == role.user_id)
         result = session.exec(statement)
         try:
             user = result.one()
@@ -913,12 +1095,12 @@ def update_user(
 
 @app.delete("/users", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
 ) -> None:
     """Delete user."""
 
     with Session(engine) as session:
-        statement = select(User).where(User.id == role.id)
+        statement = select(User).where(User.id == role.user_id)
         result = session.exec(statement)
         try:
             user = result.one()
@@ -935,11 +1117,11 @@ def delete_user(
 
 @app.get("/secrets")
 def list_secrets(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends()],
 ) -> list[Secret]:
     """Get a secret by ID."""
     with Session(engine) as session:
-        statement = select(Secret).where(Secret.user_id == role.id)
+        statement = select(Secret).where(Secret.owner_id == role.user_id)
         result = session.exec(statement)
         secrets = result.all()
         return secrets
@@ -949,34 +1131,17 @@ def list_secrets(
 def get_secret(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
-    user_id: str | None = None,
 ) -> Secret:
     """Get a secret by ID.
 
     Support access for both user and service roles."""
 
-    query_id: str
     logger.info(f"Role: {role}")
-    match role:
-        case Role(variant="user"):
-            query_id = role.id
-        case Role(variant="service", id="tracecat-runner"):
-            if user_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Missing 'user_id' query parameter",
-                )
-            query_id = user_id
-        case _:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Role {role!r} unauthorized",
-            )
     with Session(engine) as session:
         # Check if secret exists
         statement = (
             select(Secret)
-            .where(Secret.user_id == query_id, Secret.name == secret_name)
+            .where(Secret.owner_id == role.user_id, Secret.name == secret_name)
             .limit(1)
         )
         result = session.exec(statement)
@@ -990,15 +1155,17 @@ def get_secret(
 
 @app.put("/secrets", status_code=status.HTTP_201_CREATED)
 def create_secret(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
     params: CreateSecretParams,
-) -> Secret:
+) -> None:
     """Get a secret by ID."""
+    logger.critical(f"Role: {role}")
+    logger.critical(f"Params: {params}")
     with Session(engine) as session:
         # Check if secret exists
         statement = (
             select(Secret)
-            .where(Secret.user_id == role.id, Secret.name == params.name)
+            .where(Secret.owner_id == role.user_id, Secret.name == params.name)
             .limit(1)
         )
         result = session.exec(statement)
@@ -1007,7 +1174,7 @@ def create_secret(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
             )
-        new_secret = Secret(name=params.name, user_id=role.id)
+        new_secret = Secret(owner_id=role.user_id, name=params.name)
         new_secret.key = params.value  # Set and encrypt the key
 
         session.add(new_secret)
@@ -1017,7 +1184,7 @@ def create_secret(
 
 @app.post("/secrets", status_code=status.HTTP_201_CREATED)
 def update_secret(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
     params: UpdateSecretParams,
 ) -> Secret:
     """Get a secret by ID."""
@@ -1025,7 +1192,7 @@ def update_secret(
         # Check if secret exists
         statement = (
             select(Secret)
-            .where(Secret.user_id == role.id, Secret.name == params.name)
+            .where(Secret.owner_id == role.user_id, Secret.name == params.name)
             .limit(1)
         )
         result = session.exec(statement)
@@ -1042,14 +1209,14 @@ def update_secret(
 
 @app.post("/secrets/search")
 def search_secrets(
-    role: Annotated[Role, Depends(authenticate_user_session)],
+    role: Annotated[Role, Depends(authenticate_user)],
     params: SearchSecretsParams,
 ) -> list[Secret]:
     """Get a secret by ID."""
     with Session(engine) as session:
         statement = (
             select(Secret)
-            .where(Secret.user_id == role.id)
+            .where(Secret.owner_id == role.user_id)
             .filter(*[Secret.name == name for name in params.names])
         )
         result = session.exec(statement)

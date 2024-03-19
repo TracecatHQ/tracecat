@@ -9,7 +9,7 @@ import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
 from tracecat.auth import AuthenticatedServiceClient
-from tracecat.contexts import ctx_workflow
+from tracecat.contexts import ctx_session_role
 from tracecat.db import Secret
 from tracecat.logger import standard_logger
 
@@ -113,12 +113,10 @@ async def _load_secret(secret_name: str) -> str:
     try:
         # NOTE(perf): We can frontload these requests before starting
         # the workflow, then look up the encrypted secrets in a local cache.
+        role = ctx_session_role.get()
 
-        curr_workflow = ctx_workflow.get()
-        async with AuthenticatedServiceClient() as client:
-            response = await client.get(
-                f"/secrets/{secret_name}", params={"user_id": curr_workflow.owner_id}
-            )
+        async with AuthenticatedServiceClient(role=role, http2=True) as client:
+            response = await client.get(f"/secrets/{secret_name}")
             response.raise_for_status()
         secret = Secret.model_validate_json(response.content)
         return secret.key  # Decrypt secret value

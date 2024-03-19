@@ -122,7 +122,7 @@ async def test_evaluate_templated_secret():
         for secret_name, secret_value in TEST_SECRETS.items():
             secret = Secret(
                 name=secret_name,
-                user_id="test_user_id",
+                owner_id="test_user_id",
             )
             secret.key = secret_value  # Encrypt the secret
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Annotated
+from typing import Annotated, Literal
 
 import httpx
 import psycopg
@@ -13,12 +13,12 @@ from fastapi.security import (
     OAuth2PasswordBearer,
 )
 from jose import JWTError, jwt
+from pydantic import BaseModel
 
 import tracecat.config as cfg
 from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_session_role
 from tracecat.logger import standard_logger
-from tracecat.types.session import Role
 
 logger = standard_logger(__name__)
 
@@ -33,15 +33,51 @@ CREDENTIALS_EXCEPTION = HTTPException(
 
 
 class AuthenticatedServiceClient(httpx.AsyncClient):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, role: Role | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.base_url = TRACECAT__API_URL
+        self.role = role
 
     async def __aenter__(self):
         """Inject the service role and api key to the headers at query time."""
         self.headers["Service-Role"] = "tracecat-runner"
         self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
+        if self.role:
+            self.headers["Service-User-ID"] = self.role.user_id
+            self.headers["Service-Role"] = self.role.service_id
         return await super().__aenter__()
+
+
+class Role(BaseModel):
+    """The role of the session.
+
+    Params
+    ------
+    type : Literal["user", "service"]
+        The type of role.
+    user_id : str | None
+        The user's JWT 'sub' claim, or the service's user_id.
+        This can be None for internal services, or when a user hasn't been set for the role.
+    service_id : str | None = None
+        The service's role name, or None if the role is a user.
+
+
+    User roles
+    ----------
+    - User roles are authenticated via JWT.
+    - The `user_id` is the user's JWT 'sub' claim.
+    - User roles do not have an associated `service_id`, this must be None.
+
+    Service roles
+    -------------
+    - Service roles are authenticated via API key.
+    - Used for internal services to authenticate with the API.
+    - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
+    """
+
+    type: Literal["user", "service"]
+    user_id: str | None = None
+    service_id: str | None = None
 
 
 def compute_hash(object_id: str) -> str:
@@ -101,12 +137,13 @@ async def _get_role_from_jwt(token: str | bytes) -> Role:
     if await _validate_user_exists_in_db(user_id) is None:
         logger.error("User not authenticated")
         raise CREDENTIALS_EXCEPTION
-    role = Role(id=user_id, variant="user")
+    role = Role(type="user", user_id=user_id)
     ctx_session_role.set(role)
     return role
 
 
 async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
+    user_id = request.headers.get("Service-User-ID")
     service_role_name = request.headers.get("Service-Role")
     if (
         not service_role_name
@@ -120,15 +157,19 @@ async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
     if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
         logger.error("Could not validate service key")
         raise CREDENTIALS_EXCEPTION
-    role = Role(id=service_role_name, variant="service")
+    role = Role(
+        type="service",
+        user_id=user_id,
+        service_id=service_role_name,
+    )
     ctx_session_role.set(role)
     return role
 
 
-async def authenticate_user_session(
+async def authenticate_user(
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> Role:
-    """Authenticate a JWT and return the 'sub' claim as the user_id."""
+    """Authenticate a user JWT and return the 'sub' claim as the user_id."""
     return await _get_role_from_jwt(token)
 
 

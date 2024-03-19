@@ -37,7 +37,6 @@ from enum import StrEnum, auto
 from typing import Annotated, Any
 from uuid import uuid4
 
-import httpx
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -51,8 +50,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
+from tracecat.auth import AuthenticatedServiceClient, Role
 from tracecat.config import TRACECAT__API_URL
-from tracecat.contexts import ctx_workflow
+from tracecat.contexts import ctx_session_role, ctx_workflow
 from tracecat.logger import standard_logger
 from tracecat.runner.actions import (
     ActionRun,
@@ -101,9 +101,17 @@ running_jobs_store: dict[str, asyncio.Task[None]] = {}
 
 
 async def get_workflow(workflow_id: str) -> WorkflowResponse:
-    async with httpx.AsyncClient(http2=True) as client:
-        response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
-        response.raise_for_status()
+    try:
+        role = ctx_session_role.get()
+        async with AuthenticatedServiceClient(role=role, http2=True) as client:
+            response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
+            response.raise_for_status()
+    except HTTPException as e:
+        logger.error(e.detail)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while fetching the workflow.",
+        ) from e
     data = response.json()
     return WorkflowResponse.model_validate(data)
 
@@ -111,7 +119,7 @@ async def get_workflow(workflow_id: str) -> WorkflowResponse:
 # Dependencies
 async def valid_workflow(workflow_id: str) -> str:
     """Check if a workflow exists."""
-    async with httpx.AsyncClient(http2=True) as client:
+    async with AuthenticatedServiceClient(http2=True) as client:
         response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise HTTPException(
@@ -163,7 +171,7 @@ async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookRe
     2. If the secret is not found, return a 404.
     """
     # Change this to make a db call
-    async with httpx.AsyncClient(http2=True) as client:
+    async with AuthenticatedServiceClient(http2=True) as client:
         response = await client.post(
             f"{TRACECAT__API_URL}/authenticate/webhooks/{path}/{secret}"
         )
@@ -180,6 +188,8 @@ async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookRe
 
 @app.post("/webhook/{path}/{secret}")
 async def webhook(
+    # NOTE: We should actually also authenticate the client request here.
+    # This typically will be the API service, but we should double check
     webhook_metadata: Annotated[
         AuthenticateWebhookResponse, Depends(valid_webhook_request)
     ],
@@ -214,6 +224,10 @@ async def webhook(
     logger.info(f"Received webhook with entrypoint {webhook_metadata.action_key}")
     logger.debug(f"{payload =}")
 
+    user_id = webhook_metadata.owner_id  # If we are here this should be set
+    role = Role(type="service", service_id="tracecat-runner", user_id=user_id)
+    ctx_session_role.set(role)
+    logger.info(f"Set session role context for {role}")
     workflow_id = webhook_metadata.workflow_id
     workflow_response = await get_workflow(workflow_id)
     if workflow_response.status == "offline":
@@ -311,6 +325,7 @@ async def run_workflow(
     run_logger = standard_logger(workflow_run_id)
     workflow_response = await get_workflow(workflow_id)
     workflow = Workflow.from_response(workflow_response)
+    logger.info(f"Set workflow context for user {workflow.owner_id}")
     ctx_workflow.set(workflow)
 
     # Initial state

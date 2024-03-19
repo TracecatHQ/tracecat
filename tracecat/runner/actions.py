@@ -49,6 +49,7 @@ from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import HTTP_MAX_RETRIES
+from tracecat.contexts import ctx_session_role
 from tracecat.db import create_events_index, create_vdb_conn
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
@@ -715,8 +716,12 @@ async def run_open_case_action(
 ) -> dict[str, str | dict[str, str] | None]:
     db = create_vdb_conn()
     tbl = db.open_table("cases")
+    role = ctx_session_role.get()
+    if role.user_id is None:
+        raise ValueError(f"User ID not found in session context: {role}.")
     case = Case(
         id=action_run_id,
+        owner_id=role.user_id,
         workflow_id=workflow_id,
         title=title,
         payload=payload,
