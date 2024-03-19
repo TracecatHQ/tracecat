@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.config import MAX_RETRIES
+from tracecat.config import LLM_MAX_RETRIES
 from tracecat.logger import standard_logger
 
 logger = standard_logger(__name__)
@@ -25,7 +25,7 @@ DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
 
 
 @retry(
-    stop=stop_after_attempt(MAX_RETRIES),
+    stop=stop_after_attempt(LLM_MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True,
 )
