@@ -60,6 +60,9 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 
+logger = standard_logger("api")
+
+
 engine: Engine
 
 
@@ -72,11 +75,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# TODO: Check TRACECAT__APP_ENV to set origins
 origins = [
-    "http://localhost",
     "http://localhost:3000",
+    "http://localhost:8000",
 ]
 
+# TODO: Check TRACECAT__APP_ENV to set methods and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -84,9 +89,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-logger = standard_logger("api")
 
 
 @app.get("/")
