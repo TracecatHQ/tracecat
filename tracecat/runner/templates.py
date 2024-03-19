@@ -8,7 +8,7 @@ import httpx
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
-from tracecat.auth import AuthenticatedClient
+from tracecat.auth import AuthenticatedServiceClient
 from tracecat.contexts import ctx_workflow
 from tracecat.db import Secret
 from tracecat.logger import standard_logger
@@ -115,7 +115,7 @@ async def _load_secret(secret_name: str) -> str:
         # the workflow, then look up the encrypted secrets in a local cache.
 
         curr_workflow = ctx_workflow.get()
-        async with AuthenticatedClient() as client:
+        async with AuthenticatedServiceClient() as client:
             response = await client.get(
                 f"/secrets/{secret_name}", params={"user_id": curr_workflow.owner_id}
             )

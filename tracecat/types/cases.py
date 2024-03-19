@@ -1,12 +1,16 @@
 from typing import Any, Literal, Self
+from uuid import uuid4
 
 import orjson
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from tracecat.types.api import CaseParams
 
 
 class Case(BaseModel):
     # Required inputs
-    id: str  # Action run id
+    id: str = Field(default_factory=lambda: uuid4().hex)  # Action run id
+    owner_id: str  # NOTE: Ideally this would inherit form db.Resource
     workflow_id: str
     title: str
     payload: dict[str, Any]
@@ -22,6 +26,7 @@ class Case(BaseModel):
         """Flattens nested object by JSON serializing object fields."""
         return {
             "id": self.id,
+            "owner_id": self.owner_id,
             "workflow_id": self.workflow_id,
             "title": self.title,
             "payload": orjson.dumps(self.payload).decode("utf-8")
@@ -44,6 +49,7 @@ class Case(BaseModel):
         """Deserializes JSON fields."""
         return cls(
             id=flat_dict["id"],
+            owner_id=flat_dict["owner_id"],
             workflow_id=flat_dict["workflow_id"],
             title=flat_dict["title"],
             payload=orjson.loads(flat_dict["payload"])
@@ -60,6 +66,17 @@ class Case(BaseModel):
             if flat_dict["suppression"]
             else None,
         )
+
+    @classmethod
+    def from_params(
+        cls, params: CaseParams, *, owner_id: str, id: str | None = None
+    ) -> "Case":
+        """Constructs from API params."""
+        kwargs = {"owner_id": owner_id}
+        kwargs.update(params.model_dump())
+        if id:
+            kwargs["id"] = id
+        return cls(**kwargs)
 
 
 class CaseMetrics(BaseModel):
