@@ -48,9 +48,8 @@ from fastapi import (
 from fastapi.datastructures import FormData
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field
 
-from tracecat.auth import AuthenticatedServiceClient, Role
+from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
 from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_session_role, ctx_workflow
 from tracecat.logger import standard_logger
@@ -61,7 +60,12 @@ from tracecat.runner.actions import (
     start_action_run,
 )
 from tracecat.runner.workflows import Workflow
-from tracecat.types.api import AuthenticateWebhookResponse, WorkflowResponse
+from tracecat.types.api import (
+    AuthenticateWebhookResponse,
+    StartWorkflowParams,
+    StartWorkflowResponse,
+    WorkflowResponse,
+)
 
 logger = standard_logger(__name__)
 
@@ -103,7 +107,7 @@ running_jobs_store: dict[str, asyncio.Task[None]] = {}
 async def get_workflow(workflow_id: str) -> WorkflowResponse:
     try:
         role = ctx_session_role.get()
-        async with AuthenticatedServiceClient(role=role, http2=True) as client:
+        async with AuthenticatedAPIClient(role=role, http2=True) as client:
             response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
             response.raise_for_status()
     except HTTPException as e:
@@ -119,7 +123,7 @@ async def get_workflow(workflow_id: str) -> WorkflowResponse:
 # Dependencies
 async def valid_workflow(workflow_id: str) -> str:
     """Check if a workflow exists."""
-    async with AuthenticatedServiceClient(http2=True) as client:
+    async with AuthenticatedAPIClient(http2=True) as client:
         response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise HTTPException(
@@ -138,12 +142,6 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the runner. This is the health endpoint."}
-
-
-class StartWorkflowResponse(BaseModel):
-    status: str = Field(..., description="Status of the runner.")
-    message: str = Field(..., description="Message from the runner.")
-    id: str = Field(..., description="ID of the workflow.")
 
 
 async def valid_payload(request: Request) -> dict[str, Any] | FormData:
@@ -171,7 +169,7 @@ async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookRe
     2. If the secret is not found, return a 404.
     """
     # Change this to make a db call
-    async with AuthenticatedServiceClient(http2=True) as client:
+    async with AuthenticatedAPIClient(http2=True) as client:
         response = await client.post(
             f"{TRACECAT__API_URL}/authenticate/webhooks/{path}/{secret}"
         )
@@ -237,6 +235,7 @@ async def webhook(
 
     # This data refers to the webhook specific data
     response = await start_workflow(
+        role=role,
         workflow_id=workflow_id,
         start_workflow_params=StartWorkflowParams(
             entrypoint_key=webhook_metadata.action_key, entrypoint_payload=payload
@@ -246,13 +245,9 @@ async def webhook(
     return response
 
 
-class StartWorkflowParams(BaseModel):
-    entrypoint_key: str
-    entrypoint_payload: dict[str, Any]
-
-
 @app.post("/workflows/{workflow_id}")
 async def start_workflow(
+    role: Annotated[Role, Depends(authenticate_service)],
     workflow_id: Annotated[str, Depends(valid_workflow)],
     start_workflow_params: StartWorkflowParams,
     background_tasks: BackgroundTasks,

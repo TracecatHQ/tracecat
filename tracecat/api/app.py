@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from tracecat.api.completions import CategoryConstraint, stream_case_completions
 from tracecat.auth import (
+    AuthenticatedRunnerClient,
     Role,
     authenticate_service,
     authenticate_user,
@@ -50,6 +51,9 @@ from tracecat.types.api import (
     EventSearchParams,
     SearchSecretsParams,
     SearchWebhooksParams,
+    StartWorkflowParams,
+    StartWorkflowResponse,
+    TriggerWorkflowRunParams,
     UpdateActionParams,
     UpdateSecretParams,
     UpdateUserParams,
@@ -374,6 +378,37 @@ def update_workflow_run(
 
         session.add(workflow_run)
         session.commit()
+
+
+@app.post("/workflows/{workflow_id}/trigger")
+async def trigger_workflow_run(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    params: TriggerWorkflowRunParams,
+) -> StartWorkflowResponse:
+    """Trigger a Workflow Run."""
+    # Create service role
+    service_role = Role(type="service", user_id=role.user_id, service_id="tracecat-api")
+    workflow_params = StartWorkflowParams(
+        entrypoint_key=params.action_key,
+        entrypoint_payload=params.payload,
+    )
+    logger.critical(f"Triggering workflow: {workflow_id = }, {workflow_params = }")
+    async with AuthenticatedRunnerClient(role=service_role, http2=True) as client:
+        response = await client.post(
+            f"/workflows/{workflow_id}",
+            json=workflow_params.model_dump(),
+        )
+        try:
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Error triggering workflow: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error triggering workflow",
+            ) from e
+
+    return response.json()
 
 
 ### Actions
