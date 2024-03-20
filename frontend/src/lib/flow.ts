@@ -1,4 +1,3 @@
-import { ActionType } from "@/types"
 import { Session } from "@supabase/supabase-js"
 import { ReactFlowInstance } from "reactflow"
 import { z } from "zod"
@@ -6,6 +5,7 @@ import { z } from "zod"
 import {
   actionMetadataSchema,
   actionSchema,
+  ActionType,
   workflowMetadataSchema,
   workflowSchema,
   type Action,
@@ -185,5 +185,34 @@ export async function createAction(
     return validatedResponse.id
   } catch (error) {
     console.error("Error creating action:", error)
+  }
+}
+
+export async function triggerWorkflow(
+  maybeSession: Session | null,
+  workflowId: string,
+  actionKey: string,
+  payload: Record<string, any>
+) {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.post(
+      `/workflows/${workflowId}/trigger`,
+      JSON.stringify({
+        action_key: actionKey,
+        payload,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    )
+    if (response.status !== 200) {
+      throw new Error("Failed to trigger workflow")
+    }
+    console.log("Workflow triggered successfully")
+  } catch (error) {
+    console.error("Error triggering workflow:", error)
   }
 }

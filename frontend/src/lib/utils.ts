@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
+import { Action } from "@/types/schemas"
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
@@ -77,4 +79,25 @@ export function slugify(value: string, delimiter: string = "_"): string {
     .trim()
     .replace(/[^a-z0-9 ]/g, "")
     .replace(/\s+/g, delimiter)
+}
+
+/**
+ *
+ * @param key <Action ID>.<Action Slug>
+ * @returns <Action Slug>
+ */
+export function getSlugFromActionKey(key: string): string {
+  return key.split(".")[1]
+}
+
+export function getActionKey(action: Action): string {
+  return `${action.id}.${slugify(action.title)}`
+}
+
+export function tryStringify(value: any, defaultValue: string = ""): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch (error) {
+    return defaultValue
+  }
 }

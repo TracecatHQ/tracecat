@@ -1,5 +1,6 @@
-import { ActionType } from "@/types"
 import { z } from "zod"
+
+import { ActionType } from "@/types/schemas"
 
 const jsonPayload = z
   .string()

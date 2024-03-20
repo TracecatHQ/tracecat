@@ -1,5 +1,4 @@
 import React, { useCallback } from "react"
-import { ActionType } from "@/types"
 import {
   BellDotIcon,
   Blend,
@@ -26,6 +25,7 @@ import {
 } from "lucide-react"
 import { Handle, NodeProps, Position, type Node } from "reactflow"
 
+import { ActionType } from "@/types/schemas"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"

@@ -1,6 +1,5 @@
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useSession } from "@/providers/session"
-import { ActionType } from "@/types"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleIcon, DeleteIcon, Save } from "lucide-react"
@@ -9,7 +8,7 @@ import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
-import { Action } from "@/types/schemas"
+import { Action, ActionType } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -148,6 +147,9 @@ export function ActionForm({
       })
       queryClient.invalidateQueries({
         queryKey: ["selected_action", actionId, workflowId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workflow", workflowId],
       })
     },
     onError: (error) => {
