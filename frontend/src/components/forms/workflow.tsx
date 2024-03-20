@@ -244,88 +244,87 @@ export function WorkflowControlsForm({
             <h4 className="text-sm font-medium">Controls</h4>
           </div>
           <Separator />
-          <FormField
-            control={form.control}
-            name="payload"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-xs">Send Payload</FormLabel>
-                <FormControl>
-                  <pre>
-                    <Textarea
-                      {...field}
-                      className="min-h-48 text-xs"
-                      value={form.watch("payload", "")}
-                      placeholder="Select an action as the workflow entrypoint, and define a JSON payload that will be sent to it."
+
+          <AlertDialog>
+            <FormField
+              control={form.control}
+              name="payload"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Send Payload</FormLabel>
+                  <div className="flex w-full items-center space-x-2">
+                    <EntrypointSelector
+                      selectedAction={selectedAction}
+                      setSelectedaction={setSelectedAction}
                     />
-                  </pre>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <div className="flex w-full items-center space-x-2">
-            <EntrypointSelector
-              selectedAction={selectedAction}
-              setSelectedaction={setSelectedAction}
+                    <AlertDialogTrigger asChild>
+                      <Button type="button">
+                        <div className="flex items-center space-x-2">
+                          <Send className="h-4 w-4" />
+                          <span>Send</span>
+                        </div>
+                      </Button>
+                    </AlertDialogTrigger>
+                  </div>
+                  <FormControl>
+                    <pre>
+                      <Textarea
+                        {...field}
+                        className="min-h-48 text-xs"
+                        value={form.watch("payload", "")}
+                        placeholder="Select an action as the workflow entrypoint, and define a JSON payload that will be sent to it."
+                      />
+                    </pre>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button type="button">
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Start workflow confirmation</AlertDialogTitle>
+                <AlertDialogDescription>
+                  <span>
+                    You are about to start the workflow with the selected
+                    action:
+                  </span>
+                  <span className="font-bold">{selectedAction?.title}</span>
+                  <span>This is the payload that will be sent:</span>
+                </AlertDialogDescription>
+                <SyntaxHighlighter
+                  language="json"
+                  style={atomOneDark}
+                  wrapLines
+                  customStyle={{
+                    width: "100%",
+                    maxWidth: "100%",
+                    overflowX: "auto",
+                  }}
+                  codeTagProps={{
+                    className:
+                      "text-xs text-background rounded-lg max-w-full overflow-auto",
+                  }}
+                  {...{
+                    className:
+                      "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
+                  }}
+                >
+                  {form.watch("payload")}
+                </SyntaxHighlighter>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => form.handleSubmit(onSubmit)()}
+                >
                   <div className="flex items-center space-x-2">
                     <Send className="h-4 w-4" />
-                    <span>Send</span>
+                    <span>Confirm</span>
                   </div>
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Start workflow confirmation
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    <span>
-                      You are about to start the workflow with the selected
-                      action:
-                    </span>
-                    <span className="font-bold">{selectedAction?.title}</span>
-                    <span>This is the payload that will be sent:</span>
-                  </AlertDialogDescription>
-                  <SyntaxHighlighter
-                    language="json"
-                    style={atomOneDark}
-                    wrapLines
-                    customStyle={{
-                      width: "100%",
-                      maxWidth: "100%",
-                      overflowX: "auto",
-                    }}
-                    codeTagProps={{
-                      className:
-                        "text-xs text-background rounded-lg max-w-full overflow-auto",
-                    }}
-                    {...{
-                      className:
-                        "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
-                    }}
-                  >
-                    {form.watch("payload")}
-                  </SyntaxHighlighter>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => form.handleSubmit(onSubmit)()}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <Send className="h-4 w-4" />
-                      <span>Confirm</span>
-                    </div>
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </form>
     </Form>
@@ -361,7 +360,7 @@ export default function EntrypointSelector({
         <Button
           variant="outline"
           role="combobox"
-          aria-label="Load a scenario..."
+          aria-label="Load a webhook ..."
           aria-expanded={open}
           className="w-full flex-1 justify-between text-xs font-normal"
         >
@@ -377,7 +376,7 @@ export default function EntrypointSelector({
         align="start"
       >
         <Command>
-          <CommandInput className="text-xs" placeholder="Search scenarios..." />
+          <CommandInput className="text-xs" placeholder="Search webhooks..." />
           <CommandEmpty>No presets found.</CommandEmpty>
           <CommandGroup heading="Webhooks">
             {actions.map((action) => (
