@@ -8,7 +8,7 @@ import httpx
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
-from tracecat.auth import AuthenticatedServiceClient
+from tracecat.auth import AuthenticatedAPIClient
 from tracecat.contexts import ctx_session_role
 from tracecat.db import Secret
 from tracecat.logger import standard_logger
@@ -115,7 +115,7 @@ async def _load_secret(secret_name: str) -> str:
         # the workflow, then look up the encrypted secrets in a local cache.
         role = ctx_session_role.get()
 
-        async with AuthenticatedServiceClient(role=role, http2=True) as client:
+        async with AuthenticatedAPIClient(role=role, http2=True) as client:
             response = await client.get(f"/secrets/{secret_name}")
             response.raise_for_status()
         secret = Secret.model_validate_json(response.content)

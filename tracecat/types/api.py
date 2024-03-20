@@ -194,3 +194,19 @@ class SearchWebhooksParams(BaseModel):
     query: str | None = None
     group_by: list[str] | None = None
     agg: str | None = None
+
+
+class TriggerWorkflowRunParams(BaseModel):
+    action_key: str
+    payload: dict[str, Any]
+
+
+class StartWorkflowParams(BaseModel):
+    entrypoint_key: str
+    entrypoint_payload: dict[str, Any]
+
+
+class StartWorkflowResponse(BaseModel):
+    status: str
+    message: str
+    id: str

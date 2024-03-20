@@ -16,7 +16,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 import tracecat.config as cfg
-from tracecat.config import TRACECAT__API_URL
+from tracecat.config import TRACECAT__API_URL, TRACECAT__RUNNER_URL
 from tracecat.contexts import ctx_session_role
 from tracecat.logger import standard_logger
 
@@ -33,19 +33,56 @@ CREDENTIALS_EXCEPTION = HTTPException(
 
 
 class AuthenticatedServiceClient(httpx.AsyncClient):
-    def __init__(self, role: Role | None = None, *args, **kwargs):
+    """An authenticated service client. Typically used by internal services.
+
+    Role precedence
+    ---------------
+    1. Role passed to the client
+    2. Role set in the session role context
+    3. Default role Role(type="service", service_id="tracecat-service")
+    """
+
+    __default_service_id = "tracecat-service"
+
+    def __init__(
+        self,
+        role: Role | None = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
-        self.base_url = TRACECAT__API_URL
-        self.role = role
+        # Precedence: role > ctx_session_role > default role. Role is always set.
+        self.role = role or ctx_session_role.get(
+            Role(type="service", service_id="tracecat-service")
+        )
+        if self.role.type != "service":
+            raise ValueError("AuthenticatedServiceClient can only be used by services")
+        self.headers["Service-Role"] = self.role.service_id or self.__default_service_id
+        self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
+        if self.role.user_id:
+            self.headers["Service-User-ID"] = self.role.user_id
 
     async def __aenter__(self):
         """Inject the service role and api key to the headers at query time."""
-        self.headers["Service-Role"] = "tracecat-runner"
-        self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
-        if self.role:
-            self.headers["Service-User-ID"] = self.role.user_id
-            self.headers["Service-Role"] = self.role.service_id
         return await super().__aenter__()
+
+
+class AuthenticatedAPIClient(AuthenticatedServiceClient):
+    """An authenticated httpx client to hit main API endpoints."""
+
+    def __init__(self, role: Role | None = None, *args, **kwargs):
+        kwargs["role"] = role
+        kwargs["base_url"] = TRACECAT__API_URL
+        super().__init__(*args, **kwargs)
+
+
+class AuthenticatedRunnerClient(AuthenticatedServiceClient):
+    """An authenticated httpx client to hit runner endpoints."""
+
+    def __init__(self, role: Role | None = None, *args, **kwargs):
+        kwargs["role"] = role
+        kwargs["base_url"] = TRACECAT__RUNNER_URL
+        super().__init__(*args, **kwargs)
 
 
 class Role(BaseModel):
@@ -151,7 +188,7 @@ async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Service-Role {service_role_name!r} invalid",
+            detail=f"Service-Role {service_role_name!r} invalid or not allowed",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
