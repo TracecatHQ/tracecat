@@ -46,17 +46,15 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["introduction", "tutorial"]
+      "pages": ["introduction", "quickstart", "tutorial", "use-cases"]
     },
     {
       "group": "Core Features",
       "pages": [
         "core/workflows",
         "core/actions",
-        "core/events-log",
+        "core/event-logs",
         "core/case-management",
-        "core/metrics",
-        "core/ai-features",
         "core/integrations"
       ]
     },
@@ -70,6 +68,7 @@
           "group": "If Conditions",
           "pages": [
             "actions/types/if-conditions/overview",
+            "actions/types/if-conditions/compare",
             "actions/types/if-conditions/regex",
             "actions/types/if-conditions/membership"
           ]

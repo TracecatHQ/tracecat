@@ -29,18 +29,17 @@
 
 - Enterprise-grade open source tools
 - Open source AI infra and GPT models
-- Event-driven data transforms
 - [Practioner-obsessed UI/UX](#faq)
 
 It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
 
-Try out our [tutorial](https://docs.tracecat.com/tutorial) and deploy your first AI workflow in 15 minutes.
+Check out our [quickstart](https://docs.tracecat.com/quickstart) and build your first AI workflow in 15 minutes.
 
 ![Phishing email investigation](img/animation.gif)
 
 ## Getting started
 
-Help Mario, the L1 analyst and part-time pizza chef, automatically flag malicious pizza orders (e.g. pineapple).
+Let's automate a phishing email investigation, collect evidence, and generate a remediation plan using AI.
 
 ## Features
 
