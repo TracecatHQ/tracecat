@@ -2,8 +2,9 @@ import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflowMetadata } from "@/providers/workflow"
 
+import { Workflow } from "@/types/schemas"
 import { ActionForm } from "@/components/forms/action"
-import { WorkflowForm } from "@/components/forms/workflow"
+import { WorkflowControlsForm, WorkflowForm } from "@/components/forms/workflow"
 import { FormLoading } from "@/components/loading/form"
 
 export function WorkspacePanel() {
@@ -20,15 +21,25 @@ export function WorkspacePanel() {
           actionType={selectedNode.data.type}
         />
       ) : workflow ? (
-        <WorkflowForm
-          workflowId={workflow.id}
-          workflowTitle={workflow.title}
-          workflowDescription={workflow.description}
-          isOnline={isOnline}
-        />
+        <WorkflowPanel workflow={workflow} isOnline={isOnline} />
       ) : (
         <FormLoading className="bg-slate-100" />
       )}
+    </div>
+  )
+}
+
+function WorkflowPanel({
+  workflow,
+  isOnline,
+}: {
+  workflow: Workflow
+  isOnline: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      <WorkflowForm workflow={workflow} isOnline={isOnline} />
+      <WorkflowControlsForm workflow={workflow} />
     </div>
   )
 }

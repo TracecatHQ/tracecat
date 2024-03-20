@@ -1,10 +1,29 @@
 import { z } from "zod"
 
+const actionTypes = [
+  "webhook",
+  "http_request",
+  "data_transform",
+  "condition.compare",
+  "condition.regex",
+  "condition.membership",
+  "open_case",
+  "receive_email",
+  "send_email",
+  "llm.extract",
+  "llm.label",
+  "llm.translate",
+  "llm.choice",
+  "llm.summarize",
+] as const
+export type ActionType = (typeof actionTypes)[number]
+
 const actionStatusSchema = z.enum(["online", "offline"])
 export type ActionStatus = z.infer<typeof actionStatusSchema>
 
 export const actionSchema = z.object({
   id: z.string(),
+  type: z.enum(actionTypes),
   title: z.string(),
   description: z.string(),
   status: actionStatusSchema,
@@ -67,3 +86,11 @@ export const caseCompletionUpdateSchema = z.object({
   }),
 })
 export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
+
+export const triggerWorkflowSchema = z.object({
+  workflow_id: z.string(),
+  action_id: z.string(),
+  payload: z.record(z.string()),
+})
+
+export type TriggerWorkflow = z.infer<typeof triggerWorkflowSchema>
