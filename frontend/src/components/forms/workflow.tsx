@@ -379,7 +379,7 @@ export default function EntrypointSelector({
         <Command>
           <CommandInput className="text-xs" placeholder="Search scenarios..." />
           <CommandEmpty>No presets found.</CommandEmpty>
-          <CommandGroup heading="Scenarios">
+          <CommandGroup heading="Webhooks">
             {actions.map((action) => (
               <CommandItem
                 key={action.id}
