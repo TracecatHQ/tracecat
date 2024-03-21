@@ -85,23 +85,7 @@ export function ActionForm({
 
   // Set the schema for the action type
   const { subActionSchema, fieldSchema } = getSubActionSchema(actionType)
-  if (!subActionSchema) {
-    return (
-      <div className="flex h-full items-center justify-center space-x-2 p-4">
-        <div className="space-y-2">
-          <AlertNotification
-            level="info"
-            message={`Action type ${actionType} is not yet supported.`}
-            reset={() =>
-              queryClient.invalidateQueries({
-                queryKey: ["selected_action", actionId, workflowId],
-              })
-            }
-          />
-        </div>
-      </div>
-    )
-  }
+
   const schema = baseActionSchema.merge(subActionSchema)
   type Schema = z.infer<typeof schema>
 
@@ -169,6 +153,24 @@ export function ActionForm({
       ...(action?.inputs ? processInputs(action.inputs) : {}), // Unpack the inputs object
     },
   })
+
+  if (!subActionSchema) {
+    return (
+      <div className="flex h-full items-center justify-center space-x-2 p-4">
+        <div className="space-y-2">
+          <AlertNotification
+            level="info"
+            message={`Action type ${actionType} is not yet supported.`}
+            reset={() =>
+              queryClient.invalidateQueries({
+                queryKey: ["selected_action", actionId, workflowId],
+              })
+            }
+          />
+        </div>
+      </div>
+    )
+  }
   // Loading state to defend in a user friendly way
   // against undefined schemas or data
   if (isLoading) {
@@ -292,7 +294,8 @@ export function ActionForm({
                   fields.
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  For example, "This {"{{ $.path.to.input }}"} is valid!"
+                  For example, &quot;This {"{{ $.path.to.input }}"} is
+                  valid!&quot;
                 </p>
                 <div className="capitalize">
                   {Object.entries(fieldSchema).map(
@@ -390,6 +393,7 @@ export function ActionForm({
                                 // NOTE: Need to use this hook inside the render prop to ensure
                                 // the form state is updated and reloaded correctly
                                 const { fields, append, remove } =
+                                  // eslint-disable-next-line react-hooks/rules-of-hooks
                                   useFieldArray<Schema>({
                                     control: form.control,
                                     name: inputKey,
@@ -467,7 +471,7 @@ export function ActionForm({
                   )}
                 </div>
                 <CollapsibleSection
-                  title="JSON View"
+                  node="JSON View"
                   showToggleText={false}
                   className="text-md truncate text-start font-medium"
                   size="lg"

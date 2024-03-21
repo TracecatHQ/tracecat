@@ -14,7 +14,7 @@ import DecoratedHeader, {
 
 interface CollapsibleSectionProps extends DecoratedHeaderProps {
   icon?: LucideIcon
-  title: string
+  node: React.ReactNode
   showToggleText?: boolean
   defaultIsOpen?: boolean
   children: React.ReactNode
@@ -22,7 +22,7 @@ interface CollapsibleSectionProps extends DecoratedHeaderProps {
 
 function CollapsibleSection({
   icon: Icon,
-  title,
+  node,
   children,
   showToggleText = true,
   className,
@@ -49,7 +49,7 @@ function CollapsibleSection({
           >
             <DecoratedHeader
               icon={Icon}
-              node={title}
+              node={node}
               size={size}
               iconSize={iconSize}
               iconProps={iconProps}
