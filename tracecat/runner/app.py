@@ -35,7 +35,6 @@ from __future__ import annotations
 import asyncio
 from enum import StrEnum, auto
 from typing import Annotated, Any
-from uuid import uuid4
 
 from fastapi import (
     BackgroundTasks,
@@ -59,12 +58,13 @@ from tracecat.runner.actions import (
     ActionTrail,
     start_action_run,
 )
-from tracecat.runner.workflows import Workflow
+from tracecat.runner.workflows import Workflow, create_workflow_run, update_workflow_run
 from tracecat.types.api import (
     AuthenticateWebhookResponse,
     StartWorkflowParams,
     StartWorkflowResponse,
     WorkflowResponse,
+    WorkflowRunStatus,
 )
 
 logger = standard_logger(__name__)
@@ -269,11 +269,16 @@ async def start_workflow(
     entrypoint_payload : dict
         The action inputs to pass into the entrypoint action.
     """
-    workflow_run_id = uuid4().hex
+    try:
+        ctx_session_role.get()
+    except LookupError:
+        # If not previously set by a webhook, set the role here
+        ctx_session_role.set(role)
+    wfr_metadata = await create_workflow_run(workflow_id)
     background_tasks.add_task(
         run_workflow,
         workflow_id=workflow_id,
-        workflow_run_id=workflow_run_id,
+        workflow_run_id=wfr_metadata.id,
         entrypoint_key=start_workflow_params.entrypoint_key,
         entrypoint_payload=start_workflow_params.entrypoint_payload,
     )
@@ -317,7 +322,7 @@ async def run_workflow(
      associate the worker with a specific workflow.
     - The `start_workflow` function can then just directly enqueue the first action.
     """
-    run_logger = standard_logger(workflow_run_id)
+    run_logger = standard_logger(f"wfr-{workflow_run_id}")
     workflow_response = await get_workflow(workflow_id)
     workflow = Workflow.from_response(workflow_response)
     logger.info(f"Set workflow context for user {workflow.owner_id}")
@@ -332,6 +337,13 @@ async def run_workflow(
         )
     )
 
+    run_status: WorkflowRunStatus = "success"
+
+    await update_workflow_run(
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        status="running",
+    )
     try:
         while (
             not ready_jobs_queue.empty() or running_jobs_store
@@ -369,8 +381,16 @@ async def run_workflow(
 
         run_logger.info("Workflow completed.")
     except asyncio.CancelledError:
-        run_logger.warning("Workflow was cancelled.")
+        run_logger.warning("Workflow was canceled.")
+        run_status = "canceled"
+    except Exception as e:
+        run_logger.error(f"Workflow failed: {e}")
+        run_status = "failure"
     finally:
         run_logger.info("Shutting down running tasks")
         for running_task in running_jobs_store.values():
             running_task.cancel()
+
+    await update_workflow_run(
+        workflow_id=workflow_id, workflow_run_id=workflow_run_id, status=run_status
+    )

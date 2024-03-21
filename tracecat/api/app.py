@@ -275,22 +275,30 @@ def delete_workflow(
 def list_workflow_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    limit: int = 20,
 ) -> list[WorkflowRunMetadataResponse]:
     """List all Workflow Runs for a Workflow."""
     with Session(engine) as session:
         # Being here means the user has access to the workflow
-        statement = select(WorkflowRun).where(
-            WorkflowRun.owner_id == role.user_id,
-            WorkflowRun.workflow_id == workflow_id,
+        statement = (
+            select(WorkflowRun)
+            .where(
+                WorkflowRun.owner_id == role.user_id,
+                WorkflowRun.workflow_id == workflow_id,
+            )
+            .limit(limit)
         )
         results = session.exec(statement)
         workflow_runs = results.all()
+        logger.critical(f"Workflow runs: {workflow_runs = }")
 
     workflow_runs_metadata = [
         WorkflowRunMetadataResponse(
             id=workflow_run.id,
             workflow_id=workflow_run.workflow_id,
             status=workflow_run.status,
+            created_at=workflow_run.created_at,
+            updated_at=workflow_run.updated_at,
         )
         for workflow_run in workflow_runs
     ]
