@@ -77,7 +77,7 @@ export function ComingSoonBadge({ className }: { className?: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "border-2 border-emerald-500 bg-emerald-500/20 text-xs text-emerald-700",
+        "border-2 border-emerald-500 bg-emerald-200  text-xs text-emerald-700",
         className
       )}
     >
