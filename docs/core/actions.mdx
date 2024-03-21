@@ -9,8 +9,8 @@ Actions are individual tasks performed at each step of a workflow.
 You can find all available Actions in the workspace sidebar.
 
 There are only ten Action types, but they can be configured to perform almost any task.
-For example, a [HTTP request](/actions/types/http-request) can be configured to send a Slack message.
-See [Tutorial](/tutorial) for a worked example.
+For example, a [HTTP request](/actions/types/http-request) can be configured to send a GET request to an API endpoint.
+See [Quickstart](/quickstart) for a worked example.
 
 <Info>
 We refer to an action that has received an input and produced an corresponding output as an "action run".
@@ -21,11 +21,16 @@ We refer to an action that has received an input and produced an corresponding o
 <Steps>
   <Step title="Add action">
     Click or drag-and-drop an action block onto the workflow canvas.
+
+    ![Drag and drop action](/img/dnd.gif)
+
   </Step>
   <Step title="Configure action">
     Select your action onto the canvas to open its configuration panel.
     Update the action name, description, and inputs here.
     Press `save`.
+
+    ![Configure action](/img/configure-action.png)
   </Step>
 </Steps>
 
@@ -134,25 +139,32 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
 ## Action Types
 
 <CardGroup cols={2}>
-  <Card title="Webhook" icon="link" href="/actions/types/webhook">
+  <Card title="Webhook" icon="link">
+    {/* href="/actions/types/webhook" */}
     Perform actions based on external triggers.
   </Card>
-  <Card title="HTTP Request" icon="globe" href="/actions/types/http-request">
+  <Card title="HTTP Request" icon="globe">
+    {/* href="/actions/types/http-request" */}
     Make HTTP requests to interact with external APIs.
   </Card>
-  <Card title="Data Transform" icon="code" href="/actions/types/data-transform">
+  <Card title="Data Transform" icon="code">
+    {/* href="/actions/types/data-transform" */}
     Transform streams of JSON data.
   </Card>
-  <Card title="Send Email" icon="envelope" href="/actions/types/send-email">
+  <Card title="Send Email" icon="envelope">
+    {/* href="/actions/types/send-email" */}
     Send emails to specified recipients.
   </Card>
-  <Card title="If Conditions" icon="question" href="/actions/types/conditions/overview">
+  <Card title="If Conditions" icon="question">
+    {/* href="/actions/types/conditions/overview" */}
     Create branching workflows using predefined rules.
   </Card>
-  <Card title="AI Actions" icon="robot" href="/actions/types/ai-actions/overview">
+  <Card title="AI Actions" icon="robot">
+    {/* href="/actions/types/ai-actions/overview" */}
     Perform AI-powered tasks (e.g. summarize, label, translate).
   </Card>
-  <Card title="Open Case" icon="folder-open" href="/actions/types/open-case">
+  <Card title="Open Case" icon="folder-open">
+    {/* href="/actions/types/open-case" */}
     Open and prepopulate a case in the case management system.
   </Card>
 </CardGroup>
