@@ -21,11 +21,11 @@ import {
 import UserAvatar from "@/components/user-avatar"
 
 const userDefaults = {
-  name: "Test User",
-  email: "name@example.com",
+  name: "Hello, friend!",
+  email: "friend@example.com",
   avatarUrl:
-    "https://media.licdn.com/dms/image/C5103AQEXlYZeTKuwyQ/profile-displayphoto-shrink_200_200/0/1582770649112?e=1715212800&v=beta&t=wqVZfVV4YwedybQFzKazeWmlQslMQ11t_NGMCqwpN-k",
-  alt: "@daryllimyt",
+    "https://gravatar.com/avatar/fb1a12daafe05ae4b59489de1ab63026?s=400&d=robohash&r=x",
+  alt: "@friend",
 }
 export default function UserNav() {
   const { session, signOut } = useSessionContext()
@@ -34,7 +34,10 @@ export default function UserNav() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-          <UserAvatar src={userDefaults.avatarUrl} alt={userDefaults.alt} />
+          <UserAvatar
+            src={user?.user_metadata?.avatar_url || userDefaults.avatarUrl}
+            alt={user?.user_metadata?.alt || userDefaults.alt}
+          />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 p-2" align="end" forceMount>
