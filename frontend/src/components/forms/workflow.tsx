@@ -11,16 +11,42 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@radix-ui/react-popover"
-import { useMutation } from "@tanstack/react-query"
-import { CheckIcon, CircleIcon, Save, Send } from "lucide-react"
+import { ScrollArea } from "@radix-ui/react-scroll-area"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import {
+  BookOpenText,
+  CheckIcon,
+  CircleCheck,
+  CircleIcon,
+  CircleX,
+  Laugh,
+  MessageCircleMore,
+  Save,
+  ScrollText,
+  Send,
+  Swords,
+} from "lucide-react"
 import { useForm } from "react-hook-form"
+import { ClipLoader } from "react-spinners"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
-import { Action, Workflow } from "@/types/schemas"
-import { triggerWorkflow, updateWorkflow } from "@/lib/flow"
+import {
+  Action,
+  Workflow,
+  WorkflowRun,
+  WorkflowRunStatus,
+  WorkflowStatus,
+} from "@/types/schemas"
+import { fetchWorkflowRuns, triggerWorkflow, updateWorkflow } from "@/lib/flow"
 import { cn, getActionKey } from "@/lib/utils"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +60,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import {
   Command,
   CommandEmpty,
@@ -58,6 +85,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import DecoratedHeader from "@/components/decorated-header"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 
 const workflowFormSchema = z.object({
   title: z.string(),
@@ -401,5 +431,105 @@ export default function EntrypointSelector({
         </Command>
       </PopoverContent>
     </Popover>
+  )
+}
+
+export function WorkflowRunsView({
+  workflowId,
+  className,
+}: {
+  workflowId: string
+  className?: string
+}) {
+  const session = useSession()
+
+  const {
+    data: workflowRuns,
+    isLoading,
+    error,
+  } = useQuery<WorkflowRun[], Error>({
+    queryKey: ["workflow", workflowId, "runs"],
+    queryFn: async ({ queryKey }) => {
+      const [_workflow, workflowId, _run] = queryKey as [
+        string?,
+        string?,
+        string?,
+      ]
+      if (!workflowId) {
+        throw new Error("No workflow ID provided")
+      }
+      console.log("Fetching workflow runs for:", workflowId)
+      const data = await fetchWorkflowRuns(session, workflowId)
+      console.log("Workflow runs:", data)
+      return data
+    },
+  })
+
+  return (
+    <ScrollArea
+      className={cn(
+        "m-4 h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
+        className
+      )}
+    >
+      {isLoading ? (
+        <CenteredSpinner />
+      ) : error ? (
+        <AlertNotification
+          level="error"
+          message="Error loading workflow runs"
+        />
+      ) : (
+        <Accordion type="single" collapsible className="w-full">
+          {workflowRuns
+            ?.sort((a, b) => {
+              return (
+                new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime()
+              )
+            })
+            .map((props, index) => (
+              <WorkflowRunItem className="my-2 w-full" key={index} {...props} />
+            ))}
+        </Accordion>
+      )}
+    </ScrollArea>
+  )
+}
+
+function WorkflowRunItem({
+  className,
+  status,
+  created_at,
+  updated_at,
+  ...props
+}: React.PropsWithoutRef<WorkflowRun> & React.HTMLAttributes<HTMLDivElement>) {
+  const created_time = new Date(`${created_at}Z`)
+  const updated_time = new Date(`${updated_at}Z`).toLocaleTimeString()
+  return (
+    <AccordionItem value={created_at}>
+      <AccordionTrigger>
+        <div className="mr-2 flex w-full items-center justify-between">
+          <DecoratedHeader
+            size="md"
+            title={`${created_time.toLocaleDateString()}, ${created_time.toLocaleTimeString()}`}
+            icon={status === "success" ? CircleCheck : CircleX}
+            iconProps={{
+              className: cn(
+                "stroke-2",
+                status === "success"
+                  ? "fill-green-500/50 stroke-green-700"
+                  : "fill-red-500/50 stroke-red-700"
+              ),
+            }}
+            className="capitalize"
+          />
+          <span className="text-xs text-muted-foreground">
+            Updated: {updated_time}
+          </span>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent></AccordionContent>
+    </AccordionItem>
   )
 }
