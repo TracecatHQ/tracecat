@@ -138,6 +138,7 @@ class WorkflowRun(Resource, table=True):
     status: str = "pending"  # "online" or "offline"
     workflow_id: str = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="runs")
+    action_runs: list["ActionRun"] | None = Relationship(back_populates="workflow_run")
 
 
 class Action(Resource, table=True):
@@ -150,11 +151,22 @@ class Action(Resource, table=True):
     workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="actions")
 
+    runs: list["ActionRun"] | None = Relationship(back_populates="action")
+
     @computed_field
     @property
     def key(self) -> str:
         slug = slugify(self.title, separator="_")
         return f"{self.id}.{slug}"
+
+
+class ActionRun(Resource, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    status: str = "pending"  # "online" or "offline"
+    action_id: str = Field(foreign_key="action.id")
+    action: Action | None = Relationship(back_populates="runs")
+    workflow_run_id: str = Field(foreign_key="workflowrun.id")
+    workflow_run: WorkflowRun | None = Relationship(back_populates="action_runs")
 
 
 class Webhook(Resource, table=True):

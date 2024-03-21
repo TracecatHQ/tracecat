@@ -36,14 +36,14 @@ const iconVariants = cva("mr-2", {
 })
 
 export interface DecoratedHeaderProps
-  extends React.HTMLAttributes<HTMLDivElement>,
+  extends React.HTMLAttributes<HTMLElement>,
     VariantProps<typeof titleVariants>,
     VariantProps<typeof iconVariants> {
   size?: "xl" | "lg" | "md" | "sm" | "xs"
   iconSize?: "xl" | "lg" | "md" | "sm" | "xs"
   icon?: LucideIcon
   iconProps?: LucideProps
-  title: string
+  node: React.ReactNode
   strokeWidth?: number
 }
 
@@ -52,7 +52,7 @@ export default function DecoratedHeader({
   size = "xl",
   icon: Icon,
   iconSize,
-  title,
+  node,
   iconProps,
   children,
 }: DecoratedHeaderProps) {
@@ -67,7 +67,7 @@ export default function DecoratedHeader({
             {...otherIconProps}
           />
         )}
-        <h1>{title}</h1>
+        {node}
       </div>
       {children}
     </div>

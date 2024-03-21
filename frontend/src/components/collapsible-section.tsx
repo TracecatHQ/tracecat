@@ -49,7 +49,7 @@ function CollapsibleSection({
           >
             <DecoratedHeader
               icon={Icon}
-              title={title}
+              node={title}
               size={size}
               iconSize={iconSize}
               iconProps={iconProps}

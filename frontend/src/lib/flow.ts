@@ -234,3 +234,20 @@ export async function fetchWorkflowRuns(
     throw error
   }
 }
+
+export async function fetchWorkflowRun(
+  maybeSession: Session | null,
+  workflowId: string,
+  workflowRunId: string
+): Promise<WorkflowRun> {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.get<WorkflowRun>(
+      `/workflows/${workflowId}/runs/${workflowRunId}`
+    )
+    return workflowRunSchema.parse(response.data)
+  } catch (error) {
+    console.error("Error fetching workflow runs:", error)
+    throw error
+  }
+}
