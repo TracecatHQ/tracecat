@@ -23,7 +23,8 @@
 
 </div>
 
-*Disclaimer: Tracecat is currently in public alpha. If you'd like to use Tracecat in production, please reach out to us in Discord or founders@tracecat.com!*
+*Disclaimer: Tracecat is currently in public alpha. If you'd like to use Tracecat in production, please reach out to us on Discord or founders@tracecat.com!*
+*Want to take Tracecat for a spin? Try out our [tutorials](https://docs.tracecat.com/quickstart) with [Tracecat Cloud](https://platform.tracecat.com) or [self-hosted](https://docs.tracecat.com/installation).*
 
 [Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Splunk SOAR with:
 
