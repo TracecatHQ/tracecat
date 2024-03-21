@@ -38,6 +38,9 @@ Check out our [quickstart](https://docs.tracecat.com/quickstart) and build your 
 The easiest way to get started is to sign-up for [Tracecat Cloud](https://platform.tracecat.com).
 We also support [self-hosted](https://docs.tracecat.com/installation) Tracecat.
 
+![autocomplete_gif](https://github.com/TracecatHQ/tracecat/assets/46541035/52b822a9-fbd5-4f08-a4ec-54e8fd1b8f02)
+
+
 ## Getting started
 
 Let's automate a phishing email investigation, collect evidence, and generate a remediation plan using AI.
@@ -172,15 +175,7 @@ Core features, user-interfaces, and day-to-day workflows are based on existing b
 
 ### What does AI-native mean?
 
-We believe the most useful AI is "boring AI" (e.g. summarization, semantic search, data enrichment, labelling) that integrates with existing workflows, but with modern UI/UX and robust data engineering. Here are just a couple of ways we are doing this:
-
-#### Pre-configured AI Actions
-
-<img src="img/dnd.gif" width="600" />
-
-#### Automated MITRE ATT&CK Labels
-
-<img src="img/labelling.gif" width="600" />
+We believe the most useful AI is "boring AI" (e.g. summarization, semantic search, data enrichment, labelling) that integrates with existing workflows, but with modern UI/UX and robust data engineering.
 
 ## Contributing
 
