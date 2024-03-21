@@ -130,6 +130,9 @@ class TracecatEngineStack(Stack):
             "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="db-encryption-key"
             ),
+            "TRACECAT__DB_URI": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="db-uri"
+            ),
         }
         api_secrets = {
             **shared_secrets,
@@ -182,8 +185,9 @@ class TracecatEngineStack(Stack):
                 build_args={"API_MODULE": "tracecat.api.app:app"},
             ),
             cpu=256,
-            memory_limit_mib=512,
+            memory_limit_mib=1024,
             environment={
+                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 "API_MODULE": "tracecat.api.app:app",
                 "SUPABASE_JWT_ALGORITHM": "HS256",
             },
@@ -251,8 +255,12 @@ class TracecatEngineStack(Stack):
                 build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             ),
             cpu=256,
-            memory_limit_mib=512,
-            environment={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
+            memory_limit_mib=1024,
+            environment={
+                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
+                "API_MODULE": "tracecat.runner.app:app",
+                "PORT": "8001",
+            },
             secrets=runner_secrets,
             port_mappings=[ecs.PortMapping(container_port=8001)],
             logging=ecs.LogDrivers.aws_logs(
