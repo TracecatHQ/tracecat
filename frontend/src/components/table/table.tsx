@@ -35,7 +35,6 @@ import { DataTablePagination, DataTableToolbar } from "@/components/table"
 import { DataTableToolbarProps } from "./toolbar"
 
 declare module "@tanstack/react-table" {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars no-unused-vars
   interface TableMeta<TData extends RowData> {
     isProcessing: boolean
   }
