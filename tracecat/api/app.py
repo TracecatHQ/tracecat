@@ -393,7 +393,6 @@ async def trigger_workflow_run(
         entrypoint_key=params.action_key,
         entrypoint_payload=params.payload,
     )
-    logger.critical(f"Triggering workflow: {workflow_id = }, {workflow_params = }")
     async with AuthenticatedRunnerClient(role=service_role, http2=True) as client:
         response = await client.post(
             f"/workflows/{workflow_id}",
@@ -1194,8 +1193,6 @@ def create_secret(
     params: CreateSecretParams,
 ) -> None:
     """Get a secret by ID."""
-    logger.critical(f"Role: {role}")
-    logger.critical(f"Params: {params}")
     with Session(engine) as session:
         # Check if secret exists
         statement = (
