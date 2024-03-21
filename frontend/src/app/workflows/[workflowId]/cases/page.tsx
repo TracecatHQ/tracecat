@@ -7,12 +7,19 @@ import { getDistributionData } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import CaseTable from "@/components/cases/table"
 import EventDistributionPlot, { PlotDataType } from "@/components/charts"
+import { AlertNotification } from "@/components/notifications"
 
 export default function CasesPage() {
   return (
     <CasesProvider>
       <div className="flex h-screen flex-col overflow-auto">
-        <div className="flex-1 space-y-16 p-16">
+        <div className="flex-1 space-y-8 p-16">
+          {process.env.NEXT_PUBLIC_APP_ENV === "prod" && (
+            <AlertNotification
+              message="Cases is in preview mode, and may not work as expected"
+              className="max-w-[600px]"
+            />
+          )}
           <CasesStatsBanner />
           <CaseTable />
         </div>
