@@ -221,6 +221,8 @@ async def authenticate_user(
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> Role:
     """Authenticate a user JWT and return the 'sub' claim as the user_id."""
+    if not token:
+        raise CREDENTIALS_EXCEPTION
     return await _get_role_from_jwt(token)
 
 
