@@ -9,6 +9,8 @@ from tracecat.types.actions import ActionType
 # Action and Workflow create / update params
 # should be the same as the metadata responses
 
+WorkflowRunStatus = Literal["pending", "running", "failure", "success", "canceled"]
+
 
 class ActionResponse(BaseModel):
     id: str
@@ -57,6 +59,8 @@ class WorkflowRunMetadataResponse(BaseModel):
     id: str
     workflow_id: str
     status: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class CreateWorkflowParams(BaseModel):
@@ -72,7 +76,7 @@ class UpdateWorkflowParams(BaseModel):
 
 
 class UpdateWorkflowRunParams(BaseModel):
-    status: str | None = None
+    status: WorkflowRunStatus
 
 
 class CreateActionParams(BaseModel):
@@ -210,3 +214,7 @@ class StartWorkflowResponse(BaseModel):
     status: str
     message: str
     id: str
+
+
+class CreateWorkflowRunParams(BaseModel):
+    status: WorkflowRunStatus
