@@ -4,6 +4,7 @@ import { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { SessionContextProvider } from "@/providers/session"
 import { createClient } from "@/utils/supabase/server"
+import { Session } from "@supabase/supabase-js"
 
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
@@ -69,14 +70,14 @@ function BodyContent({
   session,
   children,
 }: {
-  session: any
+  session: Session | null
   children: React.ReactNode
 }) {
   return (
     <body
       className={cn(
         "h-screen min-h-screen overflow-hidden bg-background font-sans antialiased",
-        fontSans.className
+        fontSans.variable
       )}
     >
       <SessionContextProvider initialSession={session}>
