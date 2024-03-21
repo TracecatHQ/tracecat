@@ -23,7 +23,7 @@
 
 </div>
 
-*Note: Want to take Tracecat for a spin? We are launching a Cloud version and updating our self-hosted documentation tomorrow!*
+*Disclaimer: Tracecat is currently in public alpha. If you'd like to use Tracecat in production, please reach out to us in Discord or founders@tracecat.com!*
 
 [Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Palo Alto XSOAR with:
 
@@ -34,12 +34,15 @@
 It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
 
 Check out our [quickstart](https://docs.tracecat.com/quickstart) and build your first AI workflow in 15 minutes.
-
-![Phishing email investigation](img/animation.gif)
+The easiest way to get started is to sign-up for [Tracecat Cloud](https://platform.tracecat.com).
+We also support [self-hosted](https://docs.tracecat.com/installation) Tracecat.
 
 ## Getting started
 
 Let's automate a phishing email investigation, collect evidence, and generate a remediation plan using AI.
+You can follow the [tutorial here](https://docs.tracecat.com/quickstart).
+
+https://github.com/TracecatHQ/tracecat/assets/46541035/580149cf-624b-4815-a62a-e59bbf61280e
 
 ## Features
 
