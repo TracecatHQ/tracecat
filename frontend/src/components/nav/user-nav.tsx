@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useSessionContext } from "@/providers/session"
 import { User } from "@supabase/supabase-js"
-import { KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
+import { BookText, KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
 import { siteConfig } from "@/config/site"
 import { Button } from "@/components/ui/button"
@@ -56,6 +56,17 @@ export default function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
+          <Link
+            href={siteConfig.links.docs}
+            target="_blank"
+            className="my-2 w-full"
+          >
+            <DropdownMenuItem className="text-xs hover:cursor-pointer">
+              <BookText className="mr-2 h-4 w-4" />
+              Read the Docs
+            </DropdownMenuItem>
+          </Link>
+
           <DropdownMenuItem className="text-xs opacity-50">
             <Settings className="mr-2 h-4 w-4" />
             Settings
@@ -85,6 +96,7 @@ export default function UserNav() {
           <span>Logout</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+
         <Link href={siteConfig.links.discord} className="mt-1 w-full">
           <Button className="w-full items-center text-xs">
             <Icons.discord className="mr-2 h-4 w-4 fill-white" />
