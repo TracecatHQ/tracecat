@@ -7,6 +7,8 @@ import {
   actionSchema,
   ActionType,
   workflowMetadataSchema,
+  WorkflowRun,
+  workflowRunSchema,
   workflowSchema,
   type Action,
   type ActionMetadata,
@@ -214,5 +216,21 @@ export async function triggerWorkflow(
     console.log("Workflow triggered successfully")
   } catch (error) {
     console.error("Error triggering workflow:", error)
+  }
+}
+
+export async function fetchWorkflowRuns(
+  maybeSession: Session | null,
+  workflowId: string
+): Promise<WorkflowRun[]> {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.get<WorkflowRun[]>(
+      `/workflows/${workflowId}/runs`
+    )
+    return z.array(workflowRunSchema).parse(response.data)
+  } catch (error) {
+    console.error("Error fetching workflow runs:", error)
+    throw error
   }
 }

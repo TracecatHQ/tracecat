@@ -4,7 +4,11 @@ import { useWorkflowMetadata } from "@/providers/workflow"
 
 import { Workflow } from "@/types/schemas"
 import { ActionForm } from "@/components/forms/action"
-import { WorkflowControlsForm, WorkflowForm } from "@/components/forms/workflow"
+import {
+  WorkflowControlsForm,
+  WorkflowForm,
+  WorkflowRunsView,
+} from "@/components/forms/workflow"
 import { FormLoading } from "@/components/loading/form"
 
 export function WorkspacePanel() {
@@ -40,6 +44,7 @@ function WorkflowPanel({
     <div className="space-y-2">
       <WorkflowForm workflow={workflow} isOnline={isOnline} />
       <WorkflowControlsForm workflow={workflow} />
+      <WorkflowRunsView workflowId={workflow.id} />
     </div>
   )
 }
