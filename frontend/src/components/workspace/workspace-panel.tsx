@@ -41,7 +41,7 @@ function WorkflowPanel({
   isOnline: boolean
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-4 p-4">
       <WorkflowForm workflow={workflow} isOnline={isOnline} />
       <WorkflowControlsForm workflow={workflow} />
       <WorkflowRunsView workflowId={workflow.id} />
