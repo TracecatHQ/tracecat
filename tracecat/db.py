@@ -13,6 +13,7 @@ from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, sele
 
 from tracecat import auth
 from tracecat.auth import decrypt_key, encrypt_key
+from tracecat.config import TRACECAT__APP_ENV
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 
 STORAGE_PATH = Path(
@@ -27,7 +28,10 @@ DEFAULT_CASE_ACTIONS = [
     "Sinkholed",
 ]
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
-TRACECAT__SQLITE_URI = f"sqlite:////{STORAGE_PATH}/database.db"
+if TRACECAT__APP_ENV == "prod":
+    TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
+else:
+    TRACECAT__DB_URI = f"sqlite:////{STORAGE_PATH}/database.db"
 
 
 class User(SQLModel, table=True):
@@ -196,9 +200,15 @@ class Webhook(Resource, table=True):
 
 
 def create_db_engine() -> Engine:
-    engine = create_engine(
-        TRACECAT__SQLITE_URI, echo=True, connect_args={"check_same_thread": False}
-    )
+    if TRACECAT__APP_ENV == "prod":
+        engine_kwargs = {
+            "pool_timeout": 30,
+            "pool_recycle": 3600,
+            "connect_args": {"sslmode": "require"},
+        }
+    else:
+        engine_kwargs = {"connect_args": {"check_same_thread": False}}
+    engine = create_engine(TRACECAT__DB_URI, echo=True, **engine_kwargs)
     return engine
 
 

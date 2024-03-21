@@ -22,13 +22,17 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
+    "adbc-driver-sqlite",
     "colorlog",
+    "cryptography",
     "fastapi",
     "lancedb==0.6.3",
     "openai",
     "orjson",
     "polars",
     "psycopg[binary]",
+    "psycopg2-binary",
+    "pyarrow",
     "pydantic==2.6.1",
     "python-jose[cryptography]",
     "python-slugify",
@@ -36,9 +40,6 @@ dependencies = [
     "tantivy",
     "tenacity",
     "uvicorn",
-    "cryptography",
-    "adbc-driver-sqlite",
-    "pyarrow",
 ]
 dynamic = ["version"]
 
