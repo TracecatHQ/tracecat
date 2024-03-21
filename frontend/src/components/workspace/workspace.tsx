@@ -128,6 +128,7 @@ export function Workspace({
                     title: "Data Transform",
                     icon: Blend,
                     variant: "ghost",
+                    availability: "comingSoon",
                   },
                   {
                     title: "Condition",
@@ -155,6 +156,7 @@ export function Workspace({
                     icon: Container,
                     variant: "ghost",
                     hierarchy: "groupItem",
+                    availability: "comingSoon",
                   },
                   {
                     type: "open_case",
@@ -167,6 +169,7 @@ export function Workspace({
                     title: "Receive Email",
                     icon: Mail,
                     variant: "ghost",
+                    availability: "comingSoon",
                   },
                   {
                     type: "send_email",

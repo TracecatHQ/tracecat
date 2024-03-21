@@ -15,6 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { AvailabilityBadge } from "@/components/badges"
 import { ActionNodeType } from "@/components/workspace/action-node"
 
 interface ActionTilesProps {
@@ -25,6 +26,7 @@ interface ActionTilesProps {
     icon: LucideIcon
     variant: "default" | "ghost"
     hierarchy?: "groupItem" | "group"
+    availability?: "comingSoon"
   }[]
 }
 const ACTION_NODE_TAG = "action" as const
@@ -118,7 +120,14 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
     >
       <nav className="grid gap-1 p-4 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
         {tiles.map((tile, index) => {
-          const { type, variant, title, icon: TileIcon, hierarchy } = tile
+          const {
+            type,
+            variant,
+            title,
+            icon: TileIcon,
+            hierarchy,
+            availability,
+          } = tile
           return isCollapsed ? (
             <Tooltip key={index} delayDuration={0}>
               <TooltipTrigger asChild>
@@ -127,13 +136,21 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
                     buttonVariants({ variant: variant, size: "icon" }),
                     "h-9 w-9",
                     variant === "default" &&
-                      "dark:bg-muted dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-white"
+                      "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
+                    hierarchy === "group" || availability === "comingSoon"
+                      ? "hover:cursor-default hover:bg-transparent"
+                      : "hover:cursor-grab",
+                    availability === "comingSoon" && "opacity-70"
                   )}
-                  draggable
-                  onMouseOver={(e) => (e.currentTarget.style.cursor = "grab")}
-                  onMouseOut={(e) => (e.currentTarget.style.cursor = "")}
+                  draggable={
+                    hierarchy !== "group" && availability !== "comingSoon"
+                  }
                   onDragStart={(event) => onDragStart(event, tile)}
-                  onClick={() => handleTileClick(tile.type, tile.title)}
+                  onClick={() => {
+                    if (!availability) {
+                      handleTileClick(type, title)
+                    }
+                  }}
                 >
                   <TileIcon className="h-4 w-4" />
                   <span className="sr-only">{type}</span>
@@ -142,6 +159,14 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
               <TooltipContent side="right" className="flex items-center gap-4">
                 {type?.startsWith("llm.") && "AI "}
                 {title}
+                {availability && (
+                  <span className="flex grow justify-end">
+                    <AvailabilityBadge
+                      className="h-5 bg-emerald-100 text-xs"
+                      availability={availability}
+                    />
+                  </span>
+                )}
               </TooltipContent>
             </Tooltip>
           ) : (
@@ -149,22 +174,33 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
               key={index}
               className={cn(
                 buttonVariants({ variant: variant, size: "sm" }),
-                "space-x-1",
+                "justify-start space-x-1",
                 variant === "default" &&
                   "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                "justify-start ",
                 hierarchy === "groupItem" && "ml-6",
-                hierarchy === "group"
+                hierarchy === "group" || availability === "comingSoon"
                   ? "hover:cursor-default hover:bg-transparent"
-                  : "hover:cursor-grab"
-                // hoverColor
+                  : "hover:cursor-grab",
+                availability === "comingSoon" && "opacity-70"
               )}
-              draggable={tile.hierarchy !== "group"}
+              draggable={hierarchy !== "group" && availability !== "comingSoon"}
               onDragStart={(event) => onDragStart(event, tile)}
-              onClick={() => handleTileClick(tile.type, tile.title)}
+              onClick={() => {
+                if (!availability) {
+                  handleTileClick(type, title)
+                }
+              }}
             >
               <TileIcon className="mr-2 h-4 w-4" />
-              {tile.title}
+              {title}
+              {availability && (
+                <span className="flex grow justify-end">
+                  <AvailabilityBadge
+                    className="h-5 text-xs"
+                    availability={availability}
+                  />
+                </span>
+              )}
             </div>
           )
         })}

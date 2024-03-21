@@ -56,3 +56,32 @@ export function StatusBadge({ status, children }: StatusBadgeProps) {
     </Badge>
   )
 }
+
+export function AvailabilityBadge({
+  availability,
+  className,
+}: {
+  availability: string
+  className?: string
+}) {
+  switch (availability) {
+    case "comingSoon":
+      return <ComingSoonBadge className={className} />
+    default:
+      return null
+  }
+}
+
+export function ComingSoonBadge({ className }: { className?: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "border-2 border-emerald-500 bg-emerald-500/20 text-xs text-emerald-700",
+        className
+      )}
+    >
+      Coming Soon
+    </Badge>
+  )
+}
