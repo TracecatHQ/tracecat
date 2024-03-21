@@ -68,7 +68,14 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
 
 
 class AuthenticatedAPIClient(AuthenticatedServiceClient):
-    """An authenticated httpx client to hit main API endpoints."""
+    """An authenticated httpx client to hit main API endpoints.
+
+     Role precedence
+    ---------------
+    1. Role passed to the client
+    2. Role set in the session role context
+    3. Default role Role(type="service", service_id="tracecat-service")
+    """
 
     def __init__(self, role: Role | None = None, *args, **kwargs):
         kwargs["role"] = role
@@ -77,7 +84,14 @@ class AuthenticatedAPIClient(AuthenticatedServiceClient):
 
 
 class AuthenticatedRunnerClient(AuthenticatedServiceClient):
-    """An authenticated httpx client to hit runner endpoints."""
+    """An authenticated httpx client to hit runner endpoints.
+
+     Role precedence
+    ---------------
+    1. Role passed to the client
+    2. Role set in the session role context
+    3. Default role Role(type="service", service_id="tracecat-service")
+    """
 
     def __init__(self, role: Role | None = None, *args, **kwargs):
         kwargs["role"] = role
