@@ -168,6 +168,8 @@ class TracecatEngineStack(Stack):
             "ApiTaskDefinition",
             execution_role=execution_role,
             task_role=task_role,
+            cpu=512,
+            memory_limit_mib=1024,
             volumes=[
                 ecs.Volume(
                     name="Volume",
@@ -184,7 +186,7 @@ class TracecatEngineStack(Stack):
                 file="Dockerfile",
                 build_args={"API_MODULE": "tracecat.api.app:app"},
             ),
-            cpu=256,
+            cpu=512,
             memory_limit_mib=1024,
             environment={
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
@@ -238,6 +240,8 @@ class TracecatEngineStack(Stack):
             "RunnerTaskDefinition",
             execution_role=execution_role,
             task_role=task_role,
+            cpu=512,
+            memory_limit_mib=1024,
             volumes=[
                 ecs.Volume(
                     name="Volume",
@@ -254,7 +258,7 @@ class TracecatEngineStack(Stack):
                 file="Dockerfile",
                 build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             ),
-            cpu=256,
+            cpu=512,
             memory_limit_mib=1024,
             environment={
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
