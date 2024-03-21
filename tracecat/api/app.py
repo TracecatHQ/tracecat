@@ -19,6 +19,7 @@ from tracecat.auth import (
     authenticate_user,
     authenticate_user_or_service,
 )
+from tracecat.config import TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
 from tracecat.db import (
     Action,
     ActionRun,
@@ -86,11 +87,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# TODO: Check TRACECAT__APP_ENV to set origins
-origins = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-]
+if TRACECAT__APP_ENV == "prod":
+    # NOTE: If you are using Tracecat self-hosted
+    # please replace with your own domain
+    origins = ["https://platform.tracecat.com", TRACECAT__RUNNER_URL]
+else:
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ]
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
 app.add_middleware(

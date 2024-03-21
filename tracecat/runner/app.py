@@ -49,7 +49,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
 from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
-from tracecat.config import TRACECAT__API_URL
+from tracecat.config import TRACECAT__API_URL, TRACECAT__APP_ENV
 from tracecat.contexts import ctx_session_role, ctx_workflow
 from tracecat.logger import standard_logger
 from tracecat.runner.actions import (
@@ -72,11 +72,18 @@ logger = standard_logger(__name__)
 
 app = FastAPI(debug=True, default_response_class=ORJSONResponse)
 
-# TODO: Check TRACECAT__APP_ENV to set origins
-origins = [
-    "http://localhost:3000",
-    "http://localhost:8001",
-]
+if TRACECAT__APP_ENV == "prod":
+    # NOTE: If you are using Tracecat self-hosted
+    # please replace with your own domain
+    origins = [
+        "https://platform.tracecat.com",
+        TRACECAT__API_URL,
+    ]
+else:
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ]
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
 app.add_middleware(
