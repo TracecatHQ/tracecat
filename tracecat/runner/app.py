@@ -61,10 +61,10 @@ from tracecat.runner.actions import (
 from tracecat.runner.workflows import Workflow, create_workflow_run, update_workflow_run
 from tracecat.types.api import (
     AuthenticateWebhookResponse,
+    RunStatus,
     StartWorkflowParams,
     StartWorkflowResponse,
     WorkflowResponse,
-    WorkflowRunStatus,
 )
 
 logger = standard_logger(__name__)
@@ -169,7 +169,9 @@ async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookRe
     2. If the secret is not found, return a 404.
     """
     # Change this to make a db call
-    async with AuthenticatedAPIClient(http2=True) as client:
+    async with AuthenticatedAPIClient(
+        role=Role(type="service", service_id="tracecat-runner"), http2=True
+    ) as client:
         response = await client.post(
             f"{TRACECAT__API_URL}/authenticate/webhooks/{path}/{secret}"
         )
@@ -337,7 +339,7 @@ async def run_workflow(
         )
     )
 
-    run_status: WorkflowRunStatus = "success"
+    run_status: RunStatus = "success"
 
     await update_workflow_run(
         workflow_id=workflow_id,

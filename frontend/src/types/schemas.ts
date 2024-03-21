@@ -61,23 +61,35 @@ export const workflowMetadataSchema = z.object({
   status: workflowStatusSchema,
 })
 export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
+const strAsDate = z.string().transform((x) => new Date(`${x}Z`))
 
-const workflowRunStatusSchema = z.enum([
+const runStatusSchema = z.enum([
   "pending",
   "success",
   "failure",
   "canceled",
   "running",
 ])
-export type WorkflowRunStatus = z.infer<typeof workflowRunStatusSchema>
+export type RunStatus = z.infer<typeof runStatusSchema>
+
+export const actionRunSchema = z.object({
+  id: z.string(),
+  action_id: z.string(),
+  status: runStatusSchema,
+  created_at: strAsDate,
+  updated_at: strAsDate,
+})
+export type ActionRun = z.infer<typeof actionRunSchema>
 
 export const workflowRunSchema = z.object({
   id: z.string(),
+  created_at: strAsDate,
+  updated_at: strAsDate,
   workflow_id: z.string(),
-  status: workflowRunStatusSchema,
-  created_at: z.string(),
-  updated_at: z.string(),
+  status: runStatusSchema,
+  action_runs: z.array(actionRunSchema),
 })
+
 export type WorkflowRun = z.infer<typeof workflowRunSchema>
 
 export const caseSchema = z.object({

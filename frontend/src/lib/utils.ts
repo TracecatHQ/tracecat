@@ -101,3 +101,23 @@ export function tryStringify(value: any, defaultValue: string = ""): string {
     return defaultValue
   }
 }
+
+export function parseActionRunId(
+  actionRunId: string,
+  field: "actionId" | "actionSlug" | "workflowRunId" = "actionSlug"
+): string {
+  if (!actionRunId.startsWith("ar:")) {
+    throw new Error("Invalid action run ID")
+  }
+  const [_, actionKey, workflowRunId] = actionRunId.split(":")
+  switch (field) {
+    case "actionId":
+      return actionKey.split(".")[0]
+    case "actionSlug":
+      return actionKey.split(".")[1]
+    case "workflowRunId":
+      return workflowRunId
+    default:
+      throw new Error("Invalid field")
+  }
+}

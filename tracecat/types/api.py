@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from tracecat.db import ActionRun, WorkflowRun
 from tracecat.types.actions import ActionType
 
 # TODO: Consistent API design
 # Action and Workflow create / update params
 # should be the same as the metadata responses
 
-WorkflowRunStatus = Literal["pending", "running", "failure", "success", "canceled"]
+RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 
 
 class ActionResponse(BaseModel):
@@ -53,14 +56,31 @@ class WorkflowRunResponse(BaseModel):
     id: str
     workflow_id: str
     status: str
+    created_at: datetime
+    updated_at: datetime
+    action_runs: list[ActionRun] = []
+
+    @classmethod
+    def from_orm(cls, run: WorkflowRun) -> WorkflowRunResponse:
+        return cls(**run.model_dump(), action_runs=run.action_runs)
 
 
-class WorkflowRunMetadataResponse(BaseModel):
+class ActionRunResponse(BaseModel):
     id: str
-    workflow_id: str
+    action_id: str
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class CreateActionRunParams(BaseModel):
+    action_run_id: str  # This is deterministically defined in the runner
+    workflow_run_id: str
+    limit: int = 20
+
+
+class UpdateActionRunParams(BaseModel):
+    status: RunStatus
 
 
 class CreateWorkflowParams(BaseModel):
@@ -76,7 +96,7 @@ class UpdateWorkflowParams(BaseModel):
 
 
 class UpdateWorkflowRunParams(BaseModel):
-    status: WorkflowRunStatus
+    status: RunStatus
 
 
 class CreateActionParams(BaseModel):
@@ -217,4 +237,4 @@ class StartWorkflowResponse(BaseModel):
 
 
 class CreateWorkflowRunParams(BaseModel):
-    status: WorkflowRunStatus
+    status: RunStatus

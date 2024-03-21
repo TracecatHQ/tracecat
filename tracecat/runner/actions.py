@@ -48,6 +48,7 @@ import tantivy
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from tracecat.auth import AuthenticatedAPIClient
 from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.contexts import ctx_session_role
 from tracecat.db import create_events_index, create_vdb_conn
@@ -71,6 +72,12 @@ from tracecat.runner.templates import (
     evaluate_templated_secrets,
 )
 from tracecat.types.actions import ActionType
+from tracecat.types.api import (
+    ActionRunResponse,
+    CreateActionRunParams,
+    RunStatus,
+    UpdateActionRunParams,
+)
 from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
@@ -392,6 +399,7 @@ async def start_action_run(
     pending_timeout: float | None = None,
     custom_logger: logging.Logger | None = None,
 ) -> None:
+    await log_create_action_run(action_run)
     ar_id = action_run.id
     action_key = action_run.action_key
     upstream_deps_ar_ids = action_run.upstream_dependencies(
@@ -401,6 +409,9 @@ async def start_action_run(
     custom_logger.debug(
         f"Action run {ar_id} waiting for dependencies {upstream_deps_ar_ids}."
     )
+
+    run_status: RunStatus = "success"
+    # 1. Perform the action and its cleanup
     try:
         await asyncio.wait_for(
             _wait_for_dependencies(upstream_deps_ar_ids, action_run_status_store),
@@ -414,6 +425,7 @@ async def start_action_run(
         custom_logger.debug(f"Running action {ar_id!r}. Trail {action_trail.keys()}.")
         action_run_status_store[ar_id] = ActionRunStatus.RUNNING
         action_ref = workflow_ref.actions[action_key]
+        await log_update_action_run(action_run, status="running")
         result = await run_action(
             action_run_id=action_run.id,
             workflow_id=workflow_ref.id,
@@ -435,9 +447,45 @@ async def start_action_run(
             f"Action run {ar_id!r} completed with trail: {action_trail}."
         )
 
-        if not result.should_continue:
-            custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
-            return
+    except TimeoutError:
+        custom_logger.error(
+            f"Action run {ar_id} timed out waiting for dependencies {upstream_deps_ar_ids}."
+        )
+    except asyncio.CancelledError:
+        custom_logger.warning(f"Action run {ar_id!r} was cancelled.")
+        run_status = "canceled"
+    except Exception as e:
+        custom_logger.error(f"Action run {ar_id!r} failed with error: {e}.")
+        run_status = "failure"
+    finally:
+        if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
+            # Exception was raised before the action was marked as successful
+            action_run_status_store[ar_id] = ActionRunStatus.FAILURE
+
+        running_jobs_store.pop(ar_id, None)
+
+        # Add trail to events store
+        _index_events(
+            action_id=action_ref.id,
+            action_run_id=ar_id,
+            action_title=action_ref.title,
+            action_type=action_ref.type,
+            workflow_id=workflow_ref.id,
+            workflow_title=workflow_ref.title,
+            workflow_run_id=action_run.workflow_run_id,
+            action_trail=action_trail,
+        )
+        await log_update_action_run(action_run, status=run_status)
+
+    # Handle downstream dependencies
+    if run_status != "success":
+        custom_logger.warning(f"Action run {ar_id!r} stopping due to failure.")
+        return
+    custom_logger.debug(f"Remaining action runs: {running_jobs_store.keys()}")
+    if not result.should_continue:
+        custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
+        return
+    try:
         downstream_deps_ar_ids = action_run.downstream_dependencies(
             workflow=workflow_ref, action_key=action_key
         )
@@ -451,33 +499,10 @@ async def start_action_run(
                         action_key=parse_action_run_id(next_ar_id, "action_key"),
                     )
                 )
-
-    except TimeoutError:
-        custom_logger.error(
-            f"Action run {ar_id} timed out waiting for dependencies {upstream_deps_ar_ids}."
-        )
-    except asyncio.CancelledError:
-        custom_logger.warning(f"Action run {ar_id!r} was cancelled.")
     except Exception as e:
-        custom_logger.error(f"Action run {ar_id!r} failed with error: {e}.")
-    finally:
-        if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
-            # Exception was raised before the action was marked as successful
-            action_run_status_store[ar_id] = ActionRunStatus.FAILURE
-
-        running_jobs_store.pop(ar_id, None)
-        custom_logger.debug(f"Remaining action runs: {running_jobs_store.keys()}")
-
-        # Add trail to events store
-        _index_events(
-            action_id=action_ref.id,
-            action_run_id=ar_id,
-            action_title=action_ref.title,
-            action_type=action_ref.type,
-            workflow_id=workflow_ref.id,
-            workflow_title=workflow_ref.title,
-            workflow_run_id=action_run.workflow_run_id,
-            action_trail=action_trail,
+        custom_logger.error(
+            f"Action run {ar_id!r} failed to broadcast results to downstream dependencies.",
+            exc_info=e,
         )
 
 
@@ -821,3 +846,35 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "send_email": run_send_email_action,
     "open_case": run_open_case_action,
 }
+
+
+# TODO: Move these calls into a logger
+async def log_create_action_run(action_run: ActionRun) -> ActionRunResponse:
+    """Create a workflow run."""
+    action_id = action_key_to_id(action_run.action_key)
+    params = CreateActionRunParams(
+        action_run_id=action_run.id,
+        workflow_run_id=action_run.workflow_run_id,
+    )
+    async with AuthenticatedAPIClient(http2=True) as client:
+        response = await client.post(
+            f"/actions/{action_id}/runs", json=params.model_dump()
+        )
+        response.raise_for_status()
+    return ActionRunResponse.model_validate(response.json())
+
+
+async def log_update_action_run(action_run: ActionRun, *, status: RunStatus) -> None:
+    """Update a workflow run."""
+    action_id = action_key_to_id(action_run.action_key)
+    params = UpdateActionRunParams(status=status)
+    async with AuthenticatedAPIClient(http2=True) as client:
+        response = await client.post(
+            f"/actions/{action_id}/runs/{action_run.id}",
+            json=params.model_dump(),
+        )
+        if response.status_code != 204:
+            logger.error(
+                f"Failed to update action run {action_run.id} in workflow run "
+                f"{action_run.workflow_run_id} with status {status}"
+            )

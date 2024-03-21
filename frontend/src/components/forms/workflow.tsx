@@ -20,6 +20,7 @@ import {
   CircleIcon,
   CircleX,
   Laugh,
+  Loader2,
   MessageCircleMore,
   Save,
   ScrollText,
@@ -34,13 +35,19 @@ import { z } from "zod"
 
 import {
   Action,
+  ActionRun,
+  RunStatus,
   Workflow,
   WorkflowRun,
-  WorkflowRunStatus,
   WorkflowStatus,
 } from "@/types/schemas"
-import { fetchWorkflowRuns, triggerWorkflow, updateWorkflow } from "@/lib/flow"
-import { cn, getActionKey } from "@/lib/utils"
+import {
+  fetchWorkflowRun,
+  fetchWorkflowRuns,
+  triggerWorkflow,
+  updateWorkflow,
+} from "@/lib/flow"
+import { cn, getActionKey, parseActionRunId } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -479,12 +486,7 @@ export function WorkflowRunsView({
         ) : (
           <Accordion type="single" collapsible className="w-full">
             {workflowRuns
-              ?.sort((a, b) => {
-                return (
-                  new Date(b.created_at).getTime() -
-                  new Date(a.created_at).getTime()
-                )
-              })
+              ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
               .map((props, index) => (
                 <WorkflowRunItem
                   className="my-2 w-full"
@@ -502,19 +504,31 @@ export function WorkflowRunsView({
 function WorkflowRunItem({
   className,
   status,
+  id: workflowRunId,
+  workflow_id: workflowId,
   created_at,
   updated_at,
   ...props
 }: React.PropsWithoutRef<WorkflowRun> & React.HTMLAttributes<HTMLDivElement>) {
-  const created_time = new Date(`${created_at}Z`)
-  const updated_time = new Date(`${updated_at}Z`).toLocaleTimeString()
+  const session = useSession()
+  const [open, setOpen] = useState(false)
+  const [actionRuns, setActionRuns] = useState<ActionRun[]>([])
+  const handleClick = () => setOpen(!open)
+
+  useEffect(() => {
+    if (open) {
+      fetchWorkflowRun(session, workflowId, workflowRunId).then((res) =>
+        setActionRuns(res.action_runs)
+      )
+    }
+  }, [open])
   return (
-    <AccordionItem value={created_at}>
-      <AccordionTrigger>
+    <AccordionItem value={created_at.toString()}>
+      <AccordionTrigger onClick={handleClick}>
         <div className="mr-2 flex w-full items-center justify-between">
           <DecoratedHeader
-            size="md"
-            title={`${created_time.toLocaleDateString()}, ${created_time.toLocaleTimeString()}`}
+            size="sm"
+            node={`${created_at.toLocaleDateString()}, ${created_at.toLocaleTimeString()}`}
             icon={status === "success" ? CircleCheck : CircleX}
             iconProps={{
               className: cn(
@@ -524,14 +538,73 @@ function WorkflowRunItem({
                   : "fill-red-500/50 stroke-red-700"
               ),
             }}
-            className="capitalize"
+            className="font-medium capitalize"
           />
           <span className="text-xs text-muted-foreground">
-            Updated: {updated_time}
+            Updated: {updated_at.toLocaleTimeString()}
           </span>
         </div>
       </AccordionTrigger>
-      <AccordionContent></AccordionContent>
+      <AccordionContent className="space-y-2 pl-2">
+        <Separator className="mb-4" />
+        {actionRuns.map(({ id, created_at, updated_at, status }, index) => {
+          const { icon, style } = getStyle(status)
+          return (
+            <div
+              key={index}
+              className="mr-2 flex w-full items-center justify-between"
+            >
+              <DecoratedHeader
+                size="sm"
+                className="font-medium"
+                node={
+                  <span className="flex items-center text-xs">
+                    <span>
+                      {created_at.toLocaleDateString()}{" "}
+                      {created_at.toLocaleTimeString()}
+                    </span>
+                    <span className="ml-4 font-normal">
+                      {parseActionRunId(id)}
+                    </span>
+                  </span>
+                }
+                icon={icon}
+                iconProps={{
+                  className: cn(
+                    "stroke-2",
+                    style,
+                    (status === "running" || status === "pending") &&
+                      "animate-spin fill-background"
+                  ),
+                }}
+              />
+              <span className="text-xs text-muted-foreground">
+                Updated: {updated_at.toLocaleTimeString()}
+              </span>
+            </div>
+          )
+        })}
+      </AccordionContent>
     </AccordionItem>
   )
+}
+
+function getStyle(status: RunStatus) {
+  switch (status) {
+    case "success":
+      return { icon: CircleCheck, style: "fill-green-500/50 stroke-green-700" }
+    case "failure":
+      return { icon: CircleX, style: "fill-red-500/50 stroke-red-700" }
+    case "running":
+      return {
+        icon: Loader2,
+        style: "stroke-yellow-500 animate-spin",
+      }
+    case "pending":
+      return { icon: Loader2, style: "stroke-yellow-500 animate-spin" }
+    case "canceled":
+      return { icon: CircleX, style: "fill-red-500/50 stroke-red-700" }
+    default:
+      throw new Error("Invalid status")
+  }
 }

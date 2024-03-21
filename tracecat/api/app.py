@@ -21,6 +21,7 @@ from tracecat.auth import (
 )
 from tracecat.db import (
     Action,
+    ActionRun,
     CaseAction,
     CaseContext,
     Secret,
@@ -39,11 +40,13 @@ from tracecat.logger import standard_logger
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
+    ActionRunResponse,
     AuthenticateWebhookResponse,
     CaseActionParams,
     CaseContextParams,
     CaseParams,
     CreateActionParams,
+    CreateActionRunParams,
     CreateSecretParams,
     CreateWebhookParams,
     CreateWorkflowParams,
@@ -55,6 +58,7 @@ from tracecat.types.api import (
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
     UpdateActionParams,
+    UpdateActionRunParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
@@ -63,7 +67,6 @@ from tracecat.types.api import (
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
-    WorkflowRunMetadataResponse,
     WorkflowRunResponse,
 )
 from tracecat.types.cases import Case, CaseMetrics
@@ -276,7 +279,7 @@ def list_workflow_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     limit: int = 20,
-) -> list[WorkflowRunMetadataResponse]:
+) -> list[WorkflowRunResponse]:
     """List all Workflow Runs for a Workflow."""
     with Session(engine) as session:
         # Being here means the user has access to the workflow
@@ -290,16 +293,9 @@ def list_workflow_runs(
         )
         results = session.exec(statement)
         workflow_runs = results.all()
-        logger.critical(f"Workflow runs: {workflow_runs = }")
 
     workflow_runs_metadata = [
-        WorkflowRunMetadataResponse(
-            id=workflow_run.id,
-            workflow_id=workflow_run.workflow_id,
-            status=workflow_run.status,
-            created_at=workflow_run.created_at,
-            updated_at=workflow_run.updated_at,
-        )
+        WorkflowRunResponse(**workflow_run.model_dump())
         for workflow_run in workflow_runs
     ]
     return workflow_runs_metadata
@@ -309,7 +305,7 @@ def list_workflow_runs(
 def create_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
-) -> WorkflowRunMetadataResponse:
+) -> WorkflowRunResponse:
     """Create a Workflow Run."""
 
     with Session(engine) as session:
@@ -317,12 +313,8 @@ def create_workflow_run(
         session.add(workflow_run)
         session.commit()
         session.refresh(workflow_run)
-
-    return WorkflowRunMetadataResponse(
-        id=workflow_run.id,
-        workflow_id=workflow_id,
-        status=workflow_run.status,
-    )
+        # Need this classmethod to instantiate the lazy-laoded action_runs list
+        return WorkflowRunResponse.from_orm(workflow_run)
 
 
 @app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
@@ -347,12 +339,8 @@ def get_workflow_run(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
-
-    return WorkflowRunResponse(
-        id=workflow_run.id,
-        workflow_id=workflow_run.workflow_id,
-        status=workflow_run.status,
-    )
+        # Need this classmethod to instantiate the lazy-laoded action_runs list
+        return WorkflowRunResponse.from_orm(workflow_run)
 
 
 @app.post(
@@ -401,6 +389,7 @@ async def trigger_workflow_run(
         entrypoint_key=params.action_key,
         entrypoint_payload=params.payload,
     )
+    logger.debug(f"Triggering workflow: {workflow_id = }, {workflow_params = }")
     async with AuthenticatedRunnerClient(role=service_role, http2=True) as client:
         response = await client.post(
             f"/workflows/{workflow_id}",
@@ -591,6 +580,116 @@ def delete_action(
         session.commit()
 
 
+### Action Runs
+
+
+@app.get("/actions/{action_id}/runs")
+def list_action_runs(
+    role: Annotated[Role, Depends(authenticate_user)],
+    action_id: str,
+    limit: int = 20,
+) -> list[ActionRunResponse]:
+    """List all action Runs for an action."""
+    with Session(engine) as session:
+        # Being here means the user has access to the action
+        statement = (
+            select(ActionRun)
+            .where(
+                ActionRun.owner_id == role.user_id,
+                ActionRun.action_id == action_id,
+            )
+            .limit(limit)
+        )
+        results = session.exec(statement)
+        action_runs = results.all()
+
+    action_runs_metadata = [
+        ActionRunResponse(**action_run.model_dump()) for action_run in action_runs
+    ]
+    return action_runs_metadata
+
+
+@app.post("/actions/{action_id}/runs", status_code=status.HTTP_201_CREATED)
+def create_action_run(
+    role: Annotated[Role, Depends(authenticate_service)],  # M2M
+    action_id: str,
+    params: CreateActionRunParams,
+) -> ActionRunResponse:
+    """Create a action Run."""
+
+    action_run = ActionRun(
+        owner_id=role.user_id,
+        action_id=action_id,
+        id=params.action_run_id,
+        workflow_run_id=params.workflow_run_id,
+    )
+    with Session(engine) as session:
+        session.add(action_run)
+        session.commit()
+        session.refresh(action_run)
+
+    return ActionRunResponse(**action_run.model_dump())
+
+
+@app.get("/actions/{action_id}/runs/{action_run_id}")
+def get_action_run(
+    role: Annotated[Role, Depends(authenticate_user)],
+    action_id: str,
+    action_run_id: str,
+) -> ActionRunResponse:
+    """Return ActionRun as title, description, of Action JSONs, adjacency list of Action IDs."""
+
+    with Session(engine) as session:
+        # Get action given action_id
+        statement = select(ActionRun).where(
+            ActionRun.owner_id == role.user_id,
+            ActionRun.id == action_run_id,
+            ActionRun.action_id == action_id,  # Redundant, but for clarity
+        )
+        result = session.exec(statement)
+        try:
+            action_run = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+    return ActionRunResponse(**action_run.model_dump())
+
+
+@app.post(
+    "/actions/{action_id}/runs/{action_run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def update_action_run(
+    role: Annotated[Role, Depends(authenticate_service)],  # M2M
+    action_id: str,
+    action_run_id: str,
+    params: UpdateActionRunParams,
+) -> None:
+    """Update action."""
+
+    with Session(engine) as session:
+        statement = select(ActionRun).where(
+            ActionRun.owner_id == role.user_id,
+            ActionRun.id == action_run_id,
+            ActionRun.action_id == action_id,
+        )
+        result = session.exec(statement)
+        try:
+            action_run = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+        if params.status is not None:
+            action_run.status = params.status
+
+        session.add(action_run)
+        session.commit()
+
+
 ### Webhooks
 
 
@@ -733,6 +832,7 @@ def authenticate_webhook(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
         if webhook.secret != secret:
+            logger.error("Secret doesn't match")
             return AuthenticateWebhookResponse(status="Unauthorized")
         # Get slug
         statement = select(Action).where(Action.id == webhook.action_id)

@@ -12,10 +12,10 @@ from tracecat.runner.actions import (
 )
 from tracecat.types.api import (
     ActionResponse,
+    RunStatus,
     UpdateWorkflowRunParams,
     WorkflowResponse,
-    WorkflowRunMetadataResponse,
-    WorkflowRunStatus,
+    WorkflowRunResponse,
 )
 
 logger = standard_logger(__name__)
@@ -135,18 +135,18 @@ def _graph_obj_to_adj_list(
 
 
 # TODO: Move these calls into a logger or something
-async def create_workflow_run(workflow_id: str) -> WorkflowRunMetadataResponse:
+async def create_workflow_run(workflow_id: str) -> WorkflowRunResponse:
     """Create a workflow run."""
     async with AuthenticatedAPIClient(http2=True) as client:
         response = await client.post(f"/workflows/{workflow_id}/runs")
         response.raise_for_status()
-    return WorkflowRunMetadataResponse.model_validate(response.json())
+    return WorkflowRunResponse.model_validate(response.json())
 
 
 async def update_workflow_run(
     workflow_id: str,
     workflow_run_id: str,
-    status: WorkflowRunStatus,
+    status: RunStatus,
 ) -> None:
     """Update a workflow run."""
     params = UpdateWorkflowRunParams(status=status)
