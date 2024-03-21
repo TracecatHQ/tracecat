@@ -1,6 +1,6 @@
 <div align="center">
   <h2>
-    Open source Tines / Palo Alto XSOAR alternative
+    Open source Tines / Splunk SOAR alternative
   </h2>
   <img src="img/banner.svg" alt="tracecat">
 </div>
@@ -25,7 +25,7 @@
 
 *Disclaimer: Tracecat is currently in public alpha. If you'd like to use Tracecat in production, please reach out to us in Discord or founders@tracecat.com!*
 
-[Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Palo Alto XSOAR with:
+[Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Splunk SOAR with:
 
 - Enterprise-grade open source tools
 - Open source AI infra and GPT models
@@ -76,7 +76,7 @@ Build AI-assisted workflows, enrich alerts, and close cases fast.
   - [ ] LLM evaluation and security
   - [ ] Bring-your-own LLM (OpenAI, Mistral, Anthropic etc.)
 
-Tracecat is **not** a 1-to-1 mapping of Tines / Palo Alto XSOAR. Our aim is to give technical teams a Tines-like experience, but with a focus on open source and AI features. [What do we mean by AI-native?](#what-does-ai-native-mean).
+Tracecat is **not** a 1-to-1 mapping of Tines / Splunk SOAR. Our aim is to give technical teams a Tines-like experience, but with a focus on open source and AI features. [What do we mean by AI-native?](#what-does-ai-native-mean).
 
 ## Installation
 
