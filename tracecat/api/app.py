@@ -913,7 +913,8 @@ def create_case(
     tbl = db.open_table("cases")
     # Should probably also add a check for existing case IDs
     new_cases = [
-        Case(**c, owner_id=role.user_id, workflow_id=workflow_id) for c in cases
+        Case(**c.model_dump(), owner_id=role.user_id, workflow_id=workflow_id)
+        for c in cases
     ]
     tbl.add([case.flatten() for case in new_cases])
 
