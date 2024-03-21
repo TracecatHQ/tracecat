@@ -15,8 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-
-import { ActionNodeType, getTileColor } from "./action-node"
+import { ActionNodeType } from "@/components/workspace/action-node"
 
 interface ActionTilesProps {
   isCollapsed: boolean
