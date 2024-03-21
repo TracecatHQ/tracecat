@@ -98,12 +98,6 @@ export function ActionForm({
     queryFn: async ({ queryKey }) => {
       // Fetch Action by ID and Workflow ID
       const [_, actionId, workflowId] = queryKey as [string, string, string]
-      console.log(
-        "Fetching action with ID",
-        actionId,
-        "in workflow",
-        workflowId
-      )
       const result = await getActionById(session, actionId, workflowId)
       return result
     },
