@@ -133,6 +133,14 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="db-uri"
             ),
         }
+        if TRACECAT__APP_ENV == "prod":
+            shared_secrets[
+                "TRACECAT__API_URL"
+            ] = f"https://api.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
+            shared_secrets[
+                "TRACECAT__RUNNER_URL"
+            ] = f"https://runner.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
+
         api_secrets = {
             **shared_secrets,
             "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
