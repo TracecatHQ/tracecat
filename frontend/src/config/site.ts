@@ -13,6 +13,7 @@ export const siteConfig: SiteConfig = {
   },
   links: {
     github: "https://github.com/TracecatHQ/tracecat",
+    discord: "https://discord.gg/n3GF4qxFU8",
   },
   ogImage: `${env.NEXT_PUBLIC_APP_URL}/og.jpg`,
 }
