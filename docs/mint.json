@@ -46,7 +46,7 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["introduction", "quickstart", "tutorial", "use-cases"]
+      "pages": ["introduction", "quickstart", "power-guide"]
     },
     {
       "group": "Core Features",
@@ -57,6 +57,10 @@
         "core/case-management",
         "core/integrations"
       ]
+    },
+    {
+      "group": "Tutorials",
+      "pages": ["tutorials/phishing"]
     },
     {
       "group": "Self-hosted",
