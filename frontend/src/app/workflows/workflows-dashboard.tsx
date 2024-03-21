@@ -18,39 +18,41 @@ interface WorkflowsDashboardProps extends React.HTMLAttributes<HTMLElement> {
 
 export async function WorkflowsDashboard({ session }: WorkflowsDashboardProps) {
   return (
-    <div className="container flex h-full max-w-[800px] flex-col  space-y-4 p-16">
-      <div className="flex w-full pt-16">
-        <div className="items-start space-y-2 text-left">
-          <h2 className="text-2xl font-bold tracking-tight">Workflows</h2>
-          <p className="text-md text-muted-foreground">
-            Welcome back! Here&apos;s a list of your workflows.
-          </p>
-        </div>
-        <NewWorkflowDialog>
-          <NewWorkflowDialogTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              className="ml-auto space-x-2"
-            >
-              <PlusCircle className="mr-2 h-4 w-4" />
-              New
-            </Button>
-          </NewWorkflowDialogTrigger>
-        </NewWorkflowDialog>
-      </div>
-      <Suspense
-        fallback={
-          <div className="flex flex-col gap-2 pt-4">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
+    <div className="h-full w-full overflow-auto">
+      <div className="container flex h-full max-w-[800px] flex-col  space-y-4 p-16">
+        <div className="flex w-full pt-16">
+          <div className="items-start space-y-2 text-left">
+            <h2 className="text-2xl font-bold tracking-tight">Workflows</h2>
+            <p className="text-md text-muted-foreground">
+              Welcome back! Here&apos;s a list of your workflows.
+            </p>
           </div>
-        }
-      >
-        <WorkflowList session={session} />
-      </Suspense>
+          <NewWorkflowDialog>
+            <NewWorkflowDialogTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className="ml-auto space-x-2"
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />
+                New
+              </Button>
+            </NewWorkflowDialogTrigger>
+          </NewWorkflowDialog>
+        </div>
+        <Suspense
+          fallback={
+            <div className="flex flex-col gap-2 pt-4">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          }
+        >
+          <WorkflowList session={session} />
+        </Suspense>
+      </div>
     </div>
   )
 }
@@ -84,15 +86,15 @@ export async function WorkflowList({ session }: WorkflowListProps) {
                     <div className="font-semibold capitalize">{wf.title}</div>
                   </div>
                   <div className="ml-auto flex items-center space-x-2">
+                    <span className="text-xs capitalize text-muted-foreground">
+                      {wf.status}
+                    </span>
                     <span
                       className={cn(
-                        "flex h-2 w-2 rounded-full ",
+                        "flex h-2 w-2 rounded-full",
                         wf.status === "online" ? "bg-green-400" : "bg-gray-400"
                       )}
                     />
-                    <span className="text-xs text-muted-foreground">
-                      Last run: 2 hours ago
-                    </span>
                   </div>
                 </div>
                 <div className="text-xs font-medium text-muted-foreground">
