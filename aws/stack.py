@@ -133,14 +133,6 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="db-uri"
             ),
         }
-        if TRACECAT__APP_ENV == "prod":
-            shared_secrets[
-                "TRACECAT__API_URL"
-            ] = f"https://api.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
-            shared_secrets[
-                "TRACECAT__RUNNER_URL"
-            ] = f"https://runner.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
-
         api_secrets = {
             **shared_secrets,
             "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
@@ -159,6 +151,14 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="openai-api-key"
             ),
         }
+        if TRACECAT__APP_ENV == "prod":
+            shared_env = {
+                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
+                "TRACECAT__API_URL": f"https://api.{AWS_ROUTE53__HOSTED_ZONE_NAME}",
+                "TRACECAT__RUNNER_URL": f"https://runner.{AWS_ROUTE53__HOSTED_ZONE_NAME}",
+            }
+        else:
+            shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
 
         # # Define EFS
         # file_system = efs.FileSystem(
@@ -196,9 +196,9 @@ class TracecatEngineStack(Stack):
             cpu=512,
             memory_limit_mib=1024,
             environment={
-                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 "API_MODULE": "tracecat.api.app:app",
                 "SUPABASE_JWT_ALGORITHM": "HS256",
+                **shared_env,
             },
             secrets=api_secrets,
             port_mappings=[ecs.PortMapping(container_port=8000)],
@@ -268,9 +268,9 @@ class TracecatEngineStack(Stack):
             cpu=512,
             memory_limit_mib=1024,
             environment={
-                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 "API_MODULE": "tracecat.runner.app:app",
                 "PORT": "8001",
+                **shared_env,
             },
             secrets=runner_secrets,
             port_mappings=[ecs.PortMapping(container_port=8001)],
