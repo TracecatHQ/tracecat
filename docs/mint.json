@@ -59,32 +59,6 @@
       ]
     },
     {
-      "group": "Action Types",
-      "pages": [
-        "actions/types/webhook",
-        "actions/types/http-request",
-        "actions/types/send-email",
-        {
-          "group": "If Conditions",
-          "pages": [
-            "actions/types/if-conditions/overview",
-            "actions/types/if-conditions/compare",
-            "actions/types/if-conditions/regex",
-            "actions/types/if-conditions/membership"
-          ]
-        },
-        {
-          "group": "AI Actions",
-          "pages": [
-            "actions/types/ai-actions/overview",
-            "actions/types/ai-actions/label",
-            "actions/types/ai-actions/summarize"
-          ]
-        },
-        "actions/types/open-case"
-      ]
-    },
-    {
       "group": "Self-hosted",
       "pages": ["installation", "deployment"]
     },
