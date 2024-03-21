@@ -108,7 +108,7 @@ async def get_workflow(workflow_id: str) -> WorkflowResponse:
     try:
         role = ctx_session_role.get()
         async with AuthenticatedAPIClient(role=role, http2=True) as client:
-            response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
+            response = await client.get(f"/workflows/{workflow_id}")
             response.raise_for_status()
     except HTTPException as e:
         logger.error(e.detail)
@@ -124,7 +124,7 @@ async def get_workflow(workflow_id: str) -> WorkflowResponse:
 async def valid_workflow(workflow_id: str) -> str:
     """Check if a workflow exists."""
     async with AuthenticatedAPIClient(http2=True) as client:
-        response = await client.get(f"{TRACECAT__API_URL}/workflows/{workflow_id}")
+        response = await client.get(f"/workflows/{workflow_id}")
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

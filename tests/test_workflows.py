@@ -1,123 +1,148 @@
-import json
-import time
-from pathlib import Path
-from typing import Any
+"""Run end-to-end workflows in a test environment.
 
+We trigger a workflow by calling a webhook.
+To test successful completion, we check the status of the workflow run.
+
+Environment variables required:
+- TRACECAT__STORAGE_PATH: Path to the directory where the SQLite database will be stored
+- TRACECAT__API_URL
+- TRACECAT__RUNNER_URL
+- TRACECAT__SERVICE_KEY
+
+Note: API and runner servers must be running.
+"""
+
+import logging
+import os
+import threading
+
+import polars as pl
 import pytest
-import respx
+import uvicorn
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-from httpx import Request, Response
-from slugify import slugify
 
-from tracecat.config import TRACECAT__API_URL
-from tracecat.runner.app import app
-from tracecat.types.api import ActionResponse, WorkflowResponse
-
-TEST_WORKFLOWS_DIR = Path("tests/workflow_schemas")
-TIMEOUT_PER_WORKFLOW = 10
-
-
-# Create mock client for runner API
-
-client = TestClient(app)
-
-# Override check valid workflow dependency
-# since it requires a running API endpoint
-
-
-@pytest.fixture(
-    params=[
-        (
-            "branching.json",
-            "689cd16eba7a4d9897074e7c7ceed797.webhook",
-            {"text": "happy"},
-            {"text": "I am happy :)"},
-        )
-    ],
-    ids=["branching"],
+from tracecat.api.app import app
+from tracecat.auth import (
+    Role,
+    authenticate_service,
+    authenticate_user,
+    authenticate_user_or_service,
 )
-def sample_workflow(request) -> tuple[WorkflowResponse, str, dict[str, any]]:
-    workflow_path, entrypoint_key, entrypoint_payload, workflow_result = request.param
-    with open(TEST_WORKFLOWS_DIR / workflow_path) as f:
-        workflow_response_object = json.load(f)
-        # Create workflow response model
-        workflow_response = WorkflowResponse(
-            id=workflow_response_object["id"],
-            title=workflow_response_object["title"],
-            description=workflow_response_object["description"],
-            status=workflow_response_object["status"],
-            owner_id="test_owner_id",
-            actions={
-                action_id: ActionResponse(
-                    # NOTE: This is not very nice at all...
-                    # Need consolidate duplicate request / response params in API types
-                    id=action_response["id"],
-                    type=action_response["type"],
-                    title=action_response["title"],
-                    description=action_response["description"],
-                    status=action_response["status"],
-                    inputs=json.loads(action_response["inputs"]),
-                    key=f"{action_id}.{slugify(action_response["title"], separator="_")}",
-                )
-                for action_id, action_response in workflow_response_object[
-                    "actions"
-                ].items()
+from tracecat.db import TRACECAT__SQLITE_URI
+from tracecat.runner.app import app as runner_app
+from tracecat.runner.app import valid_workflow
+
+TEST_WORKFLOW_RUN_TIMEOUT = 60  # seconds
+TEST_USER_ID = "3f1606c4-351e-41df-acb4-fb6e243fd071"
+os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+
+
+client = TestClient(app=app)
+
+
+# Override authentication dependencies
+app.dependency_overrides[authenticate_user] = lambda: Role(
+    type="user", user_id=TEST_USER_ID
+)
+app.dependency_overrides[authenticate_service] = lambda: Role(
+    type="service", service_id="tracecat-runner"
+)
+app.dependency_overrides[authenticate_user_or_service] = lambda: Role(
+    type="user", user_id=TEST_USER_ID, service_id="tracecat-runner"
+)
+runner_app.dependency_overrides[authenticate_service] = lambda: Role(
+    type="service", user_id="tracecat-api"
+)
+runner_app.dependency_overrides[valid_workflow] = lambda workflow_id: workflow_id
+
+
+# Define a fixture for the Runner server
+@pytest.fixture(scope="session", autouse=True)
+def start_servers():
+    thread = threading.Thread(
+        target=lambda: uvicorn.run(app, host="localhost", port=8000, log_level="info")
+    )
+    thread = threading.Thread(
+        target=lambda: uvicorn.run(
+            runner_app, host="localhost", port=8001, log_level="info"
+        )
+    )
+    thread.daemon = True
+    thread.start()
+    yield
+    # Cleanup code here if needed
+
+
+def create_test_db():
+    with TestClient(app=app) as client:
+        # Load test data
+        actions = pl.read_csv("tests/data/actions.csv").fill_null("")
+        webhooks = pl.read_csv("tests/data/webhooks.csv").fill_null("")
+        workflows = pl.read_csv("tests/data/workflows.csv").fill_null("")
+
+        logging.info("Test Actions:\n%s", actions)
+        logging.info("Test Webhooks:\n%s", webhooks)
+        logging.info("Test Workflows:\n%s", workflows)
+
+        # Insert data into database
+        actions.write_database(
+            table_name="action",
+            connection=TRACECAT__SQLITE_URI,
+            if_table_exists="append",
+        )
+        webhooks.write_database(
+            table_name="webhook",
+            connection=TRACECAT__SQLITE_URI,
+            if_table_exists="append",
+        )
+        workflows.write_database(
+            table_name="workflow",
+            connection=TRACECAT__SQLITE_URI,
+            if_table_exists="append",
+        )
+
+        # Insert secrets into database
+        secrets = [
+            {
+                "name": "URL_SCAN_KEY",
+                "value": os.environ["TRACECAT__TESTING__URL_SCAN_KEY"],
             },
-            object=workflow_response_object["object"],
-        )
-
-    return workflow_response, entrypoint_key, entrypoint_payload, workflow_result
-
-
-TEST_WORKFLOW_RESULT = {}
+        ]
+        for secret in secrets:
+            client.put("/secrets", json=secret)
 
 
-def _capture_post_request(request: Request) -> dict[str, Any]:
-    TEST_WORKFLOW_RESULT["result"] = json.loads(request.content)
-    return Response(200, json={"status": "received"})
+def pytest_generate_tests(metafunc):
+    """Dynamically generate workflow triggers fixture,
+    which is a list of dicts with workflow_id, action_id, and payload.
+    """
+
+    create_test_db()
+    # Directly use the fixture data for parametrization
+    query = "SELECT workflow_id, action_id FROM webhook"
+    triggers = (
+        pl.read_database_uri(query, uri=TRACECAT__SQLITE_URI, engine="adbc")
+        .join(pl.read_ndjson("tests/data/trigger_payloads.ndjson"), on="action_id")
+        .to_dicts()
+    )
+    metafunc.parametrize(
+        "workflow_trigger",
+        triggers,
+        ids=[str(trigger["workflow_id"]) for trigger in triggers],
+    )
 
 
-def test_all_workflows(sample_workflow):
-    (
-        workflow_response,
-        entrypoint_key,
-        entrypoint_payload,
-        expected_workflow_result,
-    ) = sample_workflow
+def test_workflow_run(workflow_trigger):
+    """End-to-end integration test for a workflow run.
 
-    # Health check
-    client.get("/")
-
-    with respx.mock:
-        workflow_id = workflow_response.id
-
-        # Mock workflow getter from API side
-        get_workflow_url = f"{TRACECAT__API_URL}/workflows/{workflow_id}"
-        respx.get(get_workflow_url).mock(
-            return_value=Response(200, json=workflow_response.model_dump())
-        )
-
-        # Mock getter to listen for sink http request
-        sink_webhook_url = "http://testing/webhook"
-        respx.post(sink_webhook_url).mock(side_effect=_capture_post_request)
-
-        # Start workflow
-        response = client.post(
-            f"/workflows/{workflow_id}",
-            json={
-                "entrypoint_key": entrypoint_key,
-                "entrypoint_payload": entrypoint_payload,
-            },
-        )
-        response.raise_for_status()
-
-    # Polling loop to wait for the background task to complete
-    timeout = 10  # Max time to wait in seconds
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        if "result" in TEST_WORKFLOW_RESULT:  # Check if the captured_data has been set
-            break
-        time.sleep(0.1)  # Sleep a bit before checking again
-
-    # Wait for the background task with polling
-    assert TEST_WORKFLOW_RESULT["result"] == expected_workflow_result
+    Tests:
+    - Workflow run is triggered by a webhook
+    - Workflow sink actions complete successfully before timeout
+    """
+    trigger = workflow_trigger
+    client.post(
+        f"/workflows/{trigger['workflow_id']}/trigger",
+        json={"action_key": trigger["action_id"], "payload": trigger["payload"]},
+    )
+    # Check status of workflow run

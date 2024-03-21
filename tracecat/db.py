@@ -15,9 +15,9 @@ from tracecat import auth
 from tracecat.auth import decrypt_key, encrypt_key
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 
-STORAGE_PATH = Path(os.path.expanduser("~/.tracecat/storage"))
-EMBEDDINGS_SIZE = os.environ.get("TRACECAT__EMBEDDINGS_SIZE", 512)
-
+STORAGE_PATH = Path(
+    os.environ.get("TRACECAT__STORAGE_PATH", os.path.expanduser("~/.tracecat/storage"))
+)
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
     "Ignore",
@@ -26,6 +26,8 @@ DEFAULT_CASE_ACTIONS = [
     "Quarantined",
     "Sinkholed",
 ]
+STORAGE_PATH.mkdir(parents=True, exist_ok=True)
+TRACECAT__SQLITE_URI = f"sqlite:////{STORAGE_PATH}/database.db"
 
 
 class User(SQLModel, table=True):
@@ -194,10 +196,8 @@ class Webhook(Resource, table=True):
 
 
 def create_db_engine() -> Engine:
-    STORAGE_PATH.mkdir(parents=True, exist_ok=True)
-    sqlite_uri = f"sqlite:////{STORAGE_PATH}/database.db"
     engine = create_engine(
-        sqlite_uri, echo=True, connect_args={"check_same_thread": False}
+        TRACECAT__SQLITE_URI, echo=True, connect_args={"check_same_thread": False}
     )
     return engine
 
@@ -259,7 +259,6 @@ def initialize_db() -> Engine:
     # VectorDB
     db = create_vdb_conn()
     db.create_table("cases", schema=CaseSchema, exist_ok=True)
-
     # Search
     build_events_index()
 
