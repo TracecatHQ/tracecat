@@ -49,7 +49,6 @@ export async function fetchWorkflow(
   try {
     const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<Workflow>(`/workflows/${workflowId}`)
-    console.log("Workflow fetched successfully", response.data)
     return workflowSchema.parse(response.data)
   } catch (error) {
     console.error("Error fetching workflow:", error)

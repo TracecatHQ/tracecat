@@ -250,8 +250,6 @@ export function WorkflowControlsForm({
   const [selectedAction, setSelectedAction] = useState<Action | null>(null)
 
   const onSubmit = async (values: WorkflowControlsForm) => {
-    console.log(values)
-    console.log(selectedAction)
     // Make the API call to start the workflow
     await triggerWorkflow(
       session,
@@ -452,9 +450,7 @@ export function WorkflowRunsView({
       if (!workflowId) {
         throw new Error("No workflow ID provided")
       }
-      console.log("Fetching workflow runs for:", workflowId)
       const data = await fetchWorkflowRuns(session, workflowId)
-      console.log("Workflow runs:", data)
       return data
     },
   })
