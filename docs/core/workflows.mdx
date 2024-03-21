@@ -6,8 +6,6 @@ description: Powerful automation made easy
 Workflows are a series of steps called [Actions](/actions).
 Think of a workflow as a recipe that runs each step needed to complete a task, from start to finish.
 
-{/* <Tip>Looking for a real-world example? Check out our CTF-styled phishing email tutorial.</Tip> */}
-
 ## Build a workflow
 <Steps>
   <Step title="Add starting action">
@@ -24,11 +22,20 @@ Think of a workflow as a recipe that runs each step needed to complete a task, f
     Connect the actions together.
     This creates a sequence of actions that run in order.
   </Step>
-  <Step title="🎉 Run your workflow">
-    Press the `run` button to execute your workflow.
+  <Step title="⚒️ Configure actions">
+    Click on an action in the workflow canvas.
+    The right panel will now show the action's configuration options.
 
-    To view the results of each action, check out the [event logs](/core/events) search panel.
-    Event logs contain the results of each action alongside additional metadata (e.g. published time).
+    Check out the docs on [Actions](/actions) to learn more.
+  </Step>
+  <Step title="🪝 Call the webhook to run your workflow">
+    Go to the `Send Payload` control in the bottom right panel.
+    You might need to click the workflow canvas for the workflow to be in focus.
+
+    Select a webhook action from the dropdown, input the JSON payload you want to send to that webhook, and click `Send`.
+  </Step>
+  <Step title="🎉 View workflow run status">
+    You can view the status of the workflow run under `Past Runs` in the bottom right panel.
   </Step>
 </Steps>
 
