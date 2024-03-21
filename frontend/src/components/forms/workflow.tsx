@@ -150,7 +150,7 @@ export function WorkflowForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           <div className="space-y-3">
             <h4 className="text-sm font-medium">Workflow Status</h4>
             <div className="flex justify-between">
@@ -269,93 +269,88 @@ export function WorkflowControlsForm({
   return (
     <Form {...form}>
       <form className="space-y-4">
-        <div className="space-y-4 p-4">
-          <div className="space-y-3">
-            <h4 className="text-sm font-medium">Controls</h4>
-          </div>
-          <Separator />
-
-          <AlertDialog>
-            <FormField
-              control={form.control}
-              name="payload"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs">Send Payload</FormLabel>
-                  <div className="flex w-full items-center space-x-2">
-                    <EntrypointSelector
-                      selectedAction={selectedAction}
-                      setSelectedaction={setSelectedAction}
-                    />
-                    <AlertDialogTrigger asChild>
-                      <Button type="button">
-                        <div className="flex items-center space-x-2">
-                          <Send className="h-4 w-4" />
-                          <span>Send</span>
-                        </div>
-                      </Button>
-                    </AlertDialogTrigger>
-                  </div>
-                  <FormControl>
-                    <pre>
-                      <Textarea
-                        {...field}
-                        className="min-h-48 text-xs"
-                        value={form.watch("payload", "")}
-                        placeholder="Select an action as the workflow entrypoint, and define a JSON payload that will be sent to it."
-                      />
-                    </pre>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Start workflow confirmation</AlertDialogTitle>
-                <AlertDialogDescription>
-                  <span>
-                    You are about to start the workflow with the selected
-                    action:
-                  </span>
-                  <span className="font-bold">{selectedAction?.title}</span>
-                  <span>This is the payload that will be sent:</span>
-                </AlertDialogDescription>
-                <SyntaxHighlighter
-                  language="json"
-                  style={atomOneDark}
-                  wrapLines
-                  customStyle={{
-                    width: "100%",
-                    maxWidth: "100%",
-                    overflowX: "auto",
-                  }}
-                  codeTagProps={{
-                    className:
-                      "text-xs text-background rounded-lg max-w-full overflow-auto",
-                  }}
-                  {...{
-                    className:
-                      "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
-                  }}
-                >
-                  {form.watch("payload")}
-                </SyntaxHighlighter>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => form.handleSubmit(onSubmit)()}
-                >
-                  <div className="flex items-center space-x-2">
-                    <Send className="h-4 w-4" />
-                    <span>Confirm</span>
-                  </div>
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium">Controls</h4>
         </div>
+        <Separator />
+
+        <AlertDialog>
+          <FormField
+            control={form.control}
+            name="payload"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Send Payload</FormLabel>
+                <div className="flex w-full items-center space-x-2">
+                  <EntrypointSelector
+                    selectedAction={selectedAction}
+                    setSelectedaction={setSelectedAction}
+                  />
+                  <AlertDialogTrigger asChild>
+                    <Button type="button">
+                      <div className="flex items-center space-x-2">
+                        <Send className="h-4 w-4" />
+                        <span>Send</span>
+                      </div>
+                    </Button>
+                  </AlertDialogTrigger>
+                </div>
+                <FormControl>
+                  <pre>
+                    <Textarea
+                      {...field}
+                      className="min-h-48 text-xs"
+                      value={form.watch("payload", "")}
+                      placeholder="Select an action as the workflow entrypoint, and define a JSON payload that will be sent to it."
+                    />
+                  </pre>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Start workflow confirmation</AlertDialogTitle>
+              <AlertDialogDescription>
+                <span>
+                  You are about to start the workflow with the selected action:
+                </span>
+                <span className="font-bold">{selectedAction?.title}</span>
+                <span>This is the payload that will be sent:</span>
+              </AlertDialogDescription>
+              <SyntaxHighlighter
+                language="json"
+                style={atomOneDark}
+                wrapLines
+                customStyle={{
+                  width: "100%",
+                  maxWidth: "100%",
+                  overflowX: "auto",
+                }}
+                codeTagProps={{
+                  className:
+                    "text-xs text-background rounded-lg max-w-full overflow-auto",
+                }}
+                {...{
+                  className:
+                    "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
+                }}
+              >
+                {form.watch("payload")}
+              </SyntaxHighlighter>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => form.handleSubmit(onSubmit)()}>
+                <div className="flex items-center space-x-2">
+                  <Send className="h-4 w-4" />
+                  <span>Confirm</span>
+                </div>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </form>
     </Form>
   )
@@ -466,34 +461,41 @@ export function WorkflowRunsView({
   })
 
   return (
-    <ScrollArea
-      className={cn(
-        "m-4 h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
-        className
-      )}
-    >
-      {isLoading ? (
-        <CenteredSpinner />
-      ) : error ? (
-        <AlertNotification
-          level="error"
-          message="Error loading workflow runs"
-        />
-      ) : (
-        <Accordion type="single" collapsible className="w-full">
-          {workflowRuns
-            ?.sort((a, b) => {
-              return (
-                new Date(b.created_at).getTime() -
-                new Date(a.created_at).getTime()
-              )
-            })
-            .map((props, index) => (
-              <WorkflowRunItem className="my-2 w-full" key={index} {...props} />
-            ))}
-        </Accordion>
-      )}
-    </ScrollArea>
+    <div className="space-y-3">
+      <h1 className="text-xs font-medium">Past Runs</h1>
+      <ScrollArea
+        className={cn(
+          "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
+          className
+        )}
+      >
+        {isLoading ? (
+          <CenteredSpinner />
+        ) : error ? (
+          <AlertNotification
+            level="error"
+            message="Error loading workflow runs"
+          />
+        ) : (
+          <Accordion type="single" collapsible className="w-full">
+            {workflowRuns
+              ?.sort((a, b) => {
+                return (
+                  new Date(b.created_at).getTime() -
+                  new Date(a.created_at).getTime()
+                )
+              })
+              .map((props, index) => (
+                <WorkflowRunItem
+                  className="my-2 w-full"
+                  key={index}
+                  {...props}
+                />
+              ))}
+          </Accordion>
+        )}
+      </ScrollArea>
+    </div>
   )
 }
 
