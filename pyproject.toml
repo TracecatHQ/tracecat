@@ -37,6 +37,8 @@ dependencies = [
     "tenacity",
     "uvicorn",
     "cryptography",
+    "adbc-driver-sqlite",
+    "pyarrow",
 ]
 dynamic = ["version"]
 
