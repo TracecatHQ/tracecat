@@ -122,11 +122,11 @@ export default React.memo(function ActionNode({
       title: "JSONPath copied",
       description: "The JSONPath has been copied to your clipboard.",
     })
-  }, [title])
+  }, [title, toast])
 
   return (
     <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>
-      <CardHeader className="grid p-4 pl-5 pr-5">
+      <CardHeader className="grid p-4 px-5">
         <div className="flex w-full items-center space-x-4">
           <Avatar>
             <AvatarImage className="bg-red-600" src="" alt={avatarImageAlt} />

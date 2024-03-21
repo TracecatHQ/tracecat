@@ -12,7 +12,7 @@ export default function CasesPage() {
   return (
     <CasesProvider>
       <div className="flex h-screen flex-col overflow-auto">
-        <div className="flex-1 space-y-16 px-16 py-16">
+        <div className="flex-1 space-y-16 p-16">
           <CasesStatsBanner />
           <CaseTable />
         </div>

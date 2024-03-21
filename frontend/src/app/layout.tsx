@@ -50,10 +50,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         <head />
         {PHProvider ? (
           <PHProvider>
-            <BodyContent session={session} children={children} />
+            <BodyContent session={session}>{children}</BodyContent>
           </PHProvider>
         ) : (
-          <BodyContent session={session} children={children} />
+          <BodyContent session={session}>{children}</BodyContent>
         )}
       </html>
     </>

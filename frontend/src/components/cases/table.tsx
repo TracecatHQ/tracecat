@@ -63,8 +63,6 @@ const defaultToolbarProps: DataTableToolbarProps = {
  */
 function InternalCaseTable() {
   const { cases, setCases } = useCasesContext()
-  const [toolbarProps, setToolbarProps] =
-    useState<DataTableToolbarProps>(defaultToolbarProps)
   const { setPanelCase: setSidePanelCase, setIsOpen } = useCasePanelContext()
   const [isProcessing, setIsProcessing] = useState(false)
   const session = useSession()
@@ -147,7 +145,7 @@ function InternalCaseTable() {
         data={cases}
         columns={memoizedColumns}
         onClickRow={handleClickRow}
-        toolbarProps={toolbarProps}
+        toolbarProps={defaultToolbarProps}
         tableHeaderAuxOptions={tableHeaderAuxOptions}
         isProcessing={isProcessing}
       />

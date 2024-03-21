@@ -1,6 +1,6 @@
 "use client"
 
-import { ComponentPropsWithoutRef, type ComponentProps } from "react"
+import { ComponentPropsWithoutRef } from "react"
 import { useFormStatus } from "react-dom"
 
 import { Button } from "@/components/ui/button"

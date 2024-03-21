@@ -13,7 +13,7 @@ export function FormLoading({
       {Array.from({ length: numPanels }, (_, index) => (
         <Skeleton
           key={index}
-          className={cn("flex min-h-20 w-full flex-grow rounded-lg", className)}
+          className={cn("flex min-h-20 w-full grow rounded-lg", className)}
         />
       ))}
     </div>

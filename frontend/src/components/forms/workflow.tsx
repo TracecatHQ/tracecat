@@ -14,21 +14,15 @@ import {
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import {
-  BookOpenText,
   CheckIcon,
   CircleCheck,
   CircleIcon,
   CircleX,
-  Laugh,
   Loader2,
-  MessageCircleMore,
   Save,
-  ScrollText,
   Send,
-  Swords,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
-import { ClipLoader } from "react-spinners"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
@@ -39,7 +33,6 @@ import {
   RunStatus,
   Workflow,
   WorkflowRun,
-  WorkflowStatus,
 } from "@/types/schemas"
 import {
   fetchWorkflowRun,
@@ -67,7 +60,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import {
   Command,
   CommandEmpty,
