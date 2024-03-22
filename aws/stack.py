@@ -56,13 +56,10 @@ class TracecatEngineStack(Stack):
         )
 
         # Task execution IAM role (used across API and runner)
-        role_name = "TracecatFargateServiceExecutionRole"
         logs_group_prefix = f"arn:aws:logs:{self.region}:{self.account}:log-group:"
         if TRACECAT__APP_ENV == "prod":
-            role_name = f"{role_name}-{TRACECAT__APP_ENV}"
             logs_group_pattern = f"{logs_group_prefix}/ecs/tracecat-*:*"
         else:
-            role_name = f"{role_name}-{TRACECAT__APP_ENV}"
             logs_group_pattern = (
                 f"{logs_group_prefix}/ecs/tracecat-{TRACECAT__APP_ENV}*:*"
             )
@@ -70,7 +67,7 @@ class TracecatEngineStack(Stack):
         execution_role = iam.Role(
             self,
             "ExecutionRole",
-            role_name=role_name,
+            role_name=-f"TracecatFargateServiceExecutionRole-{TRACECAT__APP_ENV}",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
         iam.Policy(
@@ -98,7 +95,7 @@ class TracecatEngineStack(Stack):
         task_role = iam.Role(
             self,
             "TaskRole",
-            role_name="TracecatTaskRole",
+            role_name=f"TracecatTaskRole-{TRACECAT__APP_ENV}",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
         iam.Policy(
