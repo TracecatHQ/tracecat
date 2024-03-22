@@ -832,7 +832,7 @@ async def run_action(
         custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
         raise
 
-    should_continue = result.get("__should_continue__", True)
+    should_continue = result.pop("__should_continue__", True)
     return ActionRunResult(action_key=key, data=result, should_continue=should_continue)
 
 
