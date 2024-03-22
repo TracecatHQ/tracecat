@@ -1,7 +1,9 @@
+import { Loader2 } from "lucide-react"
+
 import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
 
-export function FormLoading({
+export function SkeletonFormLoading({
   numPanels = 10,
   className,
 }: {
@@ -16,6 +18,14 @@ export function FormLoading({
           className={cn("flex min-h-20 w-full grow rounded-lg", className)}
         />
       ))}
+    </div>
+  )
+}
+
+export function FormLoading() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center space-x-2 space-y-2 p-4">
+      <Loader2 className="mx-auto animate-spin text-gray-500" />
     </div>
   )
 }
