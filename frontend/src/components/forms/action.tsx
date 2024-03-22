@@ -193,7 +193,7 @@ export function ActionForm({
     mutate(values)
   })
 
-  const status = action?.status ?? "offline"
+  const status = "online"
   return (
     <Form {...form}>
       <div
