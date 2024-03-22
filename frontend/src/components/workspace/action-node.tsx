@@ -159,11 +159,11 @@ export default React.memo(function ActionNode({
                   <Copy className="mr-2 h-4 w-4" />
                   <span className="text-xs">Copy JSONPath</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem disabled>
                   <ScanSearchIcon className="mr-2 h-4 w-4" />
                   <span className="text-xs">Search events</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem disabled>
                   <EyeIcon className="mr-2 h-4 w-4" />
                   <span className="text-xs">View logs</span>
                 </DropdownMenuItem>
