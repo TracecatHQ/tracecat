@@ -309,7 +309,7 @@ export function WorkflowControlsForm({
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Start workflow confirmation</AlertDialogTitle>
-              <AlertDialogDescription>
+              <AlertDialogDescription className="flex flex-col">
                 <span>
                   You are about to start the workflow with the selected action:
                 </span>
@@ -399,7 +399,7 @@ export default function EntrypointSelector({
       >
         <Command>
           <CommandInput className="text-xs" placeholder="Search webhooks..." />
-          <CommandEmpty>No presets found.</CommandEmpty>
+          <CommandEmpty>No actions found.</CommandEmpty>
           <CommandGroup heading="Webhooks">
             {actions.map((action) => (
               <CommandItem
