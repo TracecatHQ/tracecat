@@ -12,14 +12,29 @@ from aws_cdk.aws_certificatemanager import Certificate
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
-TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "dev")
-AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
-
-AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
-AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
-AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
-AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__API_CERTIFICATE_ARN"]
-AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ["AWS_ACM__RUNNER_CERTIFICATE_ARN"]
+TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "staging")
+if TRACECAT__APP_ENV == "prod":
+    CPU = 512
+    MEMORY_LIMIT_MIB = 1024
+    # Production environment
+    AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
+    AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
+    AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
+    AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
+    AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__API_CERTIFICATE_ARN"]
+    AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ["AWS_ACM__RUNNER_CERTIFICATE_ARN"]
+else:
+    CPU = 256
+    MEMORY_LIMIT_MIB = 512
+    # Staging environment
+    AWS_SECRET__ARN = os.environ["AWS_SECRET__STAGING__ARN"]
+    AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__STAGING__HOSTED_ZONE_ID"]
+    AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__STAGING__HOSTED_ZONE_NAME"]
+    AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__STAGING__CERTIFICATE_ARN"]
+    AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__STAGING__API_CERTIFICATE_ARN"]
+    AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ[
+        "AWS_ACM__STAGING__RUNNER_CERTIFICATE_ARN"
+    ]
 
 
 class TracecatEngineStack(Stack):
@@ -27,10 +42,10 @@ class TracecatEngineStack(Stack):
         super().__init__(scope, id, **kwargs)
 
         # Create cluster
-        vpc = ec2.Vpc(self, "Vpc", vpc_name="tracecat-vpc")
-        cluster = ecs.Cluster(
-            self, "Cluster", cluster_name="tracecat-ecs-cluster", vpc=vpc
-        )
+        vpn_name = f"tracecat-vpc-{TRACECAT__APP_ENV}"
+        cluster_name = f"tracecat-ecs-cluster-{TRACECAT__APP_ENV}"
+        vpc = ec2.Vpc(self, "Vpc", vpc_name=vpn_name)
+        cluster = ecs.Cluster(self, "Cluster", cluster_name=cluster_name, vpc=vpc)
 
         # Get hosted zone and certificate (created from AWS console)
         hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
@@ -50,10 +65,21 @@ class TracecatEngineStack(Stack):
         )
 
         # Task execution IAM role (used across API and runner)
+        role_name = "TracecatFargateServiceExecutionRole"
+        logs_group_prefix = f"arn:aws:logs:{self.region}:{self.account}:log-group:"
+        if TRACECAT__APP_ENV == "prod":
+            role_name = f"{role_name}-{TRACECAT__APP_ENV}"
+            logs_group_pattern = f"{logs_group_prefix}/ecs/tracecat-*:*"
+        else:
+            role_name = f"{role_name}-{TRACECAT__APP_ENV}"
+            logs_group_pattern = (
+                f"{logs_group_prefix}/ecs/tracecat-{TRACECAT__APP_ENV}*:*"
+            )
+
         execution_role = iam.Role(
             self,
             "ExecutionRole",
-            role_name="TracecatFargateServiceExecutionRole",
+            role_name=role_name,
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
         iam.Policy(
@@ -63,9 +89,7 @@ class TracecatEngineStack(Stack):
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,
                     actions=["logs:CreateLogStream", "logs:PutLogEvents"],
-                    resources=[
-                        f"arn:aws:logs:{self.region}:{self.account}:log-group:/ecs/tracecat-*:*"
-                    ],
+                    resources=[logs_group_pattern],
                 ),
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,
@@ -108,10 +132,13 @@ class TracecatEngineStack(Stack):
         )
 
         # Set up a log group
+        log_group_name = "/ecs/tracecat"
+        if TRACECAT__APP_ENV != "prod":
+            log_group_name = f"{log_group_name}-{TRACECAT__APP_ENV}"
         log_group = logs.LogGroup(
             self,
             "TracecatLogGroup",
-            log_group_name="/ecs/tracecat",
+            log_group_name=log_group_name,
             removal_policy=RemovalPolicy.DESTROY,
         )
 
@@ -175,8 +202,8 @@ class TracecatEngineStack(Stack):
             "ApiTaskDefinition",
             execution_role=execution_role,
             task_role=task_role,
-            cpu=512,
-            memory_limit_mib=1024,
+            cpu=CPU,
+            memory_limit_mib=MEMORY_LIMIT_MIB,
             # volumes=[
             #     ecs.Volume(
             #         name="Volume",
@@ -193,8 +220,8 @@ class TracecatEngineStack(Stack):
                 file="Dockerfile",
                 build_args={"API_MODULE": "tracecat.api.app:app"},
             ),
-            cpu=512,
-            memory_limit_mib=1024,
+            cpu=CPU,
+            memory_limit_mib=MEMORY_LIMIT_MIB,
             environment={
                 "API_MODULE": "tracecat.api.app:app",
                 "SUPABASE_JWT_ALGORITHM": "HS256",
@@ -247,8 +274,8 @@ class TracecatEngineStack(Stack):
             "RunnerTaskDefinition",
             execution_role=execution_role,
             task_role=task_role,
-            cpu=512,
-            memory_limit_mib=1024,
+            cpu=CPU,
+            memory_limit_mib=MEMORY_LIMIT_MIB,
             # volumes=[
             #     ecs.Volume(
             #         name="Volume",
@@ -265,8 +292,8 @@ class TracecatEngineStack(Stack):
                 file="Dockerfile",
                 build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
             ),
-            cpu=512,
-            memory_limit_mib=1024,
+            cpu=CPU,
+            memory_limit_mib=MEMORY_LIMIT_MIB,
             environment={
                 "API_MODULE": "tracecat.runner.app:app",
                 "PORT": "8001",
