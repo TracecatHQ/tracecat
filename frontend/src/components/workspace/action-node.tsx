@@ -175,7 +175,7 @@ export default React.memo(function ActionNode({
 
       <CardContent className="pb-4 pl-5 pr-5 pt-0">
         <div className="flex space-x-4 text-xs text-muted-foreground">
-          <div className="flex items-center">
+          {/* <div className="flex items-center">
             <CircleIcon
               className={cn(
                 "mr-1 h-3 w-3",
@@ -185,7 +185,7 @@ export default React.memo(function ActionNode({
               )}
             />
             <span className="capitalize">{status}</span>
-          </div>
+          </div> */}
           <div className="flex items-center">
             <CircleIcon
               className={cn(
