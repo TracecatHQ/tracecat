@@ -101,7 +101,7 @@ def action_key_to_id(action_key: str) -> str:
     return action_key.split(".")[0]
 
 
-def action_key_to_title_snake_case(action_key: str) -> str:
+def action_key_to_slug(action_key: str) -> str:
     return action_key.split(".")[1]
 
 
@@ -208,9 +208,9 @@ class Action(BaseModel):
         return action_key_to_id(self.key)
 
     @property
-    def action_title_snake_case(self) -> str:
-        """The workflow-specific unique key of the action. This is the action title in lower snake case."""
-        return action_key_to_title_snake_case(self.key)
+    def slug(self) -> str:
+        """The workflow-specific unique key of the action. This is the action slug."""
+        return action_key_to_slug(self.key)
 
 
 class ActionRunResult(BaseModel):
@@ -219,7 +219,7 @@ class ActionRunResult(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     action_key: str = Field(
         pattern=ACTION_KEY_PATTERN,
-        description="Action key = '<action_id>.<action_title_lower_snake_case>'",
+        description="Action key = '<action_id>.<action_slug>'",
     )
     data: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
@@ -229,8 +229,8 @@ class ActionRunResult(BaseModel):
         return action_key_to_id(self.action_key)
 
     @property
-    def action_title_snake_case(self) -> str:
-        return action_key_to_title_snake_case(self.action_key)
+    def action_slug(self) -> str:
+        return action_key_to_slug(self.action_key)
 
 
 # NOTE: Might want to switch out to using discriminated unions instead of subclassing
@@ -801,7 +801,7 @@ async def run_action(
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
-        result.action_title_snake_case: result.data for result in action_trail.values()
+        result.action_slug: result.data for result in action_trail.values()
     }
     custom_logger.debug(f"Before template eval: {action_trail_json = }")
     action_kwargs_with_secrets = await evaluate_templated_secrets(
