@@ -1,23 +1,7 @@
 import { z } from "zod"
 
 import { ActionType } from "@/types/schemas"
-
-const jsonPayload = z
-  .string()
-  .optional()
-  .transform((val) => {
-    try {
-      return val ? JSON.parse(val) : {}
-    } catch (error) {
-      // TODO: Handle error on SAVE only
-      console.error("Error parsing payload:", error)
-      return {}
-    }
-  })
-
-const stringArray = z
-  .array(z.string().min(1, { message: "Strings cannot be empty" }))
-  .min(1, { message: "List cannot be empty" })
+import { stringArray, stringToJSONSchema } from "@/types/validators"
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
@@ -29,8 +13,8 @@ const WebhookActionSchema = z.object({
 const HTTPRequestActionSchema = z.object({
   url: z.string(),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-  headers: jsonPayload.optional(),
-  payload: jsonPayload,
+  headers: stringToJSONSchema.optional(),
+  payload: stringToJSONSchema,
 })
 
 const SendEmailActionSchema = z.object({
@@ -74,41 +58,41 @@ const LLMTranslateActionSchema = z.object({
   message: z.string(),
   from_language: z.string(),
   to_language: z.string(),
-  response_schema: jsonPayload.optional(),
+  response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMExtractActionSchema = z.object({
   message: z.string(),
   groups: stringArray,
-  response_schema: jsonPayload.optional(),
+  response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMLabelTaskActionSchema = z.object({
   message: z.string(),
   labels: stringArray,
-  response_schema: jsonPayload.optional(),
+  response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMChoiceTaskActionSchema = z.object({
   message: z.string(),
   choices: stringArray,
-  response_schema: jsonPayload.optional(),
+  response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMSummarizeTaskActionSchema = z.object({
   message: z.string(),
-  response_schema: jsonPayload.optional(),
+  response_schema: stringToJSONSchema.optional(),
 })
 
 const OpenCaseActionSchema = z.object({
   title: z.string(),
-  payload: jsonPayload,
+  payload: stringToJSONSchema,
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  context: jsonPayload.optional(),
+  context: stringToJSONSchema.optional(),
   action: z.string().optional(),
-  suppression: jsonPayload.optional(),
+  suppression: stringToJSONSchema.optional(),
 })
 export const baseActionSchema = z.object({
   title: z.string(),
