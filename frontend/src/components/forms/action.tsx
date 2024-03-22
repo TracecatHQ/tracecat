@@ -282,15 +282,22 @@ export function ActionForm({
               <Separator />
               <div className="space-y-4">
                 <h4 className="text-m font-medium">Action Inputs</h4>
-                <p className="text-xs text-muted-foreground">
-                  Define the inputs for this action. You may use templated
-                  JSONPath expressions in your input, except for list-type
-                  fields.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  For example, &quot;This {"{{ $.path.to.input }}"} is
-                  valid!&quot;
-                </p>
+                <div className="inline-block space-y-2 text-xs text-muted-foreground">
+                  <p>
+                    Define the inputs for this action here. You may use
+                    templated JSONPath expressions in any type of field other
+                    than list fields.
+                  </p>
+                  <p>For example, this expression:</p>
+                  <pre>
+                    <code>{"{{ $.my_action.output.some_data }}"}</code>
+                  </pre>
+                  <p>
+                    points to the output data field `some_data` from an action
+                    called `my_action`. Note that the `output` field is a
+                    default field that is available for all actions.
+                  </p>
+                </div>
                 <div className="capitalize">
                   {Object.entries(fieldSchema).map(
                     ([inputKey, inputOption]) => {
