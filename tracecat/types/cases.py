@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, Literal, Self
 from uuid import uuid4
 
@@ -21,6 +22,8 @@ class Case(BaseModel):
     context: dict[str, str] | None = None
     action: str | None = None
     suppression: dict[str, bool] | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def flatten(self) -> dict[str, Any]:
         """Flattens nested object by JSON serializing object fields."""
@@ -42,6 +45,8 @@ class Case(BaseModel):
             "suppression": orjson.dumps(self.suppression).decode("utf-8")
             if self.suppression
             else None,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
     @classmethod
@@ -65,6 +70,8 @@ class Case(BaseModel):
             suppression=orjson.loads(flat_dict["suppression"])
             if flat_dict["suppression"]
             else None,
+            created_at=flat_dict["created_at"],
+            updated_at=flat_dict["updated_at"],
         )
 
     @classmethod

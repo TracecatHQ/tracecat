@@ -104,6 +104,8 @@ export const caseSchema = z.object({
   context: z.record(z.string()).nullable().or(z.string()),
   action: z.string().nullable(),
   suppression: z.record(z.boolean()).nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
 })
 
 export type Case = z.infer<typeof caseSchema>
