@@ -121,7 +121,9 @@ class TracecatEngineStack(Stack):
                         "elasticfilesystem:DescribeMountTargets",
                         "elasticfilesystem:DescribeMountTargetSecurityGroups",
                     ],
-                    resources=["*"],  # TEMPORARY: PLEASE DO NOT USE IN PRODUCTION
+                    resources=[
+                        f"arn:aws:elasticfilesystem:{self.region}:{self.account}:file-system/{file_system.file_system_id}"
+                    ],
                 ),
             ],
             roles=[task_role],
