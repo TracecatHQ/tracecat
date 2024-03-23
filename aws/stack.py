@@ -56,6 +56,28 @@ class TracecatEngineStack(Stack):
             self, "RunnerCertificate", certificate_arn=AWS_ACM__RUNNER_CERTIFICATE_ARN
         )
 
+        # Create a security group for EFS
+        efs_security_group = ec2.SecurityGroup(
+            self,
+            "EfsSecurityGroup",
+            vpc=vpc,
+            description="Allow NFS access for EFS",
+            allow_all_outbound=True,
+        )
+        # Create a security group for ECS
+        ecs_task_security_group = ec2.SecurityGroup(
+            self,
+            "EcsTaskSecurityGroup",
+            vpc=vpc,
+            description="Security group for ECS tasks",
+        )
+        # Use the ECS task security group to define ingress rules for EFS
+        efs_security_group.add_ingress_rule(
+            peer=ec2.Peer.security_group(ecs_task_security_group),
+            connection=ec2.Port.tcp(2049),
+            description="Allow NFS access from ECS tasks",
+        )
+
         # Define EFS
         file_system = efs.FileSystem(
             self,
@@ -63,6 +85,7 @@ class TracecatEngineStack(Stack):
             vpc=vpc,
             performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
             throughput_mode=efs.ThroughputMode.BURSTING,
+            security_group=efs_security_group,
         )
 
         # Task execution IAM role (used across API and runner)
@@ -233,7 +256,9 @@ class TracecatEngineStack(Stack):
             self,
             "TracecatApiFargateService",
             cluster=cluster,
+            # Attach the security group to your ECS service
             task_definition=api_task_definition,
+            security_groups=[ecs_task_security_group],
         )
         # API target group
         api_target_group = elbv2.ApplicationTargetGroup(
@@ -306,6 +331,8 @@ class TracecatEngineStack(Stack):
             "TracecatRunnerFargateService",
             cluster=cluster,
             task_definition=runner_task_definition,
+            # Attach the security group to your ECS service
+            security_groups=[ecs_task_security_group],
         )
         # Runner target group
         runner_target_group = elbv2.ApplicationTargetGroup(
