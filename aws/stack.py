@@ -67,7 +67,7 @@ class TracecatEngineStack(Stack):
         execution_role = iam.Role(
             self,
             "ExecutionRole",
-            role_name=-f"TracecatFargateServiceExecutionRole-{TRACECAT__APP_ENV}",
+            role_name=f"TracecatFargateServiceExecutionRole-{TRACECAT__APP_ENV}",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
         iam.Policy(
