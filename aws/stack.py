@@ -114,6 +114,25 @@ class TracecatEngineStack(Stack):
             throughput_mode=efs.ThroughputMode.BURSTING,
             security_group=efs_security_group,
         )
+        # Define EFS access point for apiuser
+        efs_access_point = file_system.add_access_point(
+            "AccessPoint",
+            path="/apiuser",
+            create_acl=efs.Acl(owner_uid="1001", owner_gid="1001", permissions="0755"),
+            posix_user=efs.PosixUser(uid="1001", gid="1001"),
+        )
+        # Create Volume
+        volume_name = f"TracecatVolume-{TRACECAT__APP_ENV}"
+        volume = ecs.Volume(
+            name=volume_name,
+            efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                file_system_id=file_system.file_system_id,
+                transit_encryption="ENABLED",
+                authorization_config=ecs.AuthorizationConfig(
+                    access_point_id=efs_access_point.access_point_id
+                ),
+            ),
+        )
 
         # Task execution IAM role (used across API and runner)
         logs_group_prefix = f"arn:aws:logs:{self.region}:{self.account}:log-group:"
@@ -243,14 +262,9 @@ class TracecatEngineStack(Stack):
             task_role=task_role,
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
-            volumes=[
-                ecs.Volume(
-                    name="Volume",
-                    efs_volume_configuration=ecs.EfsVolumeConfiguration(
-                        file_system_id=file_system.file_system_id
-                    ),
-                )
-            ],
+        )
+        api_task_definition.add_volume(
+            name=volume_name, efs_volume_configuration=volume.efs_volume_configuration
         )
         api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
@@ -317,14 +331,9 @@ class TracecatEngineStack(Stack):
             task_role=task_role,
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
-            volumes=[
-                ecs.Volume(
-                    name="Volume",
-                    efs_volume_configuration=ecs.EfsVolumeConfiguration(
-                        file_system_id=file_system.file_system_id
-                    ),
-                )
-            ],
+        )
+        runner_task_definition.add_volume(
+            name=volume_name, efs_volume_configuration=volume.efs_volume_configuration
         )
         runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
