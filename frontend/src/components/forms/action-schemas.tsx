@@ -104,6 +104,9 @@ export type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
 export interface ActionFieldOption {
   type: ActionFieldType
   options?: readonly string[]
+  placeholder?: string
+  disabled?: boolean
+  optional?: boolean
 }
 
 export interface ActionFieldSchema {
@@ -136,15 +139,27 @@ export const getSubActionSchema = (actionType: ActionType) => {
     fieldSchema: actionFieldSchemas[actionType] || {},
   }
 }
+
+const LLM_MESSAGE_PLACEHOLDER =
+  "The input message for the AI to extract information. You may use templated expressions here."
+
+const LLM_RESPONSE_SCHEMA_PLACEHOLDER = `An optional JSON object to control the format of the LLM output. This is mapping of field name to data type (Python data types). You may also add comments. If left blank, the LLM will output freeform text.
+For example:
+{
+\t"website_name": "str",
+\t"created_year": "int",
+\t"url": "str # This must be a valid url!"
+}`
+
 const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
   webhook: {
-    url: { type: "input" },
+    url: { type: "input", placeholder: "The allowed domain." },
     method: {
       type: "select",
       options: ["GET", "POST"],
     },
-    path: { type: "input" },
-    secret: { type: "input" },
+    path: { type: "input", disabled: true },
+    secret: { type: "input", disabled: true },
   },
   http_request: {
     url: { type: "input" },
@@ -186,35 +201,74 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
   },
   "llm.translate": {
     // TODO: Replace with supported languages and Command input
-    message: { type: "textarea" },
+    message: {
+      type: "textarea",
+      placeholder: LLM_MESSAGE_PLACEHOLDER,
+    },
     from_language: { type: "input" },
     to_language: { type: "input" },
-    response_schema: { type: "textarea" },
+    response_schema: {
+      type: "json",
+      placeholder: LLM_RESPONSE_SCHEMA_PLACEHOLDER,
+      optional: true,
+    },
   },
   "llm.extract": {
-    message: { type: "textarea" },
+    message: {
+      type: "textarea",
+      placeholder: LLM_MESSAGE_PLACEHOLDER,
+    },
     // TODO: Replace with Command input and ability to add to list
     groups: { type: "array" }, // Assuming a comma-separated string to be transformed into an array
-    response_schema: { type: "json" },
+    response_schema: {
+      type: "json",
+      placeholder: LLM_RESPONSE_SCHEMA_PLACEHOLDER,
+      optional: true,
+    },
   },
   "llm.label": {
     // TODO: Replace with Command input and ability to add to list
-    message: { type: "textarea" },
+    message: {
+      type: "textarea",
+      placeholder: LLM_MESSAGE_PLACEHOLDER,
+    },
     labels: { type: "array" }, // Assuming a comma-separated string to be transformed into an array
-    response_schema: { type: "json" },
+    response_schema: {
+      type: "json",
+      placeholder: LLM_RESPONSE_SCHEMA_PLACEHOLDER,
+      optional: true,
+    },
   },
   "llm.choice": {
-    message: { type: "textarea" },
+    message: {
+      type: "textarea",
+      placeholder: LLM_MESSAGE_PLACEHOLDER,
+    },
     choices: { type: "array" },
-    response_schema: { type: "json" },
+    response_schema: {
+      type: "json",
+      placeholder: LLM_RESPONSE_SCHEMA_PLACEHOLDER,
+      optional: true,
+    },
   },
   "llm.summarize": {
-    message: { type: "textarea" },
-    response_schema: { type: "json" },
+    message: {
+      type: "textarea",
+      placeholder: LLM_MESSAGE_PLACEHOLDER,
+    },
+    response_schema: {
+      type: "json",
+      placeholder: LLM_RESPONSE_SCHEMA_PLACEHOLDER,
+      optional: true,
+    },
   },
   open_case: {
     title: { type: "input" },
-    payload: { type: "json" },
+    payload: {
+      type: "json",
+      placeholder:
+        "A JSON payload to be included in the case. You may use templated expressions here.",
+    },
     malice: {
       type: "select",
       options: ["malicious", "benign"],
@@ -226,9 +280,22 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
     priority: {
       type: "select",
       options: ["low", "medium", "high", "critical"],
+      optional: true,
     },
-    context: { type: "json" },
-    action: { type: "textarea" },
-    suppression: { type: "json" },
+    context: {
+      type: "json",
+      optional: true,
+      placeholder: "An optional JSON object containing additional context.",
+    },
+    action: {
+      type: "textarea",
+      optional: true,
+      placeholder: "Action to be taken.",
+    },
+    suppression: {
+      type: "json",
+      optional: true,
+      placeholder: "An optional JSON object containing suppression rules.",
+    },
   },
 }

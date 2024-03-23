@@ -10,7 +10,7 @@ import { z } from "zod"
 
 import { Action, ActionType } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
-import { cn } from "@/lib/utils"
+import { cn, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -169,7 +169,7 @@ export function ActionForm({
   // against undefined schemas or data
   if (isLoading) {
     // TODO: Make this loading state look more like a form
-    return <FormLoading className="bg-slate-100" />
+    return <FormLoading />
   }
   if (error) {
     return (
@@ -249,12 +249,12 @@ export function ActionForm({
                 name="title"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Name</FormLabel>
+                    <FormLabel className="text-xs">Title</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
                         className="text-xs"
-                        placeholder="Add action name..."
+                        placeholder="Add action title..."
                         value={form.watch("title", "")}
                       />
                     </FormControl>
@@ -313,7 +313,13 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {inputKey}
+                                      {undoSlugify(inputKey)}
+                                      {inputOption.optional && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          (Optional)
+                                        </span>
+                                      )}
                                     </FormLabel>
                                     <FormControl>
                                       <Select
@@ -358,14 +364,23 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {inputKey}
+                                      {undoSlugify(inputKey)}
+                                      {inputOption.optional && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          (Optional)
+                                        </span>
+                                      )}
                                     </FormLabel>
                                     <FormControl>
                                       <Textarea
                                         {...field}
                                         className="min-h-48 text-xs"
                                         value={form.watch(typedKey, "")}
-                                        placeholder="Input text here..."
+                                        placeholder={
+                                          inputOption.placeholder ??
+                                          "Input text here..."
+                                        }
                                       />
                                     </FormControl>
                                     <FormMessage />
@@ -375,7 +390,13 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {inputKey}
+                                      {undoSlugify(inputKey)}
+                                      {inputOption.optional && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          (Optional)
+                                        </span>
+                                      )}
                                     </FormLabel>
                                     <FormControl>
                                       <pre>
@@ -383,7 +404,10 @@ export function ActionForm({
                                           {...field}
                                           className="min-h-48 text-xs"
                                           value={form.watch(typedKey, "")}
-                                          placeholder="Input JSON here..."
+                                          placeholder={
+                                            inputOption.placeholder ??
+                                            "Input JSON here..."
+                                          }
                                         />
                                       </pre>
                                     </FormControl>
@@ -402,7 +426,13 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {inputKey}
+                                      {undoSlugify(inputKey)}
+                                      {inputOption.optional && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          (Optional)
+                                        </span>
+                                      )}
                                     </FormLabel>
                                     <div className="flex flex-col space-y-2">
                                       {fields.map((field, index) => {
@@ -452,13 +482,24 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {inputKey}
+                                      {undoSlugify(inputKey)}
+                                      {inputOption.optional && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          (Optional)
+                                        </span>
+                                      )}
                                     </FormLabel>
                                     <FormControl>
                                       <Input
                                         {...field}
                                         className="text-xs"
                                         value={form.watch(typedKey, "")}
+                                        placeholder={
+                                          inputOption.placeholder ??
+                                          "Input text here..."
+                                        }
+                                        disabled={inputOption.disabled}
                                       />
                                     </FormControl>
                                     <FormMessage />
