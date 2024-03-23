@@ -3,6 +3,7 @@ import os
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
+from aws_cdk import aws_efs as efs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
@@ -53,6 +54,15 @@ class TracecatEngineStack(Stack):
         )
         runner_cert = Certificate.from_certificate_arn(
             self, "RunnerCertificate", certificate_arn=AWS_ACM__RUNNER_CERTIFICATE_ARN
+        )
+
+        # Define EFS
+        file_system = efs.FileSystem(
+            self,
+            "FileSystem",
+            vpc=vpc,
+            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
+            throughput_mode=efs.ThroughputMode.BURSTING,
         )
 
         # Task execution IAM role (used across API and runner)
@@ -111,9 +121,7 @@ class TracecatEngineStack(Stack):
                         "elasticfilesystem:DescribeMountTargets",
                         "elasticfilesystem:DescribeMountTargetSecurityGroups",
                     ],
-                    resources=[
-                        f"arn:aws:elasticfilesystem:{self.region}:{self.account}:file-system/{vpc.vpc_id}"
-                    ],
+                    resources=["*"],  # TEMPORARY: PLEASE DO NOT USE IN PRODUCTION
                 ),
             ],
             roles=[task_role],
@@ -175,15 +183,6 @@ class TracecatEngineStack(Stack):
         else:
             shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
 
-        # # Define EFS
-        # file_system = efs.FileSystem(
-        #     self,
-        #     "FileSystem",
-        #     vpc=vpc,
-        #     performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
-        #     throughput_mode=efs.ThroughputMode.BURSTING,
-        # )
-
         # Tracecat API Fargate Service
         api_task_definition = ecs.FargateTaskDefinition(
             self,
@@ -192,14 +191,14 @@ class TracecatEngineStack(Stack):
             task_role=task_role,
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
-            # volumes=[
-            #     ecs.Volume(
-            #         name="Volume",
-            #         efs_volume_configuration=ecs.EfsVolumeConfiguration(
-            #             file_system_id=file_system.file_system_id
-            #         ),
-            #     )
-            # ],
+            volumes=[
+                ecs.Volume(
+                    name="Volume",
+                    efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                        file_system_id=file_system.file_system_id
+                    ),
+                )
+            ],
         )
         api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
@@ -221,13 +220,13 @@ class TracecatEngineStack(Stack):
                 stream_prefix="tracecat-api", log_group=log_group
             ),
         )
-        # api_container.add_mount_points(
-        #     ecs.MountPoint(
-        #         container_path="/home/apiuser/.tracecat",
-        #         read_only=False,
-        #         source_volume="Volume",
-        #     )
-        # )
+        api_container.add_mount_points(
+            ecs.MountPoint(
+                container_path="/home/apiuser/.tracecat",
+                read_only=False,
+                source_volume="Volume",
+            )
+        )
         api_ecs_service = ecs.FargateService(
             self,
             "TracecatApiFargateService",
@@ -264,14 +263,14 @@ class TracecatEngineStack(Stack):
             task_role=task_role,
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
-            # volumes=[
-            #     ecs.Volume(
-            #         name="Volume",
-            #         efs_volume_configuration=ecs.EfsVolumeConfiguration(
-            #             file_system_id=file_system.file_system_id
-            #         ),
-            #     )
-            # ],
+            volumes=[
+                ecs.Volume(
+                    name="Volume",
+                    efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                        file_system_id=file_system.file_system_id
+                    ),
+                )
+            ],
         )
         runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
@@ -293,13 +292,13 @@ class TracecatEngineStack(Stack):
                 stream_prefix="tracecat-runner", log_group=log_group
             ),
         )
-        # runner_container.add_mount_points(
-        #     ecs.MountPoint(
-        #         container_path="/home/apiuser/.tracecat",
-        #         read_only=False,
-        #         source_volume="Volume",
-        #     )
-        # )
+        runner_container.add_mount_points(
+            ecs.MountPoint(
+                container_path="/home/apiuser/.tracecat",
+                read_only=False,
+                source_volume="Volume",
+            )
+        )
         runner_ecs_service = ecs.FargateService(
             self,
             "TracecatRunnerFargateService",
