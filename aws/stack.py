@@ -334,7 +334,7 @@ class TracecatEngineStack(Stack):
             "TracecatEngineAlb",
             vpc=cluster.vpc,
             internet_facing=True,
-            load_balancer_name="tracecat-engine-alb",
+            load_balancer_name=f"tracecat-engine-alb-{TRACECAT__APP_ENV}",
         )
         alb.add_listener(
             # Redirect HTTP to HTTPS
