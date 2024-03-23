@@ -90,6 +90,11 @@ class TracecatEngineStack(Stack):
         )
         ecs_task_security_group.add_ingress_rule(
             peer=ec2.Peer.security_group_id(alb_security_group.security_group_id),
+            connection=ec2.Port.tcp(443),
+            description="Allow HTTPS traffic from the ALB",
+        )
+        ecs_task_security_group.add_ingress_rule(
+            peer=ec2.Peer.security_group_id(alb_security_group.security_group_id),
             connection=ec2.Port.tcp(80),
             description="Allow HTTP traffic from the ALB",
         )
