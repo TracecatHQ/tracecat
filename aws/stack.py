@@ -290,7 +290,7 @@ class TracecatEngineStack(Stack):
             ecs.MountPoint(
                 container_path="/home/apiuser/.tracecat",
                 read_only=False,
-                source_volume="Volume",
+                source_volume=volume_name,
             )
         )
         api_ecs_service = ecs.FargateService(
@@ -359,7 +359,7 @@ class TracecatEngineStack(Stack):
             ecs.MountPoint(
                 container_path="/home/apiuser/.tracecat",
                 read_only=False,
-                source_volume="Volume",
+                source_volume=volume_name,
             )
         )
         runner_ecs_service = ecs.FargateService(
