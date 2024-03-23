@@ -91,6 +91,8 @@ if TRACECAT__APP_ENV == "prod":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
     origins = ["https://platform.tracecat.com", TRACECAT__RUNNER_URL]
+elif TRACECAT__APP_ENV == "staging":
+    origins = ["https://tracecat-*-tracecat.vercel.app", TRACECAT__RUNNER_URL]
 else:
     origins = [
         "http://localhost:3000",
