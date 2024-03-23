@@ -73,7 +73,7 @@ class TracecatEngineStack(Stack):
         )
         # Use the ECS task security group to define ingress rules for EFS
         efs_security_group.add_ingress_rule(
-            peer=ec2.Peer.security_group(ecs_task_security_group),
+            peer=ec2.Peer.security_group_id(ecs_task_security_group.security_group_id),
             connection=ec2.Port.tcp(2049),
             description="Allow NFS access from ECS tasks",
         )
