@@ -3,6 +3,7 @@ FROM python:3.12-slim-bookworm
 ENV API_MODULE=tracecat.api.app:app
 ENV HOST=0.0.0.0
 ENV PORT=8000
+ENV LANCEDB_CONFIG_DIR=/home/apiuser/.config/lancedb
 
 EXPOSE $PORT
 
@@ -29,6 +30,10 @@ COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 RUN mkdir -p /home/apiuser/.tracecat && \
     chown -R apiuser:apiuser /home/apiuser/.tracecat
+
+# Create lancedb directory
+RUN mkdir -p $LANCEDB_CONFIG_DIR && \
+    chown -R apiuser:apiuser $LANCEDB_CONFIG_DIR
 
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
