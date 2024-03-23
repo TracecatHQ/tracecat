@@ -56,6 +56,23 @@ class TracecatEngineStack(Stack):
             self, "RunnerCertificate", certificate_arn=AWS_ACM__RUNNER_CERTIFICATE_ARN
         )
 
+        # Create ALB security group
+        alb_security_group = ec2.SecurityGroup(
+            self,
+            "AlbSecurityGroup",
+            vpc=vpc,
+            description="Security group for ALB",
+        )
+        alb_security_group.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(443),
+            description="Allow HTTPS traffic from the Internet",
+        )
+        alb_security_group.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(80),
+            description="Allow HTTP traffic for redirection to HTTPS",
+        )
         # Create a security group for EFS
         efs_security_group = ec2.SecurityGroup(
             self,
@@ -70,6 +87,11 @@ class TracecatEngineStack(Stack):
             "EcsTaskSecurityGroup",
             vpc=vpc,
             description="Security group for ECS tasks",
+        )
+        ecs_task_security_group.add_ingress_rule(
+            peer=ec2.Peer.security_group_id(alb_security_group.security_group_id),
+            connection=ec2.Port.tcp(80),
+            description="Allow HTTP traffic from the ALB",
         )
         # Use the ECS task security group to define ingress rules for EFS
         efs_security_group.add_ingress_rule(
