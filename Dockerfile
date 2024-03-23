@@ -27,6 +27,8 @@ COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./requirements.txt /app/requirements.txt
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
+RUN mkdir -p /home/apiuser/.tracecat && \
+    chown -R apiuser:apiuser /home/apiuser/.tracecat
 
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
