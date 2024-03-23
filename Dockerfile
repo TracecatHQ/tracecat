@@ -7,6 +7,11 @@ ENV LANCEDB_CONFIG_DIR=/home/apiuser/.tracecat/lancedb
 
 EXPOSE $PORT
 
+# Install necessary packages, including acl
+RUN apt-get update && \
+    apt-get install -y acl && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
@@ -28,9 +33,11 @@ COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./requirements.txt /app/requirements.txt
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
+
 RUN mkdir -p /home/apiuser/.tracecat && \
     chown -R apiuser:apiuser /home/apiuser/.tracecat && \
-    chmod -R 775 /home/apiuser/.tracecat
+    chmod -R 755 /home/apiuser/.tracecat && \
+    setfacl -d -m u:apiuser:rwx /home/apiuser/.tracecat
 
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
