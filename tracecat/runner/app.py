@@ -79,6 +79,8 @@ if TRACECAT__APP_ENV == "prod":
         "https://platform.tracecat.com",
         TRACECAT__API_URL,
     ]
+elif TRACECAT__APP_ENV == "staging":
+    origins = ["https://tracecat-*-tracecat.vercel.app", TRACECAT__API_URL]
 else:
     origins = [
         "http://localhost:3000",
