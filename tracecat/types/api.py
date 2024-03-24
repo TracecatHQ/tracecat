@@ -122,6 +122,7 @@ class WebhookResponse(BaseModel):
     secret: str
     action_id: str
     workflow_id: str
+    url: str
 
 
 class GetWebhookParams(BaseModel):

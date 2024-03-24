@@ -14,7 +14,7 @@ from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, sele
 
 from tracecat import auth
 from tracecat.auth import decrypt_key, encrypt_key
-from tracecat.config import TRACECAT__APP_ENV
+from tracecat.config import TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 
 STORAGE_PATH = Path(
@@ -189,6 +189,7 @@ class Webhook(Resource, table=True):
         default_factory=lambda: uuid4().hex,
         primary_key=True,
         description="Webhook path",
+        alias="path",
     )
     action_id: str | None = Field(foreign_key="action.id")
     workflow_id: str | None = Field(foreign_key="workflow.id")
@@ -198,6 +199,11 @@ class Webhook(Resource, table=True):
     @property
     def secret(self) -> str:
         return auth.compute_hash(self.id)
+
+    @computed_field
+    @property
+    def url(self) -> str:
+        return f"{TRACECAT__RUNNER_URL}/webhook/{self.id}/{self.secret}"
 
 
 def create_db_engine() -> Engine:

@@ -545,11 +545,11 @@ def get_action(
         # Precompute webhook response
         # Alias webhook.id as path
         if action.type.lower() == "webhook":
-            webhook_response = search_webhooks(
+            webhook = search_webhooks(
                 role=role,
                 params=SearchWebhooksParams(action_id=action.id),
             )
-            inputs |= {"path": webhook_response.id, "secret": webhook_response.secret}
+            inputs.update(path=webhook.id, secret=webhook.secret, url=webhook.url)
     return ActionResponse(
         id=action.id,
         type=action.type,
@@ -759,6 +759,7 @@ def list_webhooks(
             path=webhook.path,
             action_id=webhook.action_id,
             workflow_id=webhook.workflow_id,
+            url=webhook.url,
         )
         for webhook in webhooks
     ]
@@ -786,12 +787,13 @@ def create_webhook(
         action_id=webhook.action_id,
         workflow_id=webhook.workflow_id,
         secret=webhook.secret,
+        url=webhook.url,
     )
 
 
 @app.get("/webhooks/{webhook_id}")
 def get_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     webhook_id: str,
 ) -> WebhookResponse:
     with Session(engine) as session:
@@ -811,6 +813,7 @@ def get_webhook(
         secret=webhook.secret,
         action_id=webhook.action_id,
         workflow_id=webhook.workflow_id,
+        url=webhook.url,
     )
     return webhook_response
 
@@ -857,6 +860,7 @@ def search_webhooks(
         secret=webhook.secret,
         action_id=webhook.action_id,
         workflow_id=webhook.workflow_id,
+        url=webhook.url,
     )
     return webhook_response
 

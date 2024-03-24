@@ -1,16 +1,22 @@
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { CopyIcon } from "@radix-ui/react-icons"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleIcon, DeleteIcon, Save } from "lucide-react"
-import { useFieldArray, useForm } from "react-hook-form"
+import {
+  FieldValues,
+  useFieldArray,
+  useForm,
+  UseFormReturn,
+} from "react-hook-form"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
 import { Action, ActionType } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
-import { cn, undoSlugify } from "@/lib/utils"
+import { cn, copyToClipboard, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,6 +48,7 @@ import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
 import { ActionNodeType } from "@/components/workspace/action-node"
 import {
+  ActionFieldOption,
   baseActionSchema,
   getSubActionSchema,
 } from "@/components/workspace/action-panel/schemas"
@@ -165,6 +172,7 @@ export function ActionForm({
       </div>
     )
   }
+
   // Loading state to defend in a user friendly way
   // against undefined schemas or data
   if (isLoading) {
@@ -300,10 +308,11 @@ export function ActionForm({
                     available for all actions.
                   </p>
                 </div>
-                <div className="capitalize">
+                <div className="space-y-2 capitalize">
                   {Object.entries(fieldSchema).map(
                     ([inputKey, inputOption]) => {
                       const typedKey = inputKey as keyof Schema
+
                       return (
                         <FormField
                           key={inputKey}
@@ -315,13 +324,11 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {undoSlugify(inputKey)}
-                                      {inputOption.optional && (
-                                        <span className="text-muted-foreground">
-                                          {" "}
-                                          (Optional)
-                                        </span>
-                                      )}
+                                      <FormLabelInner
+                                        inputKey={inputKey}
+                                        inputOption={inputOption}
+                                        form={form}
+                                      />
                                     </FormLabel>
                                     <FormControl>
                                       <Select
@@ -366,13 +373,11 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {undoSlugify(inputKey)}
-                                      {inputOption.optional && (
-                                        <span className="text-muted-foreground">
-                                          {" "}
-                                          (Optional)
-                                        </span>
-                                      )}
+                                      <FormLabelInner
+                                        inputKey={inputKey}
+                                        inputOption={inputOption}
+                                        form={form}
+                                      />
                                     </FormLabel>
                                     <FormControl>
                                       <Textarea
@@ -392,13 +397,11 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {undoSlugify(inputKey)}
-                                      {inputOption.optional && (
-                                        <span className="text-muted-foreground">
-                                          {" "}
-                                          (Optional)
-                                        </span>
-                                      )}
+                                      <FormLabelInner
+                                        inputKey={inputKey}
+                                        inputOption={inputOption}
+                                        form={form}
+                                      />
                                     </FormLabel>
                                     <FormControl>
                                       <pre>
@@ -428,13 +431,11 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {undoSlugify(inputKey)}
-                                      {inputOption.optional && (
-                                        <span className="text-muted-foreground">
-                                          {" "}
-                                          (Optional)
-                                        </span>
-                                      )}
+                                      <FormLabelInner
+                                        inputKey={inputKey}
+                                        inputOption={inputOption}
+                                        form={form}
+                                      />
                                     </FormLabel>
                                     <div className="flex flex-col space-y-2">
                                       {fields.map((field, index) => {
@@ -484,13 +485,11 @@ export function ActionForm({
                                 return (
                                   <FormItem>
                                     <FormLabel className="text-xs">
-                                      {undoSlugify(inputKey)}
-                                      {inputOption.optional && (
-                                        <span className="text-muted-foreground">
-                                          {" "}
-                                          (Optional)
-                                        </span>
-                                      )}
+                                      <FormLabelInner
+                                        inputKey={inputKey}
+                                        inputOption={inputOption}
+                                        form={form}
+                                      />
                                     </FormLabel>
                                     <FormControl>
                                       <Input
@@ -548,5 +547,51 @@ export function ActionForm({
         </form>
       </div>
     </Form>
+  )
+}
+
+function FormLabelInner<T extends FieldValues>({
+  inputKey,
+  inputOption,
+  form,
+}: {
+  inputKey: string
+  inputOption: ActionFieldOption
+  form: UseFormReturn<T>
+}) {
+  const typedKey = inputKey as keyof T
+  return (
+    <div className="flex items-center space-x-2">
+      <span>{undoSlugify(inputKey)}</span>
+      {inputOption.optional && (
+        <span className="text-muted-foreground"> (Optional)</span>
+      )}
+      {inputOption.copyable && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="m-0 h-4 w-4 p-0"
+              onClick={() => {
+                copyToClipboard({
+                  // @ts-ignore
+                  value: form.getValues(typedKey),
+                  message: "Copied URL to clipboard",
+                })
+                toast({
+                  title: "Copied to clipboard",
+                  // @ts-ignore
+                  description: `Copied ${typedKey} to clipboard.`,
+                })
+              }}
+            >
+              <CopyIcon className="h-3 w-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Copy</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   )
 }

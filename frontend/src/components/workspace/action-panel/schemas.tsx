@@ -107,6 +107,7 @@ export interface ActionFieldOption {
   placeholder?: string
   disabled?: boolean
   optional?: boolean
+  copyable?: boolean
 }
 
 export interface ActionFieldSchema {
@@ -153,13 +154,13 @@ For example:
 
 const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
   webhook: {
-    url: { type: "input", placeholder: "The allowed domain." },
     method: {
       type: "select",
       options: ["GET", "POST"],
     },
     path: { type: "input", disabled: true },
     secret: { type: "input", disabled: true },
+    url: { type: "input", disabled: true, copyable: true },
   },
   http_request: {
     url: { type: "input" },
