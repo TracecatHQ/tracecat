@@ -346,6 +346,7 @@ def clone_workflow(
             ),
         )
 
+        action_inputs: dict[str, str] = json.loads(cloned_action.inputs)
         if action.type == "webhook":
             cloned_webhook = Webhook(
                 owner_id=new_owner_id,
@@ -353,13 +354,11 @@ def clone_workflow(
                 workflow_id=cloned_workflow.id,
             )
             # Update the action inputs to point to the new webhook path
-            action_inputs: dict[str, str] = json.loads(cloned_action.inputs)
             action_inputs.update(path=cloned_webhook.id, secret=cloned_webhook.secret)
-            cloned_action.inputs = json.dumps(action_inputs)
 
             # Assert that there's a new computed secret
             session.add(cloned_webhook)
-
+        cloned_action.inputs = json.dumps(action_inputs)
         action_replacements[action.id] = (cloned_action.id, action_inputs)
         session.add(cloned_action)
 
