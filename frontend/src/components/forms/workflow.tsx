@@ -10,10 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import "@radix-ui/react-dialog"
 
 import { useRouter } from "next/navigation"
-import {
-  CaretSortIcon,
-  HamburgerMenuIcon,
-} from "@radix-ui/react-icons"
+import { CaretSortIcon, HamburgerMenuIcon } from "@radix-ui/react-icons"
 import {
   Popover,
   PopoverContent,
@@ -115,6 +112,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import DecoratedHeader from "@/components/decorated-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
 
 const workflowFormSchema = z.object({
@@ -593,7 +591,6 @@ export function WorkflowRunsView({
       return data
     },
   })
-
   return (
     <div className="space-y-3">
       <h1 className="text-xs font-medium">Past Runs</h1>
@@ -610,7 +607,7 @@ export function WorkflowRunsView({
             level="error"
             message="Error loading workflow runs"
           />
-        ) : (
+        ) : workflowRuns && workflowRuns.length > 0 ? (
           <Accordion type="single" collapsible className="w-full">
             {workflowRuns
               ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
@@ -622,6 +619,8 @@ export function WorkflowRunsView({
                 />
               ))}
           </Accordion>
+        ) : (
+          <NoContent className="my-8" message="No runs available" />
         )}
       </ScrollArea>
     </div>
