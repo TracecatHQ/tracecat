@@ -294,8 +294,10 @@ export function ActionForm({
                   </pre>
                   <p>
                     points to the output data field `some_data` from an action
-                    called `my_action`. Note that the `output` field is a
-                    default field that is available for all actions.
+                    called `My Action`, with slug `my_action`. Select 'Copy
+                    JSONPath' from the action tile dropdown to copy the slug.
+                    Note that the `output` field is a default field that is
+                    available for all actions.
                   </p>
                 </div>
                 <div className="capitalize">

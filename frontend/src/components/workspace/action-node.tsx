@@ -114,13 +114,14 @@ export default React.memo(function ActionNode({
   const { toast } = useToast()
 
   const handleCopyToClipboard = useCallback(() => {
+    const slug = slugify(title)
     copyToClipboard({
-      value: slugify(title),
-      message: "JSONPath copied to clipboard",
+      value: slug,
+      message: `JSONPath copied to clipboard`,
     })
     toast({
-      title: "JSONPath copied",
-      description: "The JSONPath has been copied to your clipboard.",
+      title: "Copied action tile slug",
+      description: `The slug ${slug} has been copied to your clipboard.`,
     })
   }, [title, toast])
 
