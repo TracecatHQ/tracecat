@@ -12,7 +12,7 @@ import { CircleCheck, CircleX, Loader2 } from "lucide-react"
 
 import { ActionRun, RunStatus, WorkflowRun } from "@/types/schemas"
 import { fetchWorkflowRun, fetchWorkflowRuns } from "@/lib/flow"
-import { cn, parseActionRunId } from "@/lib/utils"
+import { cn, parseActionRunId, undoSlugify } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -126,7 +126,7 @@ function WorkflowRunItem({
                   : "fill-red-500/50 stroke-red-700"
               ),
             }}
-            className="font-medium capitalize"
+            className="font-medium"
           />
           <span className="text-xs text-muted-foreground">
             Updated: {updated_at.toLocaleTimeString()}
@@ -152,7 +152,7 @@ function WorkflowRunItem({
                       {created_at.toLocaleTimeString()}
                     </span>
                     <span className="ml-4 font-normal">
-                      {parseActionRunId(id)}
+                      {undoSlugify(parseActionRunId(id))}
                     </span>
                   </span>
                 }

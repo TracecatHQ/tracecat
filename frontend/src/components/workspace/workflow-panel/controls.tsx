@@ -87,7 +87,7 @@ export function WorkflowControlsForm({
   })
   const [selectedAction, setSelectedAction] = useState<Action | null>(null)
 
-  const onSubmit = async (values: WorkflowControlsForm) => {
+  const onSubmit = (values: WorkflowControlsForm) => {
     // Make the API call to start the workflow
     console.log(values)
     if (!values.actionKey) {
@@ -99,16 +99,8 @@ export function WorkflowControlsForm({
       return
     }
 
-    try {
-      const data = JSON.parse(values.payload)
-      await triggerWorkflow(session, workflow.id, values.actionKey, data)
-    } catch (e) {
-      console.error("Invalid JSON payload")
-      toast({
-        title: "Invalid JSON payload",
-        description: "Please provide a valid JSON payload.",
-      })
-    }
+    triggerWorkflow(session, workflow.id, values.actionKey, values.payload)
+    setConfirmationIsOpen(false)
   }
   useEffect(() => {
     if (selectedAction) {
@@ -117,14 +109,14 @@ export function WorkflowControlsForm({
     }
   }, [selectedAction])
   return (
-    <Form {...form}>
-      <form className="space-y-4">
-        <div className="space-y-3">
-          <h4 className="text-sm font-medium">Controls</h4>
-        </div>
-        <Separator />
+    <AlertDialog open={confirmationIsOpen}>
+      <Form {...form}>
+        <form className="space-y-4">
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium">Controls</h4>
+          </div>
+          <Separator />
 
-        <AlertDialog open={confirmationIsOpen}>
           <FormField
             control={form.control}
             name="payload"
@@ -217,9 +209,9 @@ export function WorkflowControlsForm({
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
-        </AlertDialog>
-      </form>
-    </Form>
+        </form>
+      </Form>
+    </AlertDialog>
   )
 }
 
