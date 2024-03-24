@@ -164,7 +164,7 @@ export function WorkflowForm({
                   <FormLabel className="text-xs">Description</FormLabel>
                   <FormControl>
                     <Textarea
-                      className="text-xs"
+                      className="min-h-[100px] text-xs"
                       placeholder="Describe your workflow..."
                       {...field}
                     />
