@@ -44,6 +44,7 @@ export default function WorkflowsNavbar({ session }: NavbarProps) {
             id="enable-workflow"
             checked={isOnline}
             onCheckedChange={setIsOnline}
+            className="data-[state=checked]:bg-green-500"
           />
           <Label
             className="w-30 text-xs text-muted-foreground"
