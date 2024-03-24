@@ -19,7 +19,9 @@ const HTTPRequestActionSchema = z.object({
 
 const SendEmailActionSchema = z.object({
   // recipients is a comma delimited list of email addresses. Pasrse it into an array
-  recipients: z.string().email().array(),
+  recipients: z
+    .array(z.string().email().min(1, { message: "Strings cannot be empty" }))
+    .min(1, { message: "List cannot be empty" }),
   subject: z.string(),
   contents: z.string(),
 })
@@ -35,8 +37,8 @@ const conditionCompareActionSubtypes = [
 
 const ConditionCompareActionSchema = z.object({
   subtype: z.enum(conditionCompareActionSubtypes),
-  lhs: z.string(),
-  rhs: z.string(),
+  lhs: z.string().min(1),
+  rhs: z.string().min(1),
 })
 const conditionRegexActionSubtypes = ["regex_match", "regex_not_match"] as const
 const ConditionRegexActionSchema = z.object({
@@ -172,7 +174,7 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
     payload: { type: "json" },
   },
   send_email: {
-    recipients: { type: "input" },
+    recipients: { type: "array" },
     subject: { type: "input" },
     contents: { type: "textarea" },
   },
