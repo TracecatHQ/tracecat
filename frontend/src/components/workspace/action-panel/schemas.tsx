@@ -20,10 +20,12 @@ const HTTPRequestActionSchema = z.object({
 const SendEmailActionSchema = z.object({
   // recipients is a comma delimited list of email addresses. Pasrse it into an array
   recipients: z
-    .array(z.string().email().min(1, { message: "Strings cannot be empty" }))
-    .min(1, { message: "List cannot be empty" }),
-  subject: z.string(),
-  contents: z.string(),
+    .array(
+      z.string().email().min(1, { message: "Recipient email cannot be empty" })
+    )
+    .nonempty(),
+  subject: z.string().min(1, { message: "Subject cannot be empty" }),
+  body: z.string().min(1, { message: "Body cannot be empty" }),
 })
 
 const conditionCompareActionSubtypes = [
@@ -37,14 +39,14 @@ const conditionCompareActionSubtypes = [
 
 const ConditionCompareActionSchema = z.object({
   subtype: z.enum(conditionCompareActionSubtypes),
-  lhs: z.string().min(1),
-  rhs: z.string().min(1),
+  lhs: z.string().min(1, { message: "Left hand side cannot be empty" }),
+  rhs: z.string().min(1, { message: "Right hand side cannot be empty" }),
 })
 const conditionRegexActionSubtypes = ["regex_match", "regex_not_match"] as const
 const ConditionRegexActionSchema = z.object({
   subtype: z.enum(conditionRegexActionSubtypes),
-  pattern: z.string(),
-  text: z.string(),
+  pattern: z.string().min(1, { message: "Pattern cannot be empty" }),
+  text: z.string().min(1, { message: "Text cannot be empty" }),
 })
 const conditionMembershipActionSubtypes = [
   "contains",
@@ -57,37 +59,37 @@ const ConditionMembershipActionSchema = z.object({
 })
 
 const LLMTranslateActionSchema = z.object({
-  message: z.string(),
-  from_language: z.string(),
-  to_language: z.string(),
+  message: z.string().min(1, { message: "Message cannot be empty" }),
+  from_language: z.string().min(1, { message: "Language cannot be empty" }),
+  to_language: z.string().min(1, { message: "Language cannot be empty" }),
   response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMExtractActionSchema = z.object({
-  message: z.string(),
+  message: z.string().min(1, { message: "Message cannot be empty" }),
   groups: stringArray,
   response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMLabelTaskActionSchema = z.object({
-  message: z.string(),
+  message: z.string().min(1, { message: "Message cannot be empty" }),
   labels: stringArray,
   response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMChoiceTaskActionSchema = z.object({
-  message: z.string(),
+  message: z.string().min(1, { message: "Message cannot be empty" }),
   choices: stringArray,
   response_schema: stringToJSONSchema.optional(),
 })
 
 const LLMSummarizeTaskActionSchema = z.object({
-  message: z.string(),
+  message: z.string().min(1, { message: "Message cannot be empty" }),
   response_schema: stringToJSONSchema.optional(),
 })
 
 const OpenCaseActionSchema = z.object({
-  title: z.string(),
+  title: z.string().min(1, { message: "Strings cannot be empty" }),
   payload: stringToJSONSchema,
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
@@ -97,7 +99,7 @@ const OpenCaseActionSchema = z.object({
   suppression: stringToJSONSchema.optional(),
 })
 export const baseActionSchema = z.object({
-  title: z.string(),
+  title: z.string().min(1, { message: "Title cannot be empty" }),
   description: z.string(),
 })
 export type BaseActionForm = z.infer<typeof baseActionSchema>
@@ -176,7 +178,7 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
   send_email: {
     recipients: { type: "array" },
     subject: { type: "input" },
-    contents: { type: "textarea" },
+    body: { type: "textarea" },
   },
   "condition.compare": {
     subtype: {

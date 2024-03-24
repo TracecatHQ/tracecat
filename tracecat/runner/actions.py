@@ -288,7 +288,7 @@ class SendEmailAction(Action):
     # Email regex
     recipients: list[str]
     subject: str
-    contents: str
+    body: str
 
     @validator("recipients", always=True, pre=True, each_item=True)
     def validate_recipients(cls, v: str) -> str:
@@ -673,10 +673,10 @@ async def run_llm_action(
 
 
 async def run_send_email_action(
-    sender: str,
     recipients: list[str],
     subject: str,
     body: str,
+    sender: str = "mail@tracecat.com",
     provider: Literal["resend"] = "resend",
     # Common
     action_run_kwargs: dict[str, Any] | None = None,

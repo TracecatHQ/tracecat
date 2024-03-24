@@ -89,7 +89,6 @@ export function WorkflowControlsForm({
 
   const onSubmit = (values: WorkflowControlsForm) => {
     // Make the API call to start the workflow
-    console.log(values)
     if (!values.actionKey) {
       console.error("No action key provided")
       toast({
