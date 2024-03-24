@@ -38,13 +38,13 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CollapsibleSection } from "@/components/collapsible-section"
-import {
-  baseActionSchema,
-  getSubActionSchema,
-} from "@/components/forms/action-schemas"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
 import { ActionNodeType } from "@/components/workspace/action-node"
+import {
+  baseActionSchema,
+  getSubActionSchema,
+} from "@/components/workspace/action-panel/schemas"
 
 function processInputs(inputs: Record<string, any>): Record<string, any> {
   return Object.entries(inputs).reduce(

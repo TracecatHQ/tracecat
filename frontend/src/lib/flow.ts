@@ -16,7 +16,7 @@ import {
   type WorkflowMetadata,
 } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
-import type { BaseActionForm } from "@/components/forms/action-schemas"
+import type { BaseActionForm } from "@/components/workspace/action-panel/schemas"
 
 export async function updateDndFlow(
   maybeSession: Session | null,
