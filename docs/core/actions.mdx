@@ -60,8 +60,8 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
 
 <Steps>
   <Step title="Pass malware sample to webhook">
-    Let's assume the [Webhook](/actions/types/http-request) action (titled "Receive malware sample")
-    has the following URL: `https://runner.tracecat.com/webhooks/<path>/<secret>`.
+    Let's assume the [Webhook](/actions/types/webhook) action (titled "Receive malware sample")
+    has the following URL: `https://runner.tracecat-engine.com/webhook/<path>/<secret>`.
     This URL will differ for every user and action block.
 
     You can pass data into the webhook using cURL.
@@ -69,7 +69,7 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
     ```bash
     curl -X POST -H "Content-Type: application/json" \
       -d '{"malware_sha256": "78dc6e1d4fbb80814f5c6d7a7da57aaac32a50a97b9963461ff0a19834246d94"}' \
-      https://runner.tracecat.com/webhooks/<path>/<secret>
+      https://runner.tracecat-engine.com/webhook/<path>/<secret>
     ```
 
     Tracecat receives the data and stores it as an [event log](/core/event-logs), which looks like this:
