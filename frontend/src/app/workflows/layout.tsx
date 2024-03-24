@@ -1,4 +1,3 @@
-import { PropsWithChildren } from "react"
 import { Metadata } from "next"
 import { WorkflowProvider } from "@/providers/workflow"
 import { createClient } from "@/utils/supabase/server"
@@ -11,7 +10,9 @@ export const metadata: Metadata = {
 
 export default async function WorkflowsLayout({
   children,
-}: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
+}: {
+  children: React.ReactNode
+}) {
   const supabase = createClient()
 
   const {
