@@ -250,3 +250,46 @@ export async function fetchWorkflowRun(
     throw error
   }
 }
+
+/**
+ *
+ * To add a workflow from the library,
+ *
+ * @param maybeSession
+ * @param workflowId
+ * @returns
+ */
+export async function addLibraryWorkflow(
+  maybeSession: Session | null,
+  workflowId: string
+) {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.post(`/workflows/${workflowId}/copy`)
+    return response.data
+  } catch (error) {
+    console.error("Error adding integration:", error)
+    throw error
+  }
+}
+
+/**
+ *
+ * View all library workflows,
+ *
+ * @param maybeSession
+ * @returns
+ */
+export async function fetchLibraryWorkflows(
+  maybeSession: Session | null
+): Promise<WorkflowMetadata[]> {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    const response = await client.get("/workflows?library=true")
+    console.log("response", response)
+    return response.data
+  } catch (error) {
+    console.error("Error adding integration:", error)
+    throw error
+  }
+}

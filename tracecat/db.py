@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -208,7 +209,7 @@ def create_db_engine() -> Engine:
         }
     else:
         engine_kwargs = {"connect_args": {"check_same_thread": False}}
-    engine = create_engine(TRACECAT__DB_URI, echo=True, **engine_kwargs)
+    engine = create_engine(TRACECAT__DB_URI, **engine_kwargs)
     return engine
 
 
@@ -254,6 +255,12 @@ CaseSchema = pa.schema(
         pa.field("priority", pa.string(), nullable=False),
         pa.field("action", pa.string(), nullable=True),
         pa.field("suppression", pa.string(), nullable=True),  # JSON-serialized
+        pa.field(
+            "created_at", pa.timestamp("us", tz="UTC"), nullable=True
+        ),  # JSON-serialized
+        pa.field(
+            "updated_at", pa.timestamp("us", tz="UTC"), nullable=True
+        ),  # JSON-serialized
         # pa.field("_action_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
         # pa.field("_payload_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
         # pa.field("_context_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
@@ -293,3 +300,74 @@ def initialize_db() -> Engine:
             session.add_all(default_actions)
             session.commit()
     return engine
+
+
+def clone_workflow(
+    workflow: Workflow,
+    session: Session,
+    new_owner_id: str,
+) -> Workflow:
+    """
+    Clones a Resource, including its relationships (up to a certain depth).
+
+    :param model_instance: The SQLModel instance to clone.
+    :param session: The SQLModel session.
+    :param _depth: Current depth level, used to limit recursive depth.
+    :return: The cloned instance.
+    """
+
+    # Create a new instance of the same model without the primary key
+    cloned_workflow = Workflow(
+        **workflow.model_dump(
+            exclude={"id", "created_at", "updated_at", "owner_id", "object"}
+        ),
+        owner_id=new_owner_id,
+    )
+    dnd_graph = json.loads(workflow.object)
+    print(dnd_graph)
+
+    # Iterate over relationships and clone them
+    action_replacements = {}
+    for action in workflow.actions:
+        # Special treatment for webhook actions:
+        # Need to update the action.path
+
+        cloned_action = Action(
+            owner_id=new_owner_id,
+            workflow_id=cloned_workflow.id,
+            **action.model_dump(
+                exclude={"id", "created_at", "updated_at", "owner_id", "workflow_id"}
+            ),
+        )
+
+        if action.type == "webhook":
+            cloned_webhook = Webhook(
+                owner_id=new_owner_id,
+                action_id=cloned_action.id,
+                workflow_id=cloned_workflow.id,
+            )
+            # Update the action inputs to point to the new webhook path
+            action_inputs: dict[str, str] = json.loads(cloned_action.inputs)
+            action_inputs.update(path=cloned_webhook.id, secret=cloned_webhook.secret)
+            cloned_action.inputs = json.dumps(action_inputs)
+
+            # Assert that there's a new computed secret
+            session.add(cloned_webhook)
+
+        action_replacements[action.id] = (cloned_action.id, action_inputs)
+        session.add(cloned_action)
+
+    # For each action in the workflow, update the workflow object
+    graph = json.loads(workflow.object)
+    for edge in graph["edges"]:
+        edge["source"] = action_replacements[edge["source"]][0]
+        edge["target"] = action_replacements[edge["target"]][0]
+        edge["id"] = f"{edge['source']}-{edge['target']}"
+    for node in graph["nodes"]:
+        new_id, new_inputs = action_replacements[node["id"]]
+        node["id"] = new_id
+        node["data"].update(id=new_id, inputs=new_inputs, selected=False)
+    cloned_workflow.object = json.dumps(graph)
+
+    session.add(cloned_workflow)
+    return cloned_workflow

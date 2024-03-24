@@ -6,6 +6,7 @@ import polars as pl
 import tantivy
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.params import Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
@@ -30,6 +31,7 @@ from tracecat.db import (
     Webhook,
     Workflow,
     WorkflowRun,
+    clone_workflow,
     create_events_index,
     create_vdb_conn,
     initialize_db,
@@ -46,6 +48,7 @@ from tracecat.types.api import (
     CaseActionParams,
     CaseContextParams,
     CaseParams,
+    CopyWorkflowParams,
     CreateActionParams,
     CreateActionRunParams,
     CreateSecretParams,
@@ -125,10 +128,12 @@ def check_health() -> dict[str, str]:
 @app.get("/workflows")
 def list_workflows(
     role: Annotated[Role, Depends(authenticate_user)],
+    library: bool = False,
 ) -> list[WorkflowMetadataResponse]:
     """List all Workflows in database."""
+    query_user_id = role.user_id if not library else "tracecat"
     with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.owner_id == role.user_id)
+        statement = select(Workflow).where(Workflow.owner_id == query_user_id)
         results = session.exec(statement)
         workflows = results.all()
     workflow_metadata = [
@@ -276,6 +281,42 @@ def delete_workflow(
             ) from e
         session.delete(workflow)
         session.commit()
+
+
+@app.post("/workflows/{workflow_id}/copy", status_code=status.HTTP_204_NO_CONTENT)
+def copy_workflow(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+    params: Annotated[CopyWorkflowParams | None, Body(...)] = None,
+) -> None:
+    """Copy a Workflow.
+
+    We currently only permit copying workflows from the tracecat user into the user's own account.
+    """
+    if role.type == "user" and params is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Users can only clone tracecat workflows",
+        )
+    # Users cannot pass owner_id, and defaults to 'tracecat'
+    owner_id = params.owner_id if params else "tracecat"
+    with Session(engine) as session:
+        statement = select(Workflow).where(
+            Workflow.owner_id == owner_id,
+            Workflow.id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            workflow = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+        # Assign it a new workflow ID and owner ID
+        new_workflow = clone_workflow(workflow, session, role.user_id)
+        session.commit()
+        session.refresh(new_workflow)
 
 
 ### Workflow Runs

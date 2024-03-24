@@ -1,6 +1,5 @@
 import { PropsWithChildren } from "react"
 import { Metadata } from "next"
-import { DefaultQueryClientProvider } from "@/providers/query"
 import { WorkflowProvider } from "@/providers/workflow"
 import { createClient } from "@/utils/supabase/server"
 
@@ -19,15 +18,11 @@ export default async function WorkflowsLayout({
     data: { session },
   } = await supabase.auth.getSession()
   return (
-    <>
-      <DefaultQueryClientProvider>
-        <WorkflowProvider session={session}>
-          <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-            <Navbar session={session} />
-            {children}
-          </div>
-        </WorkflowProvider>
-      </DefaultQueryClientProvider>
-    </>
+    <WorkflowProvider session={session}>
+      <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+        <Navbar session={session} />
+        {children}
+      </div>
+    </WorkflowProvider>
   )
 }

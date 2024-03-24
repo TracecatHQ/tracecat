@@ -238,3 +238,7 @@ class StartWorkflowResponse(BaseModel):
 
 class CreateWorkflowRunParams(BaseModel):
     status: RunStatus
+
+
+class CopyWorkflowParams(BaseModel):
+    owner_id: str

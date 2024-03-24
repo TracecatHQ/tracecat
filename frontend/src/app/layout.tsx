@@ -2,6 +2,7 @@ import "@/styles/globals.css"
 
 import { Metadata } from "next"
 import dynamic from "next/dynamic"
+import { DefaultQueryClientProvider } from "@/providers/query"
 import { SessionContextProvider } from "@/providers/session"
 import { createClient } from "@/utils/supabase/server"
 import { Session } from "@supabase/supabase-js"
@@ -76,8 +77,10 @@ function BodyContent({
       )}
     >
       <SessionContextProvider initialSession={session}>
-        {PostHogPageView && <PostHogPageView />}
-        {children}
+        <DefaultQueryClientProvider>
+          {PostHogPageView && <PostHogPageView />}
+          {children}
+        </DefaultQueryClientProvider>
       </SessionContextProvider>
       <Toaster />
     </body>
