@@ -179,6 +179,7 @@ export function WorkflowControlsForm({
                 language="json"
                 style={atomOneDark}
                 wrapLines
+                wrapLongLines
                 customStyle={{
                   width: "100%",
                   maxWidth: "100%",
