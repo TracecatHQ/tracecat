@@ -50,6 +50,7 @@ class WorkflowMetadataResponse(BaseModel):
     title: str
     description: str
     status: str
+    icon_url: str | None
 
 
 class WorkflowRunResponse(BaseModel):

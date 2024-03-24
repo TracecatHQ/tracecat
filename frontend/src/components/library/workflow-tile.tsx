@@ -53,27 +53,17 @@ export function LibraryTile({
         >
           <div className="flex w-full items-center justify-center space-x-4">
             <Avatar>
-              <AvatarImage className="bg-red-600" />
+              <AvatarImage
+                className="bg-red-600"
+                src={catalogItem.icon_url || ""}
+              />
               <AvatarFallback className={cn("bg-cyan-200")}>
                 <Layers3 className="h-5 w-5 stroke-slate-400" />
               </AvatarFallback>
             </Avatar>
             <div className="flex w-full flex-col gap-1">
-              <div className="flex items-center">
-                <div className="flex items-center gap-2">
-                  <div className="font-semibold capitalize">{title}</div>
-                </div>
-                <div className="ml-auto flex items-center space-x-2">
-                  <span className="text-xs capitalize text-muted-foreground">
-                    {}
-                  </span>
-                  <span
-                    className={cn("flex h-2 w-2 rounded-full bg-green-400")}
-                  />
-                </div>
-              </div>
-              <div className="text-xs font-medium text-muted-foreground">
-                {description ?? ""}
+              <div className="flex items-center gap-2">
+                <div className="font-semibold capitalize">{title}</div>
               </div>
             </div>
           </div>

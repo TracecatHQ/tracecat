@@ -59,6 +59,7 @@ export const workflowMetadataSchema = z.object({
   title: z.string(),
   description: z.string(),
   status: workflowStatusSchema,
+  icon_url: z.string().url().nullable(),
 })
 export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
 const strAsDate = z.string().transform((x) => new Date(`${x}Z`))

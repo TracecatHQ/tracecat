@@ -120,6 +120,7 @@ class Workflow(Resource, table=True):
     description: str
     status: str = "offline"  # "online" or "offline"
     object: str | None = None  # JSON-serialized String of react flow object
+    icon_url: str | None = None
     # Owner
     owner_id: str = Field(foreign_key="user.id")
     owner: User | None = Relationship(back_populates="owned_workflows")
@@ -325,12 +326,11 @@ def clone_workflow(
     # Create a new instance of the same model without the primary key
     cloned_workflow = Workflow(
         **workflow.model_dump(
-            exclude={"id", "created_at", "updated_at", "owner_id", "object"}
+            exclude={"id", "created_at", "updated_at", "owner_id", "object", "status"}
         ),
         owner_id=new_owner_id,
+        status="offline",
     )
-    dnd_graph = json.loads(workflow.object)
-    print(dnd_graph)
 
     # Iterate over relationships and clone them
     action_replacements = {}

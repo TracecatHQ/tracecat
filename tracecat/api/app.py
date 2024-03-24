@@ -141,6 +141,7 @@ def list_workflows(
             title=workflow.title,
             description=workflow.description,
             status=workflow.status,
+            icon_url=workflow.icon_url,
         )
         for workflow in workflows
     ]
@@ -168,6 +169,7 @@ def create_workflow(
         title=workflow.title,
         description=workflow.description,
         status=workflow.status,
+        icon_url=workflow.icon_url,
     )
 
 
