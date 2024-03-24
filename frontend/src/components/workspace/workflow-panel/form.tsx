@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
 
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleIcon, Save } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -57,6 +57,7 @@ export function WorkflowForm({
     description: workflowDescription,
   } = workflow
   const session = useSession()
+  const queryClient = useQueryClient()
   const form = useForm<WorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
@@ -71,6 +72,7 @@ export function WorkflowForm({
         updateWorkflow(session, workflowId, values),
       onSuccess: (data, variables, context) => {
         console.log("Workflow update successful", data)
+        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
         toast({
           title: "Saved workflow",
           description: "Workflow updated successfully.",
