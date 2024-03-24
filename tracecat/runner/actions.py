@@ -472,7 +472,8 @@ async def start_action_run(
 
         running_jobs_store.pop(ar_id, None)
 
-        # Add trail to events store
+    # Add trail to events store
+    try:
         _index_events(
             action_id=action_ref.id,
             action_run_id=ar_id,
@@ -483,7 +484,10 @@ async def start_action_run(
             workflow_run_id=action_run.workflow_run_id,
             action_trail=action_trail,
         )
-        await log_update_action_run(action_run, status=run_status)
+    except Exception as e:
+        logger.error("Tantiy indexing failed.", exc_info=e)
+
+    await log_update_action_run(action_run, status=run_status)
 
     # Handle downstream dependencies
     if run_status != "success":
@@ -781,7 +785,11 @@ async def run_open_case_action(
         action=action,
         suppression=suppression,
     )
-    tbl.add([case.flatten()])
+    try:
+        tbl.add([case.flatten()])
+    except Exception as e:
+        custom_logger.error("Failed to add case to LanceDB.", exc_info=e)
+        raise
     return {"output": case.model_dump(), "output_type": "dict"}
 
 
