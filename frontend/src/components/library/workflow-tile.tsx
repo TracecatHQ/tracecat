@@ -19,6 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { toast } from "@/components/ui/use-toast"
 import { Icons } from "@/components/icons"
 
 export function LibraryTile({
@@ -31,9 +32,13 @@ export function LibraryTile({
 
   const handleAddWorkflow = async () => {
     const response = await addLibraryWorkflow(session, workflowId)
-    if (response.status !== 204) {
-      console.error("Failed to add workflow")
+    if (response.error) {
+      console.error("Error adding workflow:", response.error)
     }
+    toast({
+      title: "Workflow added!",
+      description: `The workflow "${title}" has been added to your workspace.`,
+    })
   }
 
   return (

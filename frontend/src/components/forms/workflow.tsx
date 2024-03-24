@@ -1,11 +1,19 @@
 "use client"
 
+import { title } from "process"
 import { useEffect, useState } from "react"
 import * as React from "react"
 import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { CaretSortIcon } from "@radix-ui/react-icons"
+
+import "@radix-ui/react-dialog"
+
+import { useRouter } from "next/navigation"
+import {
+  CaretSortIcon,
+  HamburgerMenuIcon,
+} from "@radix-ui/react-icons"
 import {
   Popover,
   PopoverContent,
@@ -19,8 +27,11 @@ import {
   CircleIcon,
   CircleX,
   Loader2,
+  PlusCircle,
   Save,
   Send,
+  Settings,
+  Settings2,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import SyntaxHighlighter from "react-syntax-highlighter"
@@ -36,6 +47,7 @@ import {
 } from "@/types/schemas"
 import { stringToJSONSchema } from "@/types/validators"
 import {
+  deleteWorkflow,
   fetchWorkflowRun,
   fetchWorkflowRuns,
   triggerWorkflow,
@@ -68,6 +80,22 @@ import {
   CommandInput,
   CommandItem,
 } from "@/components/ui/command"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Form,
   FormControl,
@@ -152,7 +180,10 @@ export function WorkflowForm({
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-4">
           <div className="space-y-3">
-            <h4 className="text-sm font-medium">Workflow Status</h4>
+            <div className="flex justify-between">
+              <h4 className="text-sm font-medium">Workflow Status</h4>
+              <WorkflowSettings workflow={workflow} />
+            </div>
             <div className="flex justify-between">
               <Badge
                 variant="outline"
@@ -226,6 +257,70 @@ export function WorkflowForm({
         </div>
       </form>
     </Form>
+  )
+}
+
+function WorkflowSettings({ workflow }: { workflow: Workflow }) {
+  const session = useSession()
+  const router = useRouter()
+  const handleDeleteWorkflow = async () => {
+    console.log("Delete workflow")
+    await deleteWorkflow(session, workflow.id)
+    router.push("/workflows")
+    toast({
+      title: "Workflow deleted",
+      description: `The workflow "${workflow.title}" has been deleted.`,
+    })
+    router.refresh()
+  }
+  return (
+    <div>
+      <Dialog>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="flex h-8 w-8 p-0 data-[state=open]:bg-muted"
+            >
+              <HamburgerMenuIcon className="h-4 w-4" />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[160px]">
+            <DropdownMenuItem disabled>Make a copy</DropdownMenuItem>
+            <DropdownMenuItem disabled>Favorite</DropdownMenuItem>
+            <DialogTrigger asChild>
+              <DropdownMenuItem className="text-red-600">
+                Delete
+              </DropdownMenuItem>
+            </DialogTrigger>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DialogContent>
+          <DialogHeader className="space-y-4">
+            <DialogTitle>
+              Are you sure you want to delete this workflow?
+            </DialogTitle>
+            <DialogDescription className="flex items-center text-sm text-foreground">
+              You are about to delete the workflow
+              <b className="ml-1">{workflow.title}</b>. Proceed?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button
+                className="ml-auto space-x-2 border-0 font-bold text-white"
+                variant="destructive"
+                onClick={handleDeleteWorkflow}
+              >
+                Delete Workflow
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 

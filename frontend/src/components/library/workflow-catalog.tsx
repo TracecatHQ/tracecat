@@ -26,8 +26,8 @@ export async function Library({ session }: WorkflowsDashboardProps) {
           </div>
           <div className="grid grid-cols-4 gap-4">
             {catalogItems ? (
-              catalogItems.map((catalogItem) => (
-                <LibraryTile catalogItem={catalogItem} />
+              catalogItems.map((catalogItem, idx) => (
+                <LibraryTile key={idx} catalogItem={catalogItem} />
               ))
             ) : (
               <span className="my-4 text-center text-sm text-muted-foreground">

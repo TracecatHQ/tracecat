@@ -102,6 +102,19 @@ export async function updateWorkflow(
   return response.data
 }
 
+export async function deleteWorkflow(
+  maybeSession: Session | null,
+  workflowId: string
+): Promise<void> {
+  try {
+    const client = getAuthenticatedClient(maybeSession)
+    await client.delete(`/workflows/${workflowId}`)
+    console.log(`Workflow with ID ${workflowId} deleted successfully.`)
+  } catch (error) {
+    console.error(`Error deleting workflow with ID ${workflowId}:`, error)
+  }
+}
+
 export async function getActionById(
   maybeSession: Session | null,
   actionId: string,

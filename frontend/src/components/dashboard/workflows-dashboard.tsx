@@ -1,12 +1,11 @@
 import { Suspense } from "react"
-import Link from "next/link"
 import { type Session } from "@supabase/supabase-js"
 import { PlusCircle } from "lucide-react"
 
 import { fetchAllWorkflows } from "@/lib/flow"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { WorkflowItem } from "@/components/dashboard/workflows-dashbaord-item"
 import {
   NewWorkflowDialog,
   NewWorkflowDialogTrigger,
@@ -72,36 +71,7 @@ export async function WorkflowList({ session }: WorkflowListProps) {
       ) : (
         <>
           {workflows.map((wf) => (
-            <Link
-              key={wf.id}
-              href={`/workflows/${wf.id}`}
-              className={cn(
-                "flex min-h-24 min-w-[600px] flex-col items-start justify-start rounded-lg border p-6 text-left text-sm shadow-md transition-all hover:bg-accent",
-                "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white"
-              )}
-            >
-              <div className="flex w-full flex-col gap-1">
-                <div className="flex items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="font-semibold capitalize">{wf.title}</div>
-                  </div>
-                  <div className="ml-auto flex items-center space-x-2">
-                    <span className="text-xs capitalize text-muted-foreground">
-                      {wf.status}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex h-2 w-2 rounded-full",
-                        wf.status === "online" ? "bg-green-400" : "bg-gray-400"
-                      )}
-                    />
-                  </div>
-                </div>
-                <div className="text-xs font-medium text-muted-foreground">
-                  {wf.description ?? ""}
-                </div>
-              </div>
-            </Link>
+            <WorkflowItem workflow={wf} />
           ))}
         </>
       )}
