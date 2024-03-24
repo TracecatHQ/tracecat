@@ -94,6 +94,7 @@ export const SessionContextProvider = ({
     }
 
     getSession()
+    supabaseClient.auth.startAutoRefresh()
 
     return () => {
       mounted = false
