@@ -2,14 +2,11 @@ import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflowMetadata } from "@/providers/workflow"
 
-import { Workflow } from "@/types/schemas"
 import { ActionForm } from "@/components/forms/action"
-import {
-  WorkflowControlsForm,
-  WorkflowForm,
-  WorkflowRunsView,
-} from "@/components/forms/workflow"
 import { FormLoading } from "@/components/loading/form"
+import { WorkflowControlsForm } from "@/components/workspace/workflow-panel/controls"
+import { WorkflowForm } from "@/components/workspace/workflow-panel/form"
+import { WorkflowRunsView } from "@/components/workspace/workflow-panel/runs"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -25,26 +22,14 @@ export function WorkspacePanel() {
           actionType={selectedNode.data.type}
         />
       ) : workflow ? (
-        <WorkflowPanel workflow={workflow} isOnline={isOnline} />
+        <div className="space-y-4 p-4">
+          <WorkflowForm workflow={workflow} isOnline={isOnline} />
+          <WorkflowControlsForm workflow={workflow} />
+          <WorkflowRunsView workflowId={workflow.id} />
+        </div>
       ) : (
         <FormLoading />
       )}
-    </div>
-  )
-}
-
-function WorkflowPanel({
-  workflow,
-  isOnline,
-}: {
-  workflow: Workflow
-  isOnline: boolean
-}) {
-  return (
-    <div className="space-y-4 p-4">
-      <WorkflowForm workflow={workflow} isOnline={isOnline} />
-      <WorkflowControlsForm workflow={workflow} />
-      <WorkflowRunsView workflowId={workflow.id} />
     </div>
   )
 }
