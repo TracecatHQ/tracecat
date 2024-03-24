@@ -67,7 +67,6 @@ from tracecat.types.api import (
     UpdateUserParams,
     UpdateWorkflowParams,
     UpdateWorkflowRunParams,
-    WebhookMetadataResponse,
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
@@ -770,7 +769,7 @@ def list_webhooks(
 def create_webhook(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateWebhookParams,
-) -> WebhookMetadataResponse:
+) -> WebhookResponse:
     """Create a new Webhook."""
     webhook = Webhook(
         owner_id=role.user_id,
@@ -782,7 +781,7 @@ def create_webhook(
         session.commit()
         session.refresh(webhook)
 
-    return WebhookMetadataResponse(
+    return WebhookResponse(
         id=webhook.id,
         action_id=webhook.action_id,
         workflow_id=webhook.workflow_id,

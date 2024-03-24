@@ -117,13 +117,6 @@ class CreateWebhookParams(BaseModel):
     workflow_id: str
 
 
-class WebhookMetadataResponse(BaseModel):
-    id: str
-    action_id: str
-    workflow_id: str
-    secret: str
-
-
 class WebhookResponse(BaseModel):
     id: str
     secret: str
