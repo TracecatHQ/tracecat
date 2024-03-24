@@ -402,6 +402,7 @@ async def run_workflow(
         for running_task in running_jobs_store.values():
             running_task.cancel()
 
+    # TODO: Update this to update with status 'failure' if any action fails
     await update_workflow_run(
         workflow_id=workflow_id, workflow_run_id=workflow_run_id, status=run_status
     )

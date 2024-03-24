@@ -149,6 +149,7 @@ async def update_workflow_run(
     status: RunStatus,
 ) -> None:
     """Update a workflow run."""
+    logger.info(f"Log update workflow run {workflow_run_id} with status {status}")
     params = UpdateWorkflowRunParams(status=status)
     async with AuthenticatedAPIClient(http2=True) as client:
         response = await client.post(

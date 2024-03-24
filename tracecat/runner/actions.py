@@ -881,6 +881,7 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
 # TODO: Move these calls into a logger
 async def log_create_action_run(action_run: ActionRun) -> ActionRunResponse:
     """Create a workflow run."""
+    logger.info(f"Log create action run {action_run.id}")
     action_id = action_key_to_id(action_run.action_key)
     params = CreateActionRunParams(
         action_run_id=action_run.id,
@@ -896,6 +897,7 @@ async def log_create_action_run(action_run: ActionRun) -> ActionRunResponse:
 
 async def log_update_action_run(action_run: ActionRun, *, status: RunStatus) -> None:
     """Update a workflow run."""
+    logger.info(f"Log update action run {action_run.id} with status {status}.")
     action_id = action_key_to_id(action_run.action_key)
     params = UpdateActionRunParams(status=status)
     async with AuthenticatedAPIClient(http2=True) as client:
