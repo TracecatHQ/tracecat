@@ -35,7 +35,7 @@ export const WorkflowBuilderProvider: React.FC<
 > = ({ children }) => {
   const maybeSession = useSession()
   const reactFlowInstance = useReactFlow()
-  const { workflowId } = useWorkflowMetadata()
+  const { workflowId, error } = useWorkflowMetadata()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   if (!workflowId) {
@@ -66,6 +66,10 @@ export const WorkflowBuilderProvider: React.FC<
       setSelectedNodeId(actionNodeSelected?.id ?? null)
     },
   })
+  if (error) {
+    console.error("Builder: Error fetching workflow metadata:", error)
+    throw error
+  }
 
   return (
     <ReactFlowInteractionsContext.Provider

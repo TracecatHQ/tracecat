@@ -87,14 +87,14 @@ export default function WorkflowSwitcher({
                 {!workflows ? (
                   <Skeleton />
                 ) : (
-                  workflows.map((workflow) => (
+                  workflows.map((wf) => (
                     <CommandItem
-                      key={workflow.id}
+                      key={wf.id}
                       onSelect={() => {
                         // If we're on cases page, stay at /workflows/{workflowId}/cases
                         const nextPath = pathname.endsWith("/cases")
-                          ? `/workflows/${workflow.id}/cases`
-                          : `/workflows/${workflow.id}`
+                          ? `/workflows/${wf.id}/cases`
+                          : `/workflows/${wf.id}`
                         router.push(nextPath)
                         setOpen(false)
                       }}
@@ -103,18 +103,16 @@ export default function WorkflowSwitcher({
                       {/* TODO: Replace with CircleIcon and green / grey / red (error) / yellow (warning) */}
                       <Avatar className="mr-2 h-4 w-4">
                         <AvatarImage
-                          src={`https://avatar.vercel.sh/${workflow.id}.png`}
-                          alt={workflow.title}
+                          src={`https://avatar.vercel.sh/${wf.id}.png`}
+                          alt={wf.title}
                           className="grayscale"
                         />
                       </Avatar>
-                      {workflow.title}
+                      {wf.title}
                       <CheckIcon
                         className={cn(
                           "ml-auto h-4 w-4 text-xs",
-                          workflow?.id === workflow.id
-                            ? "opacity-100"
-                            : "opacity-0"
+                          workflow?.id === wf.id ? "opacity-100" : "opacity-0"
                         )}
                       />
                     </CommandItem>

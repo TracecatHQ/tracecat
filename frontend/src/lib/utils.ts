@@ -81,6 +81,12 @@ export function slugify(value: string, delimiter: string = "_"): string {
     .replace(/\s+/g, delimiter)
 }
 
+export function undoSlugify(value: string, delimiter: string = "_"): string {
+  return value
+    .replace(new RegExp(delimiter, "g"), " ")
+    .replace(/\b\w/g, (l) => l.toUpperCase())
+}
+
 /**
  *
  * @param key <Action ID>.<Action Slug>

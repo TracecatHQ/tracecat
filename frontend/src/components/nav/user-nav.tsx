@@ -67,7 +67,7 @@ export default function UserNav() {
             </DropdownMenuItem>
           </Link>
 
-          <DropdownMenuItem className="text-xs opacity-50">
+          <DropdownMenuItem className="text-xs" disabled>
             <Settings className="mr-2 h-4 w-4" />
             Settings
           </DropdownMenuItem>
@@ -82,7 +82,7 @@ export default function UserNav() {
               </Button>
             </NewCredentialsDialogTrigger>
           </NewCredentialsDialog>
-          <DropdownMenuItem className="text-xs opacity-50">
+          <DropdownMenuItem className="text-xs" disabled>
             <UsersRound className="mr-2 h-4 w-4" />
             <span>Manage users</span>
           </DropdownMenuItem>

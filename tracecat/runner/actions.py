@@ -101,7 +101,7 @@ def action_key_to_id(action_key: str) -> str:
     return action_key.split(".")[0]
 
 
-def action_key_to_title_snake_case(action_key: str) -> str:
+def action_key_to_slug(action_key: str) -> str:
     return action_key.split(".")[1]
 
 
@@ -208,9 +208,9 @@ class Action(BaseModel):
         return action_key_to_id(self.key)
 
     @property
-    def action_title_snake_case(self) -> str:
-        """The workflow-specific unique key of the action. This is the action title in lower snake case."""
-        return action_key_to_title_snake_case(self.key)
+    def slug(self) -> str:
+        """The workflow-specific unique key of the action. This is the action slug."""
+        return action_key_to_slug(self.key)
 
 
 class ActionRunResult(BaseModel):
@@ -219,9 +219,9 @@ class ActionRunResult(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     action_key: str = Field(
         pattern=ACTION_KEY_PATTERN,
-        description="Action key = '<action_id>.<action_title_lower_snake_case>'",
+        description="Action key = '<action_id>.<action_slug>'",
     )
-    data: dict[str, Any] = Field(default_factory=dict)
+    output: dict[str, Any] = Field(default_factory=dict)
     should_continue: bool = True
 
     @property
@@ -229,8 +229,8 @@ class ActionRunResult(BaseModel):
         return action_key_to_id(self.action_key)
 
     @property
-    def action_title_snake_case(self) -> str:
-        return action_key_to_title_snake_case(self.action_key)
+    def action_slug(self) -> str:
+        return action_key_to_slug(self.action_key)
 
 
 # NOTE: Might want to switch out to using discriminated unions instead of subclassing
@@ -379,7 +379,7 @@ def _index_events(
             workflow_title=workflow_title,
             workflow_run_id=workflow_run_id,
             data={
-                action_run_id: trail.data
+                action_run_id: trail.output
                 for action_run_id, trail in action_trail.items()
             },
             published_at=datetime.now(UTC).replace(tzinfo=None),
@@ -426,6 +426,14 @@ async def start_action_run(
         action_run_status_store[ar_id] = ActionRunStatus.RUNNING
         action_ref = workflow_ref.actions[action_key]
         await log_update_action_run(action_run, status="running")
+
+        # Every single 'run_xxx_action' function should return a dict
+        # This dict always contains a key 'output' with the direct result of the action
+        # The dict may contain additional keys for metadata or other information
+        # Dunder keys should are only used for carrying certain execution context information
+        # - __should_continue__: A boolean that indicates whether the workflow should continue
+        # - output_type: The type of the output
+        # We keep them in the result for debugging purposes, for now
         result = await run_action(
             action_run_id=action_run.id,
             workflow_id=workflow_ref.id,
@@ -517,21 +525,34 @@ async def run_webhook_action(
     custom_logger.debug("Perform webhook action")
     custom_logger.debug(f"{url = }")
     custom_logger.debug(f"{method = }")
+    # The payload provided to the webhook action in the HTTP request
     action_run_kwargs = action_run_kwargs or {}
     custom_logger.debug(f"{action_run_kwargs = }")
-    return {"url": url, "method": method, "payload": action_run_kwargs}
+    # TODO: Perform whitelist/filter step here using the url and method
+    return {
+        "output": action_run_kwargs,
+        "output_type": "dict",
+        "url": url,
+        "method": method,
+    }
 
 
 def parse_http_response_data(response: httpx.Response) -> dict[str, Any]:
     """Parse an HTTP response."""
 
-    data: dict[str, Any]
     content_type = response.headers.get("Content-Type")
     if content_type.startswith("application/json"):
-        data = response.json()
+        return {
+            "output": response.json(),
+            "content_type": "application/json",
+            "output_type": "dict",
+        }
     else:
-        data = {"text": response.text}
-    return data
+        return {
+            "output": response.text,
+            "content_type": "text/plain",
+            "output_type": "str",
+        }
 
 
 @retry(
@@ -564,13 +585,12 @@ async def run_http_request_action(
                 json=payload,
             )
         response.raise_for_status()
-        data: dict[str, Any] = parse_http_response_data(response)
     except httpx.HTTPStatusError as e:
         custom_logger.error(
             f"HTTP request failed with status {e.response.status_code}."
         )
         raise
-    return data
+    return parse_http_response_data(response)
 
 
 async def run_conditional_action(
@@ -584,7 +604,11 @@ async def run_conditional_action(
     custom_logger.debug(f"Run conditional rules {condition_rules}.")
     rule = ConditionRuleValidator.validate_python(condition_rules)
     rule_match = rule.evaluate()
-    return {"rule_match": rule_match, "__should_continue__": rule_match}
+    return {
+        "output": "true" if rule_match else "false",  # Explicitly convert to string
+        "output_type": "bool",
+        "__should_continue__": rule_match,
+    }
 
 
 async def run_llm_action(
@@ -623,7 +647,7 @@ async def run_llm_action(
             response_format="text",
             **llm_kwargs,
         )
-        return {"response": text_response}
+        return {"output": text_response, "output_type": "str"}
     else:
         system_context = "\n".join(
             (
@@ -641,7 +665,7 @@ async def run_llm_action(
         if "JSONDataResponse" in json_response:
             inner_dict: dict[str, str] = json_response["JSONDataResponse"]
             return inner_dict
-        return json_response
+        return {"output": json_response, "output_type": "dict"}
 
 
 async def run_send_email_action(
@@ -680,7 +704,7 @@ async def run_send_email_action(
             "subject": subject,
             "body": body,
         }
-        return email_response
+        return {"output": email_response, "output_type": "dict"}
 
     try:
         await email_provider.send()
@@ -719,7 +743,7 @@ async def run_send_email_action(
             "body": body,
         }
 
-    return email_response
+    return {"output": email_response, "output_type": "dict"}
 
 
 async def run_open_case_action(
@@ -758,7 +782,7 @@ async def run_open_case_action(
         suppression=suppression,
     )
     tbl.add([case.flatten()])
-    return case.model_dump()
+    return {"output": case.model_dump(), "output_type": "dict"}
 
 
 async def run_action(
@@ -801,7 +825,7 @@ async def run_action(
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
-        result.action_title_snake_case: result.data for result in action_trail.values()
+        result.action_slug: result.output for result in action_trail.values()
     }
     custom_logger.debug(f"Before template eval: {action_trail_json = }")
     action_kwargs_with_secrets = await evaluate_templated_secrets(
@@ -823,7 +847,10 @@ async def run_action(
     custom_logger.debug(f"{processed_action_kwargs = }")
 
     try:
-        result = await action_runner(
+        # The return value from each action runner call should be more or less what
+        # the user can expect to see in the action trail. This makes it very clear
+        # what the action is doing and what the output is.
+        output = await action_runner(
             custom_logger=custom_logger,
             action_run_kwargs=action_run_kwargs,
             **processed_action_kwargs,
@@ -832,8 +859,11 @@ async def run_action(
         custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
         raise
 
-    should_continue = result.get("__should_continue__", True)
-    return ActionRunResult(action_key=key, data=result, should_continue=should_continue)
+    # Leave dunder keys inside as a form of execution context
+    should_continue = output.get("__should_continue__", True)
+    return ActionRunResult(
+        action_key=key, output=output, should_continue=should_continue
+    )
 
 
 _ActionRunner = Callable[..., Awaitable[dict[str, Any]]]

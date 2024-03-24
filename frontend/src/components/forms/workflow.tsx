@@ -34,6 +34,7 @@ import {
   Workflow,
   WorkflowRun,
 } from "@/types/schemas"
+import { stringToJSONSchema } from "@/types/validators"
 import {
   fetchWorkflowRun,
   fetchWorkflowRuns,
@@ -228,10 +229,20 @@ export function WorkflowForm({
   )
 }
 
-const workflowControlsFormSchema = z.object({
-  payload: z.string(), // json
-  actionKey: z.string(),
-})
+const workflowControlsFormSchema = z
+  .object({
+    payload: stringToJSONSchema, // json
+    actionKey: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      return data.actionKey !== undefined
+    },
+    {
+      message: "Please select an action.",
+      path: ["actionKey"], // Specify the path of the field being validated for targeted error messages.
+    }
+  )
 type WorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
 export function WorkflowControlsForm({
@@ -240,26 +251,42 @@ export function WorkflowControlsForm({
   workflow: Workflow
 }): React.JSX.Element {
   const session = useSession()
+  const [confirmationIsOpen, setConfirmationIsOpen] = useState(false)
   const form = useForm<WorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: {
       payload: "",
-      actionKey: "",
+      actionKey: undefined,
     },
   })
   const [selectedAction, setSelectedAction] = useState<Action | null>(null)
 
   const onSubmit = async (values: WorkflowControlsForm) => {
     // Make the API call to start the workflow
-    await triggerWorkflow(
-      session,
-      workflow.id,
-      values.actionKey,
-      JSON.parse(values.payload)
-    )
+    console.log(values)
+    if (!values.actionKey) {
+      console.error("No action key provided")
+      toast({
+        title: "No action key provided",
+        description: "Please select an action to start the workflow.",
+      })
+      return
+    }
+
+    try {
+      const data = JSON.parse(values.payload)
+      await triggerWorkflow(session, workflow.id, values.actionKey, data)
+    } catch (e) {
+      console.error("Invalid JSON payload")
+      toast({
+        title: "Invalid JSON payload",
+        description: "Please provide a valid JSON payload.",
+      })
+    }
   }
   useEffect(() => {
     if (selectedAction) {
+      console.log("Selected action", selectedAction)
       form.setValue("actionKey", getActionKey(selectedAction))
     }
   }, [selectedAction])
@@ -271,7 +298,7 @@ export function WorkflowControlsForm({
         </div>
         <Separator />
 
-        <AlertDialog>
+        <AlertDialog open={confirmationIsOpen}>
           <FormField
             control={form.control}
             name="payload"
@@ -284,7 +311,22 @@ export function WorkflowControlsForm({
                     setSelectedaction={setSelectedAction}
                   />
                   <AlertDialogTrigger asChild>
-                    <Button type="button">
+                    <Button
+                      type="button"
+                      onClick={async () => {
+                        const validated = await form.trigger()
+                        if (!form.getValues("actionKey")) {
+                          console.error("No action key provided")
+                          toast({
+                            title: "No action provided",
+                            description:
+                              "Please select an action to start the workflow.",
+                          })
+                          return
+                        }
+                        setConfirmationIsOpen(validated)
+                      }}
+                    >
                       <div className="flex items-center space-x-2">
                         <Send className="h-4 w-4" />
                         <span>Send</span>
@@ -309,7 +351,7 @@ export function WorkflowControlsForm({
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Start workflow confirmation</AlertDialogTitle>
-              <AlertDialogDescription>
+              <AlertDialogDescription className="flex flex-col">
                 <span>
                   You are about to start the workflow with the selected action:
                 </span>
@@ -338,7 +380,9 @@ export function WorkflowControlsForm({
               </SyntaxHighlighter>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel onClick={() => setConfirmationIsOpen(false)}>
+                Cancel
+              </AlertDialogCancel>
               <AlertDialogAction onClick={() => form.handleSubmit(onSubmit)()}>
                 <div className="flex items-center space-x-2">
                   <Send className="h-4 w-4" />
@@ -399,7 +443,7 @@ export default function EntrypointSelector({
       >
         <Command>
           <CommandInput className="text-xs" placeholder="Search webhooks..." />
-          <CommandEmpty>No presets found.</CommandEmpty>
+          <CommandEmpty>No actions found.</CommandEmpty>
           <CommandGroup heading="Webhooks">
             {actions.map((action) => (
               <CommandItem

@@ -27,7 +27,7 @@ export function WorkspacePanel() {
       ) : workflow ? (
         <WorkflowPanel workflow={workflow} isOnline={isOnline} />
       ) : (
-        <FormLoading className="bg-slate-100" />
+        <FormLoading />
       )}
     </div>
   )

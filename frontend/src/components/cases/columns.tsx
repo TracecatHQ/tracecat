@@ -105,6 +105,16 @@ export const columns: ColumnDef<Case>[] = [
     },
   },
   {
+    accessorKey: "created_at",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Created At" />
+    ),
+    cell: ({ row }) => row.getValue<Case["created_at"]>("created_at"),
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue<Case["id"]>(id))
+    },
+  },
+  {
     accessorKey: "title",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Case Title" />

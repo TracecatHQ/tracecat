@@ -159,11 +159,11 @@ export default React.memo(function ActionNode({
                   <Copy className="mr-2 h-4 w-4" />
                   <span className="text-xs">Copy JSONPath</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem disabled>
                   <ScanSearchIcon className="mr-2 h-4 w-4" />
                   <span className="text-xs">Search events</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem disabled>
                   <EyeIcon className="mr-2 h-4 w-4" />
                   <span className="text-xs">View logs</span>
                 </DropdownMenuItem>
@@ -175,7 +175,7 @@ export default React.memo(function ActionNode({
 
       <CardContent className="pb-4 pl-5 pr-5 pt-0">
         <div className="flex space-x-4 text-xs text-muted-foreground">
-          <div className="flex items-center">
+          {/* <div className="flex items-center">
             <CircleIcon
               className={cn(
                 "mr-1 h-3 w-3",
@@ -185,7 +185,7 @@ export default React.memo(function ActionNode({
               )}
             />
             <span className="capitalize">{status}</span>
-          </div>
+          </div> */}
           <div className="flex items-center">
             <CircleIcon
               className={cn(
