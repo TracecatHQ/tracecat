@@ -4,7 +4,7 @@ import { LucideIcon, LucideProps } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const titleVariants = cva(
-  "flex items-center justify-between font-semibold capitalize",
+  "flex items-center justify-between font-semibold",
   {
     variants: {
       titleSize: {
