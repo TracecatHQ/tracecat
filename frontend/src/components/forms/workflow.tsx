@@ -1,6 +1,5 @@
 "use client"
 
-import { title } from "process"
 import { useEffect, useState } from "react"
 import * as React from "react"
 import { useSession } from "@/providers/session"
@@ -24,11 +23,8 @@ import {
   CircleIcon,
   CircleX,
   Loader2,
-  PlusCircle,
   Save,
   Send,
-  Settings,
-  Settings2,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import SyntaxHighlighter from "react-syntax-highlighter"
