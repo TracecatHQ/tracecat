@@ -57,14 +57,14 @@ Build AI-assisted workflows, enrich alerts, and close cases fast.
   - [x] Drag-and-drop builder
   - [x] Core primitives (webhook, HTTP, if-else, send email, etc.)
   - [x] AI Actions (label, summarize, enrich etc.)
+  - [x] Secrets
   - [ ] Batch-stream data transforms (expected April 2024)
-  - [ ] Secrets (expected April 2024)
   - [ ] Formulas (expected May 2024)
   - [ ] Versioning (expected June 2024)
 - Case management
   - [x] [SMAC (status, malice, action, context)](https://www.rapid7.com/blog/post/2021/02/12/talkin-smac-alert-labeling-and-why-it-matters/)
   - [x] Suppression
-  - [x] Deduplication
+  - [ ] Deduplication (expected 1st week April)
   - [x] AI-assisted labelling (e.g. MITRE ATT&CK)
   - [ ] Metrics
   - [ ] Analytics dashboard
@@ -73,6 +73,9 @@ Build AI-assisted workflows, enrich alerts, and close cases fast.
   - [x] Logs search
   - [ ] Visual detection rules
   - [ ] Piped query language
+- Data validation
+  - [x] [Pydantic V2](https://github.com/pydantic/pydantic) for fast data model and input / output validation in the backend
+  - [x] [Zod](https://github.com/colinhacks/zod) for fast form and input / output validation in the frontend
 - Teams
   - [ ] Collaboration
   - [ ] Tenants
