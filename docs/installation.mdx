@@ -4,15 +4,21 @@ description: Run Tracecat locally
 ---
 
 <Note>
-Self deployment can be tricky. We'd love to help on [Discord](https://discord.gg/n3GF4qxFU8)!
+  Self deployment can be tricky. We'd love to help on
+  [Discord](https://discord.gg/n3GF4qxFU8)!
 </Note>
 
 Install Tracecat using Docker Compose.
 
 ## Prerequisites
+
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker compose](https://docs.docker.com/compose/install/)
-- [Supabase account](https://app.supabase.io/)
+- [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started#installing-the-supabase-cli)
+- [pnpm](https://pnpm.io/installation#using-corepack)
+- [Resend API Key](https://resend.com/docs/introduction) 
+- [OpenAI API Key](https://platform.openai.com/docs/overview)
+- [ngrok](https://ngrok.com/)
 
 ## Clone GitHub repo
 
@@ -20,9 +26,35 @@ Install Tracecat using Docker Compose.
 git clone git@github.com:TracecatHQ/tracecat.git
 ```
 
-## Create `.env` file
+## Start Supabase Postgres Database
+
+You'll need the Docker engine running for this to work. Navigate to the `tracecat` root folder and run
 
 ```bash
+supabase start
+```
+
+You should see the following output:
+
+```bash
+❯ supabase start
+Started supabase local development setup.
+
+         API URL: http://127.0.0.1:54321
+     GraphQL URL: http://127.0.0.1:54321/graphql/v1
+          DB URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      Studio URL: http://127.0.0.1:54323
+      JWT secret: super-secret-jwt-token-with-at-least-32-characters-long
+        anon key: ey...
+service_role key: ey...
+```
+
+## Set up environment variables
+
+### Create `.env` file in the tracecat root directory
+
+```bash
+# In tracecat/.env
 TRACECAT__SIGNING_SECRET=${ openssl rand -hex 32 }
 TRACECAT__SERVICE_KEY=${ openssl rand -hex 32 }
 TRACECAT__DB_ENCRYPTION_KEY=your-fernet-key
@@ -30,15 +62,71 @@ SUPABASE_JWT_SECRET=your-supabase-jwt-secret
 SUPABASE_JWT_ALGORITHM="HS256"
 SUPABASE_PSQL_UR=your-supabase-psql-url
 OPENAI_API_KEY=your-openai-api-key
+OPENAI_API_KEY=your-openai-api-key
+TRACECAT__SELF_HOSTED_DB_BACKEND="postgres" # or "sqlite"
+
 ```
 
-*Note: to generate a `TRACECAT__SERVICE_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/.*
+### Expose the runner
 
-## Start Tracecat
+We need to expose the runner so that we can reach our webhooks from external services. A simple way to do this is to use a service like [ngrok](https://ngrok.com/).
 
 ```bash
-docker-compose up
+TRACECAT__RUNNER_URL=https://your-runner-url
 ```
 
+_Note: to generate a `TRACECAT__SERVICE_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
+
+## Create `.env.local` file in `tracecat/frontend`
+Our frontend stack is React + Typescript + NextJS. Add the following:
+
+```bash
+# In tracecat/frontend/.env.local
+NODE_ENV="development"
+NEXT_PUBLIC_APP_ENV="dev"
+NEXT_PUBLIC_SELF_HOSTED=true
+NEXT_PUBLIC_APP_URL="http://localhost:8000"
+NEXT_PUBLIC_SUPABASE_URL="http://localhost:54321"
+NEXT_PUBLIC_SUPABASE_ANON_KEY= ... // From output of supabase start
+```
+
+## Start Tracecat
+### Backend
+At this point, your
+```bash
+docker compose -f docker-compose.self-host.yaml up
+```
+
+### Frontend
+Inside `tracecat/frontend`, install dependencies with
+```bash
+pnpm install
+```
+Then run the frontend in development mode:
+```bash
+pnpm dev
+```
+Alternatively if you'd like to build it:
+```bash
+pnpm run build
+pnpm run start
+```
+
+_Note: We're working on adding the frontend to the docker compose stack!_
+
+
+
+
+## Getting started
 You can access Tracecat's frontend at [http://localhost:3000](http://localhost:3000)
-and the OpenAPI docs at [http://localhost:8000](http://localhost:8000).
+and the OpenAPI docs at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+Once the frontend and backend services are running, you should see a email + password login page at [http://localhost:3000](http://localhost:3000). 
+
+### Create a user and log in
+To create a user account, visit the Supabase dashboard at [http://localhost:54323](http://localhost:54323) and click on `Authentication` on the left side panel. You should see a dropdown `Add User` at the top right of the page, where you can create a user. 
+After doing so, you should be able to log into through the frontend.
+
+
+
+
