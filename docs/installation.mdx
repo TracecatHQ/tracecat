@@ -59,23 +59,30 @@ TRACECAT__SIGNING_SECRET=${ openssl rand -hex 32 }
 TRACECAT__SERVICE_KEY=${ openssl rand -hex 32 }
 TRACECAT__DB_ENCRYPTION_KEY=your-fernet-key
 SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+# If running locally, this will be
+# SUPABASE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
 SUPABASE_JWT_ALGORITHM="HS256"
-SUPABASE_PSQL_UR=your-supabase-psql-url
+SUPABASE_PSQL_URL=your-supabase-psql-url
+# If running locally this will be
+# SUPABASE_PSQL_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres
+# NOTE: The port here is the container's port (default '5432') to allow for services in the local docker network to reach the database.
 OPENAI_API_KEY=your-openai-api-key
-OPENAI_API_KEY=your-openai-api-key
-TRACECAT__SELF_HOSTED_DB_BACKEND="postgres" # or "sqlite"
-
+RESEND_API_KEY=your-resend-api-key
+TRACECAT__SELF_HOSTED_DB_BACKEND="postgres" # Or "sqlite", but we don't recommend this for now
 ```
+_Note: to generate a `TRACECAT__DB_ENCRYPTION_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
 
 ### Expose the runner
 
 We need to expose the runner so that we can reach our webhooks from external services. A simple way to do this is to use a service like [ngrok](https://ngrok.com/).
 
+We recommend you grab a free static url from their page.
+
 ```bash
 TRACECAT__RUNNER_URL=https://your-runner-url
 ```
 
-_Note: to generate a `TRACECAT__SERVICE_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
+
 
 ## Create `.env.local` file in `tracecat/frontend`
 Our frontend stack is React + Typescript + NextJS. Add the following:
@@ -87,14 +94,20 @@ NEXT_PUBLIC_APP_ENV="dev"
 NEXT_PUBLIC_SELF_HOSTED=true
 NEXT_PUBLIC_APP_URL="http://localhost:8000"
 NEXT_PUBLIC_SUPABASE_URL="http://localhost:54321"
-NEXT_PUBLIC_SUPABASE_ANON_KEY= ... // From output of supabase start
+NEXT_PUBLIC_SUPABASE_ANON_KEY= ... # From output of supabase start
 ```
 
 ## Start Tracecat
 ### Backend
-At this point, your
+At this point, the Supabase stack should already be running. Run the following to bring up Tracecat `nginx`, `api`, and `runner` services:
 ```bash
 docker compose -f docker-compose.self-host.yaml up
+```
+
+Allow incoming webhooks for the runner:
+```bash
+# Tracecat runner listens on port 8001
+ngrok http --domain=your-ngrok-url-here.ngrok-free.app 8001
 ```
 
 ### Frontend
@@ -128,5 +141,9 @@ To create a user account, visit the Supabase dashboard at [http://localhost:5432
 After doing so, you should be able to log into through the frontend.
 
 
+## Shut down
+```bash
+docker compose -f docker-compose.self-host.yaml down --remove-orphans && supabase stop
+```
 
 
