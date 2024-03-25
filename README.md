@@ -31,7 +31,7 @@
 
 - Enterprise-grade open source tools
 - Open source AI infra and GPT models
-- [Practioner-obsessed UI/UX](#faq)
+- [Practitioner-obsessed UI/UX](#faq)
 
 It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
 
@@ -161,7 +161,7 @@ Looking to report a security vulnerability? Please don't post about it in GitHub
 
 ## FAQ
 
-### What does it mean to be "practioner-obsessed"?
+### What does it mean to be "practitioner-obsessed"?
 
 Core features, user-interfaces, and day-to-day workflows are based on existing best-practices from [best-in-class security teams](https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c). We won't throw in a Clippy chatbot just for the sake of it.
 
@@ -175,7 +175,7 @@ Core features, user-interfaces, and day-to-day workflows are based on existing b
 
 - We love using and building open source tools.
 - Existing "AI" security products hide behind demo-ware, sales calls, and white papers. We want to build in the open: open community, open tutorials, and open vision.
-- Create a safe space for practioners to experiment with open source AI models in their own isolated environments.
+- Create a safe space for practitioners to experiment with open source AI models in their own isolated environments.
 
 ### What does AI-native mean?
 
