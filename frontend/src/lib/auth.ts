@@ -3,6 +3,9 @@
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { createClient } from "@/utils/supabase/server"
+import { Session } from "@supabase/supabase-js"
+
+import { createWorkflow } from "@/lib/flow"
 
 type ThirdPartyAuthProvider = "google" | "github"
 
@@ -11,14 +14,20 @@ export async function signInFlow(formData: FormData) {
   const password = formData.get("password") as string
   const supabase = createClient()
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.signInWithPassword({
     email,
     password,
   })
 
-  if (error) {
+  if (error || !session) {
+    console.error("error", error, "session", session)
     return redirect("/?level=error&message=Could not authenticate user")
   }
+
+  await newUserFlow(session)
 
   return redirect("/workflows")
 }
@@ -41,7 +50,7 @@ export async function signUpFlow(formData: FormData) {
     return redirect("/?level=error&message=Could not authenticate user")
   }
 
-  return redirect("/?message=Check email to continue sign in process")
+  return redirect("/?message=Check your email to continue")
 }
 
 export async function thirdPartyAuthFlow(provider: ThirdPartyAuthProvider) {
@@ -79,5 +88,30 @@ export async function signInWithEmailMagicLink(formData: FormData) {
   if (error) {
     return redirect("/?level=error&message=Could not authenticate user")
   }
-  return redirect("/?message=Check email to continue sign in process")
+  return redirect("/?message=Check your email to continue")
+}
+
+export async function newUserFlow(session: Session) {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/users`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  })
+
+  // If the user already exists, we'll get a 409 conflict
+  if (!response.ok && response.status !== 409) {
+    console.error("Failed to create user")
+    return redirect("/?level=error&message=Could not authenticate user")
+  }
+
+  if (response.status !== 409) {
+    console.log("New user created")
+    await createWorkflow(
+      session,
+      "My first workflow",
+      "Welcome to Tracecat. This is your first workflow!"
+    )
+    console.log("Created first workflow for new user")
+  }
 }

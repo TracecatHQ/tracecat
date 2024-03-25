@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { PasswordlessSignInForm } from "@/components/auth/forms"
+import { PasswordlessSignInForm, SignInForm } from "@/components/auth/forms"
 import {
   GithubOAuthButton,
   GoogleOAuthButton,
@@ -61,23 +61,29 @@ export default async function Login({
             Enter your email below to create your account or sign in
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex-col space-y-2">
-          <div className="mb-8 grid grid-cols-2 gap-2">
-            <GoogleOAuthButton />
-            <GithubOAuthButton />
-          </div>
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with
-              </span>
-            </div>
-          </div>
-        </CardContent>
-        <PasswordlessSignInForm searchParams={searchParams} />
+        {Boolean(process.env.NEXT_PUBLIC_SELF_HOSTED) ? (
+          <SignInForm searchParams={searchParams} />
+        ) : (
+          <>
+            <CardContent className="flex-col space-y-2">
+              <div className="mb-8 grid grid-cols-2 gap-2">
+                <GoogleOAuthButton />
+                <GithubOAuthButton />
+              </div>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">
+                    Or continue with
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+            <PasswordlessSignInForm searchParams={searchParams} />
+          </>
+        )}
       </div>
     </div>
   )
