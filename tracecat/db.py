@@ -38,7 +38,7 @@ if TRACECAT__APP_ENV == "prod":
 else:
     # Attempt to use supabase first
     if TRACECAT__SELF_HOSTED_DB_BACKEND == "postgres":
-        TRACECAT__DB_URI = os.environ["SUPABASE_PSQL_URL"]
+        TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
     else:
         TRACECAT__DB_URI = f"sqlite:////{STORAGE_PATH}/database.db"
 
