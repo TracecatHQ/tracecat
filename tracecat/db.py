@@ -50,13 +50,13 @@ class User(SQLModel, table=True):
     settings: str | None = None  # JSON-serialized String of settings
     owned_workflows: list["Workflow"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={"cascade": "delete"},
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     case_actions: list["CaseAction"] = Relationship(back_populates="user")
     case_contexts: list["CaseContext"] = Relationship(back_populates="user")
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={"cascade": "delete"},
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
@@ -85,7 +85,9 @@ class Secret(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     name: str | None = Field(default=None, max_length=255, index=True, nullable=True)
     encrypted_api_key: bytes | None = Field(default=None, nullable=True)
-    owner_id: str = Field(foreign_key="user.id")
+    owner_id: str = Field(
+        sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
+    )
     owner: User | None = Relationship(back_populates="secrets")
 
     @property
@@ -130,7 +132,9 @@ class Workflow(Resource, table=True):
     object: str | None = None  # JSON-serialized String of react flow object
     icon_url: str | None = None
     # Owner
-    owner_id: str = Field(foreign_key="user.id")
+    owner_id: str = Field(
+        sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
+    )
     owner: User | None = Relationship(back_populates="owned_workflows")
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     actions: list["Action"] | None = Relationship(
