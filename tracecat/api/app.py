@@ -92,21 +92,29 @@ app = FastAPI(lifespan=lifespan)
 if TRACECAT__APP_ENV == "prod":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
-    origins = ["https://platform.tracecat.com", TRACECAT__RUNNER_URL]
+    cors_origins_kwargs = {
+        "allow_origins": ["https://platform.tracecat.com", TRACECAT__RUNNER_URL]
+    }
 elif TRACECAT__APP_ENV == "staging":
-    origins = ["https://tracecat-*-tracecat.vercel.app", TRACECAT__RUNNER_URL]
+    cors_origins_kwargs = {
+        "allow_origins": [TRACECAT__RUNNER_URL],
+        "allow_origin_regex": ["https://tracecat-.*-tracecat.vercel.app"],
+    }
 else:
-    origins = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-    ]
+    cors_origins_kwargs = {
+        "allow_origins": [
+            "http://localhost:3000",
+            "http://localhost:8000",
+        ],
+    }
+
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.info(f"Setting CORS origins to {origins}")
+logger.info(f"Setting CORS origins to {cors_origins_kwargs}")
 logger.info(f"{TRACECAT__APP_ENV =}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    **cors_origins_kwargs,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
