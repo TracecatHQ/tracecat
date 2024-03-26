@@ -485,7 +485,7 @@ async def start_action_run(
             action_trail=action_trail,
         )
     except Exception as e:
-        logger.error("Tantiy indexing failed.", exc_info=e)
+        logger.error("Tantivy indexing failed.", exc_info=e)
 
     await log_update_action_run(action_run, status=run_status)
 
