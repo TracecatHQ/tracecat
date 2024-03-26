@@ -69,6 +69,7 @@ SUPABASE_PSQL_URL=your-supabase-psql-url
 OPENAI_API_KEY=your-openai-api-key
 RESEND_API_KEY=your-resend-api-key
 TRACECAT__SELF_HOSTED_DB_BACKEND="postgres" # Or "sqlite", but we don't recommend this for now
+TRACECAT__DB_URI=postgresql+psycopg2://postgres:postgres@supabase_db_tracecat:5432/postgres
 ```
 
 _Note: to generate a `TRACECAT__DB_ENCRYPTION_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
