@@ -72,25 +72,30 @@ logger = standard_logger(__name__)
 
 app = FastAPI(debug=True, default_response_class=ORJSONResponse)
 
+
 if TRACECAT__APP_ENV == "prod":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
-    origins = [
-        "https://platform.tracecat.com",
-        TRACECAT__API_URL,
-    ]
+    cors_origins_kwargs = {
+        "allow_origins": ["https://platform.tracecat.com", TRACECAT__API_URL]
+    }
 elif TRACECAT__APP_ENV == "staging":
-    origins = ["https://tracecat-*-tracecat.vercel.app", TRACECAT__API_URL]
+    cors_origins_kwargs = {
+        "allow_origins": [TRACECAT__API_URL],
+        "allow_origin_regex": ["https://tracecat-.*-tracecat.vercel.app"],
+    }
 else:
-    origins = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-    ]
+    cors_origins_kwargs = {
+        "allow_origins": [
+            "http://localhost:3000",
+            "http://localhost:8000",
+        ],
+    }
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    **cors_origins_kwargs,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
