@@ -9,7 +9,7 @@ import pyarrow as pa
 import tantivy
 from pydantic import computed_field
 from slugify import slugify
-from sqlalchemy import TIMESTAMP, Engine, text
+from sqlalchemy import TIMESTAMP, Column, Engine, ForeignKey, String, text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 from tracecat import auth
@@ -135,11 +135,11 @@ class Workflow(Resource, table=True):
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "delete"},
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     webhooks: list["Webhook"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "delete"},
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
     @computed_field
@@ -152,7 +152,7 @@ class Workflow(Resource, table=True):
 class WorkflowRun(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     status: str = "pending"  # "online" or "offline"
-    workflow_id: str = Field(foreign_key="workflow.id")
+    workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="runs")
     action_runs: list["ActionRun"] | None = Relationship(back_populates="workflow_run")
 
@@ -164,7 +164,9 @@ class Action(Resource, table=True):
     description: str
     status: str = "offline"  # "online" or "offline"
     inputs: str | None = None  # JSON-serialized String of inputs
-    workflow_id: str | None = Field(foreign_key="workflow.id")
+    workflow_id: str | None = Field(
+        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    )
     workflow: Workflow | None = Relationship(back_populates="actions")
 
     runs: list["ActionRun"] | None = Relationship(back_populates="action")
@@ -179,7 +181,7 @@ class Action(Resource, table=True):
 class ActionRun(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     status: str = "pending"  # "online" or "offline"
-    action_id: str = Field(foreign_key="action.id")
+    action_id: str | None = Field(foreign_key="action.id")
     action: Action | None = Relationship(back_populates="runs")
     workflow_run_id: str = Field(foreign_key="workflowrun.id")
     workflow_run: WorkflowRun | None = Relationship(back_populates="action_runs")
@@ -200,8 +202,12 @@ class Webhook(Resource, table=True):
         description="Webhook path",
         alias="path",
     )
-    action_id: str | None = Field(foreign_key="action.id")
-    workflow_id: str | None = Field(foreign_key="workflow.id")
+    action_id: str | None = Field(
+        sa_column=Column(String, ForeignKey("action.id", ondelete="CASCADE"))
+    )
+    workflow_id: str | None = Field(
+        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    )
     workflow: Workflow | None = Relationship(back_populates="webhooks")
 
     @computed_field
