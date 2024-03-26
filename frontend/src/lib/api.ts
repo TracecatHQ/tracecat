@@ -3,7 +3,7 @@ import { type Session } from "@supabase/supabase-js"
 import axios from "axios"
 
 const client = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_APP_URL,
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
 })
 export type Client = typeof client
 
@@ -19,7 +19,7 @@ export const getAuthenticatedClient = (session: Session | null) => {
 }
 
 export async function streamingResponse(endpoint: string, init?: RequestInit) {
-  return fetch(`${process.env.NEXT_PUBLIC_APP_URL}${endpoint}`, init)
+  return fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, init)
 }
 
 export async function* streamGenerator(
@@ -33,7 +33,7 @@ export async function* streamGenerator(
   }
   const { headers, ...rest } = init ?? {}
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL}${endpoint}`,
+    `${process.env.NEXT_PUBLIC_API_URL}${endpoint}`,
     {
       ...rest,
       headers: {

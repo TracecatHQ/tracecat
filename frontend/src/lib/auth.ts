@@ -92,7 +92,7 @@ export async function signInWithEmailMagicLink(formData: FormData) {
 }
 
 export async function newUserFlow(session: Session) {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/users`, {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${session.access_token}`,
