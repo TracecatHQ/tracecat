@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
 
 const newWorkflowFormSchema = z.object({
   name: z.string().min(1, "Please enter a secret name."),
@@ -64,8 +65,16 @@ export function NewCredentialsDialog({
       })
       form.reset()
       console.log("New credentials added", response.data)
+      toast({
+        title: "Added new secret",
+        description: "New secret added successfully.",
+      })
     } catch (error) {
       console.error("Failed to add new credentials", error)
+      toast({
+        title: "Failed to add new secret",
+        description: "An error occurred while adding the new secret.",
+      })
     }
   }
 
