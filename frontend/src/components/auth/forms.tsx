@@ -14,7 +14,7 @@ import { SubmitButton } from "./submit-button"
 export function SignInForm({
   searchParams,
 }: {
-  searchParams: { message: string }
+  searchParams: { level?: AlertLevel; message?: string }
 }) {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   async function onSubmit(event: React.SyntheticEvent<HTMLFormElement>) {
@@ -63,9 +63,10 @@ export function SignInForm({
           Sign In
         </SubmitButton>
         {searchParams?.message && (
-          <p className="mt-4 bg-foreground/10 p-4 text-center text-foreground">
-            {searchParams.message}
-          </p>
+          <AlertNotification
+            level={searchParams?.level}
+            message={searchParams.message}
+          />
         )}
       </CardFooter>
     </form>

@@ -244,6 +244,9 @@ class TracecatEngineStack(Stack):
             "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="openai-api-key"
             ),
+            "RESEND_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="resend-api-key"
+            ),
         }
         if TRACECAT__APP_ENV == "prod":
             shared_env = {

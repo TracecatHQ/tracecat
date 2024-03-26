@@ -11,7 +11,7 @@
     "format": "pnpm prettier --check --ignore-path .gitignore .",
     "lint:fix": "next lint --fix",
     "lint": "next lint",
-    "prepare": "cd .. && husky frontend/.husky",
+    "prepare": "cd .. && husky frontend/.husky || true",
     "preview": "next build && next start",
     "start": "next start",
     "typecheck": "tsc --noEmit"
