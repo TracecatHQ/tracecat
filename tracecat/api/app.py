@@ -102,6 +102,8 @@ else:
     ]
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
+logger.info(f"Setting CORS origins to {origins}")
+logger.info(f"{TRACECAT__APP_ENV =}")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
