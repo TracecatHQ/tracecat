@@ -6,6 +6,7 @@ services:
       service: api
     environment:
       TRACECAT__SELF_HOSTED_DB_BACKEND: ${TRACECAT__SELF_HOSTED_DB_BACKEND}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
     networks:
       - nginx-network
       - supabase_network_tracecat
@@ -16,6 +17,7 @@ services:
       service: runner
     environment:
       TRACECAT__SELF_HOSTED_DB_BACKEND: ${TRACECAT__SELF_HOSTED_DB_BACKEND}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
     networks:
       - nginx-network
       - supabase_network_tracecat
