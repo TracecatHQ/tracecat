@@ -253,7 +253,7 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="resend-api-key"
             ),
         }
-        if TRACECAT__APP_ENV == "prod":
+        if TRACECAT__APP_ENV in ("prod", "staging"):
             shared_env = {
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 "TRACECAT__API_URL": f"https://api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
