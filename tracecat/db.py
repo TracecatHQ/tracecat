@@ -17,7 +17,6 @@ from tracecat.auth import decrypt_key, encrypt_key
 from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
-    TRACECAT__SELF_HOSTED_DB_BACKEND,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 
@@ -33,14 +32,7 @@ DEFAULT_CASE_ACTIONS = [
     "Sinkholed",
 ]
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
-if TRACECAT__APP_ENV == "prod":
-    TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
-else:
-    # Attempt to use supabase first
-    if TRACECAT__SELF_HOSTED_DB_BACKEND == "postgres":
-        TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
-    else:
-        TRACECAT__DB_URI = f"sqlite:////{STORAGE_PATH}/database.db"
+TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
 
 
 class User(SQLModel, table=True):
@@ -233,14 +225,11 @@ def create_db_engine() -> Engine:
             "connect_args": {"sslmode": "require"},
         }
     else:
-        if TRACECAT__SELF_HOSTED_DB_BACKEND == "postgres":
-            engine_kwargs = {
-                "pool_timeout": 30,
-                "pool_recycle": 3600,
-                "connect_args": {"sslmode": "disable"},
-            }
-        else:
-            engine_kwargs = {"connect_args": {"check_same_thread": False}}
+        engine_kwargs = {
+            "pool_timeout": 30,
+            "pool_recycle": 3600,
+            "connect_args": {"sslmode": "disable"},
+        }
     engine = create_engine(TRACECAT__DB_URI, **engine_kwargs)
     return engine
 
