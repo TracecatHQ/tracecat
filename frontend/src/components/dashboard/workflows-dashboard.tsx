@@ -70,8 +70,8 @@ export async function WorkflowList({ session }: WorkflowListProps) {
         </span>
       ) : (
         <>
-          {workflows.map((wf) => (
-            <WorkflowItem workflow={wf} />
+          {workflows.map((wf, idx) => (
+            <WorkflowItem key={idx} workflow={wf} />
           ))}
         </>
       )}
