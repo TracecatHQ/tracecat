@@ -64,12 +64,11 @@ SUPABASE_JWT_SECRET=your-supabase-jwt-secret
 SUPABASE_JWT_ALGORITHM="HS256"
 SUPABASE_PSQL_URL=your-supabase-psql-url
 # If running locally this will be
-# SUPABASE_PSQL_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres
+# SUPABASE_PSQL_URL=postgresql://postgres:postgres@host.docker.internal:54322/postgres
 # NOTE: The port here is the container's port (default '5432') to allow for services in the local docker network to reach the database.
 OPENAI_API_KEY=your-openai-api-key
 RESEND_API_KEY=your-resend-api-key
-TRACECAT__SELF_HOSTED_DB_BACKEND="postgres" # Or "sqlite", but we don't recommend this for now
-TRACECAT__DB_URI=postgresql+psycopg2://postgres:postgres@supabase_db_tracecat:5432/postgres
+TRACECAT__DB_URI=postgresql://postgres:postgres@host.docker.internal:54322/postgres
 ```
 
 _Note: to generate a `TRACECAT__DB_ENCRYPTION_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
