@@ -1,7 +1,13 @@
-import { type NextRequest } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 import { updateSession } from "@/utils/supabase/middleware"
+import { get } from "@vercel/edge-config"
 
 export async function middleware(request: NextRequest) {
+  if (await get("isUnderMaintenance")) {
+    request.nextUrl.pathname = `/status`
+    console.log("Redirecting to status page")
+    return NextResponse.rewrite(request.nextUrl)
+  }
   return await updateSession(request)
 }
 
@@ -15,5 +21,6 @@ export const config = {
      * Feel free to modify this pattern to include more paths.
      */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/status",
   ],
 }
