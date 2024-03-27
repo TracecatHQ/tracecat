@@ -16,7 +16,7 @@ Install Tracecat using Docker Compose.
 - [Docker compose](https://docs.docker.com/compose/install/)
 - [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started#installing-the-supabase-cli)
 - [pnpm](https://pnpm.io/installation#using-corepack)
-- [Resend API Key](https://resend.com/docs/introduction) 
+- [Resend API Key](https://resend.com/docs/introduction)
 - [OpenAI API Key](https://platform.openai.com/docs/overview)
 - [ngrok](https://ngrok.com/)
 
@@ -64,12 +64,13 @@ SUPABASE_JWT_SECRET=your-supabase-jwt-secret
 SUPABASE_JWT_ALGORITHM="HS256"
 SUPABASE_PSQL_URL=your-supabase-psql-url
 # If running locally this will be
-# SUPABASE_PSQL_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres
+# SUPABASE_PSQL_URL=postgresql://postgres:postgres@host.docker.internal:54322/postgres
 # NOTE: The port here is the container's port (default '5432') to allow for services in the local docker network to reach the database.
 OPENAI_API_KEY=your-openai-api-key
 RESEND_API_KEY=your-resend-api-key
-TRACECAT__SELF_HOSTED_DB_BACKEND="postgres" # Or "sqlite", but we don't recommend this for now
+TRACECAT__DB_URI=postgresql://postgres:postgres@host.docker.internal:54322/postgres
 ```
+
 _Note: to generate a `TRACECAT__DB_ENCRYPTION_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
 
 ### Expose the runner
@@ -82,9 +83,8 @@ We recommend you grab a free static url from their page.
 TRACECAT__RUNNER_URL=https://your-runner-url
 ```
 
-
-
 ## Create `.env.local` file in `tracecat/frontend`
+
 Our frontend stack is React + Typescript + NextJS. Add the following:
 
 ```bash
@@ -92,34 +92,45 @@ Our frontend stack is React + Typescript + NextJS. Add the following:
 NODE_ENV="development"
 NEXT_PUBLIC_APP_ENV="dev"
 NEXT_PUBLIC_SELF_HOSTED=true
-NEXT_PUBLIC_APP_URL="http://localhost:8000"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_API_URL="http://localhost:8000"
 NEXT_PUBLIC_SUPABASE_URL="http://localhost:54321"
 NEXT_PUBLIC_SUPABASE_ANON_KEY= ... # From output of supabase start
 ```
 
 ## Start Tracecat
+
 ### Backend
+
 At this point, the Supabase stack should already be running. Run the following to bring up Tracecat `nginx`, `api`, and `runner` services:
+
 ```bash
-docker compose -f docker-compose.self-host.yaml up
+docker compose up
 ```
 
 Allow incoming webhooks for the runner:
+
 ```bash
 # Tracecat runner listens on port 8001
 ngrok http --domain=your-ngrok-url-here.ngrok-free.app 8001
 ```
 
 ### Frontend
+
 Inside `tracecat/frontend`, install dependencies with
+
 ```bash
 pnpm install
 ```
+
 Then run the frontend in development mode:
+
 ```bash
 pnpm dev
 ```
+
 Alternatively if you'd like to build it:
+
 ```bash
 pnpm run build
 pnpm run start
@@ -127,23 +138,20 @@ pnpm run start
 
 _Note: We're working on adding the frontend to the docker compose stack!_
 
-
-
-
 ## Getting started
+
 You can access Tracecat's frontend at [http://localhost:3000](http://localhost:3000)
 and the OpenAPI docs at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-Once the frontend and backend services are running, you should see a email + password login page at [http://localhost:3000](http://localhost:3000). 
+Once the frontend and backend services are running, you should see a email + password login page at [http://localhost:3000](http://localhost:3000).
 
 ### Create a user and log in
-To create a user account, visit the Supabase dashboard at [http://localhost:54323](http://localhost:54323) and click on `Authentication` on the left side panel. You should see a dropdown `Add User` at the top right of the page, where you can create a user. 
+
+To create a user account, visit the Supabase dashboard at [http://localhost:54323](http://localhost:54323) and click on `Authentication` on the left side panel. You should see a dropdown `Add User` at the top right of the page, where you can create a user.
 After doing so, you should be able to log into through the frontend.
 
-
 ## Shut down
+
 ```bash
 docker compose -f docker-compose.self-host.yaml down --remove-orphans && supabase stop
 ```
-
-
