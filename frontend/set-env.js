@@ -3,7 +3,7 @@ const fs = require("fs")
 // Check if VERCEL_ENV is available and set NEXT_PUBLIC_APP_URL accordingly
 const appUrl =
   process.env.VERCEL_ENV === "production"
-    ? "https://api.tracecat.com"
+    ? "https://platform.tracecat.com"
     : `https://${process.env.VERCEL_URL}`
 
 // Write the environment variable to .env.local
