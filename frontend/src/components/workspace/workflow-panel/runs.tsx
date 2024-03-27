@@ -196,7 +196,7 @@ function WorkflowRunItem({
                   side="left"
                   sideOffset={20}
                   align="start"
-                  className="m-0 rounded-md border-none p-0"
+                  className="m-0 w-[500px] rounded-md border-none p-0"
                 >
                   <Card className="rounded-md p-1">
                     {result ? (
