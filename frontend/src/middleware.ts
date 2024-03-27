@@ -3,7 +3,10 @@ import { updateSession } from "@/utils/supabase/middleware"
 import { get } from "@vercel/edge-config"
 
 export async function middleware(request: NextRequest) {
-  if (await get("isUnderMaintenance")) {
+  if (
+    process.env.NEXT_PUBLIC_APP_ENV === "prod" &&
+    (await get("isUnderMaintenance"))
+  ) {
     request.nextUrl.pathname = `/status`
     console.log("Redirecting to status page")
     return NextResponse.rewrite(request.nextUrl)
