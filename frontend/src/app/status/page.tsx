@@ -1,6 +1,9 @@
 import Image from "next/image"
+import Link from "next/link"
 import TracecatIcon from "public/icon.png"
 
+import { siteConfig } from "@/config/site"
+import { Icons } from "@/components/icons"
 import { AlertNotification } from "@/components/notifications"
 
 export default async function Page() {
@@ -13,9 +16,17 @@ export default async function Page() {
       <AlertNotification
         level="info"
         className="text-2xl font-medium"
-        message="Our site is currently down for maintenance. Please check our Discord for
+        message="Our site is currently down. Please check our Discord for
         updates."
       />
+      <div className="flex items-center justify-center space-x-4">
+        <Link href={siteConfig.links.discord} target="_blank">
+          <Icons.discord className="h-5 w-5" />
+        </Link>
+        <Link href={siteConfig.links.github} target="_blank">
+          <Icons.gitHub className="h-5 w-5" />
+        </Link>
+      </div>
     </main>
   )
 }
