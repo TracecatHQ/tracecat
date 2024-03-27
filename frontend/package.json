@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "vercel-build": "echo NEXT_PUBLIC_APP_URL=https://$VERCEL_URL > .env.local && next build",
+    "vercel-build": "node set-env.js && next build",
     "build": "next build",
     "dev": "next dev --turbo",
     "format:check": "pnpm prettier --check \"**/*.{ts,tsx,mdx}\" --cache",
