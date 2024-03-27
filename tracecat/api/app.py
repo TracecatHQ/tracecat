@@ -98,7 +98,7 @@ if TRACECAT__APP_ENV == "prod":
 elif TRACECAT__APP_ENV == "staging":
     cors_origins_kwargs = {
         "allow_origins": [TRACECAT__RUNNER_URL],
-        "allow_origin_regex": ["https://tracecat-.*-tracecat.vercel.app"],
+        "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
     }
 else:
     cors_origins_kwargs = {
@@ -663,7 +663,7 @@ def list_action_runs(
         action_runs = results.all()
 
     action_runs_metadata = [
-        ActionRunResponse(**action_run.model_dump()) for action_run in action_runs
+        ActionRunResponse.from_orm(action_run) for action_run in action_runs
     ]
     return action_runs_metadata
 
@@ -687,7 +687,7 @@ def create_action_run(
         session.commit()
         session.refresh(action_run)
 
-    return ActionRunResponse(**action_run.model_dump())
+    return ActionRunResponse.from_orm(action_run)
 
 
 @app.get("/actions/{action_id}/runs/{action_run_id}")
@@ -713,7 +713,7 @@ def get_action_run(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-    return ActionRunResponse(**action_run.model_dump())
+    return ActionRunResponse.from_orm(action_run)
 
 
 @app.post(
@@ -744,6 +744,10 @@ def update_action_run(
 
         if params.status is not None:
             action_run.status = params.status
+        if params.error_msg is not None:
+            action_run.error_msg = params.error_msg
+        if params.result is not None:
+            action_run.result = json.dumps(params.result)
 
         session.add(action_run)
         session.commit()
