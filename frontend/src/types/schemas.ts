@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { stringToJSONSchema } from "@/types/validators"
+
 const actionTypes = [
   "webhook",
   "http_request",
@@ -75,10 +77,12 @@ export type RunStatus = z.infer<typeof runStatusSchema>
 
 export const actionRunSchema = z.object({
   id: z.string(),
-  action_id: z.string(),
-  status: runStatusSchema,
   created_at: strAsDate,
   updated_at: strAsDate,
+  action_id: z.string(),
+  status: runStatusSchema,
+  error_msg: z.string().nullable(),
+  result: stringToJSONSchema.nullable(),
 })
 export type ActionRun = z.infer<typeof actionRunSchema>
 

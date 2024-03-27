@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 
@@ -68,10 +69,17 @@ class WorkflowRunResponse(BaseModel):
 
 class ActionRunResponse(BaseModel):
     id: str
-    action_id: str
-    status: str
     created_at: datetime
     updated_at: datetime
+    action_id: str
+    status: str
+    error_msg: str | None = None
+    result: dict[str, Any] | None = None
+
+    @classmethod
+    def from_orm(cls, run: ActionRun) -> ActionRunResponse:
+        dict_result = None if run.result is None else json.loads(run.result)
+        return cls(**run.model_dump(exclude=["result"]), result=dict_result)
 
 
 class CreateActionRunParams(BaseModel):
@@ -82,6 +90,8 @@ class CreateActionRunParams(BaseModel):
 
 class UpdateActionRunParams(BaseModel):
     status: RunStatus
+    error_msg: str | None = None
+    result: dict[str, Any] | None = None
 
 
 class CreateWorkflowParams(BaseModel):

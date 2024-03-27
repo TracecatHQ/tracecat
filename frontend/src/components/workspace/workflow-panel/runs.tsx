@@ -6,9 +6,12 @@ import { useSession } from "@/providers/session"
 
 import "@radix-ui/react-dialog"
 
+import { UpdateIcon } from "@radix-ui/react-icons"
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useQuery } from "@tanstack/react-query"
 import { CircleCheck, CircleX, Loader2 } from "lucide-react"
+import SyntaxHighlighter from "react-syntax-highlighter"
+import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { ActionRun, RunStatus, WorkflowRun } from "@/types/schemas"
 import { fetchWorkflowRun, fetchWorkflowRuns } from "@/lib/flow"
@@ -19,6 +22,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import DecoratedHeader from "@/components/decorated-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -110,6 +120,7 @@ function WorkflowRunItem({
       )
     }
   }, [open])
+
   return (
     <AccordionItem value={created_at.toString()}>
       <AccordionTrigger onClick={handleClick}>
@@ -128,50 +139,101 @@ function WorkflowRunItem({
             }}
             className="font-medium"
           />
-          <span className="text-xs text-muted-foreground">
-            Updated: {updated_at.toLocaleTimeString()}
+          <span className="flex items-center justify-center text-xs text-muted-foreground">
+            <UpdateIcon className="mr-1 h-3 w-3" />
+            {updated_at.toLocaleTimeString()}
           </span>
         </div>
       </AccordionTrigger>
       <AccordionContent className="space-y-2 pl-2">
         <Separator className="mb-4" />
-        {actionRuns.map(({ id, created_at, updated_at, status }, index) => {
-          const { icon, style } = getStyle(status)
-          return (
-            <div
-              key={index}
-              className="mr-2 flex w-full items-center justify-between"
-            >
-              <DecoratedHeader
-                size="sm"
-                className="font-medium"
-                node={
-                  <span className="flex items-center text-xs">
-                    <span>
-                      {created_at.toLocaleDateString()}{" "}
-                      {created_at.toLocaleTimeString()}
-                    </span>
-                    <span className="ml-4 font-normal">
-                      {undoSlugify(parseActionRunId(id))}
-                    </span>
-                  </span>
-                }
-                icon={icon}
-                iconProps={{
-                  className: cn(
-                    "stroke-2",
-                    style,
-                    (status === "running" || status === "pending") &&
-                      "animate-spin fill-background"
-                  ),
-                }}
-              />
-              <span className="text-xs text-muted-foreground">
-                Updated: {updated_at.toLocaleTimeString()}
-              </span>
-            </div>
-          )
-        })}
+        {actionRuns.map(
+          (
+            { id, created_at, updated_at, status, error_msg, result },
+            index
+          ) => {
+            const { icon, style } = getStyle(status)
+            return (
+              <Popover key={index}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="mr-2 flex w-full items-center justify-between"
+                  >
+                    <div className="mr-2 flex w-full items-center justify-between">
+                      <DecoratedHeader
+                        size="sm"
+                        className="font-medium"
+                        node={
+                          <span className="flex items-center text-xs">
+                            <span>
+                              {created_at.toLocaleDateString()}{" "}
+                              {created_at.toLocaleTimeString()}
+                            </span>
+                            <span className="ml-4 font-normal">
+                              {undoSlugify(parseActionRunId(id))}
+                            </span>
+                          </span>
+                        }
+                        icon={icon}
+                        iconProps={{
+                          className: cn(
+                            "stroke-2",
+                            style,
+                            (status === "running" || status === "pending") &&
+                              "animate-spin fill-background"
+                          ),
+                        }}
+                      />
+                      <span className="flex items-center justify-center text-xs text-muted-foreground">
+                        <UpdateIcon className="mr-1 h-3 w-3" />
+                        {updated_at.toLocaleTimeString()}
+                      </span>
+                    </div>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="left"
+                  sideOffset={20}
+                  align="start"
+                  className="m-0 w-[500px] rounded-md border-none p-0"
+                >
+                  <Card className="rounded-md p-1">
+                    {result ? (
+                      <SyntaxHighlighter
+                        language={result ? "json" : undefined}
+                        style={atomOneDark}
+                        wrapLines
+                        wrapLongLines={error_msg ? true : false}
+                        customStyle={{
+                          width: "100%",
+                          maxWidth: "100%",
+                          overflowX: "auto",
+                        }}
+                        codeTagProps={{
+                          className:
+                            "text-xs text-background rounded-md max-w-full overflow-auto",
+                        }}
+                        {...{
+                          className:
+                            "rounded-md p-4 overflow-auto max-w-full w-full no-scrollbar",
+                        }}
+                      >
+                        {JSON.stringify(result, null, 2)}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <pre className="h-full w-full overflow-auto text-wrap rounded-md bg-[#292c33] p-2">
+                        <code className="max-w-full overflow-auto rounded-md text-xs text-red-400/80">
+                          {error_msg}
+                        </code>
+                      </pre>
+                    )}
+                  </Card>
+                </PopoverContent>
+              </Popover>
+            )
+          }
+        )}
       </AccordionContent>
     </AccordionItem>
   )

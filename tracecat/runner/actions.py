@@ -411,6 +411,8 @@ async def start_action_run(
     )
 
     run_status: RunStatus = "success"
+    error_msg: str | None = None
+    result: ActionRunResult | None = None
     # 1. Perform the action and its cleanup
     try:
         await asyncio.wait_for(
@@ -455,15 +457,17 @@ async def start_action_run(
             f"Action run {ar_id!r} completed with trail: {action_trail}."
         )
 
-    except TimeoutError:
-        custom_logger.error(
-            f"Action run {ar_id} timed out waiting for dependencies {upstream_deps_ar_ids}."
-        )
-    except asyncio.CancelledError:
-        custom_logger.warning(f"Action run {ar_id!r} was cancelled.")
+    except TimeoutError as e:
+        error_msg = f"Action run {ar_id} timed out waiting for dependencies {upstream_deps_ar_ids}."
+        custom_logger.error(error_msg, exc_info=e)
+        run_status = "failure"
+    except asyncio.CancelledError as e:
+        error_msg = f"Action run {ar_id!r} was cancelled."
+        custom_logger.warning(error_msg, exc_info=e)
         run_status = "canceled"
     except Exception as e:
-        custom_logger.error(f"Action run {ar_id!r} failed with error: {e}.")
+        error_msg = f"Action run {ar_id!r} failed with error: {e}."
+        custom_logger.error(error_msg, exc_info=e)
         run_status = "failure"
     finally:
         if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
@@ -485,9 +489,11 @@ async def start_action_run(
             action_trail=action_trail,
         )
     except Exception as e:
-        logger.error("Tantivy indexing failed.", exc_info=e)
+        custom_logger.error("Tantivy indexing failed.", exc_info=e)
 
-    await log_update_action_run(action_run, status=run_status)
+    await log_complete_action_run(
+        action_run, status=run_status, error_msg=error_msg, result=result
+    )
 
     # Handle downstream dependencies
     if run_status != "success":
@@ -903,11 +909,44 @@ async def log_create_action_run(action_run: ActionRun) -> ActionRunResponse:
     return ActionRunResponse.model_validate(response.json())
 
 
-async def log_update_action_run(action_run: ActionRun, *, status: RunStatus) -> None:
+async def log_update_action_run(
+    action_run: ActionRun,
+    *,
+    status: RunStatus,
+) -> None:
     """Update a workflow run."""
     logger.info(f"Log update action run {action_run.id} with status {status}.")
     action_id = action_key_to_id(action_run.action_key)
     params = UpdateActionRunParams(status=status)
+    async with AuthenticatedAPIClient(http2=True) as client:
+        response = await client.post(
+            f"/actions/{action_id}/runs/{action_run.id}",
+            json=params.model_dump(),
+        )
+        if response.status_code != 204:
+            logger.error(
+                f"Failed to update action run {action_run.id} in workflow run "
+                f"{action_run.workflow_run_id} with status {status}"
+            )
+
+
+async def log_complete_action_run(
+    action_run: ActionRun,
+    *,
+    status: RunStatus,
+    error_msg: str | None = None,
+    result: ActionRunResult | None = None,
+) -> None:
+    """Update a workflow run."""
+    logger.info(f"Log update action run {action_run.id} with status {status}.")
+    logger.critical(f"{error_msg =}")
+    logger.critical(f"{result =}")
+    action_id = action_key_to_id(action_run.action_key)
+    params = UpdateActionRunParams(
+        status=status,
+        error_msg=error_msg,
+        result=result.model_dump() if result else None,
+    )
     async with AuthenticatedAPIClient(http2=True) as client:
         response = await client.post(
             f"/actions/{action_id}/runs/{action_run.id}",
