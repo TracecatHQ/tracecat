@@ -185,10 +185,14 @@ class Action(Resource, table=True):
 class ActionRun(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     status: str = "pending"  # "online" or "offline"
+    # TODO: This allows action/action_id to be None, which may be undesirable.
+    # Need to figure out how to handle this better.
     action_id: str | None = Field(foreign_key="action.id")
     action: Action | None = Relationship(back_populates="runs")
     workflow_run_id: str = Field(foreign_key="workflowrun.id")
     workflow_run: WorkflowRun | None = Relationship(back_populates="action_runs")
+    error_msg: str | None = None
+    result: str | None = None  # JSON-serialized String of result
 
 
 class Webhook(Resource, table=True):
