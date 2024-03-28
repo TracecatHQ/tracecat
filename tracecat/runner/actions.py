@@ -379,7 +379,8 @@ def _index_events(
             workflow_title=workflow_title,
             workflow_run_id=workflow_run_id,
             data={
-                action_run_id: trail.output
+                # Explicitly serialize to json using pydantic to handle datetimes
+                action_run_id: trail.model_dump_json(include={"output"})
                 for action_run_id, trail in action_trail.items()
             },
             published_at=datetime.now(UTC).replace(tzinfo=None),
@@ -950,7 +951,9 @@ async def log_complete_action_run(
     async with AuthenticatedAPIClient(http2=True) as client:
         response = await client.post(
             f"/actions/{action_id}/runs/{action_run.id}",
-            json=params.model_dump(),
+            # Explicitly serialize to json using pydantic to handle datetimes
+            content=params.model_dump_json(),
+            headers={"Content-Type": "application/json"},
         )
         if response.status_code != 204:
             logger.error(
