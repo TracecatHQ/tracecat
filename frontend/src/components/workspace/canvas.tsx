@@ -202,6 +202,7 @@ const WorkflowCanvas: React.FC = () => {
         nodeTypes={nodeTypes}
         fitViewOptions={{ maxZoom: 1 }}
         proOptions={{ hideAttribution: true }}
+        deleteKeyCode={["Backspace", "Delete"]}
       >
         <Background />
         <Controls />
