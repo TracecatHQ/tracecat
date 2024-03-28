@@ -179,6 +179,12 @@ class TracecatEngineStack(Stack):
                 ),
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,
+                    actions=["ecr:GetAuthorizationToken"],
+                    # Note: ecr:GetAuthorizationToken requires access on the service level, not specific repositories
+                    resources=["*"],
+                ),
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
                     actions=[
                         "secretsmanager:GetSecretValue",
                         "secretsmanager:DescribeSecret",
