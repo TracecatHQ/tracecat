@@ -247,3 +247,9 @@ class CreateWorkflowRunParams(BaseModel):
 
 class CopyWorkflowParams(BaseModel):
     owner_id: str
+
+
+class SecretResponse(BaseModel):
+    id: str
+    name: str
+    value: str
