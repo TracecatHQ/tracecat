@@ -14,6 +14,8 @@ from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "staging")
+AWS_ECR__REPOSITORY_URI = os.environ["AWS_ECR__REPOSITORY_URI"]
+AWS_ECR__IMAGE_TAG = os.environ("AWS_ECR__IMAGE_TAG", "latest")
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
@@ -166,6 +168,15 @@ class TracecatEngineStack(Stack):
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,
                     actions=[
+                        "ecr:BatchCheckLayerAvailability",
+                        "ecr:GetDownloadUrlForLayer",
+                        "ecr:BatchGetImage",
+                    ],
+                    resources=[AWS_ECR__REPOSITORY_URI],
+                ),
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
                         "secretsmanager:GetSecretValue",
                         "secretsmanager:DescribeSecret",
                     ],
@@ -215,6 +226,7 @@ class TracecatEngineStack(Stack):
         )
 
         # Secrets
+
         tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
             self, "Secret", secret_complete_arn=AWS_SECRET__ARN
         )
@@ -276,10 +288,13 @@ class TracecatEngineStack(Stack):
         )
         api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
-            image=ecs.ContainerImage.from_asset(
-                directory=".",
-                file="Dockerfile",
-                build_args={"API_MODULE": "tracecat.api.app:app"},
+            # image=ecs.ContainerImage.from_asset(
+            #     directory=".",
+            #     file="Dockerfile",
+            #     build_args={"API_MODULE": "tracecat.api.app:app"},
+            # ),
+            image=ecs.ContainerImage.from_registry(
+                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__IMAGE_TAG}"
             ),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
@@ -345,10 +360,13 @@ class TracecatEngineStack(Stack):
         )
         runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
-            image=ecs.ContainerImage.from_asset(
-                directory=".",
-                file="Dockerfile",
-                build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
+            # image=ecs.ContainerImage.from_asset(
+            #     directory=".",
+            #     file="Dockerfile",
+            #     build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
+            # ),
+            image=ecs.ContainerImage.from_registry(
+                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__IMAGE_TAG}"
             ),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
