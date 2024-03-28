@@ -98,8 +98,20 @@ export function WorkflowControlsForm({
       return
     }
 
-    triggerWorkflow(session, workflow.id, values.actionKey, values.payload)
-    setConfirmationIsOpen(false)
+    try {
+      triggerWorkflow(session, workflow.id, values.actionKey, values.payload)
+      setConfirmationIsOpen(false)
+      toast({
+        title: "Workflow started",
+        description: "The workflow has been started successfully.",
+      })
+    } catch (error) {
+      console.error("Error starting workflow", error)
+      toast({
+        title: "Error starting workflow",
+        description: "There was an error starting the workflow.",
+      })
+    }
   }
   useEffect(() => {
     if (selectedAction) {
