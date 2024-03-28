@@ -16,7 +16,7 @@ export default async function Page() {
       <AlertNotification
         level="info"
         className="text-2xl font-medium"
-        message="Our site is currently down. Please check our Discord for
+        message="Our site is currently down. We'll be back up in 1-2 hours. Please check our Discord for
         updates."
       />
       <div className="flex items-center justify-center space-x-4">
