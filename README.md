@@ -35,6 +35,8 @@
 
 It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
 
+SOAR [(Security Orchestration, Automation and Response)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) refers to technologies that enable organizations to automatically collect and respond to alerts across different tooling. Though Tracecat is built for security, it's workflow automation and case management system can be applied to other alerting environments (e.g. site reliability engineering, DevOps, and physical systems monitoring).
+
 Check out our [quickstart](https://docs.tracecat.com/quickstart) and build your first AI workflow in 15 minutes.
 The easiest way to get started is to sign-up for [Tracecat Cloud](https://platform.tracecat.com).
 We also support [self-hosted](https://docs.tracecat.com/installation) Tracecat.
