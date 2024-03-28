@@ -17,10 +17,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Icons } from "@/components/icons"
-import {
-  NewCredentialsDialog,
-  NewCredentialsDialogTrigger,
-} from "@/components/new-credential-dialog"
 import UserAvatar from "@/components/user-avatar"
 
 const userDefaults = {
@@ -66,22 +62,18 @@ export default function UserNav() {
               Read the Docs
             </DropdownMenuItem>
           </Link>
-
-          <DropdownMenuItem className="text-xs" disabled>
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
-          </DropdownMenuItem>
-          <NewCredentialsDialog>
-            <NewCredentialsDialogTrigger asChild>
-              <Button
-                className="h-8 w-full justify-start p-2 text-xs hover:cursor-pointer"
-                variant="ghost"
-              >
-                <KeyRound className="mr-2 h-4 w-4" />
-                <span>Credentials</span>
-              </Button>
-            </NewCredentialsDialogTrigger>
-          </NewCredentialsDialog>
+          <Link href="/settings" className="my-2 w-full">
+            <DropdownMenuItem className="text-xs hover:cursor-pointer">
+              <Settings className="mr-2 h-4 w-4" />
+              Settings
+            </DropdownMenuItem>
+          </Link>
+          <Link href="/settings" className="my-2 w-full">
+            <DropdownMenuItem className="text-xs hover:cursor-pointer">
+              <KeyRound className="mr-2 h-4 w-4" />
+              <span>Credentials</span>
+            </DropdownMenuItem>
+          </Link>
           <DropdownMenuItem className="text-xs" disabled>
             <UsersRound className="mr-2 h-4 w-4" />
             <span>Manage users</span>

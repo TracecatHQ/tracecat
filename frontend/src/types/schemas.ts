@@ -131,3 +131,11 @@ export const triggerWorkflowSchema = z.object({
 })
 
 export type TriggerWorkflow = z.infer<typeof triggerWorkflowSchema>
+
+export const secretSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().min(1, "Please enter a secret name."),
+  value: z.string().min(1, "Please enter the secret value."),
+})
+
+export type Secret = z.infer<typeof secretSchema>

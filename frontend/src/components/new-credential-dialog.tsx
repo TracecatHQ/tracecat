@@ -4,10 +4,11 @@ import React, { PropsWithChildren } from "react"
 import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
 
-import { getAuthenticatedClient } from "@/lib/api"
+import { Secret, secretSchema } from "@/types/schemas"
+import { createSecret } from "@/lib/secrets"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,13 +30,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 
-const newWorkflowFormSchema = z.object({
-  name: z.string().min(1, "Please enter a secret name."),
-  value: z.string().min(1, "Please enter the secret value."),
-})
-
-type NewCredentialsFormInputs = z.infer<typeof newWorkflowFormSchema>
-
 interface NewCredentialsDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
@@ -47,35 +41,34 @@ export function NewCredentialsDialog({
 }: NewCredentialsDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
   const session = useSession()
+  const queryClient = useQueryClient()
 
-  const form = useForm<NewCredentialsFormInputs>({
-    resolver: zodResolver(newWorkflowFormSchema),
-  })
-
-  const onSubmit = async (data: NewCredentialsFormInputs) => {
-    try {
-      if (!session) {
-        throw new Error("Invalid session")
-      }
-      const client = getAuthenticatedClient(session)
-      const response = await client.put("/secrets", JSON.stringify(data), {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-      form.reset()
-      console.log("New credentials added", response.data)
+  const { mutate } = useMutation({
+    mutationFn: (secret: Secret) =>
+      createSecret(session, secret.name, secret.value),
+    onSuccess: (data, variables, context) => {
       toast({
         title: "Added new secret",
         description: "New secret added successfully.",
       })
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+    },
+    onError: (error, variables, context) => {
       console.error("Failed to add new credentials", error)
       toast({
         title: "Failed to add new secret",
         description: "An error occurred while adding the new secret.",
       })
-    }
+    },
+  })
+
+  const form = useForm<Secret>({
+    resolver: zodResolver(secretSchema),
+  })
+
+  const onSubmit = (values: Secret) => {
+    console.log("Submitting new secret", values)
+    mutate(values)
   }
 
   return (
@@ -129,7 +122,9 @@ export function NewCredentialsDialog({
             />
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="submit">Create</Button>
+                <Button type="submit" onClick={() => console.log("TEST")}>
+                  Add
+                </Button>
               </DialogClose>
             </DialogFooter>
           </form>

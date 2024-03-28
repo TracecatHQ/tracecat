@@ -58,6 +58,7 @@ from tracecat.types.api import (
     EventSearchParams,
     SearchSecretsParams,
     SearchWebhooksParams,
+    SecretResponse,
     StartWorkflowParams,
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
@@ -1327,14 +1328,17 @@ def delete_user(
 
 @app.get("/secrets")
 def list_secrets(
-    role: Annotated[Role, Depends()],
-) -> list[Secret]:
-    """Get a secret by ID."""
+    role: Annotated[Role, Depends(authenticate_user)],
+) -> list[SecretResponse]:
+    """List all secrets for a user."""
     with Session(engine) as session:
         statement = select(Secret).where(Secret.owner_id == role.user_id)
         result = session.exec(statement)
         secrets = result.all()
-        return secrets
+        return [
+            SecretResponse(id=secret.id, name=secret.name, value=secret.key)
+            for secret in secrets
+        ]
 
 
 @app.get("/secrets/{secret_name}")
@@ -1413,6 +1417,29 @@ def update_secret(
         session.add(secret)
         session.commit()
         session.refresh(secret)
+
+
+@app.delete("/secrets/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_secret(
+    role: Annotated[Role, Depends(authenticate_user)],
+    secret_id: str,
+) -> None:
+    """Get a secret by ID."""
+    with Session(engine) as session:
+        # Check if secret exists
+        statement = (
+            select(Secret)
+            .where(Secret.owner_id == role.user_id, Secret.id == secret_id)
+            .limit(1)
+        )
+        result = session.exec(statement)
+        secret = result.one_or_none()
+        if secret is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
+            )
+        session.delete(secret)
+        session.commit()
 
 
 @app.post("/secrets/search")
