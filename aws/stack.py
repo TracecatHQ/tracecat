@@ -172,7 +172,9 @@ class TracecatEngineStack(Stack):
                         "ecr:GetDownloadUrlForLayer",
                         "ecr:BatchGetImage",
                     ],
-                    resources=[AWS_ECR__REPOSITORY_URI],
+                    resources=[
+                        f"arn:aws:ecr:{self.region}:{self.account}:repository/tracecat"
+                    ],
                 ),
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,
