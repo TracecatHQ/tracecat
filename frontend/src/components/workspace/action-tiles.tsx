@@ -3,7 +3,6 @@
 import { DragEvent, useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useSession } from "@/providers/session"
-import { useWorkflowMetadata } from "@/providers/workflow"
 import { LucideIcon } from "lucide-react"
 
 import { ActionType } from "@/types/schemas"
@@ -33,8 +32,8 @@ const ACTION_NODE_TAG = "action" as const
 
 export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
   const session = useSession()
-  const { selectedNodeId, setNodes, setEdges, getNode } = useWorkflowBuilder()
-  const { workflowId } = useWorkflowMetadata()
+  const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
+    useWorkflowBuilder()
   const handleTileClick = useCallback(
     async (type?: ActionType, title?: string) => {
       const selectedNode = getNode(selectedNodeId ?? "")
@@ -57,9 +56,6 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
         newNodeData.title,
         workflowId
       )
-      if (!actionId) {
-        throw new Error("Failed to create action")
-      }
 
       const newNode = {
         id: actionId,

@@ -177,7 +177,7 @@ export async function createAction(
   type: ActionType,
   title: string,
   workflowId: string
-): Promise<string | undefined> {
+): Promise<string> {
   try {
     const createActionMetadata = JSON.stringify({
       workflow_id: workflowId,
@@ -199,6 +199,7 @@ export async function createAction(
     return validatedResponse.id
   } catch (error) {
     console.error("Error creating action:", error)
+    throw error
   }
 }
 

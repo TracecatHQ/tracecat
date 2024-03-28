@@ -1,4 +1,6 @@
 import React, { useCallback } from "react"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useSession } from "@/providers/session"
 import {
   BellDotIcon,
   Blend,
@@ -8,6 +10,7 @@ import {
   CircleIcon,
   Container,
   Copy,
+  Delete,
   EyeIcon,
   FlaskConical,
   GitCompareArrows,
@@ -23,7 +26,7 @@ import {
   Tags,
   Webhook,
 } from "lucide-react"
-import { Handle, NodeProps, Position, type Node } from "reactflow"
+import { Handle, NodeProps, Position, useNodeId, type Node } from "reactflow"
 
 import { ActionType } from "@/types/schemas"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
@@ -42,8 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-
-import { useToast } from "../ui/use-toast"
+import { useToast } from "@/components/ui/use-toast"
 
 export type ActionNodeType = Node<ActionNodeData>
 export interface ActionNodeData {
@@ -105,13 +107,16 @@ export function getTileColor(
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
-  data: { type, title, status, isConfigured, numberOfEvents },
+  data: { type, title, isConfigured, numberOfEvents },
   selected,
 }: NodeProps<ActionNodeData>) {
-  const avatarImageAlt = `${type}-${title}`
+  const id = useNodeId()
+  const session = useSession()
+  const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
   const tileIcon = tileIconMapping[type] ?? Sparkles
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   const { toast } = useToast()
+  const avatarImageAlt = `${type}-${title}`
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)
@@ -124,6 +129,30 @@ export default React.memo(function ActionNode({
       description: `The slug ${slug} has been copied to your clipboard.`,
     })
   }, [title, toast])
+
+  const handleDeleteNode = useCallback(async () => {
+    if (!workflowId || !id) {
+      return
+    }
+    const node = getNode(id)
+    if (!node) {
+      console.error("Could not find node with ID", id)
+      return
+    }
+    try {
+      reactFlow.deleteElements({ nodes: [node] })
+      toast({
+        title: "Deleted action node",
+        description: "Successfully deleted action node.",
+      })
+    } catch (error) {
+      console.error("An error occurred while deleting Action nodes:", error)
+      toast({
+        title: "Error deleting action node",
+        description: "Failed to delete action node.",
+      })
+    }
+  }, [session, id, toast])
 
   return (
     <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>
@@ -167,6 +196,10 @@ export default React.memo(function ActionNode({
                 <DropdownMenuItem disabled>
                   <EyeIcon className="mr-2 h-4 w-4" />
                   <span className="text-xs">View logs</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDeleteNode}>
+                  <Delete className="mr-2 h-4 w-4 text-red-600" />
+                  <span className="text-xs text-red-600">Delete</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -10,12 +10,20 @@ import React, {
 } from "react"
 import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { Edge, Node, useOnSelectionChange, useReactFlow } from "reactflow"
+import {
+  Edge,
+  Node,
+  ReactFlowInstance,
+  useOnSelectionChange,
+  useReactFlow,
+} from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
 import { ActionNodeType } from "@/components/workspace/action-node"
 
 interface ReactFlowContextType {
+  reactFlow: ReactFlowInstance
+  workflowId: string | null
   selectedNodeId: string | null
   getNode: (id: string) => ActionNodeType | undefined
   setNodes: React.Dispatch<SetStateAction<Node[]>>
@@ -74,10 +82,12 @@ export const WorkflowBuilderProvider: React.FC<
   return (
     <ReactFlowInteractionsContext.Provider
       value={{
+        workflowId,
         selectedNodeId,
         getNode: reactFlowInstance.getNode,
         setNodes: setReactFlowNodes,
         setEdges: setReactFlowEdges,
+        reactFlow: reactFlowInstance,
       }}
     >
       {children}

@@ -127,7 +127,6 @@ const WorkflowCanvas: React.FC = () => {
       actionNodeData.title,
       workflowId
     )
-    if (!actionId) return
     // Then create Action node in React Flow
     const newNode = {
       id: actionId,
