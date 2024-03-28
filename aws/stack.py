@@ -15,7 +15,7 @@ from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "staging")
 AWS_ECR__REPOSITORY_URI = os.environ["AWS_ECR__REPOSITORY_URI"]
-AWS_ECR__IMAGE_TAG = os.environ("AWS_ECR__IMAGE_TAG", "latest")
+AWS_ECR__IMAGE_TAG = os.environ["AWS_ECR__IMAGE_TAG"]
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
