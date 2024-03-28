@@ -171,6 +171,7 @@ class TracecatEngineStack(Stack):
                         "ecr:BatchCheckLayerAvailability",
                         "ecr:GetDownloadUrlForLayer",
                         "ecr:BatchGetImage",
+                        "ecr:GetAuthorizationToken",
                     ],
                     resources=[
                         f"arn:aws:ecr:{self.region}:{self.account}:repository/tracecat"
