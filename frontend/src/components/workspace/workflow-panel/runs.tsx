@@ -9,7 +9,7 @@ import "@radix-ui/react-dialog"
 import { UpdateIcon } from "@radix-ui/react-icons"
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useQuery } from "@tanstack/react-query"
-import { CircleCheck, CircleX, Loader2 } from "lucide-react"
+import { CircleCheck, CircleX, Loader, Loader2 } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
@@ -120,6 +120,7 @@ function WorkflowRunItem({
       )
     }
   }, [open])
+  const { icon, style } = getStyle(status)
 
   return (
     <AccordionItem value={created_at.toString()}>
@@ -128,14 +129,9 @@ function WorkflowRunItem({
           <DecoratedHeader
             size="sm"
             node={`${created_at.toLocaleDateString()}, ${created_at.toLocaleTimeString()}`}
-            icon={status === "success" ? CircleCheck : CircleX}
+            icon={icon}
             iconProps={{
-              className: cn(
-                "stroke-2",
-                status === "success"
-                  ? "fill-green-500/50 stroke-green-700"
-                  : "fill-red-500/50 stroke-red-700"
-              ),
+              className: cn("stroke-2", style),
             }}
             className="font-medium"
           />
@@ -177,12 +173,7 @@ function WorkflowRunItem({
                         }
                         icon={icon}
                         iconProps={{
-                          className: cn(
-                            "stroke-2",
-                            style,
-                            (status === "running" || status === "pending") &&
-                              "animate-spin fill-background"
-                          ),
+                          className: cn("stroke-2", style),
                         }}
                       />
                       <span className="flex items-center justify-center text-xs text-muted-foreground">
@@ -248,10 +239,10 @@ function getStyle(status: RunStatus) {
     case "running":
       return {
         icon: Loader2,
-        style: "stroke-yellow-500 animate-spin",
+        style: "stroke-blue-500/50 animate-spin",
       }
     case "pending":
-      return { icon: Loader2, style: "stroke-yellow-500 animate-spin" }
+      return { icon: Loader, style: "stroke-blue-500/50 animate-spin" }
     case "canceled":
       return { icon: CircleX, style: "fill-red-500/50 stroke-red-700" }
     default:
