@@ -1,6 +1,6 @@
 import os
 
-HTTP_MAX_RETRIES = 6
+HTTP_MAX_RETRIES = 10
 LLM_MAX_RETRIES = 3
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "dev")
