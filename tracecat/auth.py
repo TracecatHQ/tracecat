@@ -12,7 +12,7 @@ from fastapi.security import (
     APIKeyHeader,
     OAuth2PasswordBearer,
 )
-from jose import JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 from pydantic import BaseModel
 
 import tracecat.config as cfg
@@ -180,6 +180,17 @@ async def _get_role_from_jwt(token: str | bytes) -> Role:
         if user_id is None:
             logger.error("No sub claim in JWT")
             raise CREDENTIALS_EXCEPTION
+    except ExpiredSignatureError as e:
+        logger.error(f"ExpiredSignatureError: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired",
+            headers={
+                "WWW-Authenticate": "Bearer",
+                "Access-Control-Expose-Headers": "X-Expired-Token",
+                "X-Expired-Token": "true",
+            },
+        ) from e
     except JWTError as e:
         logger.error(f"JWT Error {e}")
         raise CREDENTIALS_EXCEPTION from e
