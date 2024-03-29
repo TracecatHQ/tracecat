@@ -392,6 +392,7 @@ async def run_workflow(
                     action_result_store=action_result_store,
                     action_run_status_store=action_run_status_store,
                     custom_logger=run_logger,
+                    pending_timeout=120,
                 )
             )
 
