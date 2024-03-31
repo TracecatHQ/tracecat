@@ -106,6 +106,10 @@ class UpdateWorkflowParams(BaseModel):
     object: str | None = None
 
 
+class CreateWorkflowRunParams(BaseModel):
+    workflow_run_id: str
+
+
 class UpdateWorkflowRunParams(BaseModel):
     status: RunStatus
 
@@ -239,10 +243,6 @@ class StartWorkflowResponse(BaseModel):
     status: str
     message: str
     id: str
-
-
-class CreateWorkflowRunParams(BaseModel):
-    status: RunStatus
 
 
 class CopyWorkflowParams(BaseModel):

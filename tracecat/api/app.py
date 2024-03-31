@@ -4,6 +4,8 @@ from typing import Annotated, Any
 
 import polars as pl
 import tantivy
+from aio_pika import Channel
+from aio_pika.pool import Pool
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
@@ -40,6 +42,7 @@ from tracecat.logger import standard_logger
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
+from tracecat.messaging import subscribe, use_channel_pool
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -54,6 +57,7 @@ from tracecat.types.api import (
     CreateSecretParams,
     CreateWebhookParams,
     CreateWorkflowParams,
+    CreateWorkflowRunParams,
     Event,
     EventSearchParams,
     SearchSecretsParams,
@@ -77,15 +81,17 @@ from tracecat.types.cases import Case, CaseMetrics
 
 logger = standard_logger("api")
 
-
 engine: Engine
+rabbitmq_channel_pool: Pool[Channel]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, rabbitmq_channel_pool
     engine = initialize_db()
-    yield
+    async with use_channel_pool() as pool:
+        rabbitmq_channel_pool = pool
+        yield
 
 
 app = FastAPI(lifespan=lifespan)
@@ -130,6 +136,21 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
+
+
+@app.get("/events/subscribe")
+async def events_subscription(
+    role: Annotated[Role, Depends(authenticate_user)],
+):
+    """Subscribe to events for a user.
+
+    Each user will have their own rabbitmq queue."""
+    global rabbitmq_channel_pool
+
+    return StreamingResponse(
+        subscribe(pool=rabbitmq_channel_pool, routing_keys=[role.user_id]),
+        media_type="application/x-ndjson",
+    )
 
 
 ### Workflows
@@ -363,11 +384,16 @@ def list_workflow_runs(
 def create_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
+    params: CreateWorkflowRunParams,
 ) -> WorkflowRunResponse:
     """Create a Workflow Run."""
 
     with Session(engine) as session:
-        workflow_run = WorkflowRun(owner_id=role.user_id, workflow_id=workflow_id)
+        workflow_run = WorkflowRun(
+            owner_id=role.user_id,
+            workflow_id=workflow_id,
+            id=params.workflow_run_id,
+        )
         session.add(workflow_run)
         session.commit()
         session.refresh(workflow_run)
@@ -456,7 +482,7 @@ async def trigger_workflow_run(
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error triggering workflow: {e}")
+            logger.error(f"Error triggering workflow: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error triggering workflow",
