@@ -1224,7 +1224,7 @@ async def streaming_autofill_case_fields(
         stream_case_completions(
             cases, context_cons=context_cons, action_cons=action_cons
         ),
-        media_type="text/event-stream",
+        media_type="application/x-ndjson",
     )
 
 

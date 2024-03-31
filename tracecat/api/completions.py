@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel
 from slugify import slugify
@@ -179,7 +179,7 @@ async def stream_case_completions(
     )
     logger.info(f"🧠 Starting case completions for %d cases... {system_context =}")
 
-    async def task(case: Case) -> dict[str, Any]:
+    async def task(case: Case) -> str:
         prompt = f"""Case JSON Object: ```\n{case.model_dump_json()}\n```"""
         logger.info(f"🧠 Starting case completion for case {case.id}...")
         response: dict[str, str] = await async_openai_call(
@@ -202,5 +202,5 @@ async def stream_case_completions(
 
     for coro in asyncio.as_completed(tasks, timeout=120):
         result = await coro
-        yield result
+        yield result + "\n"
     logger.info("🧠 Completed all case completions.")
