@@ -19,10 +19,14 @@ services:
       SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
     container_name: api
     restart: unless-stopped
     depends_on:
-      - nginx
+      rabbitmq:
+        condition: service_healthy
+      nginx:
+        condition: service_started
     networks:
       - nginx-network
 
@@ -43,10 +47,14 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
       LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
     container_name: runner
     restart: unless-stopped
     depends_on:
-      - nginx
+      rabbitmq:
+        condition: service_healthy
+      nginx:
+        condition: service_started
     networks:
       - nginx-network
 
@@ -58,6 +66,26 @@ services:
       - "80:80"
     volumes:
       - ./nginx:/etc/nginx/conf.d
+    networks:
+      - nginx-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672" # RabbitMQ server
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - ./rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping", "-q"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - nginx-network
 
