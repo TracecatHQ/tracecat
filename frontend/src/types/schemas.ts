@@ -124,14 +124,6 @@ export const caseCompletionUpdateSchema = z.object({
 })
 export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
 
-export const triggerWorkflowSchema = z.object({
-  workflow_id: z.string(),
-  action_id: z.string(),
-  payload: z.record(z.string()),
-})
-
-export type TriggerWorkflow = z.infer<typeof triggerWorkflowSchema>
-
 export const secretSchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1, "Please enter a secret name."),
