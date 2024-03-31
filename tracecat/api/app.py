@@ -338,19 +338,17 @@ def copy_workflow(
 def list_workflow_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-    limit: int = 20,
+    limit: int | None = None,
 ) -> list[WorkflowRunResponse]:
     """List all Workflow Runs for a Workflow."""
     with Session(engine) as session:
         # Being here means the user has access to the workflow
-        statement = (
-            select(WorkflowRun)
-            .where(
-                WorkflowRun.owner_id == role.user_id,
-                WorkflowRun.workflow_id == workflow_id,
-            )
-            .limit(limit)
+        statement = select(WorkflowRun).where(
+            WorkflowRun.owner_id == role.user_id,
+            WorkflowRun.workflow_id == workflow_id,
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         results = session.exec(statement)
         workflow_runs = results.all()
 
