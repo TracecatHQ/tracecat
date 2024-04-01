@@ -112,13 +112,14 @@ export function ActionForm({
 
   const { mutate } = useMutation({
     mutationFn: (values: Schema) => updateAction(session, actionId, values),
-    onSuccess: (data) => {
+    onSuccess: (data: Action) => {
       setNodes((nds: ActionNodeType[]) =>
         nds.map((node: ActionNodeType) => {
           if (node.id === actionId) {
+            const { title } = data
             node.data = {
               ...node.data, // Overwrite the existing node data
-              ...data, // Update the node data with the new action data
+              title,
               isConfigured: data.inputs !== null,
             }
           }
