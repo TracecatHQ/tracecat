@@ -6,18 +6,12 @@ import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
-  Bird,
   CornerDownLeft,
   FileJson,
   FileType,
   Mic,
   Paperclip,
-  Rabbit,
-  Send,
-  Settings,
-  Share,
   Sheet,
-  Turtle,
 } from "lucide-react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import z from "zod"
@@ -30,11 +24,9 @@ import { cn, getActionKey } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Form,
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Label } from "@/components/ui/label"
