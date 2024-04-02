@@ -16,15 +16,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-
-import { Console } from "./console"
+import { Console } from "@/components/console/console"
 
 export default function Dashboard() {
   return (
     <TooltipProvider>
-      <div className="grid h-screen w-full pl-[53px]">
-        <SideNav />
-        <div className="flex flex-col">
+      <div className="flex-1 overflow-auto">
+        <div className="grid h-full max-h-full w-full pl-[53px]">
+          <SideNav />
           <Console />
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { Metadata } from "next"
+import { EventFeedProvider } from "@/providers/event-feed-stream"
 import { WorkflowProvider } from "@/providers/workflow"
 import { createClient } from "@/utils/supabase/server"
 
@@ -20,10 +21,12 @@ export default async function WorkflowsLayout({
   } = await supabase.auth.getSession()
   return (
     <WorkflowProvider session={session}>
-      <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-        <Navbar session={session} />
-        {children}
-      </div>
+      <EventFeedProvider>
+        <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+          <Navbar session={session} />
+          {children}
+        </div>
+      </EventFeedProvider>
     </WorkflowProvider>
   )
 }
