@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     "adbc-driver-sqlite",
     "colorlog",
+    "croniter",
     "cryptography",
     "fastapi",
     "lancedb==0.6.3",
