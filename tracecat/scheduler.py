@@ -26,7 +26,7 @@ from tracecat.config import (
 )
 from tracecat.db import WorkflowSchedule
 from tracecat.logger import standard_logger
-from tracecat.types.schedules import WorkflowScheduleParam
+from tracecat.types.schedules import WorkflowScheduleParams
 
 logger = standard_logger("scheduler")
 
@@ -34,8 +34,8 @@ logger = standard_logger("scheduler")
 engine: Engine
 
 
-async def should_run_schedule(schedule, now):
-    next_run = croniter(schedule.cron, now).get_next(datetime)
+async def should_run_schedule(cron: str, now: datetime):
+    next_run = croniter(cron, now).get_next(datetime)
     return next_run < now + timedelta(seconds=TRACECAT__SCHEDULE_INTERVAL_SECONDS)
 
 
@@ -43,7 +43,7 @@ async def should_run_schedule(schedule, now):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     stop=stop_after_attempt(3),
 )
-async def start_workflow(workflow_id):
+async def start_workflow(workflow_id: str) -> httpx.Response:
     async with httpx.AsyncClient() as client:
         url = f"{TRACECAT__RUNNER_URL}/workflows/{workflow_id}"
         response = await client.post(url)
@@ -62,7 +62,7 @@ async def run_scheduled_workflows():
                 tasks = [
                     start_workflow(client, schedule.workflow_id)
                     for schedule in schedules
-                    if await should_run_schedule(schedule, now)
+                    if await should_run_schedule(schedule.cron, now)
                 ]
                 # Since we're using the same client instance for all requests,
                 # we can set the rate limit directly in the httpx client configuration
@@ -178,7 +178,7 @@ def get_schedule(
 def create_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-    params: WorkflowScheduleParam,
+    params: WorkflowScheduleParams,
 ):
     """Set a schedule for a given workflow ID."""
     with Session(engine) as session:
@@ -198,7 +198,7 @@ def update_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     schedule_id: str,
-    params: WorkflowScheduleParam,
+    params: WorkflowScheduleParams,
 ):
     """Update schedule for a given workflow and schedule ID."""
     with Session(engine) as session:
