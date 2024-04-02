@@ -57,17 +57,17 @@ class Resource(SQLModel):
 
     owner_id: str
     created_at: datetime = Field(
-        sa_type=TIMESTAMP(),  # UTC Timestamp
+        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
-            "server_default": text("CURRENT_TIMESTAMP"),
+            "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )
     updated_at: datetime = Field(
-        sa_type=TIMESTAMP(),  # UTC Timestamp
+        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
-            "server_default": text("CURRENT_TIMESTAMP"),
-            "server_onupdate": text("CURRENT_TIMESTAMP"),
+            "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
+            "server_onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )

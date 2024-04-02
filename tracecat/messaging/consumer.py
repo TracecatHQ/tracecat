@@ -75,7 +75,6 @@ async def subscribe(
                 routing_keys=routing_keys,
             ):
                 out = str(event.body + b"\n", "utf-8")
-                logger.critical(f"Event: {out}")
                 yield out
     except Exception as e:
         logger.error(f"Error in event subscription: {e}", exc_info=True)

@@ -46,6 +46,7 @@ from tracecat.messaging import subscribe, use_channel_pool
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
+    ActionRunEventParams,
     ActionRunResponse,
     AuthenticateWebhookResponse,
     CaseActionParams,
@@ -53,11 +54,9 @@ from tracecat.types.api import (
     CaseParams,
     CopyWorkflowParams,
     CreateActionParams,
-    CreateActionRunParams,
     CreateSecretParams,
     CreateWebhookParams,
     CreateWorkflowParams,
-    CreateWorkflowRunParams,
     Event,
     EventSearchParams,
     SearchSecretsParams,
@@ -67,14 +66,13 @@ from tracecat.types.api import (
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
     UpdateActionParams,
-    UpdateActionRunParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
-    UpdateWorkflowRunParams,
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
+    WorkflowRunEventParams,
     WorkflowRunResponse,
 )
 from tracecat.types.cases import Case, CaseMetrics
@@ -384,21 +382,15 @@ def list_workflow_runs(
 def create_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
-    params: CreateWorkflowRunParams,
-) -> WorkflowRunResponse:
+    params: WorkflowRunEventParams,
+) -> None:
     """Create a Workflow Run."""
 
     with Session(engine) as session:
-        workflow_run = WorkflowRun(
-            owner_id=role.user_id,
-            workflow_id=workflow_id,
-            id=params.workflow_run_id,
-        )
+        workflow_run = WorkflowRun(workflow_id=workflow_id, **params.model_dump())
         session.add(workflow_run)
         session.commit()
         session.refresh(workflow_run)
-        # Need this classmethod to instantiate the lazy-laoded action_runs list
-        return WorkflowRunResponse.from_orm(workflow_run)
 
 
 @app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
@@ -435,7 +427,7 @@ def update_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
     workflow_run_id: str,
-    params: UpdateWorkflowRunParams,
+    params: WorkflowRunEventParams,
 ) -> None:
     """Update Workflow."""
 
@@ -453,11 +445,13 @@ def update_workflow_run(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        if params.status is not None:
-            workflow_run.status = params.status
+        workflow_run.status = params.status
+        # NOTE: We shouldn't use the DB updated_at field like this, but for now we will
+        workflow_run.updated_at = params.created_at
 
         session.add(workflow_run)
         session.commit()
+        session.refresh(workflow_run)
 
 
 @app.post("/workflows/{workflow_id}/trigger")
@@ -671,19 +665,17 @@ def delete_action(
 def list_action_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
-    limit: int = 20,
+    limit: int | None = None,
 ) -> list[ActionRunResponse]:
     """List all action Runs for an action."""
     with Session(engine) as session:
         # Being here means the user has access to the action
-        statement = (
-            select(ActionRun)
-            .where(
-                ActionRun.owner_id == role.user_id,
-                ActionRun.action_id == action_id,
-            )
-            .limit(limit)
+        statement = select(ActionRun).where(
+            ActionRun.owner_id == role.user_id,
+            ActionRun.action_id == action_id,
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         results = session.exec(statement)
         action_runs = results.all()
 
@@ -697,16 +689,11 @@ def list_action_runs(
 def create_action_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     action_id: str,
-    params: CreateActionRunParams,
+    params: ActionRunEventParams,
 ) -> ActionRunResponse:
     """Create a action Run."""
 
-    action_run = ActionRun(
-        owner_id=role.user_id,
-        action_id=action_id,
-        id=params.action_run_id,
-        workflow_run_id=params.workflow_run_id,
-    )
+    action_run = ActionRun(action_id=action_id, **params.model_dump())
     with Session(engine) as session:
         session.add(action_run)
         session.commit()
@@ -749,7 +736,7 @@ def update_action_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     action_id: str,
     action_run_id: str,
-    params: UpdateActionRunParams,
+    params: ActionRunEventParams,
 ) -> None:
     """Update action."""
 
@@ -767,15 +754,17 @@ def update_action_run(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        if params.status is not None:
-            action_run.status = params.status
+        action_run.status = params.status
+        # NOTE: We shouldn't use the DB updated_at field like this, but for now we will
+        action_run.updated_at = params.created_at
         if params.error_msg is not None:
             action_run.error_msg = params.error_msg
         if params.result is not None:
-            action_run.result = json.dumps(params.result)
+            action_run.result = params.result
 
         session.add(action_run)
         session.commit()
+        session.refresh(action_run)
 
 
 ### Webhooks
