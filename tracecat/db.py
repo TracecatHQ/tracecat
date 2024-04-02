@@ -7,7 +7,8 @@ from uuid import uuid4
 import lancedb
 import pyarrow as pa
 import tantivy
-from pydantic import computed_field
+from croniter import croniter
+from pydantic import computed_field, validator
 from slugify import slugify
 from sqlalchemy import TIMESTAMP, Column, Engine, ForeignKey, String, text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
@@ -151,6 +152,22 @@ class WorkflowRun(Resource, table=True):
     workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="runs")
     action_runs: list["ActionRun"] | None = Relationship(back_populates="workflow_run")
+
+
+class WorkflowSchedule(Resource, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    cron: str
+    entrypoint_key: str
+    entrypoint_payload: str  # JSON-serialized String of payload
+    workflow_id: str | None = Field(foreign_key="workflow.id")
+    workflow: Workflow | None = Relationship(back_populates="schedules")
+
+    # Custom validator for the cron field
+    @validator("cron")
+    def validate_cron(cls, v):
+        if not croniter.is_valid(v):
+            raise ValueError("Invalid cron string")
+        return v
 
 
 class Action(Resource, table=True):
