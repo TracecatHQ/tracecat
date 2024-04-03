@@ -20,6 +20,10 @@ from tracecat.config import (
     TRACECAT__RUNNER_URL,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
+from tracecat.logger import standard_logger
+
+logger = standard_logger("db")
+
 
 STORAGE_PATH = Path(
     os.environ.get("TRACECAT__STORAGE_PATH", os.path.expanduser("~/.tracecat/storage"))
@@ -138,6 +142,10 @@ class Workflow(Resource, table=True):
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+    schedules: list["WorkflowSchedule"] | None = Relationship(
+        back_populates="workflow",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
 
     @computed_field
     @property
@@ -240,12 +248,17 @@ class Webhook(Resource, table=True):
 
 def create_db_engine() -> Engine:
     if TRACECAT__APP_ENV == "prod":
+        # Postgres
         engine_kwargs = {
             "pool_timeout": 30,
             "pool_recycle": 3600,
             "connect_args": {"sslmode": "require"},
         }
+    elif TRACECAT__APP_ENV == "local":
+        # SQLite disk-based database
+        engine_kwargs = {"connect_args": {"check_same_thread": False}}
     else:
+        # Postgres as default
         engine_kwargs = {
             "pool_timeout": 30,
             "pool_recycle": 3600,

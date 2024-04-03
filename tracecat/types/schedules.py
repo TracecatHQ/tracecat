@@ -2,6 +2,6 @@ from pydantic import BaseModel
 
 
 class WorkflowScheduleParams(BaseModel):
-    cron: str
-    entrypoint_key: str
-    entrypoint_payload: str  # JSON-serialized String of payload
+    cron: str | None = None
+    entrypoint_key: str | None = None
+    entrypoint_payload: str | None = None  # JSON-serialized String of payload

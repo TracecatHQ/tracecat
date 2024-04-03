@@ -3,7 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from croniter import croniter
@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.auth import (
+    AuthenticatedRunnerClient,
     Role,
     authenticate_user,
 )
@@ -24,7 +25,7 @@ from tracecat.config import (
     TRACECAT__SCHEDULE_INTERVAL_SECONDS,
     TRACECAT__SCHEDULE_MAX_CONNECTIONS,
 )
-from tracecat.db import WorkflowSchedule
+from tracecat.db import WorkflowSchedule, create_db_engine
 from tracecat.logger import standard_logger
 from tracecat.types.schedules import WorkflowScheduleParams
 
@@ -43,35 +44,49 @@ async def should_run_schedule(cron: str, now: datetime):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     stop=stop_after_attempt(3),
 )
-async def start_workflow(workflow_id: str) -> httpx.Response:
-    async with httpx.AsyncClient() as client:
+async def start_workflow(
+    user_id: str,
+    workflow_id: str,
+    entrypoint_key: str,
+    entrypoint_payload: dict[str, Any],
+) -> httpx.Response:
+    # Since we're using the same client instance for all requests,
+    # we can set the rate limit directly in the httpx client configuration
+    client_limits = httpx.Limits(max_connections=TRACECAT__SCHEDULE_MAX_CONNECTIONS)
+    httpx.HTTPTransport(limits=client_limits)
+    role = Role(type="service", service_id="tracecat-scheduler", user_id=user_id)
+    async with AuthenticatedRunnerClient(role=role) as client:
         url = f"{TRACECAT__RUNNER_URL}/workflows/{workflow_id}"
-        response = await client.post(url)
+        response = await client.post(
+            url,
+            json={
+                "entrypoint_key": entrypoint_key,
+                "entrypoint_payload": entrypoint_payload,
+            },
+        )
         response.raise_for_status()
         return response
 
 
-async def run_scheduled_workflows():
+async def run_scheduled_workflows(interval_seconds: int | None = None):
+    """Run scheduled workflows on behalf of users."""
+
+    interval_seconds = interval_seconds or TRACECAT__SCHEDULE_INTERVAL_SECONDS
     while True:
         now = datetime.now()
         with Session(engine) as session:
             schedules = session.exec(WorkflowSchedule).all()
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(10.0, connect=60.0)
-            ) as client:
-                tasks = [
-                    start_workflow(client, schedule.workflow_id)
-                    for schedule in schedules
-                    if await should_run_schedule(schedule.cron, now)
-                ]
-                # Since we're using the same client instance for all requests,
-                # we can set the rate limit directly in the httpx client configuration
-                client_limits = httpx.Limits(
-                    max_connections=TRACECAT__SCHEDULE_MAX_CONNECTIONS
-                )
-                httpx.HTTPTransport(limits=client_limits)
-                responses = await asyncio.gather(*tasks)
-                for response in responses:
+            responses = []
+            for schedule in schedules:
+                user_id = schedule.owner_id
+                workflow_id = schedule.workflow_id
+                if await should_run_schedule(schedule.cron, now):
+                    response = await start_workflow(
+                        user_id=user_id,
+                        workflow_id=workflow_id,
+                        entrypoint_key=schedule.entrypoint_key,
+                        entrypoint_payload=schedule.entrypoint_payload,
+                    )
                     try:
                         response.raise_for_status()
                     except httpx.HTTPStatusError as e:
@@ -79,24 +94,35 @@ async def run_scheduled_workflows():
                             "Failed to schedule workflow. Will retry next cycle.",
                             exc_info=e,
                         )
-        await asyncio.sleep(
-            TRACECAT__SCHEDULE_INTERVAL_SECONDS
-        )  # Check every 60 seconds
+                    else:
+                        responses.append(response)
+            for response in responses:
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    logger.error(
+                        "Failed to schedule workflow. Will retry next cycle.",
+                        exc_info=e,
+                    )
+        await asyncio.sleep(interval_seconds)
+
+
+def start_scheduler(delay_seconds: int = 30, interval_seconds: int | None = None):
+    # Wait for API service to start
+    asyncio.sleep(delay_seconds)
+    # Run scheduled workflows as a background task
+    asyncio.create_task(run_scheduled_workflows(interval_seconds))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Sleep to wait for API to start
-    # and DB to initialize
     global engine
-    asyncio.sleep(30)
+    engine = create_db_engine()
+    start_scheduler()
     yield
 
 
 app = FastAPI(lifespan=lifespan)
-
-
-app = FastAPI()
 
 
 if TRACECAT__APP_ENV == "prod":
@@ -111,6 +137,7 @@ elif TRACECAT__APP_ENV == "staging":
         "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
     }
 else:
+    engine = create_db_engine()
     cors_origins_kwargs = {
         "allow_origins": [
             "http://localhost:3000",
@@ -172,6 +199,7 @@ def get_schedule(
         schedule = session.exec(statement).one_or_none()
         if schedule is None:
             raise HTTPException(status_code=404, detail="Schedule not found")
+        return schedule
 
 
 @app.post("/workflows/{workflow_id}/schedules", response_model=WorkflowSchedule)
@@ -202,16 +230,12 @@ def update_schedule(
 ):
     """Update schedule for a given workflow and schedule ID."""
     with Session(engine) as session:
-        schedule = (
-            select(WorkflowSchedule)
-            .where(
-                WorkflowSchedule.owner_id == role.user_id,
-                WorkflowSchedule.id == schedule_id,
-                WorkflowSchedule.workflow_id == workflow_id,
-            )
-            .one_or_none()
+        statement = select(WorkflowSchedule).where(
+            WorkflowSchedule.owner_id == role.user_id,
+            WorkflowSchedule.id == schedule_id,
+            WorkflowSchedule.workflow_id == workflow_id,
         )
-
+        schedule = session.exec(statement).one_or_none()
         if schedule is None:
             raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -235,11 +259,12 @@ def delete_schedule(
     schedule_id: str,
 ):
     with Session(engine) as session:
-        schedule = session.where(
+        statement = select(WorkflowSchedule).where(
             WorkflowSchedule.owner_id == role.user_id,
             WorkflowSchedule.id == schedule_id,
             WorkflowSchedule.workflow_id == workflow_id,
-        ).one_or_none()
+        )
+        schedule = session.exec(statement).one_or_none()
         if schedule is None:
             raise HTTPException(status_code=404, detail="Schedule not found")
 
