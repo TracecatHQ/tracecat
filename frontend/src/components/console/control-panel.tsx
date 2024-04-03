@@ -43,8 +43,9 @@ export const supportedInputTypes = [
   },
 ]
 
-interface ConsolePanelProps extends React.HTMLAttributes<HTMLDivElement> {}
-export function ConsolePanel({ className }: ConsolePanelProps) {
+export function ConsolePanel({
+  className,
+}: React.HTMLAttributes<HTMLDivElement>) {
   const { control } = useFormContext<WorkflowControlsForm>()
   const { workflow } = useWorkflowMetadata()
   const [actions, setActions] = useState<Action[]>([])

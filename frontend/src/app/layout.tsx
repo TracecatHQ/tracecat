@@ -3,7 +3,6 @@ import "@/styles/globals.css"
 import React from "react"
 import { Metadata } from "next"
 import dynamic from "next/dynamic"
-import { EventsProvider } from "@/providers/events"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { SessionContextProvider } from "@/providers/session"
 import { createClient } from "@/utils/supabase/server"
@@ -62,10 +61,8 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           >
             <SessionContextProvider initialSession={session}>
               <DefaultQueryClientProvider>
-                <EventsProvider>
-                  {PostHogPageView && <PostHogPageView />}
-                  {children}
-                </EventsProvider>
+                {PostHogPageView && <PostHogPageView />}
+                {children}
               </DefaultQueryClientProvider>
             </SessionContextProvider>
             <Toaster />
