@@ -33,7 +33,7 @@ DEFAULT_CASE_ACTIONS = [
     "Sinkholed",
 ]
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
-TRACECAT__DB_URI = os.environ.get("TRACECAT__DB_URI", "sqlite:///tracecat.db")
+TRACECAT__DB_URI = os.environ.get("TRACECAT__DB_URI", "sqlite:///.tracecat/database.db")
 
 
 class User(SQLModel, table=True):
