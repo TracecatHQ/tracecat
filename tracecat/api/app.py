@@ -4,6 +4,8 @@ from typing import Annotated, Any
 
 import polars as pl
 import tantivy
+from aio_pika import Channel
+from aio_pika.pool import Pool
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
@@ -40,9 +42,11 @@ from tracecat.logger import standard_logger
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
+from tracecat.messaging import subscribe, use_channel_pool
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
+    ActionRunEventParams,
     ActionRunResponse,
     AuthenticateWebhookResponse,
     CaseActionParams,
@@ -50,7 +54,6 @@ from tracecat.types.api import (
     CaseParams,
     CopyWorkflowParams,
     CreateActionParams,
-    CreateActionRunParams,
     CreateSecretParams,
     CreateWebhookParams,
     CreateWorkflowParams,
@@ -63,29 +66,30 @@ from tracecat.types.api import (
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
     UpdateActionParams,
-    UpdateActionRunParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
-    UpdateWorkflowRunParams,
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
+    WorkflowRunEventParams,
     WorkflowRunResponse,
 )
 from tracecat.types.cases import Case, CaseMetrics
 
 logger = standard_logger("api")
 
-
 engine: Engine
+rabbitmq_channel_pool: Pool[Channel]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, rabbitmq_channel_pool
     engine = initialize_db()
-    yield
+    async with use_channel_pool() as pool:
+        rabbitmq_channel_pool = pool
+        yield
 
 
 app = FastAPI(lifespan=lifespan)
@@ -130,6 +134,21 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
+
+
+@app.get("/events/subscribe")
+async def events_subscription(
+    role: Annotated[Role, Depends(authenticate_user)],
+):
+    """Subscribe to events for a user.
+
+    Each user will have their own rabbitmq queue."""
+    global rabbitmq_channel_pool
+
+    return StreamingResponse(
+        subscribe(pool=rabbitmq_channel_pool, routing_keys=[role.user_id]),
+        media_type="application/x-ndjson",
+    )
 
 
 ### Workflows
@@ -338,19 +357,17 @@ def copy_workflow(
 def list_workflow_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-    limit: int = 20,
+    limit: int | None = None,
 ) -> list[WorkflowRunResponse]:
     """List all Workflow Runs for a Workflow."""
     with Session(engine) as session:
         # Being here means the user has access to the workflow
-        statement = (
-            select(WorkflowRun)
-            .where(
-                WorkflowRun.owner_id == role.user_id,
-                WorkflowRun.workflow_id == workflow_id,
-            )
-            .limit(limit)
+        statement = select(WorkflowRun).where(
+            WorkflowRun.owner_id == role.user_id,
+            WorkflowRun.workflow_id == workflow_id,
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         results = session.exec(statement)
         workflow_runs = results.all()
 
@@ -365,16 +382,15 @@ def list_workflow_runs(
 def create_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
-) -> WorkflowRunResponse:
+    params: WorkflowRunEventParams,
+) -> None:
     """Create a Workflow Run."""
 
     with Session(engine) as session:
-        workflow_run = WorkflowRun(owner_id=role.user_id, workflow_id=workflow_id)
+        workflow_run = WorkflowRun(workflow_id=workflow_id, **params.model_dump())
         session.add(workflow_run)
         session.commit()
         session.refresh(workflow_run)
-        # Need this classmethod to instantiate the lazy-laoded action_runs list
-        return WorkflowRunResponse.from_orm(workflow_run)
 
 
 @app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
@@ -411,7 +427,7 @@ def update_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
     workflow_run_id: str,
-    params: UpdateWorkflowRunParams,
+    params: WorkflowRunEventParams,
 ) -> None:
     """Update Workflow."""
 
@@ -429,11 +445,13 @@ def update_workflow_run(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        if params.status is not None:
-            workflow_run.status = params.status
+        workflow_run.status = params.status
+        # NOTE: We shouldn't use the DB updated_at field like this, but for now we will
+        workflow_run.updated_at = params.created_at
 
         session.add(workflow_run)
         session.commit()
+        session.refresh(workflow_run)
 
 
 @app.post("/workflows/{workflow_id}/trigger")
@@ -458,7 +476,7 @@ async def trigger_workflow_run(
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error triggering workflow: {e}")
+            logger.error(f"Error triggering workflow: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error triggering workflow",
@@ -647,19 +665,17 @@ def delete_action(
 def list_action_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
-    limit: int = 20,
+    limit: int | None = None,
 ) -> list[ActionRunResponse]:
     """List all action Runs for an action."""
     with Session(engine) as session:
         # Being here means the user has access to the action
-        statement = (
-            select(ActionRun)
-            .where(
-                ActionRun.owner_id == role.user_id,
-                ActionRun.action_id == action_id,
-            )
-            .limit(limit)
+        statement = select(ActionRun).where(
+            ActionRun.owner_id == role.user_id,
+            ActionRun.action_id == action_id,
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         results = session.exec(statement)
         action_runs = results.all()
 
@@ -673,16 +689,11 @@ def list_action_runs(
 def create_action_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     action_id: str,
-    params: CreateActionRunParams,
+    params: ActionRunEventParams,
 ) -> ActionRunResponse:
     """Create a action Run."""
 
-    action_run = ActionRun(
-        owner_id=role.user_id,
-        action_id=action_id,
-        id=params.action_run_id,
-        workflow_run_id=params.workflow_run_id,
-    )
+    action_run = ActionRun(action_id=action_id, **params.model_dump())
     with Session(engine) as session:
         session.add(action_run)
         session.commit()
@@ -725,7 +736,7 @@ def update_action_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     action_id: str,
     action_run_id: str,
-    params: UpdateActionRunParams,
+    params: ActionRunEventParams,
 ) -> None:
     """Update action."""
 
@@ -743,15 +754,17 @@ def update_action_run(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        if params.status is not None:
-            action_run.status = params.status
+        action_run.status = params.status
+        # NOTE: We shouldn't use the DB updated_at field like this, but for now we will
+        action_run.updated_at = params.created_at
         if params.error_msg is not None:
             action_run.error_msg = params.error_msg
         if params.result is not None:
-            action_run.result = json.dumps(params.result)
+            action_run.result = params.result
 
         session.add(action_run)
         session.commit()
+        session.refresh(action_run)
 
 
 ### Webhooks
@@ -1224,7 +1237,7 @@ async def streaming_autofill_case_fields(
         stream_case_completions(
             cases, context_cons=context_cons, action_cons=action_cons
         ),
-        media_type="text/event-stream",
+        media_type="application/x-ndjson",
     )
 
 

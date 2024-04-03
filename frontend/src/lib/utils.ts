@@ -127,3 +127,15 @@ export function parseActionRunId(
       throw new Error("Invalid field")
   }
 }
+
+export const loadFromLocalStorage = <T>(key: string): T => {
+  const storedValue = localStorage.getItem(key)
+  return storedValue ? JSON.parse(storedValue) : []
+}
+export const storeInLocalStorage = <T>(key: string, value: T) => {
+  localStorage.setItem(key, JSON.stringify(value))
+}
+
+export const deleteFromLocalStorage = (key: string) => {
+  localStorage.removeItem(key)
+}

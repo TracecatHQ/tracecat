@@ -116,11 +116,11 @@ function WorkflowRunItem({
   useEffect(() => {
     if (open) {
       fetchWorkflowRun(session, workflowId, workflowRunId).then((res) =>
-        setActionRuns(res.action_runs)
+        setActionRuns(res?.action_runs ?? [])
       )
     }
   }, [open])
-  const { icon, style } = getStyle(status)
+  const { icon, style } = getRunStatusStyle(status)
 
   return (
     <AccordionItem value={created_at.toString()}>
@@ -148,7 +148,7 @@ function WorkflowRunItem({
             { id, created_at, updated_at, status, error_msg, result },
             index
           ) => {
-            const { icon, style } = getStyle(status)
+            const { icon, style } = getRunStatusStyle(status)
             return (
               <Popover key={index}>
                 <PopoverTrigger asChild>
@@ -230,7 +230,7 @@ function WorkflowRunItem({
   )
 }
 
-function getStyle(status: RunStatus) {
+export function getRunStatusStyle(status: RunStatus) {
   switch (status) {
     case "success":
       return { icon: CircleCheck, style: "fill-green-500/50 stroke-green-700" }
@@ -239,10 +239,14 @@ function getStyle(status: RunStatus) {
     case "running":
       return {
         icon: Loader2,
-        style: "stroke-blue-500/50 animate-spin",
+        style: "stroke-blue-500/50 animate-spin animate-[spin_1s_infinite]",
       }
     case "pending":
-      return { icon: Loader, style: "stroke-blue-500/50 animate-spin" }
+      return {
+        icon: Loader,
+        style:
+          "stroke-blue-500/50 animate-spin animate-[spin_2s_linear_infinite]",
+      }
     case "canceled":
       return { icon: CircleX, style: "fill-red-500/50 stroke-red-700" }
     default:
