@@ -1,7 +1,6 @@
 import os
 
 import pytest
-from cryptography.fernet import Fernet
 from httpx import AsyncClient
 
 from tracecat.auth import (
@@ -13,16 +12,6 @@ from tracecat.auth import (
     encrypt_key,
 )
 from tracecat.contexts import ctx_session_role
-
-
-@pytest.fixture(autouse=True)
-def setup_env():
-    os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
-    os.environ["TRACECAT__SERVICE_KEY"] = "test_api_key"
-    os.environ["TRACECAT__API_URL"] = "http://api:8000"
-    os.environ["TRACECAT__RUNNER_URL"] = "http://runner:8000"
-
-    yield
 
 
 def test_encrypt_decrypt():

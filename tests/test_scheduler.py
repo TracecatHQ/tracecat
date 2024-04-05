@@ -9,7 +9,6 @@ Integration test:
 
 import asyncio
 import json
-import os
 import re
 import time
 from datetime import datetime
@@ -17,7 +16,6 @@ from datetime import datetime
 import polars as pl
 import pytest
 import respx
-from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete, select
 
@@ -33,8 +31,6 @@ TEST_SCHEDULER_INTERVAL_SECONDS = 10
 TEST_WORKFLOW_RUN_TIMEOUT = 40  # seconds
 TEST_USER_ID = "3f1606c4-351e-41df-acb4-fb6e243fd071"
 TEST_OTHER_USER_ID = "83de065f-e933-4a69-8a7a-2d796238575d"
-
-os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 
 client = TestClient(app=app)
