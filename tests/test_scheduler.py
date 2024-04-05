@@ -8,10 +8,12 @@ Integration test:
 """
 
 import asyncio
+import json
 import os
+import re
 import time
+from datetime import datetime
 
-import httpx
 import polars as pl
 import pytest
 import respx
@@ -208,20 +210,19 @@ def test_delete_schedule_wrong_authenticated_user(schedules_table):
 
 
 @pytest.mark.slow
-async def test_workflow_scheduler_runs():
+@pytest.mark.asyncio
+@respx.mock(base_url=TRACECAT__RUNNER_URL)
+async def test_workflow_scheduler_runs(respx_mock):
     """Workflow scheduler successfully calls the runner to start
     three scheduled workflows at the correct order.
 
-    Scheduled workflows:
-    - Workflow 1: Run every 10 seconds
-    - Workflow 2: Run every 20 seconds
-    - Workflow 3: Run every 30 seconds
-    - Workflow 4: Run every 60 seconds
-
     Timeout after 40 seconds.
-
-    Note: workflow 4 is not expected to run in this test.
     """
+
+    # Wait until the start of the next minute
+    current_time = datetime.now()
+    sleep_seconds = 60 - current_time.second
+    await asyncio.sleep(sleep_seconds)
 
     # Create schedules
     schedules = [
@@ -229,37 +230,42 @@ async def test_workflow_scheduler_runs():
             "id": "schedule-0",
             "workflow_id": "workflow-0",
             "owner_id": TEST_USER_ID,
-            # Run every 10 seconds
-            "cron": "*/10 * * * * *",
-            "endpoint_key": "start_0",
-            "endpoint_payload": {"key": "value_0"},
+            "cron": "* * * * * 15",
+            "entrypoint_key": "start_15",
+            "entrypoint_payload": '{"key": "value_0"}',
+        },
+        # This should NOT run
+        {
+            "id": "schedule-2",
+            "workflow_id": "workflow-other-user",
+            "owner_id": TEST_OTHER_USER_ID,
+            "cron": "* * * * * 15",
+            "entrypoint_key": "start_other_user",
+            "entrypoint_payload": "{}",
         },
         {
             "id": "schedule-1",
             "workflow_id": "workflow-0",
             "owner_id": TEST_USER_ID,
-            # Run every 20 seconds
-            "cron": "*/20 * * * * *",
-            "endpoint_key": "start_1",
-            "endpoint_payload": {"key": "value_1"},
+            "cron": "* * * * * 30",
+            "entrypoint_key": "start_30a",
+            "entrypoint_payload": '{"key": "value_1"}',
         },
         {
             "id": "schedule-2",
             "workflow_id": "workflow-1",
             "owner_id": TEST_USER_ID,
-            # Run every 30 seconds
-            "cron": "*/30 * * * * *",
-            "endpoint_key": "start_2",
-            "endpoint_payload": {"key": "value_2"},
+            "cron": "* * * * * 30",
+            "entrypoint_key": "start_30b",
+            "entrypoint_payload": '{"key": "value_2"}',
         },
         {
             "id": "schedule-3",
             "workflow_id": "workflow-2",
             "owner_id": TEST_USER_ID,
-            # Run every 60 seconds
-            "cron": "*/60 * * * * *",
-            "endpoint_key": "start_3",
-            "endpoint_payload": {"key": "value_3"},
+            "cron": "* * * * * 50",
+            "entrypoint_key": "start_z",
+            "entrypoint_payload": '{"key": "value_3"}',
         },
     ]
 
@@ -271,33 +277,21 @@ async def test_workflow_scheduler_runs():
         if_table_exists="append",
     )
 
-    client = TestClient(app)
-    for schedule in schedules:
-        response = client.post("/schedules", json=schedule)
-        response.raise_for_status()
+    route = respx_mock.post(re.compile(r"/workflows/.+"))
 
-    # Storage for captured data
-    captured_data = []
+    # Start scheduler in the background
+    await start_scheduler(
+        delay_seconds=3, interval_seconds=TEST_SCHEDULER_INTERVAL_SECONDS
+    )
+    await asyncio.sleep(TEST_WORKFLOW_RUN_TIMEOUT)
 
-    # Callback function to handle the request and capture data
-    def capture_request(request):
-        workflow_id = request.url.path.split("/")[-1]
-        json_data = request.content.decode()
-        captured_data.append((workflow_id, json_data))
-        return httpx.Response(
-            200, json={"status": "Mocked response to start workflow."}
-        )
-
-    with respx.mock(base_url=TRACECAT__RUNNER_URL) as mock:
-        # The dynamic part {workflow_id} will be replaced by the actual ID in the request
-        mock.post("/workflows/{workflow_id}", content=capture_request)
-        # Start scheduler in the background
-        start_scheduler(
-            delay_seconds=3, interval_seconds=TEST_SCHEDULER_INTERVAL_SECONDS
-        )
-
-    asyncio.sleep(TEST_WORKFLOW_RUN_TIMEOUT)
+    assert route.called
+    assert route.call_count == 3
 
     # Assert that the captured data is in the expected order
     # NOTE: last schedule is not expected to run
-    assert captured_data == schedules[:-1]
+    calls = route.calls
+    start_keys = [json.loads(call.request.content) for call in calls]
+    assert start_keys == [
+        (obj["entrypoint_key"], obj["entrypoint_payload"]) for obj in schedules[:-1]
+    ]
