@@ -29,6 +29,7 @@ services:
         condition: service_started
     networks:
       - nginx-network
+      - internal-network
 
   runner:
     build: .
@@ -57,6 +58,30 @@ services:
         condition: service_started
     networks:
       - nginx-network
+      - internal-network
+
+  scheduler:
+    build: .
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./:/app
+      - ~/.tracecat:/home/apiuser/.tracecat
+    environment:
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+    container_name: scheduler
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    networks:
+      - internal-network
 
   nginx:
     image: nginx:mainline-bookworm
@@ -91,3 +116,4 @@ services:
 
 networks:
   nginx-network:
+  internal-network:

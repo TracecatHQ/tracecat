@@ -7,7 +7,8 @@ from uuid import uuid4
 import lancedb
 import pyarrow as pa
 import tantivy
-from pydantic import computed_field
+from croniter import croniter
+from pydantic import computed_field, field_validator
 from slugify import slugify
 from sqlalchemy import TIMESTAMP, Column, Engine, ForeignKey, String, text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
@@ -19,6 +20,10 @@ from tracecat.config import (
     TRACECAT__RUNNER_URL,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
+from tracecat.logger import standard_logger
+
+logger = standard_logger("db")
+
 
 STORAGE_PATH = Path(
     os.environ.get("TRACECAT__STORAGE_PATH", os.path.expanduser("~/.tracecat/storage"))
@@ -32,7 +37,7 @@ DEFAULT_CASE_ACTIONS = [
     "Sinkholed",
 ]
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
-TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
+TRACECAT__DB_URI = os.environ.get("TRACECAT__DB_URI", "sqlite:///.tracecat/database.db")
 
 
 class User(SQLModel, table=True):
@@ -137,6 +142,10 @@ class Workflow(Resource, table=True):
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+    schedules: list["WorkflowSchedule"] | None = Relationship(
+        back_populates="workflow",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
 
     @computed_field
     @property
@@ -151,6 +160,22 @@ class WorkflowRun(Resource, table=True):
     workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="runs")
     action_runs: list["ActionRun"] | None = Relationship(back_populates="workflow_run")
+
+
+class WorkflowSchedule(Resource, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    cron: str
+    entrypoint_key: str
+    entrypoint_payload: str  # JSON-serialized String of payload
+    workflow_id: str | None = Field(foreign_key="workflow.id")
+    workflow: Workflow | None = Relationship(back_populates="schedules")
+
+    # Custom validator for the cron field
+    @field_validator("cron")
+    def validate_cron(cls, v):
+        if not croniter.is_valid(v):
+            raise ValueError("Invalid cron string")
+        return v
 
 
 class Action(Resource, table=True):
@@ -223,12 +248,17 @@ class Webhook(Resource, table=True):
 
 def create_db_engine() -> Engine:
     if TRACECAT__APP_ENV == "prod":
+        # Postgres
         engine_kwargs = {
             "pool_timeout": 30,
             "pool_recycle": 3600,
             "connect_args": {"sslmode": "require"},
         }
+    elif TRACECAT__APP_ENV == "local":
+        # SQLite disk-based database
+        engine_kwargs = {"connect_args": {"check_same_thread": False}}
     else:
+        # Postgres as default
         engine_kwargs = {
             "pool_timeout": 30,
             "pool_recycle": 3600,

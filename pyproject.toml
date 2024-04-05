@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     "adbc-driver-sqlite",
     "colorlog",
+    "croniter",
     "cryptography",
     "fastapi",
     "lancedb==0.6.3",
@@ -84,7 +85,10 @@ xfail_strict = true
 log_level = "INFO"
 log_cli = true
 log_cli_level = "INFO"
-markers = ["webtest: marks test that require the web"]
+markers = [
+    "webtest: marks test that require the web",
+    "slow: marks tests as slow",
+]
 
 [tool.ruff.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.
