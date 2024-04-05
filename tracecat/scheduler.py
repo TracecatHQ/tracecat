@@ -35,11 +35,6 @@ logger = standard_logger("scheduler")
 engine: Engine
 
 
-async def should_run_schedule(cron: str, now: datetime):
-    next_run = croniter(cron, now).get_next(datetime)
-    return next_run < now + timedelta(seconds=TRACECAT__SCHEDULE_INTERVAL_SECONDS)
-
-
 @retry(
     wait=wait_exponential(multiplier=1, min=4, max=10),
     stop=stop_after_attempt(3),
@@ -73,14 +68,25 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
 
     interval_seconds = interval_seconds or TRACECAT__SCHEDULE_INTERVAL_SECONDS
     while True:
-        now = datetime.now()
+        now = datetime.now().replace(microsecond=0)
+        prev = now - timedelta(seconds=interval_seconds)
         with Session(engine) as session:
-            schedules = session.exec(WorkflowSchedule).all()
+            statement = select(WorkflowSchedule)
+            schedules = session.exec(statement).all()
             responses = []
             for schedule in schedules:
                 user_id = schedule.owner_id
                 workflow_id = schedule.workflow_id
-                if await should_run_schedule(schedule.cron, now):
+                cron = schedule.cron
+
+                # Check if the schedule should run
+                next_run = croniter(cron, prev).get_next(datetime)
+                should_run = next_run <= now
+
+                if should_run:
+                    logger.info(
+                        "✅ Run scheduled workflow: id=%s cron=%r", workflow_id, cron
+                    )
                     response = await start_workflow(
                         user_id=user_id,
                         workflow_id=workflow_id,
@@ -91,25 +97,37 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                         response.raise_for_status()
                     except httpx.HTTPStatusError as e:
                         logger.error(
-                            "Failed to schedule workflow. Will retry next cycle.",
+                            "Failed to schedule workflo: id=%s cron=%r",
+                            workflow_id,
+                            cron,
                             exc_info=e,
                         )
                     else:
                         responses.append(response)
+                else:
+                    logger.info(
+                        "⏩ Skip scheduled workflow: id=%s cron=%r | Next run: %s",
+                        workflow_id,
+                        cron,
+                        next_run,
+                    )
+
             for response in responses:
                 try:
                     response.raise_for_status()
                 except httpx.HTTPStatusError as e:
                     logger.error(
-                        "Failed to schedule workflow. Will retry next cycle.",
+                        "Failed to schedule workflow: id=%s cron=%r.",
+                        workflow_id,
+                        cron,
                         exc_info=e,
                     )
         await asyncio.sleep(interval_seconds)
 
 
-def start_scheduler(delay_seconds: int = 30, interval_seconds: int | None = None):
+async def start_scheduler(delay_seconds: int = 30, interval_seconds: int | None = None):
     # Wait for API service to start
-    asyncio.sleep(delay_seconds)
+    await asyncio.sleep(delay_seconds)
     # Run scheduled workflows as a background task
     asyncio.create_task(run_scheduled_workflows(interval_seconds))
 
@@ -118,7 +136,7 @@ def start_scheduler(delay_seconds: int = 30, interval_seconds: int | None = None
 async def lifespan(app: FastAPI):
     global engine
     engine = create_db_engine()
-    start_scheduler()
+    await start_scheduler()
     yield
 
 
