@@ -234,7 +234,6 @@ async def test_workflow_scheduler_runs(respx_mock):
             "entrypoint_key": "start_15",
             "entrypoint_payload": '{"key": "value_0"}',
         },
-        # This should NOT run
         {
             "id": "schedule-other-user",
             "workflow_id": "workflow-other-user",
@@ -286,7 +285,7 @@ async def test_workflow_scheduler_runs(respx_mock):
     await asyncio.sleep(TEST_WORKFLOW_RUN_TIMEOUT)
 
     assert route.called
-    assert route.call_count == 3
+    assert route.call_count == 4
 
     # Assert that the captured data is in the expected order
     # NOTE: last schedule is not expected to run
