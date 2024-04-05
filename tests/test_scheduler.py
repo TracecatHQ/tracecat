@@ -236,7 +236,7 @@ async def test_workflow_scheduler_runs(respx_mock):
         },
         # This should NOT run
         {
-            "id": "schedule-2",
+            "id": "schedule-other-user",
             "workflow_id": "workflow-other-user",
             "owner_id": TEST_OTHER_USER_ID,
             "cron": "* * * * * 15",
