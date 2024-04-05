@@ -93,9 +93,12 @@ export default function WorkflowSwitcher({
                       onSelect={() => {
                         // If we're on cases page, stay at /workflows/{workflowId}/cases
                         const nextPath = pathname.endsWith("/cases")
-                          ? `/workflows/${wf.id}/cases`
-                          : `/workflows/${wf.id}`
-                        router.push(nextPath)
+                          ? "/cases"
+                          : pathname.endsWith("/console")
+                            ? "/console"
+                            : ""
+                        const fullPath = `/workflows/${wf.id}` + nextPath
+                        router.push(fullPath)
                         setOpen(false)
                       }}
                       className="text-xs hover:cursor-pointer"

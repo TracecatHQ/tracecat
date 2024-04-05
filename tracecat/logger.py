@@ -22,7 +22,7 @@ def file_logger(
     logger = logging.getLogger(name)
 
     # Set logger level
-    if level is None:
+    if not level:
         level = os.getenv("LOG_LEVEL", "INFO")
     logger.setLevel(level)
 
@@ -48,7 +48,7 @@ def standard_logger(
     logger = colorlog.getLogger(name)
 
     # Set logger level
-    if level is None:
+    if not level:
         level = os.getenv("LOG_LEVEL", "INFO")
     logger.setLevel(level)
 

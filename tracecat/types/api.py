@@ -72,6 +72,7 @@ class ActionRunResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     action_id: str
+    workflow_run_id: str
     status: str
     error_msg: str | None = None
     result: dict[str, Any] | None = None
@@ -79,19 +80,26 @@ class ActionRunResponse(BaseModel):
     @classmethod
     def from_orm(cls, run: ActionRun) -> ActionRunResponse:
         dict_result = None if run.result is None else json.loads(run.result)
-        return cls(**run.model_dump(exclude=["result"]), result=dict_result)
+        return cls(**run.model_dump(exclude={"result"}), result=dict_result)
 
 
-class CreateActionRunParams(BaseModel):
-    action_run_id: str  # This is deterministically defined in the runner
-    workflow_run_id: str
-    limit: int = 20
-
-
-class UpdateActionRunParams(BaseModel):
+class ActionRunEventParams(BaseModel):
+    id: str  # This is deterministically defined in the runner
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
     status: RunStatus
+    workflow_run_id: str
     error_msg: str | None = None
-    result: dict[str, Any] | None = None
+    result: str | None = None  # JSON-serialized String
+
+
+class WorkflowRunEventParams(BaseModel):
+    id: str
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
+    status: RunStatus
 
 
 class CreateWorkflowParams(BaseModel):
@@ -104,10 +112,6 @@ class UpdateWorkflowParams(BaseModel):
     description: str | None = None
     status: str | None = None
     object: str | None = None
-
-
-class UpdateWorkflowRunParams(BaseModel):
-    status: RunStatus
 
 
 class CreateActionParams(BaseModel):
@@ -239,10 +243,6 @@ class StartWorkflowResponse(BaseModel):
     status: str
     message: str
     id: str
-
-
-class CreateWorkflowRunParams(BaseModel):
-    status: RunStatus
 
 
 class CopyWorkflowParams(BaseModel):

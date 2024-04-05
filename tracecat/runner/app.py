@@ -30,12 +30,14 @@ Stores
 
 """
 
-from __future__ import annotations
-
 import asyncio
+from contextlib import asynccontextmanager
 from enum import StrEnum, auto
 from typing import Annotated, Any
+from uuid import uuid4
 
+from aio_pika import Channel
+from aio_pika.pool import Pool
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -50,15 +52,20 @@ from fastapi.responses import ORJSONResponse
 
 from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
 from tracecat.config import TRACECAT__API_URL, TRACECAT__APP_ENV
-from tracecat.contexts import ctx_session_role, ctx_workflow
+from tracecat.contexts import ctx_mq_channel_pool, ctx_session_role, ctx_workflow
 from tracecat.logger import standard_logger
+from tracecat.messaging import use_channel_pool
 from tracecat.runner.actions import (
     ActionRun,
     ActionRunStatus,
     ActionTrail,
     start_action_run,
 )
-from tracecat.runner.workflows import Workflow, create_workflow_run, update_workflow_run
+from tracecat.runner.events import (
+    emit_create_workflow_run_event,
+    emit_update_workflow_run_event,
+)
+from tracecat.runner.workflows import Workflow
 from tracecat.types.api import (
     AuthenticateWebhookResponse,
     RunStatus,
@@ -70,7 +77,18 @@ from tracecat.types.api import (
 logger = standard_logger(__name__)
 
 
-app = FastAPI(debug=True, default_response_class=ORJSONResponse)
+rabbitmq_channel_pool: Pool[Channel]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global rabbitmq_channel_pool
+    async with use_channel_pool() as pool:
+        rabbitmq_channel_pool = pool
+        yield
+
+
+app = FastAPI(lifespan=lifespan, default_response_class=ORJSONResponse)
 
 
 if TRACECAT__APP_ENV == "prod":
@@ -91,6 +109,7 @@ else:
             "http://localhost:8000",
         ],
     }
+
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
 app.add_middleware(
@@ -118,7 +137,7 @@ ready_jobs_queue: asyncio.Queue[ActionRun] = asyncio.Queue()
 running_jobs_store: dict[str, asyncio.Task[None]] = {}
 
 
-async def get_workflow(workflow_id: str) -> WorkflowResponse:
+async def get_workflow(workflow_id: str) -> Workflow:
     try:
         role = ctx_session_role.get()
         async with AuthenticatedAPIClient(role=role, http2=True) as client:
@@ -131,7 +150,8 @@ async def get_workflow(workflow_id: str) -> WorkflowResponse:
             detail="An error occurred while fetching the workflow.",
         ) from e
     data = response.json()
-    return WorkflowResponse.model_validate(data)
+    workflow_response = WorkflowResponse.model_validate(data)
+    return Workflow.from_response(workflow_response)
 
 
 # Dependencies
@@ -290,11 +310,12 @@ async def start_workflow(
     except LookupError:
         # If not previously set by a webhook, set the role here
         ctx_session_role.set(role)
-    wfr_metadata = await create_workflow_run(workflow_id)
+
+    ctx_mq_channel_pool.set(rabbitmq_channel_pool)
+
     background_tasks.add_task(
         run_workflow,
         workflow_id=workflow_id,
-        workflow_run_id=wfr_metadata.id,
         entrypoint_key=start_workflow_params.entrypoint_key,
         entrypoint_payload=start_workflow_params.entrypoint_payload,
     )
@@ -304,8 +325,8 @@ async def start_workflow(
 
 
 async def run_workflow(
+    *,
     workflow_id: str,
-    workflow_run_id: str,
     entrypoint_key: str,
     entrypoint_payload: dict[str, Any] | None = None,
 ) -> None:
@@ -338,9 +359,13 @@ async def run_workflow(
      associate the worker with a specific workflow.
     - The `start_workflow` function can then just directly enqueue the first action.
     """
+    # TODO: Move some of these into ContextVars
+    workflow_run_id = uuid4().hex
+    await emit_create_workflow_run_event(
+        workflow_id=workflow_id, workflow_run_id=workflow_run_id
+    )
     run_logger = standard_logger(f"wfr-{workflow_run_id}")
-    workflow_response = await get_workflow(workflow_id)
-    workflow = Workflow.from_response(workflow_response)
+    workflow = await get_workflow(workflow_id)
     logger.info(f"Set workflow context for user {workflow.owner_id}")
     ctx_workflow.set(workflow)
 
@@ -355,7 +380,7 @@ async def run_workflow(
 
     run_status: RunStatus = "success"
 
-    await update_workflow_run(
+    await emit_update_workflow_run_event(
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
         status="running",
@@ -398,10 +423,10 @@ async def run_workflow(
 
         run_logger.info("Workflow completed.")
     except asyncio.CancelledError:
-        run_logger.warning("Workflow was canceled.")
+        run_logger.warning("Workflow was canceled.", exc_info=True)
         run_status = "canceled"
     except Exception as e:
-        run_logger.error(f"Workflow failed: {e}")
+        run_logger.error(f"Workflow failed: {e}", exc_info=True)
         run_status = "failure"
     finally:
         run_logger.info("Shutting down running tasks")
@@ -409,6 +434,6 @@ async def run_workflow(
             running_task.cancel()
 
     # TODO: Update this to update with status 'failure' if any action fails
-    await update_workflow_run(
+    await emit_update_workflow_run_event(
         workflow_id=workflow_id, workflow_run_id=workflow_run_id, status=run_status
     )

@@ -48,13 +48,16 @@ import tantivy
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.auth import AuthenticatedAPIClient
 from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.contexts import ctx_session_role
 from tracecat.db import create_events_index, create_vdb_conn
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
+from tracecat.runner.events import (
+    emit_create_action_run_event,
+    emit_update_action_run_event,
+)
 from tracecat.runner.llm import (
     TaskFields,
     TaskFieldsSubclass,
@@ -72,12 +75,7 @@ from tracecat.runner.templates import (
     evaluate_templated_secrets,
 )
 from tracecat.types.actions import ActionType
-from tracecat.types.api import (
-    ActionRunResponse,
-    CreateActionRunParams,
-    RunStatus,
-    UpdateActionRunParams,
-)
+from tracecat.types.api import RunStatus
 from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
@@ -149,6 +147,10 @@ class ActionRun(BaseModel):
         We need both to uniquely identify an action run.
         """
         return get_action_run_id(self.workflow_run_id, self.action_key)
+
+    @property
+    def action_id(self) -> str:
+        return action_key_to_id(self.action_key)
 
     def downstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
         downstream_deps_ar_ids = [
@@ -400,22 +402,21 @@ async def start_action_run(
     pending_timeout: float | None = None,
     custom_logger: logging.Logger | None = None,
 ) -> None:
-    await log_create_action_run(action_run)
-    ar_id = action_run.id
-    action_key = action_run.action_key
-    upstream_deps_ar_ids = action_run.upstream_dependencies(
-        workflow=workflow_ref, action_key=action_key
-    )
-    custom_logger = custom_logger or logger
-    custom_logger.debug(
-        f"Action run {ar_id} waiting for dependencies {upstream_deps_ar_ids}."
-    )
-
-    run_status: RunStatus = "success"
-    error_msg: str | None = None
-    result: ActionRunResult | None = None
-    # 1. Perform the action and its cleanup
     try:
+        await emit_create_action_run_event(action_run)
+        ar_id = action_run.id
+        action_key = action_run.action_key
+        upstream_deps_ar_ids = action_run.upstream_dependencies(
+            workflow=workflow_ref, action_key=action_key
+        )
+        custom_logger = custom_logger or logger
+        custom_logger.debug(
+            f"Action run {ar_id} waiting for dependencies {upstream_deps_ar_ids}."
+        )
+
+        run_status: RunStatus = "success"
+        error_msg: str | None = None
+        result: ActionRunResult | None = None
         await asyncio.wait_for(
             _wait_for_dependencies(upstream_deps_ar_ids, action_run_status_store),
             timeout=pending_timeout,
@@ -428,7 +429,7 @@ async def start_action_run(
         custom_logger.debug(f"Running action {ar_id!r}. Trail {action_trail.keys()}.")
         action_run_status_store[ar_id] = ActionRunStatus.RUNNING
         action_ref = workflow_ref.actions[action_key]
-        await log_update_action_run(action_run, status="running")
+        await emit_update_action_run_event(action_run, status="running")
 
         # Every single 'run_xxx_action' function should return a dict
         # This dict always contains a key 'output' with the direct result of the action
@@ -478,6 +479,7 @@ async def start_action_run(
         running_jobs_store.pop(ar_id, None)
 
     # Add trail to events store
+    # TODO(perf): Run this outside of the async event loop
     try:
         _index_events(
             action_id=action_ref.id,
@@ -492,7 +494,7 @@ async def start_action_run(
     except Exception as e:
         custom_logger.error("Tantivy indexing failed.", exc_info=e)
 
-    await log_complete_action_run(
+    await emit_update_action_run_event(
         action_run, status=run_status, error_msg=error_msg, result=result
     )
 
@@ -891,72 +893,3 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "send_email": run_send_email_action,
     "open_case": run_open_case_action,
 }
-
-
-# TODO: Move these calls into a logger
-async def log_create_action_run(action_run: ActionRun) -> ActionRunResponse:
-    """Create a workflow run."""
-    logger.info(f"Log create action run {action_run.id}")
-    action_id = action_key_to_id(action_run.action_key)
-    params = CreateActionRunParams(
-        action_run_id=action_run.id,
-        workflow_run_id=action_run.workflow_run_id,
-    )
-    async with AuthenticatedAPIClient(http2=True) as client:
-        response = await client.post(
-            f"/actions/{action_id}/runs", json=params.model_dump()
-        )
-        response.raise_for_status()
-    return ActionRunResponse.model_validate(response.json())
-
-
-async def log_update_action_run(
-    action_run: ActionRun,
-    *,
-    status: RunStatus,
-) -> None:
-    """Update a workflow run."""
-    logger.info(f"Log update action run {action_run.id} with status {status}.")
-    action_id = action_key_to_id(action_run.action_key)
-    params = UpdateActionRunParams(status=status)
-    async with AuthenticatedAPIClient(http2=True) as client:
-        response = await client.post(
-            f"/actions/{action_id}/runs/{action_run.id}",
-            json=params.model_dump(),
-        )
-        if response.status_code != 204:
-            logger.error(
-                f"Failed to update action run {action_run.id} in workflow run "
-                f"{action_run.workflow_run_id} with status {status}"
-            )
-
-
-async def log_complete_action_run(
-    action_run: ActionRun,
-    *,
-    status: RunStatus,
-    error_msg: str | None = None,
-    result: ActionRunResult | None = None,
-) -> None:
-    """Update a workflow run."""
-    logger.info(f"Log update action run {action_run.id} with status {status}.")
-    logger.critical(f"{error_msg =}")
-    logger.critical(f"{result =}")
-    action_id = action_key_to_id(action_run.action_key)
-    params = UpdateActionRunParams(
-        status=status,
-        error_msg=error_msg,
-        result=result.model_dump() if result else None,
-    )
-    async with AuthenticatedAPIClient(http2=True) as client:
-        response = await client.post(
-            f"/actions/{action_id}/runs/{action_run.id}",
-            # Explicitly serialize to json using pydantic to handle datetimes
-            content=params.model_dump_json(),
-            headers={"Content-Type": "application/json"},
-        )
-        if response.status_code != 204:
-            logger.error(
-                f"Failed to update action run {action_run.id} in workflow run "
-                f"{action_run.workflow_run_id} with status {status}"
-            )

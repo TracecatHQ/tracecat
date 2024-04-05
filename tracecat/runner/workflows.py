@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, validator
 
-from tracecat.auth import AuthenticatedAPIClient
 from tracecat.logger import standard_logger
 from tracecat.runner.actions import (
     Action,
@@ -12,10 +11,7 @@ from tracecat.runner.actions import (
 )
 from tracecat.types.api import (
     ActionResponse,
-    RunStatus,
-    UpdateWorkflowRunParams,
     WorkflowResponse,
-    WorkflowRunResponse,
 )
 
 logger = standard_logger(__name__)
@@ -132,31 +128,3 @@ def _graph_obj_to_adj_list(
         source_id, target_id = edge["source"], edge["target"]
         adj_list[actions[source_id].key].add(actions[target_id].key)
     return adj_list
-
-
-# TODO: Move these calls into a logger or something
-async def create_workflow_run(workflow_id: str) -> WorkflowRunResponse:
-    """Create a workflow run."""
-    async with AuthenticatedAPIClient(http2=True) as client:
-        response = await client.post(f"/workflows/{workflow_id}/runs")
-        response.raise_for_status()
-    return WorkflowRunResponse.model_validate(response.json())
-
-
-async def update_workflow_run(
-    workflow_id: str,
-    workflow_run_id: str,
-    status: RunStatus,
-) -> None:
-    """Update a workflow run."""
-    logger.info(f"Log update workflow run {workflow_run_id} with status {status}")
-    params = UpdateWorkflowRunParams(status=status)
-    async with AuthenticatedAPIClient(http2=True) as client:
-        response = await client.post(
-            f"/workflows/{workflow_id}/runs/{workflow_run_id}",
-            json=params.model_dump(),
-        )
-        if response.status_code != 204:
-            logger.error(
-                f"Failed to update workflow run {workflow_run_id} with status {status}"
-            )

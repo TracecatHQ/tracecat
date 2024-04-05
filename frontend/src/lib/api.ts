@@ -22,10 +22,21 @@ export async function streamingResponse(endpoint: string, init?: RequestInit) {
   return fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, init)
 }
 
+/**
+ * Wrapper around fetch to stream data from the server
+ * We're using this over EventSource because we need authentication
+ *
+ * @param endpoint
+ * @param session
+ * @param init
+ * @param delimiter
+ * @returns
+ */
 export async function* streamGenerator(
   endpoint: string,
   session: Session | null,
-  init?: RequestInit
+  init?: RequestInit,
+  delimiter: string = "\n"
 ) {
   if (!session) {
     console.error("Failed to get authenticated client, redirecting to login")
@@ -40,6 +51,7 @@ export async function* streamGenerator(
         ...headers, // Merge the headers from init object
         Authorization: `Bearer ${session?.access_token}`,
       },
+      signal: new AbortController().signal,
     }
   )
   if (!response.body) {
@@ -55,10 +67,22 @@ export async function* streamGenerator(
       if (done) {
         break
       }
-      yield decoder.decode(value, { stream: true })
+      const chunk = decoder.decode(value, { stream: true })
+      if (delimiter) {
+        const lines = chunk.split(delimiter).filter((line) => line.length > 0)
+        for (const line of lines) {
+          yield line
+        }
+      } else {
+        yield chunk
+      }
     }
   } catch (error) {
-    console.error("Error reading stream:", error)
+    if ((error as Error).name === "AbortError") {
+      console.log("Fetch aborted")
+    } else {
+      console.error("Error reading stream:", error)
+    }
   } finally {
     reader.releaseLock()
   }

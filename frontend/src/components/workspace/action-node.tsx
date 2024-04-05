@@ -57,7 +57,7 @@ export interface ActionNodeData {
   // Generic metadata
 }
 
-const tileIconMapping: Partial<Record<ActionType, LucideIcon>> = {
+export const tileIconMapping: Partial<Record<ActionType, LucideIcon>> = {
   webhook: Webhook,
   http_request: Globe,
   data_transform: Blend,

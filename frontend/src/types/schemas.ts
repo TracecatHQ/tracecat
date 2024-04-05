@@ -64,7 +64,7 @@ export const workflowMetadataSchema = z.object({
   icon_url: z.string().url().nullable(),
 })
 export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
-const strAsDate = z.string().transform((x) => new Date(`${x}Z`))
+const strAsDate = z.string().transform((x) => new Date(x))
 
 const runStatusSchema = z.enum([
   "pending",
@@ -80,6 +80,7 @@ export const actionRunSchema = z.object({
   created_at: strAsDate,
   updated_at: strAsDate,
   action_id: z.string(),
+  workflow_run_id: z.string(),
   status: runStatusSchema,
   error_msg: z.string().nullable(),
   result: stringToJSONSchema.nullable(),
@@ -92,7 +93,7 @@ export const workflowRunSchema = z.object({
   updated_at: strAsDate,
   workflow_id: z.string(),
   status: runStatusSchema,
-  action_runs: z.array(actionRunSchema),
+  action_runs: z.array(actionRunSchema).nullish().default([]),
 })
 
 export type WorkflowRun = z.infer<typeof workflowRunSchema>

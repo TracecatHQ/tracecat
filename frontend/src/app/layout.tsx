@@ -1,11 +1,11 @@
 import "@/styles/globals.css"
 
+import React from "react"
 import { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { SessionContextProvider } from "@/providers/session"
 import { createClient } from "@/utils/supabase/server"
-import { Session } from "@supabase/supabase-js"
 
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
@@ -46,43 +46,29 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     data: { session },
   } = await supabase.auth.getSession()
 
+  const MaybeAnalytics = PHProvider ? PHProvider : React.Fragment
+
   return (
     <>
       <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
         <head />
-        {PHProvider ? (
-          <PHProvider>
-            <BodyContent session={session}>{children}</BodyContent>
-          </PHProvider>
-        ) : (
-          <BodyContent session={session}>{children}</BodyContent>
-        )}
+        <MaybeAnalytics>
+          <body
+            className={cn(
+              "h-screen min-h-screen overflow-hidden bg-background font-sans antialiased",
+              fontSans.variable
+            )}
+          >
+            <SessionContextProvider initialSession={session}>
+              <DefaultQueryClientProvider>
+                {PostHogPageView && <PostHogPageView />}
+                {children}
+              </DefaultQueryClientProvider>
+            </SessionContextProvider>
+            <Toaster />
+          </body>
+        </MaybeAnalytics>
       </html>
     </>
-  )
-}
-
-function BodyContent({
-  session,
-  children,
-}: {
-  session: Session | null
-  children: React.ReactNode
-}) {
-  return (
-    <body
-      className={cn(
-        "h-screen min-h-screen overflow-hidden bg-background font-sans antialiased",
-        fontSans.variable
-      )}
-    >
-      <SessionContextProvider initialSession={session}>
-        <DefaultQueryClientProvider>
-          {PostHogPageView && <PostHogPageView />}
-          {children}
-        </DefaultQueryClientProvider>
-      </SessionContextProvider>
-      <Toaster />
-    </body>
   )
 }
