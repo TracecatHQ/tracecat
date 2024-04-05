@@ -292,5 +292,9 @@ async def test_workflow_scheduler_runs(respx_mock):
     calls = route.calls
     start_keys = [json.loads(call.request.content) for call in calls]
     assert start_keys == [
-        (obj["entrypoint_key"], obj["entrypoint_payload"]) for obj in schedules[:-1]
+        {
+            "entrypoint_key": obj["entrypoint_key"],
+            "entrypoint_payload": obj["entrypoint_payload"],
+        }
+        for obj in schedules[:-1]
     ]
