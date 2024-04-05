@@ -29,7 +29,7 @@ services:
         condition: service_started
     networks:
       - nginx-network
-      - scheduler-network
+      - internal-network
 
   runner:
     build: .
@@ -58,7 +58,7 @@ services:
         condition: service_started
     networks:
       - nginx-network
-      - scheduler-network
+      - internal-network
 
   scheduler:
     build: .
@@ -81,7 +81,7 @@ services:
     depends_on:
       - nginx
     networks:
-      - scheduler-network
+      - internal-network
 
   nginx:
     image: nginx:mainline-bookworm
@@ -116,5 +116,4 @@ services:
 
 networks:
   nginx-network:
-  scheduler-network:
-
+  internal-network:
