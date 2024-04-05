@@ -19,7 +19,6 @@ import threading
 import polars as pl
 import pytest
 import uvicorn
-from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from tracecat.api.app import app
@@ -29,13 +28,12 @@ from tracecat.auth import (
     authenticate_user,
     authenticate_user_or_service,
 )
-from tracecat.db import TRACECAT__SQLITE_URI
+from tracecat.db import TRACECAT__DB_URI
 from tracecat.runner.app import app as runner_app
 from tracecat.runner.app import valid_workflow
 
 TEST_WORKFLOW_RUN_TIMEOUT = 60  # seconds
 TEST_USER_ID = "3f1606c4-351e-41df-acb4-fb6e243fd071"
-os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 
 client = TestClient(app=app)
@@ -88,17 +86,17 @@ def create_test_db():
         # Insert data into database
         actions.write_database(
             table_name="action",
-            connection=TRACECAT__SQLITE_URI,
+            connection=TRACECAT__DB_URI,
             if_table_exists="append",
         )
         webhooks.write_database(
             table_name="webhook",
-            connection=TRACECAT__SQLITE_URI,
+            connection=TRACECAT__DB_URI,
             if_table_exists="append",
         )
         workflows.write_database(
             table_name="workflow",
-            connection=TRACECAT__SQLITE_URI,
+            connection=TRACECAT__DB_URI,
             if_table_exists="append",
         )
 
@@ -122,7 +120,7 @@ def pytest_generate_tests(metafunc):
     # Directly use the fixture data for parametrization
     query = "SELECT workflow_id, action_id FROM webhook"
     triggers = (
-        pl.read_database_uri(query, uri=TRACECAT__SQLITE_URI, engine="adbc")
+        pl.read_database_uri(query, uri=TRACECAT__DB_URI, engine="adbc")
         .join(pl.read_ndjson("tests/data/trigger_payloads.ndjson"), on="action_id")
         .to_dicts()
     )

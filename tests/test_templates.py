@@ -4,7 +4,6 @@ from functools import partial
 
 import pytest
 import respx
-from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from httpx import Response
 
@@ -24,14 +23,12 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def setup_enrionment():
+def setup_templates_env():
     from tracecat.contexts import ctx_workflow
     from tracecat.runner.workflows import Workflow
 
     os.environ["TEST_API_KEY_1"] = "1234567890"
     os.environ["test_api_key_2"] = "asdfghjkl"
-    os.environ["TRACECAT__SERVICE_KEY"] = "test_service_key"
-    os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
     mock_workflow = Workflow(
         title="Test Workflow", adj_list={}, actions={}, owner_id="test_user_id"
