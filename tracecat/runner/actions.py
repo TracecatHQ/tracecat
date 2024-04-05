@@ -481,7 +481,8 @@ async def start_action_run(
     # Add trail to events store
     # TODO(perf): Run this outside of the async event loop
     try:
-        _index_events(
+        await asyncio.to_thread(
+            _index_events,
             action_id=action_ref.id,
             action_run_id=ar_id,
             action_title=action_ref.title,
@@ -795,7 +796,7 @@ async def run_open_case_action(
         suppression=suppression,
     )
     try:
-        tbl.add([case.flatten()])
+        await asyncio.to_thread(tbl.add, [case.flatten()])
     except Exception as e:
         custom_logger.error("Failed to add case to LanceDB.", exc_info=e)
         raise
