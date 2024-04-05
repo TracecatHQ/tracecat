@@ -8,7 +8,7 @@ import lancedb
 import pyarrow as pa
 import tantivy
 from croniter import croniter
-from pydantic import computed_field, validator
+from pydantic import computed_field, field_validator
 from slugify import slugify
 from sqlalchemy import TIMESTAMP, Column, Engine, ForeignKey, String, text
 from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
@@ -171,7 +171,7 @@ class WorkflowSchedule(Resource, table=True):
     workflow: Workflow | None = Relationship(back_populates="schedules")
 
     # Custom validator for the cron field
-    @validator("cron")
+    @field_validator("cron")
     def validate_cron(cls, v):
         if not croniter.is_valid(v):
             raise ValueError("Invalid cron string")
