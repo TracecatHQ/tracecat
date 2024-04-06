@@ -28,7 +28,7 @@ import {
 } from "lucide-react"
 import { Handle, NodeProps, Position, useNodeId, type Node } from "reactflow"
 
-import { ActionType } from "@/types/schemas"
+import { ActionType, IntegrationType, NodeType } from "@/types/schemas"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -46,8 +46,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/components/ui/use-toast"
+import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
 
-export type ActionNodeType = Node<ActionNodeData>
+export type ActionNodeType = Node<ActionNodeData | IntegrationNodeData>
 export interface ActionNodeData {
   type: ActionType
   title: string
@@ -104,6 +105,24 @@ export function getTileColor(
   }
   return defaultColor
 }
+
+const typeToNodeSubtitle: Record<ActionType, string> = {
+  webhook: "Webhook",
+  http_request: "HTTP Request",
+  data_transform: "Data Transform",
+  "condition.compare": "Condition: Compare",
+  "condition.regex": "Condition: Regex",
+  "condition.membership": "Condition: Membership",
+  open_case: "Open Case",
+  receive_email: "Receive Email",
+  send_email: "Send Email",
+  "llm.extract": "AI: Extract",
+  "llm.label": "AI: Label",
+  "llm.translate": "AI: Translate",
+  "llm.choice": "AI: Choice",
+  "llm.summarize": "AI: Summarize",
+}
+
 const handleStyle = { width: 8, height: 8 }
 
 export default React.memo(function ActionNode({
@@ -175,7 +194,7 @@ export default React.memo(function ActionNode({
                 </div>
               </CardTitle>
               <CardDescription className="mt-1 text-sm text-muted-foreground">
-                {type}
+                {typeToNodeSubtitle[type]}
               </CardDescription>
             </div>
             <DropdownMenu>

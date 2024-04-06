@@ -87,6 +87,16 @@ export function undoSlugify(value: string, delimiter: string = "_"): string {
     .replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
+export function undoSlugifyNamespaced(
+  value: string,
+  namespaceDelimiter: string = ".",
+  wordDelimiter: string = "_"
+): string {
+  return value
+    .split(namespaceDelimiter)
+    .map((v) => undoSlugify(v, wordDelimiter))
+    .join(" ")
+}
 /**
  *
  * @param key <Action ID>.<Action Slug>
@@ -138,4 +148,21 @@ export const storeInLocalStorage = <T>(key: string, value: T) => {
 
 export const deleteFromLocalStorage = (key: string) => {
   localStorage.removeItem(key)
+}
+
+export function groupBy<T, K extends keyof T>(
+  array: T[],
+  key: K
+): Record<string, T[]> {
+  return array.reduce(
+    (accumulator, currentItem) => {
+      const groupKey = currentItem[key] as unknown as string
+      if (!accumulator[groupKey]) {
+        accumulator[groupKey] = []
+      }
+      accumulator[groupKey].push(currentItem)
+      return accumulator
+    },
+    {} as Record<string, T[]>
+  )
 }

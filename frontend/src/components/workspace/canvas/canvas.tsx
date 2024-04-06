@@ -6,6 +6,7 @@ import ReactFlow, {
   Controls,
   Edge,
   MarkerType,
+  Node,
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
@@ -18,6 +19,7 @@ import "reactflow/dist/style.css"
 import { useParams } from "next/navigation"
 import { useSession } from "@/providers/session"
 
+import { NodeType } from "@/types/schemas"
 import {
   createAction,
   deleteAction,
@@ -26,12 +28,13 @@ import {
 } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
 import ActionNode, {
-  ActionNodeData,
   ActionNodeType,
-} from "@/components/workspace/action-node"
+} from "@/components/workspace/canvas/action-node"
+import IntegrationNode from "@/components/workspace/canvas/integration-node"
 
 const nodeTypes = {
   action: ActionNode,
+  integrations: IntegrationNode,
 }
 
 const defaultEdgeOptions = {
@@ -40,7 +43,15 @@ const defaultEdgeOptions = {
   },
   style: { strokeWidth: 2 },
 }
-
+export type NodeDataType = Node<NodeData>
+export interface NodeData {
+  type: NodeType
+  title: string
+  status: "online" | "offline"
+  isConfigured: boolean
+  numberOfEvents: number
+  // Generic metadata
+}
 const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -96,6 +107,7 @@ const WorkflowCanvas: React.FC = () => {
   // Adding a new node
   const onDrop = async (event: React.DragEvent) => {
     event.preventDefault()
+    if (!reactFlowInstance) return
 
     // Limit total number of nodes
     if (nodes.length >= 50) {
@@ -109,31 +121,32 @@ const WorkflowCanvas: React.FC = () => {
     const reactFlowNodeType = event.dataTransfer.getData(
       "application/reactflow"
     )
-    const actionNodeData = JSON.parse(
+    console.log("React Flow Node Type:", reactFlowNodeType)
+
+    const nodeData = JSON.parse(
       event.dataTransfer.getData("application/json")
-    ) as ActionNodeData
+    ) as NodeData
 
-    if (!actionNodeData || !reactFlowNodeType || !reactFlowInstance) return
-
-    const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    })
+    console.log("Action Node Data:", nodeData)
 
     // Create Action in database
     const actionId = await createAction(
       session,
-      actionNodeData.type,
-      actionNodeData.title,
+      nodeData.type,
+      nodeData.title,
       workflowId
     )
+    const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    })
     // Then create Action node in React Flow
     const newNode = {
       id: actionId,
       type: reactFlowNodeType,
       position: reactFlowNodePosition,
-      data: actionNodeData,
-    } as ActionNodeType
+      data: nodeData,
+    } as NodeDataType
 
     setNodes((prevNodes) =>
       prevNodes

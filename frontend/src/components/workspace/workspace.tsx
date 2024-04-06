@@ -2,26 +2,7 @@
 
 import * as React from "react"
 import { WorkflowBuilderProvider } from "@/providers/builder"
-import {
-  Blend,
-  BookText,
-  CheckSquare,
-  ChevronsLeft,
-  ChevronsRight,
-  Container,
-  FlaskConical,
-  GitCompareArrows,
-  Globe,
-  Languages,
-  Mail,
-  Regex,
-  Send,
-  ShieldAlert,
-  Sparkles,
-  Split,
-  Tags,
-  Webhook,
-} from "lucide-react"
+import { ChevronsLeft, ChevronsRight } from "lucide-react"
 import { ImperativePanelHandle } from "react-resizable-panels"
 import { ReactFlowProvider } from "reactflow"
 
@@ -33,10 +14,14 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
+import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { ActionTiles } from "@/components/workspace/action-tiles"
-import { WorkflowCanvas } from "@/components/workspace/canvas"
-import { WorkspacePanel } from "@/components/workspace/workspace-panel"
+import { WorkflowCanvas } from "@/components/workspace/canvas/canvas"
+import { ActionCatalog } from "@/components/workspace/catalog/action-catalog"
+import { actionTiles } from "@/components/workspace/catalog/action-tiles-schema"
+import IntegrationsCatalog from "@/components/workspace/catalog/integrations-catalog"
+import { WorkspacePanel } from "@/components/workspace/panel/workspace-panel"
 
 interface WorkspaceProps {
   defaultLayout: number[] | undefined
@@ -104,125 +89,13 @@ export function Workspace({
               onCollapse={handleCollapse}
               onExpand={handleExpand}
               className={cn(
+                "flex h-full flex-col p-2",
                 isCollapsed &&
                   "min-w-[50px] transition-all duration-300 ease-in-out"
               )}
             >
-              <ActionTiles
-                isCollapsed={isCollapsed}
-                tiles={[
-                  {
-                    type: "webhook",
-                    title: "Webhook",
-                    icon: Webhook,
-                    variant: "ghost",
-                  },
-                  {
-                    type: "http_request",
-                    title: "HTTP Request",
-                    icon: Globe,
-                    variant: "ghost",
-                  },
-                  {
-                    type: "data_transform",
-                    title: "Data Transform",
-                    icon: Blend,
-                    variant: "ghost",
-                    availability: "comingSoon",
-                  },
-                  {
-                    title: "Condition",
-                    icon: Split,
-                    variant: "ghost",
-                    hierarchy: "group",
-                  },
-                  {
-                    type: "condition.compare",
-                    title: "Compare",
-                    icon: GitCompareArrows,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                  {
-                    type: "condition.regex",
-                    title: "Regex",
-                    icon: Regex,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                  {
-                    type: "condition.membership",
-                    title: "Membership",
-                    icon: Container,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                    availability: "comingSoon",
-                  },
-                  {
-                    type: "open_case",
-                    title: "Open Case",
-                    icon: ShieldAlert,
-                    variant: "ghost",
-                  },
-                  {
-                    type: "receive_email",
-                    title: "Receive Email",
-                    icon: Mail,
-                    variant: "ghost",
-                    availability: "comingSoon",
-                  },
-                  {
-                    type: "send_email",
-                    title: "Send Email",
-                    icon: Send,
-                    variant: "ghost",
-                  },
-                  {
-                    title: "AI Actions",
-                    icon: Sparkles,
-                    variant: "ghost",
-                    hierarchy: "group",
-                  },
-                  {
-                    type: "llm.extract",
-                    title: "Extract",
-                    icon: FlaskConical,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                  {
-                    type: "llm.label",
-                    title: "Label",
-                    icon: Tags,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                  {
-                    type: "llm.translate",
-                    title: "Translate",
-                    icon: Languages,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                  {
-                    type: "llm.choice",
-                    title: "Choice",
-                    icon: CheckSquare,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                  {
-                    type: "llm.summarize",
-                    title: "Summarize",
-                    icon: BookText,
-                    variant: "ghost",
-                    hierarchy: "groupItem",
-                  },
-                ]}
-              />
+              <CatalogTabs isCollapsed={isCollapsed} />
               {/* For items that should align at the end of the side nav */}
-              {/* <div className="flex h-full flex-col items-start justify-end">
-              </div> */}
             </ResizablePanel>
             <CustomResizableHandle>
               <Button
@@ -248,5 +121,43 @@ export function Workspace({
         </TooltipProvider>
       </WorkflowBuilderProvider>
     </ReactFlowProvider>
+  )
+}
+
+export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
+  return (
+    <Tabs
+      defaultValue="actions"
+      className="w-full"
+      value={isCollapsed ? "actions" : undefined}
+    >
+      {!isCollapsed && (
+        <>
+          <TabsList className="grid w-full grid-cols-2 bg-transparent hover:cursor-pointer">
+            <TabsTrigger
+              value="actions"
+              className="text-xs data-[state=active]:shadow-none"
+              asChild
+            >
+              <span>Actions</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="integrations"
+              className="text-xs data-[state=active]:shadow-none"
+              asChild
+            >
+              <span>Integrations</span>
+            </TabsTrigger>
+          </TabsList>
+          <Separator />
+        </>
+      )}
+      <TabsContent value="actions">
+        <ActionCatalog isCollapsed={isCollapsed} tiles={actionTiles} />
+      </TabsContent>
+      <TabsContent value="integrations">
+        <IntegrationsCatalog />
+      </TabsContent>
+    </Tabs>
   )
 }

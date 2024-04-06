@@ -33,7 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { WorkflowSettings } from "@/components/workspace/workflow-panel/settings"
+import { WorkflowSettings } from "@/components/workspace/panel/workflow/settings"
 
 const workflowFormSchema = z.object({
   title: z.string(),

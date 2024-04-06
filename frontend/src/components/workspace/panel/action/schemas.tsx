@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { ActionType } from "@/types/schemas"
+import { ActionType, NodeType } from "@/types/schemas"
 import { stringArray, stringToJSONSchema } from "@/types/validators"
 
 const WebhookActionSchema = z.object({
@@ -114,12 +114,12 @@ export interface ActionFieldOption {
   copyable?: boolean
 }
 
-export interface ActionFieldSchema {
+export interface ActionFieldConfig {
   [key: string]: ActionFieldOption
 }
 
 export type AllActionFieldSchemas = {
-  [actionType in ActionType]?: ActionFieldSchema
+  [actionType in NodeType]?: ActionFieldConfig
 }
 
 export const actionSchemaMap = {
@@ -139,9 +139,8 @@ export const actionSchemaMap = {
 
 export const getSubActionSchema = (actionType: ActionType) => {
   return {
-    subActionSchema:
-      actionSchemaMap[actionType as keyof typeof actionSchemaMap],
-    fieldSchema: actionFieldSchemas[actionType] || {},
+    fieldSchema: actionSchemaMap[actionType as keyof typeof actionSchemaMap],
+    fieldConfig: actionFieldSchemas[actionType] || {},
   }
 }
 
@@ -285,7 +284,6 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
     priority: {
       type: "select",
       options: ["low", "medium", "high", "critical"],
-      optional: true,
     },
     context: {
       type: "json",

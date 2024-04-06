@@ -19,7 +19,7 @@ import {
 } from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
-import { ActionNodeType } from "@/components/workspace/action-node"
+import { ActionNodeType } from "@/components/workspace/canvas/action-node"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
@@ -68,9 +68,7 @@ export const WorkflowBuilderProvider: React.FC<
   )
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {
-      const actionNodeSelected = nodes.find(
-        (node: ActionNodeType) => node.type === "action"
-      )
+      const actionNodeSelected = nodes[0]
       setSelectedNodeId(actionNodeSelected?.id ?? null)
     },
   })
