@@ -28,6 +28,7 @@ from tracecat.db import (
     ActionRun,
     CaseAction,
     CaseContext,
+    Integration,
     Secret,
     User,
     Webhook,
@@ -1470,3 +1471,38 @@ def search_secrets(
         result = session.exec(statement)
         secrets = result.all()
         return secrets
+
+
+@app.get("/integrations")
+def list_integrations(
+    role: Annotated[Role, Depends(authenticate_user)], limit: int | None = None
+) -> list[Integration]:
+    """List all integrations for a user."""
+    with Session(engine) as session:
+        statement = select(Integration)
+        if limit is not None:
+            statement = statement.limit(limit)
+        result = session.exec(statement)
+        integrations = result.all()
+        return integrations
+
+
+@app.get("/integrations/{integration_key}")
+def get_integration(
+    role: Annotated[Role, Depends(authenticate_user)],
+    integration_key: str,
+) -> Integration:
+    """Get an integration by its path."""
+    _, platform, name = integration_key.split(".")
+    with Session(engine) as session:
+        statement = select(Integration).where(
+            Integration.platform == platform,
+            Integration.name == name,
+        )
+        result = session.exec(statement)
+        integration = result.one_or_none()
+        if integration is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found"
+            )
+        return integration
