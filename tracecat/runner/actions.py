@@ -35,11 +35,14 @@ Note that this is different from the action ID which is a surrogate key.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import random
 from collections.abc import Awaitable, Callable, Iterable
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from enum import StrEnum, auto
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import uuid4
 
@@ -51,6 +54,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.contexts import ctx_session_role
 from tracecat.db import create_events_index, create_vdb_conn
+from tracecat.integrations import INTEGRATION_FACTORY
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
@@ -313,6 +317,14 @@ class OpenCaseAction(Action):
     suppression: dict[str, bool] | None = None
 
 
+class IntegrationAction(Action):
+    type: Literal["integration"] = Field("integration", frozen=True)
+
+    platform: str
+    version: str
+    params: dict[str, Any] | None = None
+
+
 ACTION_FACTORY: dict[str, type[Action]] = {
     "webhook": WebhookAction,
     "http_request": HTTPRequestAction,
@@ -320,6 +332,7 @@ ACTION_FACTORY: dict[str, type[Action]] = {
     "llm": LLMAction,
     "send_email": SendEmailAction,
     "open_case": OpenCaseAction,
+    "integration": IntegrationAction,
 }
 
 
@@ -331,6 +344,7 @@ ActionSubclass = (
     | LLMAction
     | SendEmailAction
     | OpenCaseAction
+    | IntegrationAction
 )
 
 
@@ -803,6 +817,36 @@ async def run_open_case_action(
     return {"output": case.model_dump(), "output_type": "dict"}
 
 
+async def run_integration_action(
+    *,
+    name: str,
+    version: str,
+    params: dict[str, Any] | None = None,
+    # Common
+    action_run_kwargs: dict[str, Any] | None = None,
+    custom_logger: logging.Logger = logger,
+) -> dict[str, Any]:
+    """Run an integration action."""
+    custom_logger.debug("Perform integration action")
+    custom_logger.debug(f"{name = }")
+    custom_logger.debug(f"{version = }")
+
+    params = params or {}
+    loop = asyncio.get_running_loop()
+    func = INTEGRATION_FACTORY[name]
+    bound_func = partial(func, **params)
+    with ProcessPoolExecutor() as pool:
+        result = await loop.run_in_executor(pool, bound_func)
+    # Inspect the return value of the integration function
+
+    sig = inspect.signature(func)
+    return {
+        "output": result,
+        "output_type": sig.return_annotation.__name__,
+        "version": version,
+    }
+
+
 async def run_action(
     type: ActionType,
     action_run_id: str,
@@ -893,4 +937,15 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "llm": run_llm_action,
     "send_email": run_send_email_action,
     "open_case": run_open_case_action,
+    "integration": run_integration_action,
 }
+
+if __name__ == "__main__":
+    output = asyncio.run(
+        run_integration_action(
+            name="experimental.experimental_integration",
+            version="1.0.0",
+            params={"a": 1, "b": 2},
+        )
+    )
+    print(output)
