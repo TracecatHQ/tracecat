@@ -5,7 +5,7 @@ import { z } from "zod"
 import {
   actionMetadataSchema,
   actionSchema,
-  ActionType,
+  NodeType,
   workflowMetadataSchema,
   WorkflowRun,
   workflowRunSchema,
@@ -16,7 +16,7 @@ import {
   type WorkflowMetadata,
 } from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
-import type { BaseActionForm } from "@/components/workspace/action-panel/schemas"
+import type { BaseActionForm } from "@/components/workspace/panel/action/schemas"
 
 export async function updateDndFlow(
   maybeSession: Session | null,
@@ -174,7 +174,7 @@ export async function deleteAction(
 
 export async function createAction(
   maybeSession: Session | null,
-  type: ActionType,
+  type: NodeType,
   title: string,
   workflowId: string
 ): Promise<string> {

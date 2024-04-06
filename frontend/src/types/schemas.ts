@@ -20,12 +20,26 @@ const actionTypes = [
 ] as const
 export type ActionType = (typeof actionTypes)[number]
 
+/**
+ * format: integrations.<platform>.<integration_name>_<version>
+ */
+const integrationTypes = [
+  "integrations.experimental.experimental_integration",
+  "integrations.experimental.experimental_integration_v2",
+  "integrations.another_integration.integration_1",
+] as const
+export type IntegrationType = (typeof integrationTypes)[number]
+const integrationPlatforms = ["experimental", "another_integration"] as const
+export type IntegrationPlatform = (typeof integrationPlatforms)[number]
+
+export type NodeType = ActionType | IntegrationType
+
 const actionStatusSchema = z.enum(["online", "offline"])
 export type ActionStatus = z.infer<typeof actionStatusSchema>
 
 export const actionSchema = z.object({
   id: z.string(),
-  type: z.enum(actionTypes),
+  type: z.enum(actionTypes).or(z.enum(integrationTypes)),
   title: z.string(),
   description: z.string(),
   status: actionStatusSchema,
@@ -132,3 +146,15 @@ export const secretSchema = z.object({
 })
 
 export type Secret = z.infer<typeof secretSchema>
+
+export const integrationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  docstring: z.string(),
+  parameters: stringToJSONSchema,
+  platform: z.enum(integrationPlatforms),
+  icon_url: z.string().url().nullable(),
+})
+
+export type Integration = z.infer<typeof integrationSchema>

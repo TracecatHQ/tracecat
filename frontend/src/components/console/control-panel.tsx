@@ -6,7 +6,7 @@ import { useWorkflowMetadata } from "@/providers/workflow"
 import { FileJson, FileType, Sheet } from "lucide-react"
 import { useFormContext } from "react-hook-form"
 
-import { Action } from "@/types/schemas"
+import { Action, ActionType } from "@/types/schemas"
 import { cn, getActionKey } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { WorkflowControlsForm } from "@/components/console/console"
-import { tileIconMapping } from "@/components/workspace/action-node"
+import { tileIconMapping } from "@/components/workspace/canvas/action-node"
 
 export const supportedInputTypes = [
   { mimeType: "text/plain", icon: FileType, description: "Plain Text" },
@@ -108,7 +108,7 @@ export function ConsolePanel({
                     <SelectContent>
                       {actions?.map((action, idx) => {
                         const { title, type, description } = action
-                        const Icon = tileIconMapping[type]
+                        const Icon = tileIconMapping[type as ActionType]
                         const actionKey = getActionKey(action)
                         return (
                           <SelectItem key={idx} value={actionKey}>

@@ -3,7 +3,6 @@
 import { DragEvent, useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useSession } from "@/providers/session"
-import { LucideIcon } from "lucide-react"
 
 import { ActionType } from "@/types/schemas"
 import { createAction } from "@/lib/flow"
@@ -15,22 +14,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { AvailabilityBadge } from "@/components/badges"
-import { ActionNodeType } from "@/components/workspace/action-node"
+import { ActionNodeType } from "@/components/workspace/canvas/action-node"
+import { ActionTile } from "@/components/workspace/catalog/action-tiles-schema"
 
 interface ActionTilesProps {
   isCollapsed: boolean
-  tiles: {
-    type?: ActionType
-    title?: string
-    icon: LucideIcon
-    variant: "default" | "ghost"
-    hierarchy?: "groupItem" | "group"
-    availability?: "comingSoon"
-  }[]
+  tiles: ActionTile[]
 }
 const ACTION_NODE_TAG = "action" as const
 
-export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
+export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
   const session = useSession()
   const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
     useWorkflowBuilder()
@@ -85,15 +78,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
     },
     [selectedNodeId]
   )
-  const onDragStart = (
-    event: DragEvent<HTMLDivElement>,
-    tile: {
-      type?: ActionType
-      title?: string
-      icon: LucideIcon
-      variant: "default" | "ghost"
-    }
-  ) => {
+  const onDragStart = (event: DragEvent<HTMLDivElement>, tile: ActionTile) => {
     const actionNodeData = {
       type: tile.type,
       title: tile.title || `${tile.type} Action`,
@@ -114,7 +99,7 @@ export function ActionTiles({ tiles, isCollapsed }: ActionTilesProps) {
       data-collapsed={isCollapsed}
       className="group flex flex-col gap-4 p-2 py-2 data-[collapsed=true]:py-2"
     >
-      <nav className="grid gap-1 p-4 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
+      <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
         {tiles.map((tile, index) => {
           const {
             type,
