@@ -1,7 +1,9 @@
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Self
 from uuid import uuid4
 
 import lancedb
@@ -11,7 +13,15 @@ from croniter import croniter
 from pydantic import computed_field, field_validator
 from slugify import slugify
 from sqlalchemy import TIMESTAMP, Column, Engine, ForeignKey, String, text
-from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+from sqlmodel import (
+    Field,
+    Relationship,
+    Session,
+    SQLModel,
+    create_engine,
+    delete,
+    select,
+)
 
 from tracecat import auth
 from tracecat.auth import decrypt_key, encrypt_key
@@ -19,6 +29,7 @@ from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
 )
+from tracecat.integrations import INTEGRATION_FACTORY, function_to_spec
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 from tracecat.logger import standard_logger
 
@@ -119,6 +130,37 @@ class CaseContext(Resource, table=True):
     value: str
     user_id: str | None = Field(foreign_key="user.id")
     user: User | None = Relationship(back_populates="case_contexts")
+
+
+class Integration(Resource, table=True):
+    """Integration spec.
+
+    Used in:
+    1. Frontend integrations library
+    2. Frontend integration action form
+    """
+
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    name: str  # Human readable name
+    description: str  # Possibly redundant
+    docstring: str
+    parameters: str  # JSON-serialized String of form schema
+    platform: str  # e.g. AWS, Google Workspace, Crowdstrike
+    icon_url: str | None = None
+
+    @classmethod
+    def from_function(cls, func: Callable[..., Any]) -> Self:
+        spec = function_to_spec(func)
+        return cls(
+            **spec.model_dump(exclude={"parameters"}),
+            parameters=json.dumps([p.model_dump() for p in spec.parameters]),
+            owner_id="tracecat",
+        )
+
+    @computed_field
+    @property
+    def key(self) -> str:
+        return f"integrations.{self.platform}.{self.name}"
 
 
 class Workflow(Resource, table=True):
@@ -334,8 +376,8 @@ def initialize_db() -> Engine:
     # Search
     build_events_index()
 
-    # Add TTPs to context table only if context table is empty
     with Session(engine) as session:
+        # Add TTPs to context table only if context table is empty
         case_contexts_count = session.exec(select(CaseContext)).all()
         if len(case_contexts_count) == 0:
             mitre_labels = get_mitre_tactics_techniques()
@@ -354,6 +396,13 @@ def initialize_db() -> Engine:
             ]
             session.add_all(default_actions)
             session.commit()
+        # We might be ok just overwriting the integrations table?
+        # Add integrations to integrations table regardless of whether it's empty
+        session.exec(delete(Integration))
+        session.add_all(
+            Integration.from_function(func) for func in INTEGRATION_FACTORY.values()
+        )
+        session.commit()
     return engine
 
 
