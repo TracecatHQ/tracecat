@@ -13,12 +13,11 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       SUPABASE_JWT_ALGORITHM: ${SUPABASE_JWT_ALGORITHM}
-      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
+      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL} # For auth
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LOG_LEVEL: ${LOG_LEVEL}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       RABBITMQ_URI: ${RABBITMQ_URI}
     container_name: api
     restart: unless-stopped
@@ -40,15 +39,14 @@ services:
       - ~/.tracecat:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL} # For auth
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
-      LOG_LEVEL: ${LOG_LEVEL}
-      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
     container_name: runner
     restart: unless-stopped
     depends_on:
@@ -61,25 +59,37 @@ services:
       - internal-network
 
   scheduler:
-    build: .
+    build: Dockerfile.scheduler
     ports:
       - "8002:8000"
     volumes:
       - ./:/app
       - ~/.tracecat:/home/apiuser/.tracecat
     environment:
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL} # For auth
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL}
-      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
     container_name: scheduler
     restart: unless-stopped
     depends_on:
       - nginx
+    networks:
+      - internal-network
+
+  supabase:
+    build: Dockerfile.supabase
+    ports:
+      - "54321:54321"
+      - "54322:54322"
+      - "54323:54323"
+    volumes:
+      - supabase_data:/supabase/data
+    container_name: supabase
+    restart: unless-stopped
     networks:
       - internal-network
 
