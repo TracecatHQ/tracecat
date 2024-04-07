@@ -240,26 +240,23 @@ class TracecatEngineStack(Stack):
             self, "Secret", secret_complete_arn=AWS_SECRET__ARN
         )
         shared_secrets = {
-            "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="signing-secret"
-            ),
-            "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="service-key"
-            ),
             "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="db-encryption-key"
             ),
             "TRACECAT__DB_URI": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="db-uri"
             ),
+            "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="service-key"
+            ),
+            "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="signing-secret"
+            ),
         }
         api_secrets = {
             **shared_secrets,
             "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="supabase-jwt-secret"
-            ),
-            "SUPABASE_PSQL_URL": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="supabase-psql-url"
             ),
             "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="openai-api-key"
