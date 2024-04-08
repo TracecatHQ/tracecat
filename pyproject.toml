@@ -42,6 +42,7 @@ dependencies = [
     "tenacity",
     "uvicorn",
     "aio-pika==9.4.1",
+    "cloudpickle==3.0.0",
 ]
 dynamic = ["version"]
 
