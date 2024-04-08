@@ -17,7 +17,11 @@ ActionType = Literal[
     "receive_email",
     "open_case",
     # Integrations
-    "integrations.experimental.experimental_integration",
-    "integrations.experimental.experimental_integration_v2",
-    "integrations.another_integration.integration_1",
+    "integrations.example.add",
+    "integrations.example.subtract",
+    "integrations.example.complex_example",
+    ## Material Security
+    "integrations.material_security.test",
+    ## Datadog
+    "integrations.datadog.test",
 ]

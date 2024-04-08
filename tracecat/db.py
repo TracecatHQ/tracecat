@@ -1,9 +1,8 @@
 import json
 import os
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 from uuid import uuid4
 
 import lancedb
@@ -29,7 +28,7 @@ from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
 )
-from tracecat.integrations import INTEGRATION_FACTORY, function_to_spec
+from tracecat.integrations import IntegrationSpec, registry
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 from tracecat.logger import standard_logger
 
@@ -149,8 +148,7 @@ class Integration(Resource, table=True):
     icon_url: str | None = None
 
     @classmethod
-    def from_function(cls, func: Callable[..., Any]) -> Self:
-        spec = function_to_spec(func)
+    def from_spec(cls, spec: IntegrationSpec) -> Self:
         return cls(
             **spec.model_dump(exclude={"parameters"}),
             parameters=json.dumps([p.model_dump() for p in spec.parameters]),
@@ -400,7 +398,8 @@ def initialize_db() -> Engine:
         # Add integrations to integrations table regardless of whether it's empty
         session.exec(delete(Integration))
         session.add_all(
-            Integration.from_function(func) for func in INTEGRATION_FACTORY.values()
+            Integration.from_spec(spec)
+            for spec in registry.get_registered_integration_specs()
         )
         session.commit()
     return engine

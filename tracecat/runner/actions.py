@@ -35,11 +35,9 @@ Note that this is different from the action ID which is a surrogate key.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import random
 from collections.abc import Awaitable, Callable, Iterable
-from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from enum import StrEnum, auto
 from functools import partial
@@ -51,10 +49,11 @@ import tantivy
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.contexts import ctx_session_role
 from tracecat.db import create_events_index, create_vdb_conn
-from tracecat.integrations import INTEGRATION_FACTORY
+from tracecat.integrations import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
@@ -320,9 +319,17 @@ class OpenCaseAction(Action):
 class IntegrationAction(Action):
     type: Literal["integration"] = Field("integration", frozen=True)
 
-    platform: str
-    version: str
+    qualname: str  # Fully qualified name, e.g. integrations.namespace.func
     params: dict[str, Any] | None = None
+
+    @property
+    def platform(self) -> str:
+        return self.qualname.split(".")[1]
+
+    @property
+    def namespace(self) -> str:
+        _, *namespace_terms, _ = self.qualname.split(".")
+        return ".".join(namespace_terms)
 
 
 ACTION_FACTORY: dict[str, type[Action]] = {
@@ -819,8 +826,7 @@ async def run_open_case_action(
 
 async def run_integration_action(
     *,
-    name: str,
-    version: str,
+    qualname: str,
     params: dict[str, Any] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
@@ -828,22 +834,22 @@ async def run_integration_action(
 ) -> dict[str, Any]:
     """Run an integration action."""
     custom_logger.debug("Perform integration action")
-    custom_logger.debug(f"{name = }")
-    custom_logger.debug(f"{version = }")
+    custom_logger.debug(f"{qualname = }")
+    custom_logger.debug(f"{params = }")
 
     params = params or {}
     loop = asyncio.get_running_loop()
-    func = INTEGRATION_FACTORY[name]
+
+    func = registry[qualname]
     bound_func = partial(func, **params)
-    with ProcessPoolExecutor() as pool:
+
+    with CloudpickleProcessPoolExecutor() as pool:
         result = await loop.run_in_executor(pool, bound_func)
     # Inspect the return value of the integration function
 
-    sig = inspect.signature(func)
     return {
         "output": result,
-        "output_type": sig.return_annotation.__name__,
-        "version": version,
+        "output_type": registry.metadata[qualname]["return_type"],
     }
 
 
@@ -939,13 +945,3 @@ _ACTION_RUNNER_FACTORY: dict[ActionType, _ActionRunner] = {
     "open_case": run_open_case_action,
     "integration": run_integration_action,
 }
-
-if __name__ == "__main__":
-    output = asyncio.run(
-        run_integration_action(
-            name="experimental.experimental_integration",
-            version="1.0.0",
-            params={"a": 1, "b": 2},
-        )
-    )
-    print(output)

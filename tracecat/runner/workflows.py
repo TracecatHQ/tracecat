@@ -89,6 +89,14 @@ class Workflow(BaseModel):
                     "type": "condition",
                     "condition_rules": inputs,
                 }
+            elif action.type.startswith("integrations."):
+                data = {
+                    "key": action.key,
+                    "title": action.title,
+                    "type": "integration",
+                    "qualname": action.type,
+                    "params": inputs,
+                }
             else:
                 # All other root level action types
                 data = {
