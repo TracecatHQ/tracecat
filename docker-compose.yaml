@@ -108,7 +108,6 @@ services:
       - "3000:3000"
     volumes:
       - ./frontend/src:/app/src
-      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
