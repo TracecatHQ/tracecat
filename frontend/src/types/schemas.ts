@@ -2,6 +2,9 @@ import { z } from "zod"
 
 import { stringToJSONSchema } from "@/types/validators"
 
+/**
+ * Core action types.
+ */
 const actionTypes = [
   "webhook",
   "http_request",
@@ -21,15 +24,33 @@ const actionTypes = [
 export type ActionType = (typeof actionTypes)[number]
 
 /**
- * format: integrations.<platform>.<integration_name>_<version>
+ * Integration types are prefixed with the platform name.
+ * This is to ensure that integrations from different platforms do not clash.
+ *
+ * Format: integrations.<platform>.<optional_namespaces>.<function>
+ *
+ * Not sure how to generate this dynamically - cuyrrently needs to be manually updated.
  */
 const integrationTypes = [
-  "integrations.experimental.experimental_integration",
-  "integrations.experimental.experimental_integration_v2",
-  "integrations.another_integration.integration_1",
+  // Example integrations
+  "integrations.example.add",
+  "integrations.example.subtract",
+  "integrations.example.complex_example",
+  // Material Security
+  "integrations.material_security.test",
+  // Datadog
+  "integrations.datadog.test",
 ] as const
 export type IntegrationType = (typeof integrationTypes)[number]
-const integrationPlatforms = ["experimental", "another_integration"] as const
+
+/**
+ * All platforms that are supported by the system.
+ */
+const integrationPlatforms = [
+  "example",
+  "material_security",
+  "datadog",
+] as const
 export type IntegrationPlatform = (typeof integrationPlatforms)[number]
 
 export type NodeType = ActionType | IntegrationType

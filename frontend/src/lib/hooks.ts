@@ -3,9 +3,12 @@ import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 import { z } from "zod"
 
-import { IntegrationType } from "@/types/schemas"
-import { fetchIntegration } from "@/lib/integrations"
-import { baseActionSchema } from "@/components/workspace/panel/action/schemas"
+import { Integration, IntegrationType } from "@/types/schemas"
+import { fetchIntegration, parseSpec } from "@/lib/integrations"
+import {
+  ActionFieldConfig,
+  baseActionSchema,
+} from "@/components/workspace/panel/action/schemas"
 
 export function useLocalStorage<T>(
   key: string,
@@ -27,7 +30,12 @@ export function useLocalStorage<T>(
 export function useIntegrationFormSchema(
   session: Session | null,
   integrationKey: IntegrationType
-) {
+): {
+  isLoading: boolean
+  fieldSchema: z.ZodObject<Record<string, any>>
+  fieldConfig: ActionFieldConfig
+  integrationSpec?: Integration
+} {
   const { data: integrationSpec, isLoading } = useQuery({
     queryKey: ["integration_field_config", integrationKey],
     queryFn: async ({ queryKey }) => {
@@ -35,13 +43,15 @@ export function useIntegrationFormSchema(
       return await fetchIntegration(session, integrationKey)
     },
   })
-  // Do some transformation to convert the schema to a form schema
-  console.log("fieldSchemaAndConfig", integrationSpec)
-
   // Parse the schema and config
-  const { fieldSchema, fieldConfig } = parseSpec(integrationSpec)
+  if (!integrationSpec) {
+    return {
+      fieldSchema: baseActionSchema,
+      fieldConfig: {},
+      isLoading,
+    }
+  }
+  const { fieldSchema, fieldConfig } = parseSpec(integrationSpec.parameters)
 
-  return { fieldSchema, fieldConfig }
+  return { fieldSchema, fieldConfig, isLoading, integrationSpec }
 }
-
-function parseSpec() {}

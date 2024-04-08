@@ -151,8 +151,9 @@ export function ActionFormSelect<T extends FieldValues>({
   inputOption,
   defaultValue = "",
 }: ActionFormFieldProps) {
-  const { control, watch, setValue } = useFormContext<T>()
+  const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
+  const parser = getParser(inputOption)
   return (
     <FormField
       key={inputKey}
@@ -163,21 +164,14 @@ export function ActionFormSelect<T extends FieldValues>({
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <FormControl>
             <Select
-              value={watch(typedKey, defaultValue as TDefaultValue<T>)} // Ensure the Select component uses the current field value
+              value={String(watch(typedKey, defaultValue as TDefaultValue<T>))} // Ensure the Select component uses the current field value
               defaultValue={defaultValue} // Set the default value from the fetched action data
-              onValueChange={
-                (value: TValue<T>) => {
-                  field.onChange({
-                    target: {
-                      value,
-                    },
-                  })
-                  setValue(typedKey, value)
-                } // Update the form state on change
-              }
+              onValueChange={(value: string) => {
+                field.onChange(parser(value))
+              }}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Select a value..." />
               </SelectTrigger>
               <SelectContent>
                 {inputOption.options?.map((option: string) => (
@@ -302,6 +296,7 @@ export function ActionFormInputs<T extends FieldValues>({
 }: ActionFormFieldProps) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
+  const parser = getParser(inputOption)
   return (
     <FormField
       key={inputKey}
@@ -312,11 +307,16 @@ export function ActionFormInputs<T extends FieldValues>({
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <FormControl>
             <Input
+              type={inputOption.inputType}
               {...field}
               value={watch(typedKey, defaultValue as TDefaultValue<T>)}
               className="text-xs"
               placeholder={inputOption.placeholder ?? "Input text here..."}
               disabled={inputOption.disabled}
+              onChange={(e) => {
+                const parsedValue = parser(e.target.value)
+                field.onChange(parsedValue)
+              }}
             />
           </FormControl>
           <FormMessage />
@@ -324,4 +324,17 @@ export function ActionFormInputs<T extends FieldValues>({
       )}
     />
   )
+}
+
+function getParser(inputOption: ActionFieldOption): (value: string) => any {
+  switch (inputOption.dtype) {
+    case "float":
+      return (value: string) => parseFloat(value)
+    case "int":
+      return (value: string) => parseInt(value, 10)
+    case "bool":
+      return (value: string) => value === "true"
+    default:
+      return (value: string) => value
+  }
 }
