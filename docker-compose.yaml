@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./:/app
+      - ./tracecat:/app/tracecat
       - tracecat-storage:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
@@ -41,7 +41,7 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - ./:/app
+      - ./tracecat:/app/tracecat
       - tracecat-storage:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
@@ -77,7 +77,7 @@ services:
     ports:
       - "8002:8000"
     volumes:
-      - ./:/app
+      - ./tracecat:/app/tracecat
       - tracecat-storage:/home/apiuser/.tracecat
     environment:
       # Shared
@@ -107,7 +107,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./:/app
+      - ./frontend:/app
       - tracecat-storage:/home/apiuser/.tracecat
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
