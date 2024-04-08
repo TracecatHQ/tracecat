@@ -7,7 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - ./:/app
-      - ./tracecat:/home/apiuser/.tracecat
+      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
       # Shared
@@ -42,7 +42,7 @@ services:
       - "8001:8000"
     volumes:
       - ./:/app
-      - ./tracecat:/home/apiuser/.tracecat
+      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
       # Shared
@@ -78,7 +78,7 @@ services:
       - "8002:8000"
     volumes:
       - ./:/app
-      - ./tracecat:/home/apiuser/.tracecat
+      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       # Shared
       LOG_LEVEL: ${LOG_LEVEL}
@@ -92,8 +92,7 @@ services:
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
     restart: unless-stopped
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     networks:
       - internal-network
 
@@ -109,7 +108,7 @@ services:
       - "3000:3000"
     volumes:
       - ./:/app
-      - ./tracecat:/home/apiuser/.tracecat
+      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: dev
@@ -120,10 +119,8 @@ services:
       NODE_ENV: ${NODE_ENV}
     restart: unless-stopped
     depends_on:
-      api:
-        condition: service_started
-      runner:
-        condition: service_started
+      - api
+      - runner
     networks:
       - internal-network
 
@@ -161,3 +158,6 @@ services:
 networks:
   nginx-network:
   internal-network:
+
+volumes:
+  tracecat-storage:
