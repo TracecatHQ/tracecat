@@ -2,6 +2,7 @@ version: "3.8"
 services:
   api:
     build: .
+    container_name: api
     ports:
       - "8000:8000"
     volumes:
@@ -9,17 +10,21 @@ services:
       - ~/.tracecat:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Auth
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
-      SUPABASE_JWT_ALGORITHM: ${SUPABASE_JWT_ALGORITHM}
-      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL} # For auth
+      SUPABASE_JWT_ALGORITHM: $(SUPABASE_JWT_ALGORITHM)
+      # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      RABBITMQ_URI: ${RABBITMQ_URI}
-    container_name: api
     restart: unless-stopped
     depends_on:
       rabbitmq:
@@ -32,6 +37,7 @@ services:
 
   runner:
     build: .
+    container_name: runner
     ports:
       - "8001:8000"
     volumes:
@@ -39,15 +45,20 @@ services:
       - ~/.tracecat:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
       RABBITMQ_URI: ${RABBITMQ_URI}
-      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL} # For auth
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-    container_name: runner
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+
     restart: unless-stopped
     depends_on:
       rabbitmq:
@@ -59,36 +70,54 @@ services:
       - internal-network
 
   scheduler:
-    build: Dockerfile.scheduler
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    container_name: scheduler
     ports:
       - "8002:8000"
     volumes:
       - ./:/app
       - ~/.tracecat:/home/apiuser/.tracecat
     environment:
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      SUPABASE_PSQL_URL: ${SUPABASE_PSQL_URL} # For auth
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-    container_name: scheduler
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
     restart: unless-stopped
     depends_on:
       - nginx
     networks:
       - internal-network
 
-  supabase:
-    build: Dockerfile.supabase
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+    container_name: frontend
+    env_file: .env
     ports:
-      - "54321:54321"
-      - "54322:54322"
-      - "54323:54323"
+      - "3000:3000"
     volumes:
-      - supabase_data:/supabase/data
-    container_name: supabase
+      - ./:/app
+      - ~/.tracecat:/home/apiuser/.tracecat
+
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_ENV: dev
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_SELF_HOSTED: true
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NODE_ENV: ${NODE_ENV}
     restart: unless-stopped
     networks:
       - internal-network
@@ -111,10 +140,10 @@ services:
       - "5672:5672" # RabbitMQ server
       - "15672:15672" # Management UI
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     volumes:
-      - ./rabbitmq_data:/var/lib/rabbitmq
+      - ./.rabbitmq:/var/lib/rabbitmq
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping", "-q"]
