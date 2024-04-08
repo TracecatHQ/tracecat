@@ -57,10 +57,12 @@ export function IntegrationForm({
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
   const session = useSession()
-  const { fieldSchema, fieldConfig } = useIntegrationFormSchema(
-    session,
-    integrationType
-  )
+  const {
+    fieldSchema,
+    fieldConfig,
+    isLoading: schemaLoading,
+    integrationSpec,
+  } = useIntegrationFormSchema(session, integrationType)
   const schema = baseActionSchema.merge(fieldSchema)
   type Schema = z.infer<typeof schema>
 
@@ -146,7 +148,7 @@ export function IntegrationForm({
     )
   }
 
-  if (!fieldSchema) {
+  if (!fieldSchema || !fieldConfig) {
     return (
       <div className="flex h-full items-center justify-center space-x-2 p-4">
         <div className="space-y-2">
@@ -170,10 +172,10 @@ export function IntegrationForm({
 
   const status = "online"
   return (
-    <div className="flex flex-col overflow-auto" id="INSIDE SCROLL">
+    <div className="flex flex-col overflow-auto">
       <FormProvider {...methods}>
         <form onSubmit={onSubmit} className="flex max-w-full overflow-auto">
-          <div id="WRAPPER" className="max-w-full space-y-4 p-4">
+          <div className="w-full space-y-4 p-4">
             <div className="flex w-full flex-col space-y-3 overflow-hidden">
               <h4 className="text-sm font-medium">Action Status</h4>
               <div className="flex justify-between">
@@ -252,24 +254,11 @@ export function IntegrationForm({
               />
               <Separator />
               <div className="space-y-4">
-                <h4 className="text-m font-medium">Action Inputs</h4>
+                <h4 className="text-m font-medium">Integration Inputs</h4>
                 <div className="inline-block space-y-2 text-xs text-muted-foreground">
-                  <p>
-                    Define the inputs for this action here. You may use
-                    templated JSONPath expressions in any type of field other
-                    than list fields.
-                  </p>
-                  <p>For example, this expression:</p>
-                  <pre>
-                    <code>{"{{ $.my_action.output.some_data }}"}</code>
-                  </pre>
-                  <p>
-                    points to the output data field `some_data` from an action
-                    called `My Action`, with slug `my_action`. Select &apos;Copy
-                    JSONPath&apos; from the action tile dropdown to copy the
-                    slug. Note that the `output` field is a default field that
-                    is available for all actions.
-                  </p>
+                  <p>{integrationSpec?.description}</p>
+                  <p>This is the integration's docstring: </p>
+                  <p>{integrationSpec?.docstring}</p>
                 </div>
                 <div className="space-y-2 capitalize">
                   {Object.entries(fieldConfig).map(

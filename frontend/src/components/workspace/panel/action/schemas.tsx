@@ -107,6 +107,8 @@ export type BaseActionForm = z.infer<typeof baseActionSchema>
 export type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
 export interface ActionFieldOption {
   type: ActionFieldType
+  inputType?: React.HTMLInputTypeAttribute
+  dtype?: "str" | "int" | "bool" | "dict" | "list" | "float"
   options?: readonly string[]
   placeholder?: string
   disabled?: boolean

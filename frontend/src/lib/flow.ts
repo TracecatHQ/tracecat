@@ -132,11 +132,12 @@ export async function getActionById(
   }
 }
 
+type ActionProps = (BaseActionForm & Record<string, any>) | Record<string, any>
 // Form submission
 export async function updateAction(
   maybeSession: Session | null,
   actionId: string,
-  actionProps: BaseActionForm & Record<string, any>
+  actionProps: ActionProps
 ): Promise<Action> {
   const { title, description, ...inputs } = actionProps
   const inputsJson = JSON.stringify(inputs)
