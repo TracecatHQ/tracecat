@@ -126,8 +126,8 @@ export function CatalogItem({ integration, Icon, ...props }: CatalogItemProps) {
       {...props}
     >
       <Icon className="mr-2 size-5 shrink-0" />
-      <div className="flex min-h-8 flex-col items-center">
-        <span className="grow text-xs">{undoSlugify(integration.name)}</span>
+      <div className="ml-2 flex min-h-8 flex-col items-center justify-center">
+        <span className="text-xs">{undoSlugify(integration.name)}</span>
       </div>
     </div>
   )

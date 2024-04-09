@@ -9,7 +9,6 @@ import {
   Delete,
   EyeIcon,
   ScanSearchIcon,
-  Sparkles,
 } from "lucide-react"
 import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
 
@@ -50,8 +49,8 @@ export default React.memo(function IntegrationNode({
   const session = useSession()
   const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
-  const platform = type.split(".")[1] as IntegrationPlatform
-  const Icon = Integrations[platform]
+  const [_, platform, name] = type.split(".")
+  const Icon = Integrations[platform as IntegrationPlatform]
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
 
   const handleCopyToClipboard = useCallback(() => {
@@ -94,19 +93,16 @@ export default React.memo(function IntegrationNode({
     <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>
       <CardHeader className="grid p-4 px-5">
         <div className="flex w-full items-center space-x-4">
-          <Icon className="mr-2 size-6 shrink-0 rounded-sm" />
+          <div className="mr-2 flex size-10 items-center justify-center rounded-full bg-slate-200/50">
+            <Icon className="size-6 shrink-0 rounded-sm" />
+          </div>
           <div className="flex w-full flex-1 justify-between space-x-12">
             <div className="flex flex-col">
               <CardTitle className="flex w-full items-center justify-between text-sm font-medium leading-none">
-                <div className="flex w-full">
-                  {title}
-                  {type.startsWith("llm.") && (
-                    <Sparkles className="ml-2 h-3 w-3 fill-yellow-500 text-yellow-500" />
-                  )}
-                </div>
+                <div className="flex w-full">{title}</div>
               </CardTitle>
               <CardDescription className="mt-1 text-sm capitalize text-muted-foreground">
-                {undoSlugify(platform)}
+                {undoSlugify(platform)}: {undoSlugify(name)}
               </CardDescription>
             </div>
             <DropdownMenu>
