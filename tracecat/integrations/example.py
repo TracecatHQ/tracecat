@@ -29,18 +29,23 @@ def subtract(a: int, b: int, c: int | None = None) -> int:
 
 
 @registry.register(
+    description="Demonstrates joining strings together",
+)
+def join(strings: list[str], delimiter: str = ",") -> str:
+    """Joins 2 strings together."""
+    return delimiter.join(strings)
+
+
+@registry.register(
     description="This function has many complex parameters",
 )
 def complex_example(
     y: bool,
-    # my_list: list[str | int],
+    my_list: list[str],
     my_dict: dict[str, str],
     my_enum: Literal["a", "b", "c"],
     optional_int: int | None = None,
-    x: int | float | None = None,
-    tup: tuple[int | float] | None = None,  # Lacking support
-    my_dict_default: dict[str, int] | None = "default",  # Lacking support
-    my_nested_dict_default: dict[str, list[str]] | None = "default",  # Lacking support
+    x: str | None = None,
 ) -> int:
     """This function has many complex parameters."""
     return 1

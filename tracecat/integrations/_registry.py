@@ -1,12 +1,19 @@
 import inspect
 from typing import Any, Self
 
-from tracecat.integrations._meta import IntegrationSpec, param_to_spec
+from tracecat.integrations._meta import (
+    IntegrationSpec,
+    param_to_spec,
+    validate_type_constraints,
+)
 from tracecat.integrations.utils import (
     FunctionType,
     get_integration_key,
     get_integration_platform,
 )
+from tracecat.logger import standard_logger
+
+logger = standard_logger(__name__)
 
 
 class Registry:
@@ -39,6 +46,7 @@ class Registry:
         """Decorator factory to register a new integration function with additional parameters."""
 
         def decorator_register(func: FunctionType):
+            validate_type_constraints(func)
             platform = get_integration_platform(func)
             key = get_integration_key(func)
 
