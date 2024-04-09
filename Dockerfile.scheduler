@@ -48,4 +48,4 @@ COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Command to run the application
-CMD ["sh", "-c", "python3 -m uvicorn tracecat.scheduler.app:app --host $HOST --port $PORT --reload"]
+CMD ["sh", "-c", "python3 -m uvicorn tracecat.scheduler:app --host $HOST --port $PORT --reload"]
