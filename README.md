@@ -99,31 +99,6 @@ Learn how to [install Tracecat locally](https://docs.tracecat.com/installation).
   - [ ] Azure
   - [ ] GCP
 
-## Is Tracecat enterprise ready?
-
-*We are currently in Public Alpha. We don't recommend using Tracecat for production until Public Beta is out! Nevertheless, we are building remarkably fast and expect to get there in the next 3-4 months.*
-
-There are two "flavors" of Tracecat.
-Tracecat Embedded, which runs on a single instance and scales vertically, and Tracecat Distributed, which scales horizontally with self-healing / resillience.
-Tracecat Embedded is designed to run automation workflows, store event logs, and run search queries with *extreme* efficiency on a single instance (e.g. EC2, laptop).
-
-Embedded Tracecat should already scale beyond Tines' free tier (3 workflows, 500 workflow runs daily) given sufficient memory, cpu, and network capacity.
-With Tracecat on [Quickwit](https://github.com/quickwit-oss/quickwit), you can also store events logs in S3 at unlimited scale and time length.
-
-For enterprise use-cases that require 99.99% SLAs, however, we recommend waiting for Tracecat Distributed!
-
-- [x] Embedded architecture
-  - [x] Flunk: homegrown workflow engine based on Flink
-  - [x] LanceDB
-  - [x] Polars
-  - [x] Tantivy
-- [ ] Distributed architecture
-  - [ ] Apache Flink
-  - [ ] LanceDB / Lantern
-  - [ ] Quickwit
-
-If you'd like to stress test Tracecat, please ping us on [Discord](https://discord.gg/n3GF4qxFU8) and we can help you get started!
-
 ## Status
 
 - [x] Public Alpha: Anyone can sign up over at [tracecat.com](https://tracecat.com) but go easy on us, there are kinks and we are just getting started.
