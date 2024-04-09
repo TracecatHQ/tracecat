@@ -153,9 +153,10 @@ def decrypt_key(encrypted_api_key: bytes) -> str:
 
 async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
     """Check that a user exists in supabase and is authenticated."""
-    conn_manager = await psycopg.AsyncConnection.connect(
-        os.environ["SUPABASE_PSQL_URL"]
-    )
+    # psycopg only supports postgresql:// URIs.
+    # postgresql+psycopg:// is used by SQLAlchemy.
+    db_uri = os.environ["TRACECAT__DB_URI"].replace("postgresql+psycopg", "postgresql")
+    conn_manager = await psycopg.AsyncConnection.connect(db_uri)
     async with conn_manager as aconn:
         async with aconn.cursor() as acur:
             await acur.execute(

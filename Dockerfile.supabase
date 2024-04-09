@@ -1,0 +1,28 @@
+# Use Debian Bookworm as the base image
+FROM debian:bookworm
+
+# Install necessary packages
+RUN apt-get update && apt-get install -y \
+    curl \
+    sudo \
+    gnupg \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the Supabase CLI
+RUN curl -sL https://github.com/supabase/cli/releases/download/v1.153.4/supabase_1.153.4_linux_arm64.deb -o supabase.deb && \
+    dpkg -i supabase.deb && \
+    rm supabase.deb
+
+# Set the working directory
+WORKDIR /supabase
+
+# API
+EXPOSE 54321
+# Database
+EXPOSE 54322
+# UI (optional)
+EXPOSE 54323
+
+# Start Supabase
+CMD ["supabase", "start"]

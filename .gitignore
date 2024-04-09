@@ -1,3 +1,6 @@
+# RabbitMQ volume
+.rabbitmq/
+
 # CDK stack
 cdk.out/
 
