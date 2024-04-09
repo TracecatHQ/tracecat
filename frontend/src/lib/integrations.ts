@@ -3,7 +3,11 @@ import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 import { z } from "zod"
 
-import { Integration, integrationSchema } from "@/types/schemas"
+import {
+  Integration,
+  IntegrationPlatform,
+  integrationSchema,
+} from "@/types/schemas"
 import { stringToJSONSchema } from "@/types/validators"
 import { getAuthenticatedClient } from "@/lib/api"
 import {
@@ -76,14 +80,31 @@ export function parseSpec(parameters: any): {
   return { fieldSchema, fieldConfig }
 }
 
+// Simple template expression regex
+const templateExpr = /^\{\{\s*.*?\s*\}\}$/
+const numericExpr = /^\d+$/
+const templateExprSchema = z
+  .custom<string | number>(
+    (value: any) => {
+      return templateExpr.test(value) || numericExpr.test(value)
+    },
+    { message: "Invalid template expression" }
+  )
+  .transform((value: any) => {
+    if (numericExpr.test(value)) {
+      return Number(value)
+    }
+    return value
+  })
+
 function annotationToZod(annotation: ParameterType): z.ZodTypeAny {
   switch (annotation.type) {
     case "bool":
       return z.boolean()
     case "int":
-      return z.number().int()
+      return templateExprSchema
     case "float":
-      return z.number()
+      return templateExprSchema
     case "str":
       return z.string()
     case "NoneType":
@@ -159,15 +180,11 @@ function evaluateParameterType(param: ParameterType): ActionFieldOption {
     case "int":
       return {
         type: "input",
-        inputType: "number",
-        dtype: "int",
         placeholder: "Integer type.",
       }
     case "float":
       return {
         type: "input",
-        inputType: "number",
-        dtype: "float",
         placeholder: "Float type.",
       }
     case "str":
@@ -175,6 +192,7 @@ function evaluateParameterType(param: ParameterType): ActionFieldOption {
     case "union":
       const types = param.args.map((arg) => arg.type).join(", ")
       return { type: "input", placeholder: `Union of ${types}.` }
+    // TODO: It's not clear what the inner type is
     case "list":
       return { type: "array" }
     case "tuple":
@@ -189,4 +207,8 @@ function evaluateParameterType(param: ParameterType): ActionFieldOption {
     default:
       return { type: "input" }
   }
+}
+
+export function getPlatform(integrationKey: string): IntegrationPlatform {
+  return integrationKey.split(".")[1] as IntegrationPlatform
 }
