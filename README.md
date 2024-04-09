@@ -93,13 +93,9 @@ Tracecat is **not** a 1-to-1 mapping of Tines / Splunk SOAR. Our aim is to give 
 Tracecat is Cloud agnostic and deploys anywhere that supports Docker.
 Learn how to [install Tracecat locally](https://docs.tracecat.com/installation).
 
-- [x] Authentication
-  - [x] Supabase
-  - [ ] Auth.js
-  - [ ] Supertokens
 - [ ] Deployment
   - [x] Docker Compose
-  - [ ] AWS
+  - [x] AWS
   - [ ] Azure
   - [ ] GCP
 
@@ -159,7 +155,11 @@ Here are a few integrations on our roadmap:
 
 ## Security
 
-Looking to report a security vulnerability? Please don't post about it in GitHub issue. Instead, refer to our [SECURITY.md](SECURITY.md) file.
+Please do not file GitHub issues or post on our public forum for security vulnerabilities, as they are public!
+
+Infisical takes security issues very seriously. If you have any concerns about Tracecat or believe you have uncovered a vulnerability, please get in touch via the e-mail address security@tracecat.com. In the message, try to provide a description of the issue and ideally a way of reproducing it. The security team will get back to you as soon as possible.
+
+Note that this security address should be used only for undisclosed vulnerabilities. Please report any security problems to us before disclosing it publicly.
 
 ## FAQ
 
