@@ -39,7 +39,6 @@ def _parse_annotation(annotation: type | UnionType) -> dict:
     # Literal type
     if get_origin(annotation) is Literal:
         # NOTE: Parsing literals with complex type is undefined behavior
-        print("LITERAL_ENUM")
         return {
             "type": "enum",
             "args": [
@@ -92,7 +91,7 @@ def validate_type_constraints(func: FunctionType):
 
     sig = inspect.signature(func)
 
-    for param_name, param in sig.parameters.items():
+    for _param_name, param in sig.parameters.items():
         # Skip *args and **kwargs
         if param.kind in {
             inspect.Parameter.VAR_POSITIONAL,
@@ -101,7 +100,6 @@ def validate_type_constraints(func: FunctionType):
             continue
 
         annotation = param.annotation
-        print(param_name, annotation)
 
         # Skip parameters without annotations or return value annotation
         if annotation is inspect.Parameter.empty:
