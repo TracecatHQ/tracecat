@@ -8,150 +8,58 @@ description: Run Tracecat locally
   [Discord](https://discord.gg/n3GF4qxFU8)!
 </Note>
 
-Install Tracecat using Docker Compose.
+Install Tracecat locally on your machine.
 
 ## Prerequisites
 
+### Required
+
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker compose](https://docs.docker.com/compose/install/)
-- [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started#installing-the-supabase-cli)
-- [pnpm](https://pnpm.io/installation#using-corepack)
-- [Resend API Key](https://resend.com/docs/introduction)
-- [OpenAI API Key](https://platform.openai.com/docs/overview)
 - [ngrok](https://ngrok.com/)
 
-## Clone GitHub repo
+### Optional
 
-```bash
-git clone git@github.com:TracecatHQ/tracecat.git
-```
-
-## Start Supabase Postgres Database
-
-You'll need the Docker engine running for this to work. Navigate to the `tracecat` root folder and run
-
-```bash
-supabase start
-```
-
-You should see the following output:
-
-```bash
-❯ supabase start
-Started supabase local development setup.
-
-         API URL: http://127.0.0.1:54321
-     GraphQL URL: http://127.0.0.1:54321/graphql/v1
-          DB URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-      Studio URL: http://127.0.0.1:54323
-      JWT secret: super-secret-jwt-token-with-at-least-32-characters-long
-        anon key: ey...
-service_role key: ey...
-```
-
-## Set up environment variables
-
-### Create `.env` file in the tracecat root directory
-
-```bash
-# In tracecat/.env
-TRACECAT__SIGNING_SECRET=${ openssl rand -hex 32 }
-TRACECAT__SERVICE_KEY=${ openssl rand -hex 32 }
-TRACECAT__DB_ENCRYPTION_KEY=your-fernet-key
-SUPABASE_JWT_SECRET=your-supabase-jwt-secret
-# If running locally, this will be
-# SUPABASE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
-SUPABASE_JWT_ALGORITHM="HS256"
-SUPABASE_PSQL_URL=your-supabase-psql-url
-# If running locally this will be
-# SUPABASE_PSQL_URL=postgresql://postgres:postgres@host.docker.internal:54322/postgres
-# NOTE: The port here is the container's port (default '5432') to allow for services in the local docker network to reach the database.
-OPENAI_API_KEY=your-openai-api-key
-RESEND_API_KEY=your-resend-api-key
-TRACECAT__DB_URI=postgresql://postgres:postgres@host.docker.internal:54322/postgres
-```
-
-_Note: to generate a `TRACECAT__DB_ENCRYPTION_KEY` you'll need to create a Fernet key: https://cryptography.io/en/latest/fernet/._
-
-### Expose the runner
-
-We need to expose the runner so that we can reach our webhooks from external services. A simple way to do this is to use a service like [ngrok](https://ngrok.com/).
-
-We recommend you grab a free static url from their page.
-
-```bash
-TRACECAT__RUNNER_URL=https://your-runner-url
-```
-
-## Create `.env.local` file in `tracecat/frontend`
-
-Our frontend stack is React + Typescript + NextJS. Add the following:
-
-```bash
-# In tracecat/frontend/.env.local
-NODE_ENV="development"
-NEXT_PUBLIC_APP_ENV="dev"
-NEXT_PUBLIC_SELF_HOSTED=true
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-NEXT_PUBLIC_API_URL="http://localhost:8000"
-NEXT_PUBLIC_SUPABASE_URL="http://localhost:54321"
-NEXT_PUBLIC_SUPABASE_ANON_KEY= ... # From output of supabase start
-```
+- [OpenAI API key](https://platform.openai.com/signup)
+- [Resend API Key](https://resend.com/docs/introduction)
 
 ## Start Tracecat
 
-### Backend
-
-At this point, the Supabase stack should already be running. Run the following to bring up Tracecat `nginx`, `api`, and `runner` services:
+Run the command below to start Tracecat and all related services.
 
 ```bash
-docker compose up
+git clone git@github.com:TracecatHQ/tracecat.git
+cd tracecat
+bash start.sh
 ```
 
-Allow incoming webhooks for the runner:
+## Deploy runner via ngrok
+
+Go to [ngrok](https://ngrok.com/) and create an account.
+Then follow instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install ngrok on your local machine.
+Lastly, go to [ngrok dashboard](https://dashboard.ngrok.com/cloud-edge/domains), create a new domain, and run the following command:
 
 ```bash
-# Tracecat runner listens on port 8001
-ngrok http --domain=your-ngrok-url-here.ngrok-free.app 8001
+ngrok http --domain=your-ngrok-url-here 8001
 ```
 
-### Frontend
+<Note>This forwards the runner server to the internet and enables incoming webhooks.</Note>
 
-Inside `tracecat/frontend`, install dependencies with
+## Create user
 
-```bash
-pnpm install
-```
+Go to the Supabase dashboard at `http://localhost:54323`, navigate to the authentication tab, and create a new user.
 
-Then run the frontend in development mode:
+## Access Tracecat
 
-```bash
-pnpm dev
-```
+Your Tracecat frontend should now be running on port `3000`.
+To access the frontend, open your browser and navigate to `http://localhost:3000`.
+Sign-in with the user you created in Supabase.
 
-Alternatively if you'd like to build it:
+Tracecat's API and runner servers are also accessible via ports `8000` and `8001`, respectively.
+You can view the API docs at `http://localhost:8000/docs` and the runner docs at `http://localhost:8001/docs`.
 
-```bash
-pnpm run build
-pnpm run start
-```
-
-_Note: We're working on adding the frontend to the docker compose stack!_
-
-## Getting started
-
-You can access Tracecat's frontend at [http://localhost:3000](http://localhost:3000)
-and the OpenAPI docs at [http://localhost:8000/docs](http://localhost:8000/docs).
-
-Once the frontend and backend services are running, you should see a email + password login page at [http://localhost:3000](http://localhost:3000).
-
-### Create a user and log in
-
-To create a user account, visit the Supabase dashboard at [http://localhost:54323](http://localhost:54323) and click on `Authentication` on the left side panel. You should see a dropdown `Add User` at the top right of the page, where you can create a user.
-After doing so, you should be able to log into through the frontend.
-
-## Shut down
-
-```bash
-docker compose -f docker-compose.self-host.yaml down --remove-orphans && supabase stop
-```
+<Check>
+Congratulations! You have successfully installed Tracecat.
+This setup includes the essential components to set up a Tracecat proof-of-concept (PoC).
+For production-ready self-hosting solution, we recommend using one of our [Cloud deployment](/deployment) strategies.
+</Check>
