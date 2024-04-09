@@ -46,7 +46,7 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["introduction", "quickstart", "power-guide"]
+      "pages": ["introduction", "quickstart"]
     },
     {
       "group": "Core Features",
