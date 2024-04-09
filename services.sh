@@ -170,11 +170,11 @@ start_services() {
 }
 
 # Remove all by default
-REMOVE_BACKEND=true
+REMOVE_INTERNAL=true
 REMOVE_SUPABASE=true
 # Function to handle stop command
 stop_services() {
-    if [ $REMOVE_BACKEND = true ]; then
+    if [ $REMOVE_INTERNAL = true ]; then
         echo -e "${YELLOW}Stopping Tracecat services...${NC}"
         if docker compose down --remove-orphans; then
             echo -e "${GREEN}Tracecat services stopped successfully.${NC}"
@@ -218,11 +218,11 @@ case $ACTION in
         do
             case $arg in
                 --supabase|-s)
-                REMOVE_BACKEND=false
+                REMOVE_INTERNAL=false
                 ;;
             esac
             case $arg in
-                --backend|-b)
+                --internal|-i)
                 REMOVE_SUPABASE=false
                 ;;
             esac
