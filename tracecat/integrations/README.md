@@ -22,8 +22,8 @@ Let `T`, `K`, and `V` be a supported builtin types. We have well-defined support
 - Optional: `T | None`
 - Defaults: `T | None = None`, `str = "default"`
 - Literals: `Literal["a", "b"]` (imported from typing.Literal. Use this for enums)
-- List: `list[T]`, `list[T] | None = None`
-- Dict: `dict[K, V]`, `dict[K, V] | None = None`
+- List: `list[T]`
+- Dict: `dict[K, V]`
 
 This should cover most use cases for integration API endpoints.
 
