@@ -257,7 +257,7 @@ export function IntegrationForm({
                 <h4 className="text-m font-medium">Integration Inputs</h4>
                 <div className="inline-block space-y-2 text-xs text-muted-foreground">
                   <p>{integrationSpec?.description}</p>
-                  <p>This is the integration's docstring: </p>
+                  <p>This is the integration&apos;s docstring: </p>
                   <p>{integrationSpec?.docstring}</p>
                 </div>
                 <div className="space-y-2 capitalize">
