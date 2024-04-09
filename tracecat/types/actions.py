@@ -20,6 +20,7 @@ ActionType = Literal[
     "integrations.example.add",
     "integrations.example.subtract",
     "integrations.example.complex_example",
+    "integrations.example.join",
     ## Material Security
     "integrations.material_security.test",
     ## Datadog

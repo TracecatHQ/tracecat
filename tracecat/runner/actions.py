@@ -845,7 +845,6 @@ async def run_integration_action(
 
     with CloudpickleProcessPoolExecutor() as pool:
         result = await loop.run_in_executor(pool, bound_func)
-    # Inspect the return value of the integration function
 
     return {
         "output": result,
