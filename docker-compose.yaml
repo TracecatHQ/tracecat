@@ -121,7 +121,7 @@ services:
       - api
       - runner
     networks:
-      - internal-network
+      - nginx-network
 
   nginx:
     image: nginx:mainline-bookworm
