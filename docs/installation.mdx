@@ -30,10 +30,15 @@ Run the command below to start Tracecat and all related services.
 ```bash
 git clone git@github.com:TracecatHQ/tracecat.git
 cd tracecat
-bash start.sh
+chmod +x services.sh
+bash services.sh start  # Optioanlly pass --tail/-t to view container standard outputs
 ```
 
-## Deploy runner via ngrok
+You'll be prompted to enter your public facing Runner URL (you can set one up using ngrok, see below), OpenAI API key, and Resend API key.
+If you'd rather provide these later, you can skip each prompt step by pressing `Enter`.
+You can update the `.env` file in the root directory then run `bash services.sh start` again to restart the services.
+
+## Expose runner via ngrok
 
 Go to [ngrok](https://ngrok.com/) and create an account.
 Then follow instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install ngrok on your local machine.
@@ -43,7 +48,9 @@ Lastly, go to [ngrok dashboard](https://dashboard.ngrok.com/cloud-edge/domains),
 ngrok http --domain=your-ngrok-url-here 8001
 ```
 
-<Note>This forwards the runner server to the internet and enables incoming webhooks.</Note>
+<Note>
+  This forwards the runner server to the internet and enables incoming webhooks.
+</Note>
 
 ## Create user
 
@@ -59,7 +66,27 @@ Tracecat's API and runner servers are also accessible via ports `8000` and `8001
 You can view the API docs at `http://localhost:8000/docs` and the runner docs at `http://localhost:8001/docs`.
 
 <Check>
-Congratulations! You have successfully installed Tracecat.
-This setup includes the essential components to set up a Tracecat proof-of-concept (PoC).
-For production-ready self-hosting solution, we recommend using one of our [Cloud deployment](/deployment) strategies.
+  Congratulations! You have successfully installed Tracecat. This setup includes
+  the essential components to set up a Tracecat proof-of-concept (PoC). For
+  production-ready self-hosting solution, we recommend using one of our [Cloud
+  deployment](/deployment) strategies.
 </Check>
+
+## Stop Tracecat
+
+To spin down all services, run the following command:
+
+```bash
+bash services.sh stop
+```
+
+If you'd like to spin down specific services, you can pass additional options as such:
+
+```bash
+bash services.sh stop --internal # or -i, Stops all Tracecat internal services
+bash services.sh stop --supabase # or -s, Stops Supabase services
+```
+
+## Restarting services
+
+Running `bash services.sh start` will restart all services if they are already running.
