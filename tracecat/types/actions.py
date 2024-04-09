@@ -22,7 +22,7 @@ ActionType = Literal[
     "integrations.example.complex_example",
     "integrations.example.join",
     ## Material Security
-    "integrations.material_security.test",
+    "integrations.sublime_security.test",
     ## Datadog
     "integrations.datadog.test",
 ]

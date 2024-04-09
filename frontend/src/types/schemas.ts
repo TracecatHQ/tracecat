@@ -38,7 +38,7 @@ const integrationTypes = [
   "integrations.example.complex_example",
   "integrations.example.join",
   // Material Security
-  "integrations.material_security.test",
+  "integrations.sublime_security.test",
   // Datadog
   "integrations.datadog.test",
 ] as const
@@ -47,11 +47,7 @@ export type IntegrationType = (typeof integrationTypes)[number]
 /**
  * All platforms that are supported by the system.
  */
-const integrationPlatforms = [
-  "example",
-  "material_security",
-  "datadog",
-] as const
+const integrationPlatforms = ["example", "sublime_security", "datadog"] as const
 export type IntegrationPlatform = (typeof integrationPlatforms)[number]
 
 export type NodeType = ActionType | IntegrationType
