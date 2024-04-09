@@ -307,7 +307,6 @@ export function ActionFormInputs<T extends FieldValues>({
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <FormControl>
             <Input
-              type={inputOption.inputType}
               {...field}
               value={watch(typedKey, defaultValue as TDefaultValue<T>)}
               className="text-xs"
