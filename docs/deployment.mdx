@@ -3,9 +3,6 @@ title: Deployment
 description: Deploy Tracecat into your own Cloud
 ---
 
-*Work-in-progress: here be dragons, but find us on Discord if you need any help!*
-
-
 Self-hosting Tracecat lets you retain data on your own Cloud infrastructure and network.
 Only AWS is currently supported, but we plan to support Azure and GCP in the near future.
 
@@ -19,71 +16,76 @@ Tracecat's AWS deployment includes the following resources:
 - 2 ECS Fargate Services
 - 1 Application Load Balancer
 - 1 Elastic File System
+- Security groups
+- Log groups
 
-### GitHub Actions
+<Steps>
+  <Step title="Create AWS secret">
+    Go into AWS secrets manager and create a key-value pair type secret with the following sensitive data:
+    ```
+    rabbitmq-default-pass = your_rabbitmq_password
+    rabbitmq-default-user = your_rabbitmq_user
+    db-encryption-key     = your_fernet_key
+    db-uri                = your_postgres_uri
+    service-key           = ${ openssl rand -hex 32 }
+    signing-secret        = ${ openssl rand -hex 32 }
+    supabase-jwt-secret   = your_supabase_jwt_secret
 
-You can also add Tracecat to your CI/CD pipeline via GitHub Actions.
-Here is a sample workflow file `.github/workflows/deploy.yml` that you can use:
+    # Optional
+    openai-api-key=       = your-openai-api-key
+    resend-api-key=       = your-resend-api-key
+    ```
+    Keep note of the created AWS secret's ARN.
+  </Step>
+  <Step title="Configure domains and TLS certificates">
+    Use Route53 to create a hosted zone for your domain.
+    You will also need to create an ACM certificate for your primary domain
+    and subdomains `api.your-domain.com` and `runner.your-domain.com`.
+  </Step>
+  <Step title="Set environment variables">
+    Set the following environment variables in the session that you will be deploying Tracecat from.
+    These environment variables are used by the AWS CDK stack to configure the deployment.
+    ```
+    TRACECAT__APP_ENV
+    AWS_ECR__REPOSITORY_URI
+    AWS_ECR__IMAGE_TAG
+    AWS_SECRET__ARN
+    AWS_ROUTE53__HOSTED_ZONE_ID
+    AWS_ROUTE53__HOSTED_ZONE_NAME
+    AWS_ACM__CERTIFICATE_ARN
+    AWS_ACM__API_CERTIFICATE_ARN
+    AWS_ACM__RUNNER_CERTIFICATE_ARN
+    ```
+    <Info>You can define `TRACECAT__APP_ENV` as `production`, `staging`, or `development`.</Info>
 
-```yaml
-name: Deploy Tracecat to AWS
+  </Step>
+  <Step title="Clone GitHub repository">
+    ```bash
+    git clone git@github.com:TracecatHQ/tracecat.git
+    cd tracecat
+    ```
+  </Step>
+  <Step title="Install AWS CDK dependencies">
 
-on:
-  workflow_dispatch:
-    inputs:
-      app_env:
-        description: "App Environment"
-        required: false
-        default: "dev"
+    <Info>You'll need to install [`npm`](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) for this step.</Info>
 
-jobs:
-  deploy:
-    name: Deploy AWS CDK Stack
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      id-token: write # This line allows GitHub Actions to request an OIDC token
-      contents: read
-    env:
-      TRACECAT__APP_ENV: ${{ github.event.inputs.app_env }}
-      AWS_ROUTE53__HOSTED_ZONE_ID: ${{ secrets.AWS_ROUTE53__HOSTED_ZONE_ID }}
-      AWS_ROUTE53__HOSTED_ZONE_NAME: ${{ secrets.AWS_ROUTE53__HOSTED_ZONE_NAME }}
-      AWS_ACM__CERTIFICATE_ARN: ${{ secrets.AWS_ACM__CERTIFICATE_ARN }}
-      AWS_ACM__API_CERTIFICATE_ARN: ${{ secrets.AWS_ACM__API_CERTIFICATE_ARN }}
-      AWS_ACM__RUNNER_CERTIFICATE_ARN: ${{ secrets.AWS_ACM__RUNNER_CERTIFICATE_ARN }}
-      AWS_SECRET__ARN: ${{ secrets.AWS_SECRET__ARN }}
-    steps:
-      - name: Checkout 🛎️
-        uses: actions/checkout@v4
-        with:
-          repository: TracecatHQ/tracecat
-          token: ${{ secrets.GITHUB_TOKEN }}
+    ```bash
+    npm install -g aws-cdk@2.133 && cdk --version
+    pip install --upgrade pip && pip install -r requirements-cdk.txt
+    ```
+  </Step>
+  <Step title="Deploy AWS CDK stack">
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: GitHubActions
-          role-duration-seconds: 3600
+    First make sure you are [properly authenticated]() with AWS CLI and have the [appropriate permissions]() to deploy AWS CDK stacks.
+    Run the following commands to deploy Tracecat to AWS:
 
-      - name: Install CDK CLI
-        run: npm install -g aws-cdk@2.133 && cdk --version
-
-      - name: Install Python CDK
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install -r requirements-cdk.txt
-
-      - name: CDK synth
-        run: cdk synth --app "python3 aws_cdk_app.py"
-
-      - name: CDK bootstrap
-        run: cdk bootstrap --app cdk.out
-
-      - name: CDK deploy
-        run: cdk deploy --app cdk.out --require-approval never
-```
+    ```bash
+    cdk synth --app "python3 aws_cdk_app.py"
+    cdk bootstrap --app cdk.out
+    cdk deploy --app cdk.out --require-approval never
+    ```
+  </Step>
+</Steps>
 
 ## Azure
 

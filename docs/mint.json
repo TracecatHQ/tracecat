@@ -33,9 +33,14 @@
   ],
   "anchors": [
     {
-      "name": "Documentation",
-      "icon": "book-open-cover",
-      "url": "https://docs.tracecat.com"
+      "name": "Website",
+      "icon": "globe",
+      "url": "https://tracecat.com"
+    },
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/TracecatHQ/tracecat"
     },
     {
       "name": "Community",
