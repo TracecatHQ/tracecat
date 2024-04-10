@@ -3,7 +3,7 @@ title: Workflows
 description: Powerful automation made easy
 ---
 
-Workflows are a series of steps called [Actions](/actions).
+Workflows are a series of steps called [Actions](/core/actions).
 Think of a workflow as a recipe that runs each step needed to complete a task, from start to finish.
 
 ## Build a workflow
@@ -26,12 +26,12 @@ Prefer learning through examples? Watch this video to see how to build a simple 
 <Steps>
   <Step title="Add starting action">
     Drag and drop an action block from the sidebar onto the workflow canvas.
-    Most workflows start with a [Webhook Action](/actions/types/webhook).
+    Most workflows start with a [Webhook Action](/core/actions#action-types).
     Webhooks allow you to receive data from external systems (e.g. Crowdstrike alerts).
   </Step>
   <Step title="Add receiving action">
     Add another action onto the workflow canvas.
-    This action could be a [AI Summarize Action](/actions/types/ai-summarize),
+    This action could be a [AI Summarize Action](/core/actions#action-types),
     which uses a large language model (LLM) to summarize the alert received in the previous action.
   </Step>
   <Step title="Connect actions">
@@ -44,7 +44,7 @@ Prefer learning through examples? Watch this video to see how to build a simple 
     Click on an action in the workflow canvas.
     The right panel will now show the action's configuration options.
 
-    Check out the docs on [Actions](/actions) to learn more.
+    Check out the docs on [Actions](/core/actions) to learn more.
   </Step>
   <Step title="🪝 Call the webhook to run your workflow">
     Go to the `Send Payload` control in the bottom right panel.
@@ -68,7 +68,7 @@ Prefer learning through examples? Watch this video to see how to build a simple 
 
 You can deploy your workflow using the `Publish` button in the top right corner of the workflow view.
 
-<Info>Deployed workflows runs automatically whenever a starting [Webhook action](/actions/types/webhook) receives new data.</Info>
+<Info>Deployed workflows runs automatically whenever a starting [Webhook action](/core/actions#action-types) receives new data.</Info>
 
 ### Schedule
 
@@ -76,6 +76,5 @@ You can schedule your workflow to run as a cron job.
 
 ### Build bigger
 
-You can build more complex workflows with [conditional logic](/actions/types/if-conditions/overview),
-[AI actions](/actions/types/ai-actions), [data transforms](/actions/types/data-transforms) and more.
-See all available [Actions](core//actions).
+You can build more complex workflows with conditional logic, data transforms, AI task workers and more.
+See all available [Actions](/core/actions).
