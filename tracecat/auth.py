@@ -62,10 +62,6 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         if self.role.user_id:
             self.headers["Service-User-ID"] = self.role.user_id
 
-    async def __aenter__(self):
-        """Inject the service role and api key to the headers at query time."""
-        return await super().__aenter__()
-
 
 class AuthenticatedAPIClient(AuthenticatedServiceClient):
     """An authenticated httpx client to hit main API endpoints.
