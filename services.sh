@@ -111,6 +111,12 @@ start_services() {
     echo -e "${YELLOW}Initializing Supabase services...${NC}"
     output=$(supabase start 2>&1)
 
+    # Check if Docker is running
+    if echo "$output" | grep -q "Cannot connect to the Docker daemon"; then
+        echo -e "${RED}Docker is not running. Please start Docker and try again.${NC}"
+        exit 1
+    fi
+
     # Check for errors or if Supabase is already running
     if echo "$output" | grep -q "error"; then
         echo -e "${RED}Error encountered while starting Supabase:${NC}"
