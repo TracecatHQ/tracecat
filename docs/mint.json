@@ -1,6 +1,7 @@
 {
   "$schema": "https://mintlify.com/schema.json",
   "name": "Tracecat",
+  "openapi": "https://api.tracecat-engine.com/openapi.json",
   "logo": {
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
@@ -33,9 +34,14 @@
   ],
   "anchors": [
     {
-      "name": "Documentation",
-      "icon": "book-open-cover",
-      "url": "https://docs.tracecat.com"
+      "name": "Website",
+      "icon": "globe",
+      "url": "https://tracecat.com"
+    },
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/TracecatHQ/tracecat"
     },
     {
       "name": "Community",

@@ -9,7 +9,7 @@ Actions are individual tasks performed at each step of a workflow.
 You can find all available Actions in the workspace sidebar.
 
 There are only ten Action types, but they can be configured to perform almost any task.
-For example, a [HTTP request](/actions/types/http-request) can be configured to send a GET request to an API endpoint.
+For example, a [HTTP request](#action-types) can be configured to send a GET request to an API endpoint.
 See [Quickstart](/quickstart) for a worked example.
 
 <Info>
@@ -60,7 +60,7 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
 
 <Steps>
   <Step title="Pass malware sample to webhook">
-    Let's assume the [Webhook](/actions/types/webhook) action (titled "Receive malware sample")
+    Let's assume the [Webhook](#action-types) action (titled "Receive malware sample")
     has the following URL: `https://runner.tracecat-engine.com/webhook/<path>/<secret>`.
     This URL will differ for every user and action block.
 
@@ -94,7 +94,7 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
   </Step>
   <Step title="Get malware report">
     Let's send the malware sample to [MalwareBazaar](https://bazaar.abuse.ch/) for a report.
-    Select the [HTTP Request](/actions/types/http-request) action (titled "Get malware report").
+    Select the [HTTP Request](#action-types) action (titled "Get malware report").
 
     1. Fill in the action's `url` input field with the following:
     `https://mb-api.abuse.ch/api/v1/query=get_info&hash={{ $.receive_malware_sample.payload.malware_sha256 }}`
@@ -113,7 +113,7 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
     </Tip>
   </Step>
   <Step title="Send malware report to yourself">
-    Select the [Send Email](/actions/types/send-email) action (titled "Send malware report").
+    Select the [Send Email](#action-types) action (titled "Send malware report").
 
     1. Fill in the action's `receivers` input field with your email address.
     2. Set the `subject` input field to `Malware report for {{ $.receive_malware_sample.payload.malware_sha256 }}`.
@@ -140,31 +140,24 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
 
 <CardGroup cols={2}>
   <Card title="Webhook" icon="link">
-    {/* href="/actions/types/webhook" */}
     Perform actions based on external triggers.
   </Card>
   <Card title="HTTP Request" icon="globe">
-    {/* href="/actions/types/http-request" */}
     Make HTTP requests to interact with external APIs.
   </Card>
   <Card title="Data Transform" icon="code">
-    {/* href="/actions/types/data-transform" */}
     Transform streams of JSON data.
   </Card>
   <Card title="Send Email" icon="envelope">
-    {/* href="/actions/types/send-email" */}
     Send emails to specified recipients.
   </Card>
   <Card title="If Conditions" icon="question">
-    {/* href="/actions/types/conditions/overview" */}
     Create branching workflows using predefined rules.
   </Card>
   <Card title="AI Actions" icon="robot">
-    {/* href="/actions/types/ai-actions/overview" */}
     Perform AI-powered tasks (e.g. summarize, label, translate).
   </Card>
   <Card title="Open Case" icon="folder-open">
-    {/* href="/actions/types/open-case" */}
     Open and prepopulate a case in the case management system.
   </Card>
 </CardGroup>
@@ -187,9 +180,9 @@ Here are a few examples:
 <Note>
 Can't find a pre-built action for a specific product?
 
-We love suggestions. Just let us know in the `#feedback` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8):
-- What task you want to achieve
-- What product you want to integrate
+Just let us know in the `#feedback` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8):
+1. What task you want to achieve
+2. What product you want to integrate
 
-And we will respond to every suggestion!
+We respond to every suggestion!
 </Note>
