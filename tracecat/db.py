@@ -23,7 +23,7 @@ from sqlmodel import (
 )
 
 from tracecat import auth
-from tracecat.auth import decrypt_key, encrypt_key
+from tracecat.auth import decrypt, encrypt
 from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
@@ -91,7 +91,7 @@ class Resource(SQLModel):
 class Secret(Resource, table=True):
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     name: str | None = Field(default=None, max_length=255, index=True, nullable=True)
-    encrypted_api_key: bytes | None = Field(default=None, nullable=True)
+    encrypted_secret: bytes | None = Field(default=None, nullable=True)
     owner_id: str = Field(
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
@@ -101,11 +101,11 @@ class Secret(Resource, table=True):
     def key(self) -> str | None:
         if not self.encrypted_api_key:
             return None
-        return decrypt_key(self.encrypted_api_key)
+        return decrypt(self.encrypted_api_key)
 
     @key.setter
     def key(self, value: str) -> None:
-        self.encrypted_api_key = encrypt_key(value)
+        self.encrypted_secret = encrypt(value)
 
 
 class Editor(SQLModel, table=True):

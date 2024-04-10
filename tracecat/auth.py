@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import httpx
+import orjson
 import psycopg
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, Security, status
@@ -133,18 +134,33 @@ def compute_hash(object_id: str) -> str:
     ).hexdigest()
 
 
-def encrypt_key(api_key: str) -> bytes:
+def encrypt(value: str) -> bytes:
     key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
     cipher_suite = Fernet(key)
-    encrypted_api_key = cipher_suite.encrypt(api_key.encode())
-    return encrypted_api_key
+    encrypted_value = cipher_suite.encrypt(value.encode())
+    return encrypted_value
 
 
-def decrypt_key(encrypted_api_key: bytes) -> str:
+def decrypt(encrypted_value: bytes) -> str:
     key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
     cipher_suite = Fernet(key)
-    decrypted_api_key = cipher_suite.decrypt(encrypted_api_key).decode()
-    return decrypted_api_key
+    decrypted_value = cipher_suite.decrypt(encrypted_value).decode()
+    return decrypted_value
+
+
+def encrypt_object(obj: dict[str, Any]) -> bytes:
+    key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+    cipher_suite = Fernet(key)
+    obj_bytes = orjson.dumps(obj)
+    encrypted_value = cipher_suite.encrypt(obj_bytes)
+    return encrypted_value
+
+
+def decrypt_object(encrypted_obj: bytes) -> dict[str, Any]:
+    key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+    cipher_suite = Fernet(key)
+    obj_bytes = cipher_suite.decrypt(encrypted_obj)
+    return orjson.loads(obj_bytes)
 
 
 async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
