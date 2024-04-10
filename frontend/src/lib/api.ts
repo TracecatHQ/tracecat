@@ -2,9 +2,18 @@ import { redirect } from "next/navigation"
 import { type Session } from "@supabase/supabase-js"
 import axios from "axios"
 
+// Determine the base URL based on the execution environment
+let baseURL = process.env.NEXT_PUBLIC_API_URL
+
+// Use different base url for server-side
+if (process.env.NODE_ENV === "development" && typeof window === "undefined") {
+  baseURL = "http://host.docker.internal:8000"
+}
+
 const client = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  baseURL,
 })
+
 export type Client = typeof client
 
 export const getAuthenticatedClient = (session: Session | null) => {
