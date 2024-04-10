@@ -31,8 +31,12 @@ Run the command below to start Tracecat and all related services.
 git clone git@github.com:TracecatHQ/tracecat.git
 cd tracecat
 chmod +x services.sh
-bash services.sh start  # Optioanlly pass --tail/-t to view container standard outputs
+bash services.sh start
 ```
+
+<Note>
+You can run `bash services.sh start --tail` to view the logs of all services in real-time.
+</Note>
 
 You'll be prompted to enter your public facing Runner URL (you can set one up using ngrok, see below), OpenAI API key, and Resend API key.
 If you'd rather provide these later, you can skip each prompt step by pressing `Enter`.
@@ -58,7 +62,7 @@ Go to the Supabase dashboard at `http://localhost:54323`, navigate to the authen
 
 ## Access Tracecat
 
-Your Tracecat frontend should now be running on port `3000`.
+The Tracecat frontend should now be running on port `3000`.
 To access the frontend, open your browser and navigate to `http://localhost:3000`.
 Sign-in with the user you created in Supabase.
 
@@ -68,8 +72,7 @@ You can view the API docs at `http://localhost:8000/docs` and the runner docs at
 <Check>
   Congratulations! You have successfully installed Tracecat. This setup includes
   the essential components to set up a Tracecat proof-of-concept (PoC). For
-  production-ready self-hosting solution, we recommend using one of our [Cloud
-  deployment](/deployment) strategies.
+  production-ready self-hosting solution, we recommend using one of our [Cloud deployment](/deployment) strategies.
 </Check>
 
 ## Stop Tracecat
