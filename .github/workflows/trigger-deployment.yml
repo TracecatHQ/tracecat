@@ -1,0 +1,35 @@
+name: Trigger Tracecat deployment
+
+on:
+  push:
+    branches: main
+    tags:
+      - "v*"
+
+jobs:
+  trigger-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set Environment
+        id: set-env
+        run: |
+          echo "BUILD_ENV=$( [[ '${{ github.ref }}' == 'refs/heads/main' ]] && echo 'staging' || echo 'production' )" >> $GITHUB_ENV
+
+      - name: Trigger
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const environment = process.env.BUILD_ENV;
+            const ref = '${{ github.sha }}';
+
+            // Send a repository_dispatch event to trigger the Deploy to AWS workflow
+            github.rest.repos.createDispatchEvent({
+              owner: 'TracecatHQ',
+              repo: 'tracecat-deployment',
+              event_type: 'deploy',
+              client_payload: {
+                'build-env': environment,
+                'ref': ref
+              }
+            });
