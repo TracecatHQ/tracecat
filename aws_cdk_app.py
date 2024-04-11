@@ -10,7 +10,7 @@ app = App()
 TracecatEngineStack(
     app,
     f"TracecatEngineStack-{TRACECAT__APP_ENV}",
-    env={"region": os.environ.get("AWS_DEFAULT_REGION", "us-west-2")},
+    env={"region": os.environ["AWS_DEFAULT_REGION"]},
 )
 
 app.synth()
