@@ -28,7 +28,7 @@ interface RootLayoutProps {
 let PostHogPageView: any
 let PHProvider: any
 
-if (process.env.NEXT_PUBLIC_APP_ENV === "prod") {
+if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
   PostHogPageView = dynamic(
     () => import("@/components/analytics/PostHogPageView"),
     {

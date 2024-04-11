@@ -28,7 +28,7 @@ AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
 AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__API_CERTIFICATE_ARN"]
 AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ["AWS_ACM__RUNNER_CERTIFICATE_ARN"]
 
-if TRACECAT__APP_ENV == "prod":
+if TRACECAT__APP_ENV == "production":
     CPU = 512
     MEMORY_LIMIT_MIB = 1024
 else:
@@ -143,7 +143,7 @@ class TracecatEngineStack(Stack):
 
         # Task execution IAM role (used across API and runner)
         logs_group_prefix = f"arn:aws:logs:{self.region}:{self.account}:log-group:"
-        if TRACECAT__APP_ENV == "prod":
+        if TRACECAT__APP_ENV == "production":
             logs_group_pattern = f"{logs_group_prefix}/ecs/tracecat-*:*"
         else:
             logs_group_pattern = (
@@ -225,7 +225,7 @@ class TracecatEngineStack(Stack):
 
         # Set up a log group
         log_group_name = "/ecs/tracecat"
-        if TRACECAT__APP_ENV != "prod":
+        if TRACECAT__APP_ENV != "production":
             log_group_name = f"{log_group_name}-{TRACECAT__APP_ENV}"
         log_group = logs.LogGroup(
             self,
@@ -271,7 +271,7 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="resend-api-key"
             ),
         }
-        if TRACECAT__APP_ENV in ("prod", "staging"):
+        if TRACECAT__APP_ENV in ("production", "staging"):
             shared_env = {
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 "TRACECAT__API_URL": f"https://api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",

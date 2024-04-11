@@ -287,7 +287,7 @@ class Webhook(Resource, table=True):
 
 
 def create_db_engine() -> Engine:
-    if TRACECAT__APP_ENV == "prod":
+    if TRACECAT__APP_ENV == "production":
         # Postgres
         engine_kwargs = {
             "pool_timeout": 30,

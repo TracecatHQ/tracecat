@@ -14,7 +14,7 @@ export default function CasesPage() {
     <CasesProvider>
       <div className="flex h-screen flex-col overflow-auto">
         <div className="flex-1 space-y-8 p-16">
-          {process.env.NEXT_PUBLIC_APP_ENV === "prod" && (
+          {process.env.NEXT_PUBLIC_APP_ENV === "production" && (
             <AlertNotification
               message="Cases is in preview mode, and may not work as expected"
               className="max-w-[600px]"

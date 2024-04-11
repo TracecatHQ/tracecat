@@ -4,7 +4,7 @@ import { get } from "@vercel/edge-config"
 
 export async function middleware(request: NextRequest) {
   if (
-    process.env.NEXT_PUBLIC_APP_ENV === "prod" &&
+    process.env.NEXT_PUBLIC_APP_ENV === "production" &&
     (await get("isUnderMaintenance"))
   ) {
     request.nextUrl.pathname = `/status`

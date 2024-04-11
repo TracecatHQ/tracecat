@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, default_response_class=ORJSONResponse)
 
 
-if TRACECAT__APP_ENV == "prod":
+if TRACECAT__APP_ENV == "production":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
     cors_origins_kwargs = {
