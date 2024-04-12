@@ -5,6 +5,18 @@ on:
     branches: main
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      build-env:
+        type: choice
+        description: Build environment
+        required: true
+        options:
+          - production
+          - staging
+      ref:
+        description: "Branch, commit sha, or tag to deploy"
+        required: true
 
 jobs:
   trigger-deployment:
@@ -13,7 +25,13 @@ jobs:
       - name: Set Environment
         id: set-env
         run: |
-          echo "BUILD_ENV=$( [[ '${{ github.ref }}' == 'refs/heads/main' ]] && echo 'staging' || echo 'production' )" >> $GITHUB_ENV
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "BUILD_ENV=${{ github.event.inputs.build-env }}" >> $GITHUB_ENV
+            echo "DEPLOY_REF=${{ github.event.inputs.ref }}" >> $GITHUB_ENV
+          else
+            echo "BUILD_ENV=$( [[ '${{ github.ref }}' == 'refs/heads/main' ]] && echo 'staging' || echo 'production' )" >> $GITHUB_ENV
+            echo "DEPLOY_REF=${{ github.sha }}" >> $GITHUB_ENV
+          fi
 
       - name: Trigger
         uses: actions/github-script@v6
@@ -21,7 +39,7 @@ jobs:
           github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const environment = process.env.BUILD_ENV;
-            const ref = '${{ github.sha }}';
+            const ref = process.env.DEPLOY_REF;
 
             // Send a repository_dispatch event to trigger the Deploy to AWS workflow
             github.rest.repos.createDispatchEvent({
