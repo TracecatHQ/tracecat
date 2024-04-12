@@ -16,7 +16,8 @@ from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "staging")
 AWS_ECR__REPOSITORY_URI = os.environ["AWS_ECR__REPOSITORY_URI"]
-AWS_ECR__IMAGE_TAG = os.environ["AWS_ECR__IMAGE_TAG"]
+AWS_ECR__API_IMAGE_TAG = os.environ["AWS_ECR__API_IMAGE_TAG"]
+AWS_ECR__SCHEDULER_IMAGE_TAG = os.environ["AWS_ECR__SCHEDULER_IMAGE_TAG"]
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
@@ -175,7 +176,7 @@ class TracecatEngineStack(Stack):
             description="Security group for Runner service",
         )
 
-        # 3. API and runner ingress rules
+        # 3. API and runner ingress / egress rules
         api_security_group.add_ingress_rule(
             peer=alb_security_group,
             connection=ec2.Port.tcp(8000),
@@ -186,20 +187,67 @@ class TracecatEngineStack(Stack):
             connection=ec2.Port.tcp(8001),
             description="Allow HTTP traffic from the ALB",
         )
-        # Allow Runner to communicate with API
+        # Ingress rules for API and Runner
         api_security_group.add_ingress_rule(
             peer=runner_security_group,
             connection=ec2.Port.tcp(8000),
             description="Allow traffic from Runner to API",
         )
-        # Allow API to communicate with Runner
         runner_security_group.add_ingress_rule(
             peer=api_security_group,
             connection=ec2.Port.tcp(8001),
             description="Allow traffic from API to Runner",
         )
+        # Egress rules for API and runner
+        api_security_group.add_egress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(8001),  # Assuming the Runner listens on 8001
+            description="Allow API to initiate traffic to the Runner",
+        )
 
-        # 4. RabbitMQ security group
+        runner_security_group.add_egress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(8000),  # Assuming the API listens on 8000
+            description="Allow Runner to initiate traffic to the API",
+        )
+
+        # 4. Scheduler security group
+        scheduler_security_group = ec2.SecurityGroup(
+            self,
+            "SchedulerSecurityGroup",
+            vpc=vpc,
+            description="Security group for Scheduler service",
+        )
+        # Allow Scheduler to receive traffic from API and Runner
+        scheduler_security_group.add_ingress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(
+                8000
+            ),  # Assuming Scheduler listens on a specific port, adjust as needed
+            description="Allow traffic from API to Scheduler",
+        )
+        scheduler_security_group.add_ingress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(8001),  # Adjust if different port is used
+            description="Allow traffic from Runner to Scheduler",
+        )
+        # Allow Scheduler to send traffic to API and Runner
+        scheduler_security_group.add_egress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(
+                8000
+            ),  # Adjust the port if API listens on a different one
+            description="Allow Scheduler to connect to API",
+        )
+        scheduler_security_group.add_egress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(
+                8001
+            ),  # Adjust the port if Runner listens on a different one
+            description="Allow Scheduler to connect to Runner",
+        )
+
+        # 5. RabbitMQ security group
         rabbitmq_security_group = ec2.SecurityGroup(
             self,
             "RabbitmqSecurityGroup",
@@ -401,7 +449,7 @@ class TracecatEngineStack(Stack):
         api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
             image=ecs.ContainerImage.from_registry(
-                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__IMAGE_TAG}"
+                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__API_IMAGE_TAG}"
             ),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
@@ -472,7 +520,7 @@ class TracecatEngineStack(Stack):
         runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
             image=ecs.ContainerImage.from_registry(
-                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__IMAGE_TAG}"
+                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__API_IMAGE_TAG}"
             ),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
@@ -524,7 +572,43 @@ class TracecatEngineStack(Stack):
             )
         )
 
-        ### RabbitMQ Farget Service
+        ### Scheduler Fargate Service
+        # Task definition
+        scheduler_task_definition = ecs.FargateTaskDefinition(
+            self,
+            "SchedulerTaskDefinition",
+            execution_role=execution_role,
+            task_role=task_role,
+            cpu=CPU,
+            memory_limit_mib=MEMORY_LIMIT_MIB,
+        )
+        # Container
+        scheduler_task_definition.add_container(  # noqa
+            "SchedulerContainer",
+            image=ecs.ContainerImage.from_registry(
+                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__SCHEDULER_IMAGE_TAG}"
+            ),
+            cpu=CPU,
+            memory_limit_mib=MEMORY_LIMIT_MIB,
+            environment=shared_env,
+            secrets=shared_secrets,
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="tracecat-scheduler", log_group=log_group
+            ),
+        )
+        # ECS service
+        ecs.FargateService(
+            self,
+            "TracecatSchedulerFargateService",
+            cluster=cluster,
+            task_definition=scheduler_task_definition,
+            security_groups=[scheduler_security_group],
+            cloud_map_options=ecs.CloudMapOptions(
+                name="scheduler", cloud_map_namespace=dns_namespace
+            ),
+        )
+
+        ### RabbitMQ Fargate Service
         # Define the policy for logging to CloudWatch Logs
         rabbitmq_logging_policy = iam.PolicyStatement(
             actions=["logs:CreateLogStream", "logs:PutLogEvents"],
