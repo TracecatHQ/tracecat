@@ -108,29 +108,44 @@ def evaluate_templated_fields(
     return processed_kwargs
 
 
-async def _load_secret(secret_name: str) -> str:
-    """Load a secret on behalf of the current workflow run."""
+async def _load_secret(secret_name_with_key: str) -> str:
+    """Load a secret on behalf of the current workflow run.
+
+    Parameters
+    ----------
+    secret_name_with_key : str
+        The name of the secret and the key to retrieve. Format: <secret_name>.<key>
+    """
     try:
         # NOTE(perf): We can frontload these requests before starting
         # the workflow, then look up the encrypted secrets in a local cache.
         role = ctx_session_role.get()
 
+        secret_name, key_name = secret_name_with_key.split(".")
         async with AuthenticatedAPIClient(role=role, http2=True) as client:
             response = await client.get(f"/secrets/{secret_name}")
             response.raise_for_status()
         secret = Secret.model_validate_json(response.content)
-        return secret.key  # Decrypt secret value
+        keys = secret.keys or []
+        # Find the matching key name. These should be unique.
+        matched_keys = [k for k in keys if k.key == key_name]
+        if len(matched_keys) != 1:
+            raise ValueError(
+                f"{len(matched_keys)} keys found for {secret_name_with_key!r}."
+            )
+        return matched_keys[0].value
+
     except httpx.HTTPStatusError as e:
-        msg = f"Error loading {secret_name!r}. {response.text}"
+        msg = f"Error loading {secret_name_with_key!r}. {response.text}"
         logger.error(msg)
         raise ValueError(msg) from e
     except ValueError as e:
-        msg = f"Could not parse secret response for {secret_name!r}."
+        msg = f"Could not parse secret response for {secret_name_with_key!r}."
         logger.error(msg)
         raise ValueError(msg) from e
     except Exception as e:
         logger.error(e)
-        raise ValueError(f"Secret {secret_name!r} could not be loaded.") from e
+        raise ValueError(f"Secret {secret_name_with_key!r} could not be loaded.") from e
 
 
 async def _evaluate_secret_str(
