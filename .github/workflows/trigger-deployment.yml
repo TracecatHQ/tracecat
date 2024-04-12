@@ -18,7 +18,7 @@ jobs:
       - name: Trigger
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const environment = process.env.BUILD_ENV;
             const ref = '${{ github.sha }}';
