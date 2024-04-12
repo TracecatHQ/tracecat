@@ -9,6 +9,7 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_servicediscovery as servicediscovery
 from aws_cdk.aws_certificatemanager import Certificate
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
@@ -47,7 +48,7 @@ class TracecatEngineStack(Stack):
         cluster = ecs.Cluster(self, "Cluster", cluster_name=cluster_name, vpc=vpc)
 
         # Private DNS
-        dns_namespace = ecs.PrivateDnsNamespace(
+        dns_namespace = servicediscovery.PrivateDnsNamespace(
             self, "PrivateDnsNamespace", vpc=vpc, name="tracecat.local"
         )
 
