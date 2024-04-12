@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from tracecat.db import ActionRun, WorkflowRun
 from tracecat.types.actions import ActionType
+from tracecat.types.secrets import SecretKeyValue
 
 # TODO: Consistent API design
 # Action and Workflow create / update params
@@ -185,8 +186,16 @@ UpdateUserParams = CreateUserParams
 
 
 class CreateSecretParams(BaseModel):
+    # Secret types
+    # ------------
+    # - Custom: Arbitrary user-defined types
+    # - Token: A token, e.g. API Key, JWT Token (TBC)
+    # - OAuth2: OAuth2 Client Credentials (TBC)
+    type: Literal["custom"]  # Support other types later
     name: str
-    value: str
+    description: str | None = None
+    keys: list[SecretKeyValue]
+    tags: dict[str, str] | None = None
 
 
 UpdateSecretParams = CreateSecretParams
@@ -251,5 +260,7 @@ class CopyWorkflowParams(BaseModel):
 
 class SecretResponse(BaseModel):
     id: str
+    type: Literal["custom"]  # Support other types later
     name: str
-    value: str
+    description: str | None = None
+    keys: list[SecretKeyValue]

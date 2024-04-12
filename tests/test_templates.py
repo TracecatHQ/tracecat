@@ -18,6 +18,7 @@ from tracecat.runner.templates import (
     evaluate_templated_fields,
     evaluate_templated_secrets,
 )
+from tracecat.types.secrets import SecretKeyValue
 
 client = TestClient(app)
 
@@ -41,17 +42,25 @@ def setup_templates_env():
 @pytest.mark.asyncio
 async def test_evaluate_secret_string():
     mock_secret_manager = {
-        "TEST_API_KEY_1": "not_so_secret",
-        "ANOTHER_SECRET": "not_a_secret",
+        "my_secret": [
+            SecretKeyValue(key="MY_API_KEY_1", value="my_not_so_secret"),
+            SecretKeyValue(key="MY_API_KEY_2", value="not_a_secret"),
+        ],
+        "another_secret": [
+            SecretKeyValue(key="ANOTHER_TEST_API_KEY_1", value="another_not_so_secret"),
+            SecretKeyValue(key="ANOTHER_TEST_API_KEY_2", value="another_not_a_secret"),
+        ],
     }
 
     async def mock_secret_getter(secret_name: str):
-        return mock_secret_manager[secret_name]
+        name, key = secret_name.split(".")
+        for secret in mock_secret_manager[name]:
+            if secret.key == key:
+                return secret.value
+        return None
 
-    mock_templated_string = (
-        "This is a {{ SECRETS.TEST_API_KEY_1 }} secret {{ SECRETS.ANOTHER_SECRET }}"
-    )
-    expected = "This is a not_so_secret secret not_a_secret"
+    mock_templated_string = "This is a {{ SECRETS.my_secret.MY_API_KEY_1 }} secret {{ SECRETS.my_secret.MY_API_KEY_2 }}"
+    expected = "This is a my_not_so_secret secret not_a_secret"
     actual = await _evaluate_secret_str(
         mock_templated_string,
         template_pattern=SECRET_TEMPLATE_PATTERN,
@@ -64,26 +73,31 @@ async def test_evaluate_secret_string():
 async def test_evaluate_templated_secret():
     # Health check
     client.get("/")
-
     TEST_SECRETS = {
-        "TEST_API_KEY_1": "1234567890",
-        "test_api_key_2": "asdfghjkl",
+        "my_secret": [
+            SecretKeyValue(key="TEST_API_KEY_1", value="1234567890"),
+            SecretKeyValue(key="NOISE_1", value="asdfasdf"),
+        ],
+        "other_secret": [
+            SecretKeyValue(key="test_api_key_2", value="asdfghjkl"),
+            SecretKeyValue(key="NOISE_2", value="aaaaaaaaaaaaa"),
+        ],
     }
 
     mock_templated_kwargs = {
         "question_generation": {
             "questions": [
-                "This is a {{ SECRETS.TEST_API_KEY_1 }} secret {{ SECRETS.test_api_key_2 }}",
-                "This is a {{ SECRETS.test_api_key_2 }} secret",
+                "This is a {{ SECRETS.my_secret.TEST_API_KEY_1 }} secret {{ SECRETS.other_secret.test_api_key_2 }}",
+                "This is a {{ SECRETS.other_secret.test_api_key_2 }} secret",
             ],
         },
         "receive_sentry_event": {
-            "event_id": "This is a {{ SECRETS.TEST_API_KEY_1 }} secret",
+            "event_id": "This is a {{ SECRETS.my_secret.TEST_API_KEY_1 }} secret",
         },
         "list_nested": [
             {
-                "a": "Test {{ SECRETS.TEST_API_KEY_1 }} #A",
-                "b": "Test {{ SECRETS.test_api_key_2 }} #B",
+                "a": "Test {{ SECRETS.my_secret.TEST_API_KEY_1 }} #A",
+                "b": "Test {{ SECRETS.other_secret.test_api_key_2 }} #B",
             },
             {
                 "a": "3",
@@ -116,12 +130,13 @@ async def test_evaluate_templated_secret():
     base_secrets_url = f"{TRACECAT__API_URL}/secrets"
     with respx.mock:
         # Mock workflow getter from API side
-        for secret_name, secret_value in TEST_SECRETS.items():
+        for secret_name, secret_keys in TEST_SECRETS.items():
             secret = Secret(
+                type="custom",
                 name=secret_name,
                 owner_id="test_user_id",
             )
-            secret.key = secret_value  # Encrypt the secret
+            secret.keys = secret_keys  # Encrypt the secret
 
             # Mock hitting get secrets endpoint
             print(secret)

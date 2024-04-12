@@ -1,15 +1,32 @@
 "use client"
 
 import { useSession } from "@/providers/session"
+import { Label } from "@radix-ui/react-label"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { PlusCircle } from "lucide-react"
+import { PlusCircle, Trash2Icon } from "lucide-react"
 
 import { Secret } from "@/types/schemas"
 import { deleteSecret, fetchAllSecrets } from "@/lib/secrets"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
+import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   NewCredentialsDialog,
@@ -63,45 +80,106 @@ export default function CredentialsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="h-full space-y-6">
+      <div className="flex items-end justify-between">
         <h3 className="text-lg font-medium">Credentials</h3>
+        <NewCredentialsDialog>
+          <NewCredentialsDialogTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              className="ml-auto space-x-2"
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Create New Secret
+            </Button>
+          </NewCredentialsDialogTrigger>
+        </NewCredentialsDialog>
       </div>
       <Separator />
-      <NewCredentialsDialog>
-        <NewCredentialsDialogTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            className="ml-auto space-x-2"
-          >
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New
-          </Button>
-        </NewCredentialsDialogTrigger>
-      </NewCredentialsDialog>
+
       <div className="space-y-4">
-        {secrets ? (
+        {secrets?.length ? (
           secrets?.map((secret, idx) => (
-            <div
-              key={idx}
-              className="flex items-center justify-center space-x-4"
-            >
-              <Input className="text-sm" value={secret.name} readOnly />
-              <Input
-                className="text-sm"
-                value={`${secret.value.substring(0, 3)}...`}
-                readOnly
-              />
-              <Button variant="destructive" onClick={() => mutate(secret)}>
-                Delete
-              </Button>
-            </div>
+            <SecretsTable key={idx} secret={secret} deleteFn={mutate} />
           ))
         ) : (
-          <NoContent message="No credentials found" />
+          <NoContent
+            className="min-h-[10vh] text-sm"
+            message="No credentials found"
+          />
         )}
       </div>
     </div>
+  )
+}
+
+function SecretsTable({
+  secret,
+  deleteFn,
+}: {
+  secret: Secret
+  deleteFn: (secret: Secret) => void
+}) {
+  return (
+    <Card className="w-full border">
+      <CardHeader>
+        <div className="flex items-end justify-between">
+          <div className="space-y-2">
+            <CardTitle>{secret.name}</CardTitle>
+            <CardDescription>
+              {secret.description || "No description."}
+            </CardDescription>
+          </div>
+          <ConfirmationDialog
+            title={`Delete ${secret.name}?`}
+            description="Are you sure you want to delete this secret? This action cannot be undone."
+            onConfirm={() => deleteFn(secret)}
+          >
+            <Button
+              size="sm"
+              variant="ghost"
+              className="border border-red-500/70 bg-red-500/10 text-red-500/80 hover:bg-red-500/20 hover:text-red-500"
+            >
+              <Trash2Icon className="size-3.5" />
+            </Button>
+          </ConfirmationDialog>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow className="grid h-6 grid-cols-2 text-xs">
+              <TableHead className="col-span-1">Key</TableHead>
+              <TableHead className="col-span-1">Value</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {secret.keys.map(({ key }, idx) => (
+              <TableRow key={idx} className="grid grid-cols-2">
+                <TableCell className="col-span-1">
+                  <Label htmlFor="stock-1" className="sr-only">
+                    Key
+                  </Label>
+                  <span className="text-sm">{key}</span>
+                </TableCell>
+                <TableCell className="col-span-1">
+                  <Label htmlFor="price-1" className="sr-only">
+                    Value
+                  </Label>
+                  <Input
+                    className="border-none p-0 text-sm shadow-none"
+                    type="password"
+                    value="DUMMY_VALUE"
+                    readOnly
+                    disabled
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   )
 }

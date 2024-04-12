@@ -157,10 +157,25 @@ export const caseCompletionUpdateSchema = z.object({
 })
 export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
 
+export const secretTypes = ["custom", "token", "oauth2"] as const
+export type SecretType = (typeof secretTypes)[number]
+
+const keyValueSchema = z.object({
+  key: z.string().min(1, "Please enter a key."),
+  value: z.string().min(1, "Please enter a value."),
+})
+
+const snakeCaseRegex = /^[a-z]+(_[a-z]+)*$/
 export const secretSchema = z.object({
   id: z.string().min(1).optional(),
-  name: z.string().min(1, "Please enter a secret name."),
-  value: z.string().min(1, "Please enter the secret value."),
+  type: z.enum(secretTypes),
+  name: z
+    .string()
+    .min(1, "Please enter a secret name.")
+    .regex(snakeCaseRegex, "Secret name must be snake case."),
+  description: z.string().max(255).nullable(),
+  // Can take different types of secrets
+  keys: z.array(keyValueSchema),
 })
 
 export type Secret = z.infer<typeof secretSchema>
@@ -168,7 +183,7 @@ export type Secret = z.infer<typeof secretSchema>
 export const integrationSchema = z.object({
   id: z.string(),
   name: z.string(),
-  description: z.string(),
+  description: z.string().nullable(),
   docstring: z.string(),
   parameters: stringToJSONSchema,
   platform: z.enum(integrationPlatforms),

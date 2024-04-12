@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 from uuid import uuid4
 
 import lancedb
@@ -11,7 +11,7 @@ import tantivy
 from croniter import croniter
 from pydantic import computed_field, field_validator
 from slugify import slugify
-from sqlalchemy import TIMESTAMP, Column, Engine, ForeignKey, String, text
+from sqlalchemy import JSON, TIMESTAMP, Column, Engine, ForeignKey, String, text
 from sqlmodel import (
     Field,
     Relationship,
@@ -23,7 +23,7 @@ from sqlmodel import (
 )
 
 from tracecat import auth
-from tracecat.auth import decrypt_key, encrypt_key
+from tracecat.auth import decrypt_object, encrypt_object
 from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
@@ -31,6 +31,7 @@ from tracecat.config import (
 from tracecat.integrations import IntegrationSpec, registry
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 from tracecat.logger import standard_logger
+from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 logger = standard_logger("db")
 
@@ -89,23 +90,43 @@ class Resource(SQLModel):
 
 
 class Secret(Resource, table=True):
+    """Secret model.
+
+    A secret can contain an arbitrary number of keys.
+    e.g.
+    """
+
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
-    name: str | None = Field(default=None, max_length=255, index=True, nullable=True)
-    encrypted_api_key: bytes | None = Field(default=None, nullable=True)
+    type: str  # "custom", "token", "oauth2"
+    name: str = Field(..., max_length=255, index=True, nullable=False)
+    description: str | None = Field(default=None, max_length=255)
+    # We store this object as encrypted bytes, but first validate that it's the correct type
+    encrypted_keys: bytes | None = Field(default=None, nullable=True)
+    tags: dict[str, str] | None = Field(sa_column=Column(JSON))
     owner_id: str = Field(
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
     owner: User | None = Relationship(back_populates="secrets")
 
-    @property
-    def key(self) -> str | None:
-        if not self.encrypted_api_key:
-            return None
-        return decrypt_key(self.encrypted_api_key)
+    def _validate_obj(self, value: dict[str, Any]) -> SecretBase:
+        if self.type not in SECRET_FACTORY:
+            raise ValueError(f"Invalid secret type {self.type!r}")
+        return SECRET_FACTORY[self.type].model_validate(value)
 
-    @key.setter
-    def key(self, value: str) -> None:
-        self.encrypted_api_key = encrypt_key(value)
+    @property
+    def keys(self) -> list[SecretKeyValue] | None:
+        if not self.encrypted_keys:
+            return None
+        obj = decrypt_object(self.encrypted_keys)
+        kv = self._validate_obj(obj)
+        return [SecretKeyValue(key=k, value=v) for k, v in kv.model_dump().items()]
+
+    @keys.setter
+    def keys(self, value: list[SecretKeyValue]) -> None:
+        # Convert to dict
+        kv = {item.key: item.value for item in value}
+        self._validate_obj(kv)
+        self.encrypted_keys = encrypt_object(kv)
 
 
 class Editor(SQLModel, table=True):

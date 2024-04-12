@@ -6,17 +6,11 @@ import { getAuthenticatedClient } from "@/lib/api"
 
 export async function createSecret(
   maybeSession: Session | null,
-  name: string,
-  value: string
+  secret: Secret
 ) {
   try {
-    console.log("Creating secret", name, value)
     const client = getAuthenticatedClient(maybeSession)
-    const data = {
-      name,
-      value,
-    }
-    await client.put("/secrets", JSON.stringify(data), {
+    await client.put("/secrets", JSON.stringify(secret), {
       headers: {
         "Content-Type": "application/json",
       },

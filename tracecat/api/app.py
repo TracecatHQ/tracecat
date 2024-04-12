@@ -1350,7 +1350,13 @@ def list_secrets(
         result = session.exec(statement)
         secrets = result.all()
         return [
-            SecretResponse(id=secret.id, name=secret.name, value=secret.key)
+            SecretResponse(
+                id=secret.id,
+                type=secret.type,
+                name=secret.name,
+                description=secret.description,
+                keys=secret.keys or [],
+            )
             for secret in secrets
         ]
 
@@ -1400,8 +1406,14 @@ def create_secret(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
             )
-        new_secret = Secret(owner_id=role.user_id, name=params.name)
-        new_secret.key = params.value  # Set and encrypt the key
+        new_secret = Secret(
+            owner_id=role.user_id,
+            name=params.name,
+            type=params.type,
+            description=params.description,
+            tags=params.tags,
+        )
+        new_secret.keys = params.keys  # Set and encrypt the key
 
         session.add(new_secret)
         session.commit()
@@ -1427,7 +1439,7 @@ def update_secret(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
             )
-        secret.key = params.value  # Set and encrypt the key
+        secret.keys = params.keys  # Set and encrypt the key
         session.add(secret)
         session.commit()
         session.refresh(secret)

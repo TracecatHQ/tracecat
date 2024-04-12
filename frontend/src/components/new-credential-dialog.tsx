@@ -5,7 +5,10 @@ import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useForm } from "react-hook-form"
+import { KeyRoundIcon, PlusCircle, Trash2Icon } from "lucide-react"
+import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
+import SyntaxHighlighter from "react-syntax-highlighter"
+import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { Secret, secretSchema } from "@/types/schemas"
 import { createSecret } from "@/lib/secrets"
@@ -14,7 +17,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -23,8 +25,10 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
+  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -44,8 +48,7 @@ export function NewCredentialsDialog({
   const queryClient = useQueryClient()
 
   const { mutate } = useMutation({
-    mutationFn: (secret: Secret) =>
-      createSecret(session, secret.name, secret.value),
+    mutationFn: (secret: Secret) => createSecret(session, secret),
     onSuccess: (data, variables, context) => {
       toast({
         title: "Added new secret",
@@ -62,75 +65,203 @@ export function NewCredentialsDialog({
     },
   })
 
-  const form = useForm<Secret>({
+  const methods = useForm<Secret>({
     resolver: zodResolver(secretSchema),
+    defaultValues: {
+      name: "",
+      type: "custom",
+      keys: [{ key: "", value: "" }],
+    },
   })
+  const { getValues, control, register, watch, trigger } = methods
 
-  const onSubmit = (values: Secret) => {
-    console.log("Submitting new secret", values)
+  const onSubmit = async () => {
+    const validated = await trigger()
+    if (!validated) {
+      console.error("Form validation failed")
+      return
+    }
+    const values = getValues()
     mutate(values)
   }
+  const inputKey = "keys"
+  const typedKey = inputKey as FieldPath<Secret>
+  const { fields, append, remove } = useFieldArray<Secret>({
+    control,
+    name: inputKey as ArrayPath<Secret>,
+  })
 
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
-      {children}
-      <DialogContent className={className}>
-        <DialogHeader>
-          <DialogTitle>New credential</DialogTitle>
-          <DialogDescription>
-            Create a new secret. You can refer to this as{" "}
-            <code>{"{{ SECRETS.<SECRET_NAME>}}"}</code>
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="flex space-x-4"
-          >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <Input
-                      placeholder="Secret Name"
-                      {...field}
-                      value={form.watch("name", "")}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="value"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <Input
-                      placeholder="Secret Value"
-                      {...field}
-                      value={form.watch("value", "")}
-                      type="password"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button type="submit" onClick={() => console.log("TEST")}>
-                  Add
-                </Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
+      <Form {...methods}>
+        <form>
+          {children}
+          <DialogContent className={className}>
+            <DialogHeader>
+              <DialogTitle>Create New Secret</DialogTitle>
+              <div className="flex text-sm leading-relaxed text-muted-foreground">
+                <span>
+                  Create a secret that can have multiple key-value credential
+                  pairs. You can reference these secrets in your workflows
+                  through{" "}
+                  <InlineHLCode>
+                    {"{{ SECRETS.<my_secret>.<key>}}"}
+                  </InlineHLCode>
+                  {". "}For example, if I have a secret called with key
+                  &apos;GH_ACCESS_TOKEN&apos; I can reference this as{" "}
+                  <InlineHLCode>
+                    {"{{ SECRETS.my_github_secret.GH_ACCESS_TOKEN }}"}
+                  </InlineHLCode>
+                  {". "}
+                </span>
+              </div>
+            </DialogHeader>
+            <div className="space-y-4">
+              <FormField
+                key="name"
+                control={control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        className="text-sm"
+                        placeholder="Name"
+                        value={watch("name", "")}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                key="description"
+                control={control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Description</FormLabel>
+                    <FormDescription className="text-sm">
+                      A description for this secret.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        className="text-sm"
+                        placeholder="Description"
+                        value={watch("description") ?? ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                key={inputKey}
+                control={control}
+                name={typedKey}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Keys</FormLabel>
+                    <div className="flex flex-col space-y-2">
+                      {fields.map((field, index) => {
+                        return (
+                          <div
+                            key={`${field.id}.${index}`}
+                            className="flex w-full items-center gap-2"
+                          >
+                            <FormControl>
+                              <Input
+                                id={`key-${index}`}
+                                className="text-sm"
+                                {...register(
+                                  `${inputKey}.${index}.key` as const,
+                                  {
+                                    required: true,
+                                  }
+                                )}
+                                placeholder="Key"
+                              />
+                            </FormControl>
+                            <FormControl>
+                              <Input
+                                id={`value-${index}`}
+                                className="text-sm"
+                                {...register(
+                                  `${inputKey}.${index}.value` as const,
+                                  {
+                                    required: true,
+                                  }
+                                )}
+                                placeholder="Value"
+                                type="password"
+                              />
+                            </FormControl>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="border border-red-500/70 bg-red-500/10 text-red-500/80 hover:bg-red-500/20 hover:text-red-500"
+                              onClick={() => remove(index)}
+                              disabled={fields.length === 1}
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => append({ key: "", value: "" })}
+                        className="space-x-2 text-xs"
+                      >
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        Add Item
+                      </Button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button
+                    role="combobox"
+                    className="ml-auto space-x-2"
+                    onClick={onSubmit}
+                  >
+                    <KeyRoundIcon className="mr-2 h-4 w-4" />
+                    Create Secret
+                  </Button>
+                </DialogClose>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </form>
+      </Form>
     </Dialog>
   )
 }
+
+function InlineHLCode({ children }: { children: string }) {
+  return (
+    <SyntaxHighlighter
+      language="json"
+      style={atomOneDark}
+      codeTagProps={{ className: "text-foreground/60" }}
+      customStyle={{
+        display: "inline",
+        padding: "0.15rem",
+        backgroundColor: "rgba(0,0,0,0.1)",
+      }}
+      className="rounded-sm"
+    >
+      {children}
+    </SyntaxHighlighter>
+  )
+}
+
 export const NewCredentialsDialogTrigger = DialogTrigger
