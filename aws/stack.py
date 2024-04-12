@@ -46,6 +46,11 @@ class TracecatEngineStack(Stack):
         vpc = ec2.Vpc(self, "Vpc", vpc_name=vpn_name)
         cluster = ecs.Cluster(self, "Cluster", cluster_name=cluster_name, vpc=vpc)
 
+        # Private DNS
+        dns_namespace = ecs.PrivateDnsNamespace(
+            self, "PrivateDnsNamespace", vpc=vpc, name="tracecat.local"
+        )
+
         # Get hosted zone and certificate (created from AWS console)
         hosted_zone = route53.HostedZone.from_hosted_zone_attributes(
             self,
@@ -63,7 +68,81 @@ class TracecatEngineStack(Stack):
             self, "RunnerCertificate", certificate_arn=AWS_ACM__RUNNER_CERTIFICATE_ARN
         )
 
-        # Create ALB security group
+        ### Environment variables
+        if TRACECAT__APP_ENV in ("production", "staging"):
+            shared_env = {
+                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
+                # Use http and internal DNS for internal communication
+                "TRACECAT__API_URL": "http://api.tracecat.local",
+                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local",
+            }
+        else:
+            shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
+
+        # API env vars
+        api_env = {
+            "API_MODULE": "tracecat.api.app:app",
+            "SUPABASE_JWT_ALGORITHM": "HS256",
+            **shared_env,
+        }
+
+        # Runner env vars
+        runner_env = {
+            "API_MODULE": "tracecat.runner.app:app",
+            "PORT": "8001",
+            **shared_env,
+        }
+
+        ### Secrets
+        tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
+            self, "Secret", secret_complete_arn=AWS_SECRET__ARN
+        )
+        shared_secrets = {
+            "RABBITMQ_URI": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="rabbitmq-uri"
+            ),
+            "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="db-encryption-key"
+            ),
+            "TRACECAT__DB_URI": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="db-uri"
+            ),
+            "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="service-key"
+            ),
+            "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="signing-secret"
+            ),
+        }
+        api_secrets = {
+            **shared_secrets,
+            "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="supabase-jwt-secret"
+            ),
+            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="openai-api-key"
+            ),
+        }
+        runner_secrets = {
+            **shared_secrets,
+            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="openai-api-key"
+            ),
+            "RESEND_API_KEY": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="resend-api-key"
+            ),
+        }
+        rabbitmq_secrets = {
+            "RABBITMQ_DEFAULT_USER": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="rabbitmq-default-user"
+            ),
+            "RABBITMQ_DEFAULT_PASS": ecs.Secret.from_secrets_manager(
+                tracecat_secret, field="rabbitmq-default-pass"
+            ),
+        }
+
+        ### Security Groups
+        # 1. Create ALB security group
         alb_security_group = ec2.SecurityGroup(
             self,
             "AlbSecurityGroup",
@@ -80,49 +159,117 @@ class TracecatEngineStack(Stack):
             connection=ec2.Port.tcp(80),
             description="Allow HTTP traffic for redirection to HTTPS",
         )
-        # Create a security group for EFS
-        efs_security_group = ec2.SecurityGroup(
+
+        # 2. API and runner security groups
+        api_security_group = ec2.SecurityGroup(
             self,
-            "EfsSecurityGroup",
+            "ApiSecurityGroup",
             vpc=vpc,
-            description="Allow NFS access for EFS",
-            allow_all_outbound=True,
+            description="Security group for API service",
         )
-        # Create a security group for ECS
-        ecs_task_security_group = ec2.SecurityGroup(
+        runner_security_group = ec2.SecurityGroup(
             self,
-            "EcsTaskSecurityGroup",
+            "RunnerSecurityGroup",
             vpc=vpc,
-            description="Security group for ECS tasks",
-        )
-        ecs_task_security_group.add_ingress_rule(
-            peer=ec2.Peer.security_group_id(alb_security_group.security_group_id),
-            connection=ec2.Port.tcp(443),
-            description="Allow HTTPS traffic from the ALB",
-        )
-        ecs_task_security_group.add_ingress_rule(
-            peer=ec2.Peer.security_group_id(alb_security_group.security_group_id),
-            connection=ec2.Port.tcp(80),
-            description="Allow HTTP traffic from the ALB",
-        )
-        # Use the ECS task security group to define ingress rules for EFS
-        efs_security_group.add_ingress_rule(
-            peer=ec2.Peer.security_group_id(ecs_task_security_group.security_group_id),
-            connection=ec2.Port.tcp(2049),
-            description="Allow NFS access from ECS tasks",
+            description="Security group for Runner service",
         )
 
-        # Define EFS
-        file_system = efs.FileSystem(
+        # 3. API and runner ingress rules
+        api_security_group.add_ingress_rule(
+            peer=alb_security_group,
+            connection=ec2.Port.tcp(8000),
+            description="Allow HTTP traffic from the ALB",
+        )
+        runner_security_group.add_ingress_rule(
+            peer=alb_security_group,
+            connection=ec2.Port.tcp(8001),
+            description="Allow HTTP traffic from the ALB",
+        )
+        # Allow Runner to communicate with API
+        api_security_group.add_ingress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(8000),
+            description="Allow traffic from Runner to API",
+        )
+        # Allow API to communicate with Runner
+        runner_security_group.add_ingress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(8001),
+            description="Allow traffic from API to Runner",
+        )
+
+        # 4. RabbitMQ security group
+        rabbitmq_security_group = ec2.SecurityGroup(
             self,
-            "FileSystem",
+            "RabbitmqSecurityGroup",
+            vpc=vpc,
+            description="Security group for RabbitMQ service",
+        )
+        api_security_group.add_egress_rule(
+            peer=rabbitmq_security_group,
+            connection=ec2.Port.tcp(5672),
+            description="Allow API to connect to RabbitMQ on AMQP port",
+        )
+        runner_security_group.add_egress_rule(
+            peer=rabbitmq_security_group,
+            connection=ec2.Port.tcp(5672),
+            description="Allow Runner to connect to RabbitMQ on AMQP port",
+        )
+        rabbitmq_security_group.add_ingress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(5672),
+            description="Allow incoming AMQP traffic from API service",
+        )
+        rabbitmq_security_group.add_ingress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(5672),
+            description="Allow incoming AMQP traffic from Runner service",
+        )
+
+        # 5. EFS security group
+        shared_efs_security_group = ec2.SecurityGroup(
+            self,
+            "SharedEfsSecurityGroup",
+            vpc=vpc,
+            description="Security group for EFS accessible by API and Runner",
+        )
+        # Allow NFS traffic from API and Runner to the EFS
+        shared_efs_security_group.add_ingress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(2049),
+            description="Allow NFS traffic from API service",
+        )
+        shared_efs_security_group.add_ingress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(2049),
+            description="Allow NFS traffic from Runner service",
+        )
+
+        # 6. RabbitMQ EFS Security Group
+        rabbitmq_efs_security_group = ec2.SecurityGroup(
+            self,
+            "RabbitmqEfsSecurityGroup",
+            vpc=vpc,
+            description="Security group EFS accessible by RabbitMQ only",
+        )
+        # Restrict NFS traffic to just the RabbitMQ service
+        rabbitmq_efs_security_group.add_ingress_rule(
+            peer=rabbitmq_security_group,
+            connection=ec2.Port.tcp(2049),
+            description="Allow NFS traffic from RabbitMQ service",
+        )
+
+        # Create shared EFS for API and Runner
+        shared_file_system = efs.FileSystem(
+            self,
+            "SharedFileSystem",
             vpc=vpc,
             performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
             throughput_mode=efs.ThroughputMode.BURSTING,
-            security_group=efs_security_group,
+            security_group=shared_efs_security_group,
         )
         # Define EFS access point for apiuser
-        efs_access_point = file_system.add_access_point(
+        efs_access_point = shared_file_system.add_access_point(
             "AccessPoint",
             path="/apiuser",
             create_acl=efs.Acl(owner_uid="1001", owner_gid="1001", permissions="0755"),
@@ -130,10 +277,10 @@ class TracecatEngineStack(Stack):
         )
         # Create Volume
         volume_name = f"TracecatVolume-{TRACECAT__APP_ENV}"
-        volume = ecs.Volume(
+        shared_volume = ecs.Volume(
             name=volume_name,
             efs_volume_configuration=ecs.EfsVolumeConfiguration(
-                file_system_id=file_system.file_system_id,
+                file_system_id=shared_file_system.file_system_id,
                 transit_encryption="ENABLED",
                 authorization_config=ecs.AuthorizationConfig(
                     access_point_id=efs_access_point.access_point_id
@@ -216,7 +363,7 @@ class TracecatEngineStack(Stack):
                         "elasticfilesystem:DescribeMountTargetSecurityGroups",
                     ],
                     resources=[
-                        f"arn:aws:elasticfilesystem:{self.region}:{self.account}:file-system/{file_system.file_system_id}"
+                        f"arn:aws:elasticfilesystem:{self.region}:{self.account}:file-system/{shared_file_system.file_system_id}"
                     ],
                 ),
             ],
@@ -234,53 +381,8 @@ class TracecatEngineStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        # Secrets
-
-        tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
-            self, "Secret", secret_complete_arn=AWS_SECRET__ARN
-        )
-        shared_secrets = {
-            "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="db-encryption-key"
-            ),
-            "TRACECAT__DB_URI": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="db-uri"
-            ),
-            "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="service-key"
-            ),
-            "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="signing-secret"
-            ),
-        }
-        api_secrets = {
-            **shared_secrets,
-            "SUPABASE_JWT_SECRET": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="supabase-jwt-secret"
-            ),
-            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="openai-api-key"
-            ),
-        }
-        runner_secrets = {
-            **shared_secrets,
-            "OPENAI_API_KEY": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="openai-api-key"
-            ),
-            "RESEND_API_KEY": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="resend-api-key"
-            ),
-        }
-        if TRACECAT__APP_ENV in ("production", "staging"):
-            shared_env = {
-                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
-                "TRACECAT__API_URL": f"https://api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
-                "TRACECAT__RUNNER_URL": f"https://runner.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
-            }
-        else:
-            shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
-
-        # Tracecat API Fargate Service
+        ### Tracecat API Fargate Service
+        # Task definition
         api_task_definition = ecs.FargateTaskDefinition(
             self,
             "ApiTaskDefinition",
@@ -289,26 +391,20 @@ class TracecatEngineStack(Stack):
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
         )
+        # Volume
         api_task_definition.add_volume(
-            name=volume_name, efs_volume_configuration=volume.efs_volume_configuration
+            name=volume_name,
+            efs_volume_configuration=shared_volume.efs_volume_configuration,
         )
+        # Container
         api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
-            # image=ecs.ContainerImage.from_asset(
-            #     directory=".",
-            #     file="Dockerfile",
-            #     build_args={"API_MODULE": "tracecat.api.app:app"},
-            # ),
             image=ecs.ContainerImage.from_registry(
                 f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__IMAGE_TAG}"
             ),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
-            environment={
-                "API_MODULE": "tracecat.api.app:app",
-                "SUPABASE_JWT_ALGORITHM": "HS256",
-                **shared_env,
-            },
+            environment=api_env,
             secrets=api_secrets,
             port_mappings=[ecs.PortMapping(container_port=8000)],
             logging=ecs.LogDrivers.aws_logs(
@@ -322,13 +418,17 @@ class TracecatEngineStack(Stack):
                 source_volume=volume_name,
             )
         )
+        # ECS service
         api_ecs_service = ecs.FargateService(
             self,
             "TracecatApiFargateService",
             cluster=cluster,
             # Attach the security group to your ECS service
             task_definition=api_task_definition,
-            security_groups=[ecs_task_security_group],
+            security_groups=[api_security_group],
+            cloud_map_options=ecs.CloudMapOptions(
+                name="api", cloud_map_namespace=dns_namespace
+            ),
         )
         # API target group
         api_target_group = elbv2.ApplicationTargetGroup(
@@ -352,7 +452,8 @@ class TracecatEngineStack(Stack):
             )
         )
 
-        # Tracecat Runner Fargate Service
+        ### Tracecat Runner Fargate Service#
+        # Task definition
         runner_task_definition = ecs.FargateTaskDefinition(
             self,
             "RunnerTaskDefinition",
@@ -361,26 +462,20 @@ class TracecatEngineStack(Stack):
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
         )
+        # Volume
         runner_task_definition.add_volume(
-            name=volume_name, efs_volume_configuration=volume.efs_volume_configuration
+            name=volume_name,
+            efs_volume_configuration=shared_volume.efs_volume_configuration,
         )
+        # Container
         runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
-            # image=ecs.ContainerImage.from_asset(
-            #     directory=".",
-            #     file="Dockerfile",
-            #     build_args={"API_MODULE": "tracecat.runner.app:app", "PORT": "8001"},
-            # ),
             image=ecs.ContainerImage.from_registry(
                 f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__IMAGE_TAG}"
             ),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
-            environment={
-                "API_MODULE": "tracecat.runner.app:app",
-                "PORT": "8001",
-                **shared_env,
-            },
+            environment=runner_env,
             secrets=runner_secrets,
             port_mappings=[ecs.PortMapping(container_port=8001)],
             logging=ecs.LogDrivers.aws_logs(
@@ -394,13 +489,17 @@ class TracecatEngineStack(Stack):
                 source_volume=volume_name,
             )
         )
+        # ECS service
         runner_ecs_service = ecs.FargateService(
             self,
             "TracecatRunnerFargateService",
             cluster=cluster,
             task_definition=runner_task_definition,
             # Attach the security group to your ECS service
-            security_groups=[ecs_task_security_group],
+            security_groups=[runner_security_group],
+            cloud_map_options=ecs.CloudMapOptions(
+                name="runner", cloud_map_namespace=dns_namespace
+            ),
         )
         # Runner target group
         runner_target_group = elbv2.ApplicationTargetGroup(
@@ -422,6 +521,103 @@ class TracecatEngineStack(Stack):
             runner_ecs_service.load_balancer_target(
                 container_name="RunnerContainer", container_port=8001
             )
+        )
+
+        ### RabbitMQ Farget Service
+        # Define the policy for logging to CloudWatch Logs
+        rabbitmq_logging_policy = iam.PolicyStatement(
+            actions=["logs:CreateLogStream", "logs:PutLogEvents"],
+            resources=[
+                f"arn:aws:logs:{self.region}:{self.account}:log-group:/ecs/rabbitmq:*"
+            ],
+        )
+        # Create the execution role for RabbitMQ
+        rabbitmq_execution_role = iam.Role(
+            self,
+            "RabbitMqExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        rabbitmq_execution_role.add_to_policy(rabbitmq_logging_policy)
+        # Create task role for RabbitMQ
+        rabbitmq_task_role = iam.Role(
+            self,
+            "RabbitMqTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
+        # Isolated EFS for RabbitMQ
+        rabbitmq_file_system = efs.FileSystem(
+            self,
+            "RabbitMqEfs",
+            vpc=vpc,
+            lifecycle_policy=efs.LifecyclePolicy.AFTER_14_DAYS,
+            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
+            throughput_mode=efs.ThroughputMode.BURSTING,
+            security_group=rabbitmq_efs_security_group,
+        )
+        rabbitmq_efs_access_point = rabbitmq_file_system.add_access_point(
+            "RabbitMqAccessPoint",
+            path="/data",
+            posix_user=efs.PosixUser(uid="1001", gid="1001"),
+            create_acl=efs.Acl(owner_uid="1001", owner_gid="1001", permissions="750"),
+        )
+
+        # Create Volume for RabbitMQ
+        rabbitmq_volume_name = f"RabbitmqVolume-{TRACECAT__APP_ENV}"
+        rabbitmq_volume = ecs.Volume(
+            name=rabbitmq_volume_name,
+            efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                file_system_id=rabbitmq_file_system.file_system_id,
+                transit_encryption="ENABLED",
+                authorization_config=ecs.AuthorizationConfig(
+                    access_point_id=rabbitmq_efs_access_point.access_point_id
+                ),
+            ),
+        )
+
+        # RabbitMQ Fargate service
+        rabbitmq_task_definition = ecs.FargateTaskDefinition(
+            self,
+            "RabbitMqTaskDefinition",
+            execution_role=rabbitmq_execution_role,
+            task_role=rabbitmq_task_role,
+            cpu=256,
+            memory_limit_mib=512,
+        )
+        rabbitmq_task_definition.add_volume(
+            name=rabbitmq_volume_name,
+            efs_volume_configuration=rabbitmq_volume.efs_volume_configuration,
+        )
+        rabbitmq_container = rabbitmq_task_definition.add_container(
+            "RabbitMqContainer",
+            image=ecs.ContainerImage.from_registry("rabbitmq:3.13-management"),
+            cpu=256,
+            memory_limit_mib=512,
+            secrets=rabbitmq_secrets,
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="rabbitmq", log_group=log_group
+            ),
+        )
+        rabbitmq_container.add_mount_points(
+            ecs.MountPoint(
+                container_path="/var/lib/rabbitmq/mnesia",
+                read_only=False,
+                source_volume=rabbitmq_volume_name,
+            )
+        )
+        ecs.FargateService(
+            self,
+            "RabbitMqFargateService",
+            cluster=cluster,
+            task_definition=rabbitmq_task_definition,
+            security_groups=[rabbitmq_security_group],
+            cloud_map_options=ecs.CloudMapOptions(
+                name="rabbitmq", cloud_map_namespace=dns_namespace
+            ),
+        )
+        rabbitmq_container.add_port_mappings(
+            ecs.PortMapping(container_port=5672),  # RabbitMQ server
+            # ecs.PortMapping(container_port=15672)  # Management UI
         )
 
         # Load balancer
@@ -513,142 +709,3 @@ class TracecatEngineStack(Stack):
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
-
-        # Add WAFv2 WebACL to the ALB
-
-        # # Define the IP set for VPC's IP range
-        # private_cidr_blocks = [subnet.ipv4_cidr_block for subnet in vpc.private_subnets]
-        # vpc_ip_set = wafv2.CfnIPSet(
-        #     self,
-        #     "VpcIpSet",
-        #     addresses=private_cidr_blocks,
-        #     scope="REGIONAL",
-        #     ip_address_version="IPV4",
-        # )
-
-        # web_acl = wafv2.CfnWebACL(
-        #     self,
-        #     "WebAcl",
-        #     scope="REGIONAL",
-        #     # Block ALL requests by default
-        #     default_action=wafv2.CfnWebACL.DefaultActionProperty(block={}),
-        #     visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-        #         cloud_watch_metrics_enabled=True,
-        #         metric_name="tracecatWebaclMetric",
-        #         sampled_requests_enabled=True,
-        #     ),
-        #     rules=[
-        #         # New rule for allowing health checks from within VPC
-        #         wafv2.CfnWebACL.RuleProperty(
-        #             name="AllowHealthChecks",
-        #             priority=5,  # Set priority appropriately
-        #             action=wafv2.CfnWebACL.RuleActionProperty(allow={}),
-        #             statement=wafv2.CfnWebACL.StatementProperty(
-        #                 ip_set_reference_statement=wafv2.CfnWebACL.IPSetReferenceStatementProperty(
-        #                     arn=vpc_ip_set.attr_arn
-        #                 )
-        #             ),
-        #             visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-        #                 cloud_watch_metrics_enabled=True,
-        #                 metric_name="AllowHealthChecksMetric",
-        #                 sampled_requests_enabled=True,
-        #             ),
-        #         ),
-        #         # Block all traffic by default except for specific domain over HTTPS
-        #         wafv2.CfnWebACL.RuleProperty(
-        #             name="AllowSpecificDomainOverHttps",
-        #             priority=10,
-        #             action=wafv2.CfnWebACL.RuleActionProperty(allow={}),
-        #             statement=wafv2.CfnWebACL.StatementProperty(
-        #                 and_statement=wafv2.CfnWebACL.AndStatementProperty(
-        #                     statements=[
-        #                         wafv2.CfnWebACL.StatementProperty(
-        #                             byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                 search_string=os.environ.get(
-        #                                     "TRACECAT__UI_SUBDOMAIN",
-        #                                     "platform.tracecat.com",
-        #                                 ),
-        #                                 field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                     single_header={"name": "Host"}
-        #                                 ),
-        #                                 positional_constraint="EXACTLY",
-        #                                 text_transformations=[
-        #                                     wafv2.CfnWebACL.TextTransformationProperty(
-        #                                         priority=0, type="LOWERCASE"
-        #                                     )
-        #                                 ],
-        #                             )
-        #                         ),
-        #                         wafv2.CfnWebACL.StatementProperty(
-        #                             byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                 search_string="https",
-        #                                 field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                     single_header={"name": "X-Forwarded-Proto"}
-        #                                 ),
-        #                                 positional_constraint="EXACTLY",
-        #                                 text_transformations=[
-        #                                     wafv2.CfnWebACL.TextTransformationProperty(
-        #                                         priority=0, type="NONE"
-        #                                     )
-        #                                 ],
-        #                             )
-        #                         ),
-        #                         wafv2.CfnWebACL.StatementProperty(
-        #                             or_statement=wafv2.CfnWebACL.OrStatementProperty(
-        #                                 statements=[
-        #                                     wafv2.CfnWebACL.StatementProperty(
-        #                                         byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                             search_string="/api/",
-        #                                             field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                                 single_query_argument={
-        #                                                     "name": "uri"
-        #                                                 }
-        #                                             ),
-        #                                             positional_constraint="STARTS_WITH",
-        #                                             text_transformations=[
-        #                                                 wafv2.CfnWebACL.TextTransformationProperty(
-        #                                                     priority=0,
-        #                                                     type="URL_DECODE",
-        #                                                 )
-        #                                             ],
-        #                                         )
-        #                                     ),
-        #                                     wafv2.CfnWebACL.StatementProperty(
-        #                                         byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-        #                                             search_string="/runner/",
-        #                                             field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-        #                                                 single_query_argument={
-        #                                                     "name": "uri"
-        #                                                 }
-        #                                             ),
-        #                                             positional_constraint="STARTS_WITH",
-        #                                             text_transformations=[
-        #                                                 wafv2.CfnWebACL.TextTransformationProperty(
-        #                                                     priority=0,
-        #                                                     type="URL_DECODE",
-        #                                                 )
-        #                                             ],
-        #                                         )
-        #                                     ),
-        #                                 ]
-        #                             )
-        #                         ),
-        #                     ]
-        #                 )
-        #             ),
-        #             visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-        #                 cloud_watch_metrics_enabled=True,
-        #                 metric_name="allowSpecificDomainOverHttpsMetric",
-        #                 sampled_requests_enabled=True,
-        #             ),
-        #         ),
-        #     ],
-        # )
-
-        # # Associate the Web ACL with the ALB
-        # wafv2.CfnWebACLAssociation(
-        #     self,
-        #     "WebAclAssociation",
-        #     resource_arn=alb.load_balancer_arn,
-        #     web_acl_arn=web_acl.attr_arn,
-        # )
