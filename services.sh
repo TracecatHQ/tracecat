@@ -16,8 +16,9 @@ else
 fi
 
 # Initial COMMAND setup for docker compose
-DOCKER_COMPOSE_UP_FLAGS="--detach"
+DOCKER_COMPOSE_UP_FLAGS=""
 TAIL_LOGS=false
+BUILD_SERVICES=false
 
 dotenv_replace() {
     local env_var_name=$1
@@ -36,14 +37,19 @@ dotenv_replace() {
     delimiter="#"
     eval sed $sed_option "s$delimiter^${env_var_name}=.*$delimiter${env_var_name}=${new_value}$delimiter" $file_path
 }
+
 # Function to handle start command
 start_services() {
-    # Check for --tail flag in subsequent arguments
-    if $TAIL_LOGS; then
-        DOCKER_COMPOSE_UP_FLAGS=""
-    else
-        DOCKER_COMPOSE_UP_FLAGS="--detach"
+    # Check for --tail flag in subsequent arguments. If not present, start services in detached mode.
+    if ! $TAIL_LOGS; then
+        DOCKER_COMPOSE_UP_FLAGS+=" --detach"
     fi
+
+    # Check for --build flag in subsequent arguments
+    if $BUILD_SERVICES; then
+        DOCKER_COMPOSE_UP_FLAGS+=" --build"
+    fi
+
 
     echo -e "${YELLOW}Starting Tracecat application setup...${NC}"
 
@@ -107,15 +113,15 @@ start_services() {
         echo -e "${RED}The TRACECAT__RUNNER_URL value is missing. Please update it in the .env file.${NC}"
         exit 1
     fi
-
-    echo -e "${YELLOW}Initializing Supabase services...${NC}"
-    output=$(supabase start 2>&1)
-
     # Check if Docker is running
     if echo "$output" | grep -q "Cannot connect to the Docker daemon"; then
         echo -e "${RED}Docker is not running. Please start Docker and try again.${NC}"
         exit 1
     fi
+
+    echo -e "${YELLOW}Initializing Supabase services...${NC}"
+    output=$(supabase start 2>&1)
+
 
     # Check for errors or if Supabase is already running
     if echo "$output" | grep -q "error"; then
@@ -143,35 +149,16 @@ start_services() {
     fi
 
 
-    # Check if Docker containers are already up and avoid rebuilding if they are
-    docker_compose_project_name="tracecat" # Adjust based on your docker-compose project name, if necessary
-
-    running_containers=$(docker ps --filter "name=$docker_compose_project_name" --format "{{.Names}}")
-
-    if [ -z "$running_containers" ]; then
-        echo -e "${YELLOW}Building and launching Tracecat services...${NC}"
-        if docker compose up --build $DOCKER_COMPOSE_UP_FLAGS; then
-            echo -e "${GREEN}Tracecat local development setup started successfully.${NC}"
-            echo -e "${BLUE}API URL:${NC} http://localhost:8000"
-            echo -e "${BLUE}Runner URL:${NC} http://localhost:8001"
-            echo -e "${BLUE}Frontend URL:${NC} http://localhost:3000"
-            echo -e "${BLUE}External Runner URL:${NC} $runner_url"
-        else
-            echo -e "${RED}Failed to start Tracecat services. Please check the logs for more details.${NC}"
-        fi
+    echo -e "${YELLOW}Starting Tracecat services with docker compose flags '$DOCKER_COMPOSE_UP_FLAGS'.${NC}"
+    if docker compose down --remove-orphans && docker compose up $DOCKER_COMPOSE_UP_FLAGS; then
+        echo -e "${GREEN}Tracecat local development setup started successfully.${NC}"
+        echo -e "${BLUE}API URL:${NC} http://localhost:8000"
+        echo -e "${BLUE}Runner URL:${NC} http://localhost:8001"
+        echo -e "${BLUE}Frontend URL:${NC} http://localhost:3000"
+        echo -e "${BLUE}External Runner URL:${NC} $runner_url"
     else
-        echo -e "${YELLOW}Tracecat services are already running. Skipping the build process and restarting.${NC}"
-        if docker compose down --remove-orphans && docker compose up $DOCKER_COMPOSE_UP_FLAGS; then
-            echo -e "${GREEN}Tracecat local development setup started successfully.${NC}"
-            echo -e "${BLUE}API URL:${NC} http://localhost:8000"
-            echo -e "${BLUE}Runner URL:${NC} http://localhost:8001"
-            echo -e "${BLUE}Frontend URL:${NC} http://localhost:3000"
-            echo -e "${BLUE}External Runner URL:${NC} $runner_url"
-        else
-            echo -e "${RED}Failed to restart Tracecat services. Please check the logs for more details.${NC}"
-        fi
+        echo -e "${RED}Failed to restart Tracecat services. Please check the logs for more details.${NC}"
     fi
-
     echo -e "${GREEN}Tracecat local development setup is complete.${NC}"
 }
 
@@ -200,7 +187,6 @@ stop_services() {
 
 
 
-
 # Parse the first command-line argument for the action
 ACTION=$1
 shift # Remove the first argument, leaving any additional arguments
@@ -214,6 +200,11 @@ case $ACTION in
             case $arg in
                 --tail|-t)
                 TAIL_LOGS=true
+                ;;
+            esac
+            case $arg in
+                --build|-b)
+                BUILD_SERVICES=true
                 ;;
             esac
         done
