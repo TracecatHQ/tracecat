@@ -1,8 +1,5 @@
 import React from "react"
 import Image from "next/image"
-// import Link from "next/link"
-import { redirect } from "next/navigation"
-import { createClient } from "@/utils/supabase/server"
 import TracecatIcon from "public/icon.png"
 
 import {
@@ -16,44 +13,16 @@ import {
   GithubOAuthButton,
   GoogleOAuthButton,
 } from "@/components/auth/oauth-buttons"
+import { AlertLevel } from "@/components/notifications"
 
 export default async function Login({
   searchParams,
 }: {
-  searchParams: { message: string }
+  searchParams: { level?: AlertLevel; message?: string }
 }) {
-  const supabase = createClient()
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (session) {
-    return redirect("/workflows")
-  }
-
   return (
     <div className="container flex h-full w-full items-center justify-center">
       <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
-        {/* <Link
-          href="/"
-          className="bg-btn-background hover:bg-btn-background-hover group absolute left-8 top-8 flex items-center rounded-md px-4 py-2 text-sm text-foreground no-underline"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="mr-2 h-4 w-4 transition-transform group-hover:-translate-x-1"
-          >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>{" "}
-          Back
-        </Link> */}
         <CardHeader className="items-center space-y-2 text-center">
           <Image src={TracecatIcon} alt="Tracecat" className="mb-8 h-16 w-16" />
           <CardTitle className="text-2xl">Sign into your account</CardTitle>

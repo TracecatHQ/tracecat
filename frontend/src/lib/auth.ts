@@ -3,12 +3,17 @@
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { createClient } from "@/utils/supabase/server"
-import { Session } from "@supabase/supabase-js"
+import { AuthError, Session } from "@supabase/supabase-js"
 
+import { getAuthenticatedClient } from "@/lib/api"
 import { createWorkflow } from "@/lib/flow"
 
 type ThirdPartyAuthProvider = "google" | "github"
+const EXPECTED_ERR_MSG_USER_EXISTS = "Request failed with status code 409"
 
+/**
+ * This sign-in flow is only used during local deployment.
+ */
 export async function signInFlow(formData: FormData) {
   const email = formData.get("email") as string
   const password = formData.get("password") as string
@@ -27,9 +32,24 @@ export async function signInFlow(formData: FormData) {
     return redirect("/?level=error&message=Could not authenticate user")
   }
 
-  await newUserFlow(session)
+  // If we are here, it means there's a valid session
+  try {
+    await newUserFlow(session)
+  } catch (error) {
+    const authError = error as AuthError
+    if (authError.message.includes(EXPECTED_ERR_MSG_USER_EXISTS)) {
+      console.log("User already exists, nothing to do here.")
+    } else {
+      console.error("Error creating user:", authError.message)
+      return redirect("/?level=error&message=Error occured when creating user")
+    }
+  }
+}
 
-  return redirect("/workflows")
+export async function signOutFlow() {
+  const supabase = createClient()
+  await supabase.auth.signOut()
+  return redirect("/")
 }
 
 export async function signUpFlow(formData: FormData) {
@@ -92,26 +112,21 @@ export async function signInWithEmailMagicLink(formData: FormData) {
 }
 
 export async function newUserFlow(session: Session) {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
-  })
+  const client = getAuthenticatedClient(session)
 
-  // If the user already exists, we'll get a 409 conflict
-  if (!response.ok && response.status !== 409) {
-    console.error("Failed to create user")
-    return redirect("/?level=error&message=Could not authenticate user")
-  }
+  const response = await client.put("/users")
 
-  if (response.status !== 409) {
-    console.log("New user created")
-    await createWorkflow(
-      session,
-      "My first workflow",
-      "Welcome to Tracecat. This is your first workflow!"
-    )
-    console.log("Created first workflow for new user")
+  switch (response.status) {
+    case 409:
+      console.log("User already exists")
+      break
+    case 201:
+      console.log("New user created")
+      await createWorkflow(
+        session,
+        "My first workflow",
+        "Welcome to Tracecat. This is your first workflow!"
+      )
+      console.log("Created first workflow for new user")
   }
 }

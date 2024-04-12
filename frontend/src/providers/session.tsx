@@ -13,6 +13,8 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/utils/supabase/client"
 import { AuthError, Session, SupabaseClient } from "@supabase/supabase-js"
 
+import { signOutFlow } from "@/lib/auth"
+
 export type SessionContext =
   | {
       isLoading: true
@@ -125,8 +127,9 @@ export const SessionContextProvider = ({
   }, [])
 
   const signOut = useCallback(async () => {
-    await supabaseClient.auth.signOut()
-    router.push("/")
+    // Trigger sign out flow on both the client and server
+    // The below signout flow will sign out from the server and redirect to the login page
+    await signOutFlow()
     router.refresh()
   }, [supabaseClient])
 

@@ -69,7 +69,7 @@ export const updateSession = async (request: NextRequest) => {
   // Not logged in and on a protected page -> redirect to /
   if (!user && !UNPROTECTED_PATHS.includes(request.nextUrl.pathname)) {
     console.debug("User logged out, redirecting to /")
-    console.debug("Error:", error)
+    console.debug("Error: ", error?.status, error?.message)
     const redirectUrl = new URL("/", request.nextUrl.origin)
     return NextResponse.redirect(redirectUrl)
   }
