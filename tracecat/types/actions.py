@@ -18,6 +18,7 @@ ActionType = Literal[
     "open_case",
     # Integrations
     "integrations.example.add",
+    "integrations.example.secretive_add",
     "integrations.example.subtract",
     "integrations.example.complex_example",
     "integrations.example.join",

@@ -34,6 +34,7 @@ export type ActionType = (typeof actionTypes)[number]
 const integrationTypes = [
   // Example integrations
   "integrations.example.add",
+  "integrations.example.secretive_add",
   "integrations.example.subtract",
   "integrations.example.complex_example",
   "integrations.example.join",
