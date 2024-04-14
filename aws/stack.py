@@ -15,9 +15,8 @@ from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "staging")
-AWS_ECR__REPOSITORY_URI = os.environ["AWS_ECR__REPOSITORY_URI"]
-AWS_ECR__API_IMAGE_TAG = os.environ["AWS_ECR__API_IMAGE_TAG"]
-AWS_ECR__SCHEDULER_IMAGE_TAG = os.environ["AWS_ECR__SCHEDULER_IMAGE_TAG"]
+AWS_ECR__API_IMAGE_URI = os.environ["AWS_ECR__API_IMAGE_URI"]
+AWS_ECR__SCHEDULER_IMAGE_URI = os.environ["AWS_ECR__SCHEDULER_IMAGE_URI"]
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
@@ -448,9 +447,7 @@ class TracecatEngineStack(Stack):
         # Container
         api_container = api_task_definition.add_container(  # noqa
             "ApiContainer",
-            image=ecs.ContainerImage.from_registry(
-                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__API_IMAGE_TAG}"
-            ),
+            image=ecs.ContainerImage.from_registry(AWS_ECR__API_IMAGE_URI),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=api_env,
@@ -519,9 +516,7 @@ class TracecatEngineStack(Stack):
         # Container
         runner_container = runner_task_definition.add_container(  # noqa
             "RunnerContainer",
-            image=ecs.ContainerImage.from_registry(
-                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__API_IMAGE_TAG}"
-            ),
+            image=ecs.ContainerImage.from_registry(AWS_ECR__API_IMAGE_URI),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=runner_env,
@@ -585,9 +580,7 @@ class TracecatEngineStack(Stack):
         # Container
         scheduler_task_definition.add_container(  # noqa
             "SchedulerContainer",
-            image=ecs.ContainerImage.from_registry(
-                f"{AWS_ECR__REPOSITORY_URI}:{AWS_ECR__SCHEDULER_IMAGE_TAG}"
-            ),
+            image=ecs.ContainerImage.from_registry(AWS_ECR__SCHEDULER_IMAGE_URI),
             cpu=CPU,
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=shared_env,
