@@ -13,11 +13,14 @@ logger = standard_logger(__name__)
 _P = ParamSpec("_P")
 
 
-def _run_serialized_fn(serialized_fn: bytes, role: Role, /, *args, **kwargs):
-    fn: Callable[_P, Any] = cloudpickle.loads(serialized_fn)
+def _run_serialized_fn(serialized_wrapped_fn: bytes, role: Role, /, *args, **kwargs):
+    # NOTE: This is not the raw function - it is still wrapped by the `wrapper` decorator
+    wrapped_fn: Callable[_P, Any] = cloudpickle.loads(serialized_wrapped_fn)
     ctx_session_role.set(role)
     logger.debug(f"{role=}")
-    return fn(*args, **kwargs)
+    kwargs["__role"] = role
+    res = wrapped_fn(*args, **kwargs)
+    return res
 
 
 class CloudpickleProcessPoolExecutor(ProcessPoolExecutor):
