@@ -174,7 +174,7 @@ export const secretSchema = z.object({
     .string()
     .min(1, "Please enter a secret name.")
     .regex(snakeCaseRegex, "Secret name must be snake case."),
-  description: z.string().max(255).nullable(),
+  description: z.string().max(255).nullish(),
   // Can take different types of secrets
   keys: z.array(keyValueSchema),
 })
