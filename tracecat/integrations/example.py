@@ -6,6 +6,7 @@ Note
 - You should not use these integrations in production.
 """
 
+import os
 from typing import Literal
 
 from tracecat.integrations._registry import registry
@@ -49,3 +50,14 @@ def complex_example(
 ) -> int:
     """This function has many complex parameters."""
     return 1
+
+
+@registry.register(
+    description="Test description",
+    secrets=["test_secret"],  # test_secret.TEST_KEY
+)
+def secretive_add(nums: list[int]) -> int:
+    """Adds integers together."""
+    value = os.environ["TEST_KEY"]
+    print(f"VALUE: {value}")
+    return sum(nums)

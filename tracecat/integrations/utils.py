@@ -1,7 +1,8 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ParamSpec
 
-FunctionType = Callable[..., Any]
+_P = ParamSpec("_P")
+FunctionType = Callable[_P, Any]
 
 
 def get_integration_platform(func: FunctionType) -> str:

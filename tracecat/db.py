@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 from uuid import uuid4
 
 import lancedb
@@ -22,16 +22,17 @@ from sqlmodel import (
     select,
 )
 
-from tracecat import auth
-from tracecat.auth import decrypt_object, encrypt_object
+from tracecat import auth, integrations
 from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
 )
-from tracecat.integrations import IntegrationSpec, registry
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 from tracecat.logger import standard_logger
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
+
+if TYPE_CHECKING:
+    from tracecat.integrations import IntegrationSpec
 
 logger = standard_logger("db")
 
@@ -117,7 +118,7 @@ class Secret(Resource, table=True):
     def keys(self) -> list[SecretKeyValue] | None:
         if not self.encrypted_keys:
             return None
-        obj = decrypt_object(self.encrypted_keys)
+        obj = auth.decrypt_object(self.encrypted_keys)
         kv = self._validate_obj(obj)
         return [SecretKeyValue(key=k, value=v) for k, v in kv.model_dump().items()]
 
@@ -126,7 +127,7 @@ class Secret(Resource, table=True):
         # Convert to dict
         kv = {item.key: item.value for item in value}
         self._validate_obj(kv)
-        self.encrypted_keys = encrypt_object(kv)
+        self.encrypted_keys = auth.encrypt_object(kv)
 
 
 class Editor(SQLModel, table=True):
@@ -169,7 +170,7 @@ class Integration(Resource, table=True):
     icon_url: str | None = None
 
     @classmethod
-    def from_spec(cls, spec: IntegrationSpec) -> Self:
+    def from_spec(cls, spec: "IntegrationSpec") -> Self:
         return cls(
             **spec.model_dump(exclude={"parameters"}),
             parameters=json.dumps([p.model_dump() for p in spec.parameters]),
@@ -420,7 +421,7 @@ def initialize_db() -> Engine:
         session.exec(delete(Integration))
         session.add_all(
             Integration.from_spec(spec)
-            for spec in registry.get_registered_integration_specs()
+            for spec in integrations.registry.get_registered_integration_specs()
         )
         session.commit()
     return engine

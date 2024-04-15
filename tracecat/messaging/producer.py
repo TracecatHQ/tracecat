@@ -24,7 +24,7 @@ async def event_producer(
 
     for routing_key in routing_keys:
         await ex.publish(message, routing_key=routing_key)
-        logger.info(f" [x] {routing_key = } Sent {message.body!r}")
+        logger.debug(f" [x] {routing_key = } Sent {message.body!r}")
 
 
 async def publish(

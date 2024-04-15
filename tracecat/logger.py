@@ -7,9 +7,10 @@ import colorlog
 LOG_FORMAT = (
     "%(log_color)s%(levelname)-8s%(reset)s"
     " [%(cyan)s%(asctime)s%(reset)s]"
+    " [%(green)s%(process)d%(reset)s][%(purple)s%(thread)d%(reset)s]"
     " %(light_red)s%(module)s::%(funcName)s(%(lineno)d)%(reset)s"
     "\t%(light_purple)s%(name)s%(reset)s |"
-    " %(message)s"
+    " %(log_color)s%(message)s%(reset)s"
 )
 
 

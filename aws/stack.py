@@ -603,18 +603,18 @@ class TracecatEngineStack(Stack):
         )
 
         ### RabbitMQ Fargate Service
+        # Create the execution role for RabbitMQ
+        rabbitmq_execution_role = iam.Role(
+            self,
+            "RabbitMqExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
         # Define the policy for logging to CloudWatch Logs
         rabbitmq_logging_policy = iam.PolicyStatement(
             actions=["logs:CreateLogStream", "logs:PutLogEvents"],
             resources=[
                 f"arn:aws:logs:{self.region}:{self.account}:log-group:/ecs/rabbitmq:*"
             ],
-        )
-        # Create the execution role for RabbitMQ
-        rabbitmq_execution_role = iam.Role(
-            self,
-            "RabbitMqExecutionRole",
-            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
         rabbitmq_execution_role.add_to_policy(rabbitmq_logging_policy)
         # Create task role for RabbitMQ
@@ -637,8 +637,10 @@ class TracecatEngineStack(Stack):
         rabbitmq_efs_access_point = rabbitmq_file_system.add_access_point(
             "RabbitMqAccessPoint",
             path="/data",
-            posix_user=efs.PosixUser(uid="1001", gid="1001"),
-            create_acl=efs.Acl(owner_uid="1001", owner_gid="1001", permissions="750"),
+            posix_user=efs.PosixUser(
+                uid="999", gid="999"
+            ),  # UID and GID that RabbitMQ uses
+            create_acl=efs.Acl(owner_uid="999", owner_gid="999", permissions="755"),
         )
 
         # Create Volume for RabbitMQ
@@ -670,6 +672,7 @@ class TracecatEngineStack(Stack):
         rabbitmq_container = rabbitmq_task_definition.add_container(
             "RabbitMqContainer",
             image=ecs.ContainerImage.from_registry("rabbitmq:3.13-management"),
+            user="999:999",  # UID and GID that RabbitMQ uses
             cpu=256,
             memory_limit_mib=512,
             secrets=rabbitmq_secrets,
