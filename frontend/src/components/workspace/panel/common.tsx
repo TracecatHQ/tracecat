@@ -1,6 +1,6 @@
 import React from "react"
 import { CopyIcon } from "@radix-ui/react-icons"
-import { DeleteIcon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import {
   ArrayPath,
   FieldPath,
@@ -266,11 +266,12 @@ export function ActionFormArray<T extends FieldValues>({
 
                   <Button
                     type="button"
-                    variant="default"
-                    className="bg-red-400 p-0 px-3"
+                    variant="outline"
+                    size="icon"
+                    className="border border-red-500/70 bg-red-500/10 text-red-500/70 hover:bg-red-500/20 hover:text-red-500"
                     onClick={() => remove(index)}
                   >
-                    <DeleteIcon className="stroke-8 h-4 w-4 stroke-white/80" />
+                    <Trash2Icon className="size-4" />
                   </Button>
                 </div>
               )
