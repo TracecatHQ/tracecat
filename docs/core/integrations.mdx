@@ -3,4 +3,96 @@ title: Integrations
 description: Pre-built actions and workflows
 ---
 
-*Work-in-progress: we plan to release an integrations library end of April 2024.*
+_Work-in-progress: we plan to release an integrations library end of April 2024._
+
+## Framework
+
+Integrations are actions that execute custom code to interact with external services.
+We've developed a simple framework that takes Python functions and converts them into UI action blocks that can be accessed through the 'Integrations' side panel tab.
+Each integration is defined as a synchronoous function that is registered by the integration registry, for example:
+
+```python
+# In tracecat/integrations/example.py
+
+from tracecat.integrations._registry import registry
+
+@registry.register(description="This is a sample integration")
+def sample_integration(input1: str, input2: int) -> dict:
+    return {"output": f"Hello {input1}, {input2}"}
+```
+
+The above would register a new integration called `example.sample_integration`.
+When the backend spins up, all integrations are registered with a `registry` singleton.
+At runtime, these functions are executed in a process pool to avoid blocking the workflow event loop.
+
+See [create a new integration](#create-a-new-integration) for more details.
+
+The `register` decorator also accepts arbitrary keyword arguments that are stored in the registry.
+We plan on using this to further extend the capabilities of integrations, for example by using a `version` keyword argument to specify the version of the integration.
+
+## Secrets
+
+To use credentials for external services, you can declare a list of secret names in the `register` decorator.
+You will also have to create these secrets in the platform through the `settings/credentials` UI.
+At runtime, only the declared secrets are loaded into the executing process before the function is invoked.
+
+For example, given `my_secret` with key `MY_SECRET_KEY`:
+
+```python
+# In tracecat/integrations/example.py
+
+import os
+import httpx
+from tracecat.integrations._registry import registry
+
+@registry.register(
+  description="This is a sample integration with secrets",
+  secrets=["my_secret"] # Accepts more than one secret name
+)
+def requires_api_key(resource_name: str, value: int) -> str:
+    # Call this normally like regular Python code!
+    api_key = os.environ["MY_SECRET_KEY"]
+
+    with httpx.Client() as client:
+        response = client.post(
+          f"https://api.example.com/resource/{resource_name}",
+          headers={"Authorization": f"Bearer {api_key}"},
+          json={"value": value}
+        )
+        response.raise_for_status()
+    return response.text
+```
+
+## Create a new integration
+
+1. [Optional] Create a new integration platform/namespace and add a new platform icon in `frontend/src/components/icons.tsx`
+2. Create a new integration function in an integration namespace.
+3. Import the `registry` singleton from `tracecat/integrations/_registry.py` and register the integration function using the decorator `@registry.register(...)`.
+4. [IMPORTANT] Import the integration nodule into the scope of `integrations/__init__.py`. This eagerly registers all integrations in this module with the registry.
+5. Update `ActionType` in types/actions.py
+6. (Frontend) Update `integrationTypes` in frontend/src/types/schemas.ts
+
+Once this is done, the integration should be available in the frontend and backend and can be used like any other action node.
+
+## Input Types
+
+We explicitly don't support highly complex input types. This includes complex union types and heavily nested types, for example `list[str] | str | int | None` would be unsupported.
+We also don't support generics and type variables. All types must be concrete. We use Python 3.10+ syntax for type annotations.
+
+Let `T`, `K`, and `V` be a supported builtin types. We have well-defined support for the following data types, for example:
+
+- Builtins: `str`, `int`, `float`, `bool`
+- Optional: `T | None`
+- Defaults: `T | None = None`, `str = "default"`
+- Literals: `Literal["a", "b"]` (imported from typing.Literal. Use this for enums)
+- List: `list[T]`
+- Dict: `dict[K, V]`
+
+This should cover most use cases for integration API endpoints.
+
+## Glossary
+
+- Integration key/qualname: A fully qualified, unique idenfitier for an integration function. The schema is `integrations.<platform>.[<optional_namespaces>.]<fn_name>`.
+  - For example:
+    - `integrations.github.get_repo`
+    - `integrations.github.actions.get_workflow_run`.
