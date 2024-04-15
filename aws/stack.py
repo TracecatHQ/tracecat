@@ -369,7 +369,8 @@ class TracecatEngineStack(Stack):
                         "ecr:GetAuthorizationToken",
                     ],
                     resources=[
-                        f"arn:aws:ecr:{self.region}:{self.account}:repository/tracecat"
+                        f"arn:aws:ecr:{self.region}:{self.account}:repository/tracecat",
+                        f"arn:aws:ecr:{self.region}:{self.account}:repository/tracecat-scheduler",
                     ],
                 ),
                 iam.PolicyStatement(
