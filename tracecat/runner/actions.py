@@ -838,11 +838,11 @@ async def run_integration_action(
     custom_logger.debug(f"{params = }")
 
     params = params or {}
-    loop = asyncio.get_running_loop()
 
     func = registry[qualname]
     bound_func = partial(func, **params)
 
+    loop = asyncio.get_running_loop()
     with CloudpickleProcessPoolExecutor() as pool:
         result = await loop.run_in_executor(pool, bound_func)
 
