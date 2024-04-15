@@ -5,7 +5,7 @@ import { PlusCircle } from "lucide-react"
 import { fetchAllWorkflows } from "@/lib/flow"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { WorkflowItem } from "@/components/dashboard/workflows-dashbaord-item"
+import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
 import {
   NewWorkflowDialog,
   NewWorkflowDialogTrigger,
