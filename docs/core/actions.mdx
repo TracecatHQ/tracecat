@@ -3,7 +3,10 @@ title: Actions
 description: Building blocks for automation workflows
 ---
 
-<Tip>Need help? The `#help` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8) is the place to be!</Tip>
+<Tip>
+  Need help? The `#help` channel in [Tracecat
+  Discord](https://discord.gg/n3GF4qxFU8) is the place to be!
+</Tip>
 
 Actions are individual tasks performed at each step of a workflow.
 You can find all available Actions in the workspace sidebar.
@@ -13,14 +16,16 @@ For example, a [HTTP request](#action-types) can be configured to send a GET req
 See [Quickstart](/quickstart) for a worked example.
 
 <Info>
-We refer to an action that has received an input and produced an corresponding output as an "action run".
+  We refer to an action that has received an input and produced an corresponding
+  output as an "action run".
 </Info>
 
 ## Build an Action
 
 <Steps>
   <Step title="Add action">
-    Click or drag-and-drop an action block onto the workflow canvas.
+    Drag and drop an action block onto the workflow canvas.
+    If a canvas action is selected, clicking on a side panel action places and connects the new block.
 
     ![Drag and drop action](/img/dnd.gif)
 
@@ -31,6 +36,7 @@ We refer to an action that has received an input and produced an corresponding o
     Press `save`.
 
     ![Configure action](/img/configure-action.png)
+
   </Step>
 </Steps>
 
@@ -39,9 +45,8 @@ We refer to an action that has received an input and produced an corresponding o
 When you link action blocks together, the output of previous actions are passed on to next actions.
 
 <Note>
-Outputs from previous actions don't auto-fill inputs for the next action.
-You need to do this manually.
-Find out how in the next section.
+  Outputs from previous actions don't auto-fill inputs for the next action. You
+  need to do this manually. Find out how in the next section.
 </Note>
 
 ### Using Action Outputs as Inputs
@@ -91,6 +96,7 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
 
     For example, an action with the title `Receive URL` will have the key `receive_url`.
     </Note>
+
   </Step>
   <Step title="Get malware report">
     Let's send the malware sample to [MalwareBazaar](https://bazaar.abuse.ch/) for a report.
@@ -111,6 +117,7 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
     Need JSONPath help? We got you.
     Just share your code in the `#help` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8)!
     </Tip>
+
   </Step>
   <Step title="Send malware report to yourself">
     Select the [Send Email](#action-types) action (titled "Send malware report").
@@ -164,12 +171,13 @@ Let's use the three-step workflow from [Connecting Actions](#connecting-actions)
 
 ## How about pre-built Actions?
 
-*Work-in-progress: we plan to release pre-built actions end of April 2024.*
+_Work-in-progress: we plan to release pre-built actions end of April 2024._
 
 Actions can be configured to do almost any tasks, but it's best to use pre-built ones if available.
 Pre-built actions have pre-configured inputs to perform tasks for commonly used products.
 
 Here are a few examples:
+
 - `URLScan` Perform a security scan on a given URL
 - `VirusTotal` Get detailed report for a malware sample
 - `Microsoft Defender` Trigger a scan on a specific file
@@ -181,8 +189,10 @@ Here are a few examples:
 Can't find a pre-built action for a specific product?
 
 Just let us know in the `#feedback` channel in [Tracecat Discord](https://discord.gg/n3GF4qxFU8):
+
 1. What task you want to achieve
 2. What product you want to integrate
 
 We respond to every suggestion!
+
 </Note>
