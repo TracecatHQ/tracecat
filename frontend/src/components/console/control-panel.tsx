@@ -30,7 +30,12 @@ import { WorkflowControlsForm } from "@/components/console/console"
 import { tileIconMapping } from "@/components/workspace/canvas/action-node"
 
 export const supportedInputTypes = [
-  { mimeType: "text/plain", icon: FileType, description: "Plain Text" },
+  {
+    mimeType: "text/plain",
+    icon: FileType,
+    description: "Plain Text",
+    disabled: true,
+  },
   {
     mimeType: "application/json",
     icon: FileJson,
@@ -40,6 +45,7 @@ export const supportedInputTypes = [
     mimeType: "text/csv",
     icon: Sheet,
     description: "Comma-Separated Value Files",
+    disabled: true,
   },
 ]
 
@@ -154,9 +160,16 @@ export function ConsolePanel({
                     </SelectTrigger>
                     <SelectContent>
                       {supportedInputTypes?.map(
-                        ({ mimeType, icon: Icon, description }, idx) => {
+                        (
+                          { mimeType, icon: Icon, description, disabled },
+                          idx
+                        ) => {
                           return (
-                            <SelectItem key={idx} value={mimeType}>
+                            <SelectItem
+                              key={idx}
+                              value={mimeType}
+                              disabled={disabled}
+                            >
                               <div className="flex items-center gap-3 text-muted-foreground">
                                 {Icon && <Icon className="size-5" />}
                                 <div className="grid gap-0.5">
