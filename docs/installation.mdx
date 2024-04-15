@@ -35,26 +35,40 @@ bash services.sh start
 ```
 
 <Note>
-You can run `bash services.sh start --tail` to view the logs of all services in real-time.
+  You can run `bash services.sh start --tail` to view the logs of all services
+  in real-time.
 </Note>
 
-You'll be prompted to enter your public facing Runner URL (you can set one up using ngrok, see below), OpenAI API key, and Resend API key.
+You'll be prompted to enter your public facing Runner URL (you can set one up using ngrok), OpenAI API key, and Resend API key.
+If you use ngrok, the Runner URL should take the form `https://<your-ngrok-domain>.ngrok-free.app`.
+See the section [Export runner via ngrok](#expose-runner-via-ngrok) for more details.
+
 If you'd rather provide these later, you can skip each prompt step by pressing `Enter`.
 You can update the `.env` file in the root directory then run `bash services.sh start` again to restart the services.
 
 ## Expose runner via ngrok
 
 Go to [ngrok](https://ngrok.com/) and create an account.
-Then follow instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install ngrok on your local machine.
-Lastly, go to [ngrok dashboard](https://dashboard.ngrok.com/cloud-edge/domains), create a new domain, and run the following command:
+Follow the instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install `ngrok` on your local machine.
+Then, go to [ngrok dashboard](https://dashboard.ngrok.com/cloud-edge/domains) and create a new domain (you get 1 free static domain).
+The domain should be in the format `<some-random-phrase>.ngrok-free.app`.
+
+For example, if your ngrok domain is `your-grnok-domain.ngrok-free.app`, start ngrok by running the following command:
 
 ```bash
-ngrok http --domain=your-ngrok-url-here 8001
+ngrok http --domain=your-ngrok-domain.ngrok-free.app 8001
 ```
 
 <Note>
-  This forwards the runner server to the internet and enables incoming webhooks.
+  Binding ngrok to port 8001 on the host machine forwards the runner server to
+  the internet and enables incoming webhooks.
 </Note>
+
+If correctly set up, your .env should contain:
+
+```bash
+TRACECAT__RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
+```
 
 ## Create user
 
@@ -72,7 +86,8 @@ You can view the API docs at `http://localhost:8000/docs` and the runner docs at
 <Check>
   Congratulations! You have successfully installed Tracecat. This setup includes
   the essential components to set up a Tracecat proof-of-concept (PoC). For
-  production-ready self-hosting solution, we recommend using one of our [Cloud deployment](/deployment) strategies.
+  production-ready self-hosting solution, we recommend using one of our [Cloud
+  deployment](/deployment) strategies.
 </Check>
 
 ## Stop Tracecat
