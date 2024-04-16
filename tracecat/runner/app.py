@@ -191,6 +191,8 @@ async def check_runner_health() -> dict[str, str]:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error checking runner health",
             ) from e
+        else:
+            return {"message": "API is healthy"}
 
 
 async def valid_payload(request: Request) -> dict[str, Any] | FormData:

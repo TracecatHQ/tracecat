@@ -150,6 +150,8 @@ async def check_runner_health() -> dict[str, str]:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error checking runner health",
             ) from e
+        else:
+            return {"message": "Runner is healthy"}
 
 
 @app.get("/events/subscribe")
