@@ -469,7 +469,7 @@ async def trigger_workflow_run(
         entrypoint_payload=params.payload,
     )
     logger.debug(f"Triggering workflow: {workflow_id = }, {workflow_params = }")
-    async with AuthenticatedRunnerClient(role=service_role, http2=True) as client:
+    async with AuthenticatedRunnerClient(role=service_role) as client:
         response = await client.post(
             f"/workflows/{workflow_id}",
             json=workflow_params.model_dump(),

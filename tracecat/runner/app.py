@@ -140,7 +140,7 @@ running_jobs_store: dict[str, asyncio.Task[None]] = {}
 async def get_workflow(workflow_id: str) -> Workflow:
     try:
         role = ctx_session_role.get()
-        async with AuthenticatedAPIClient(role=role, http2=True) as client:
+        async with AuthenticatedAPIClient(role=role) as client:
             response = await client.get(f"/workflows/{workflow_id}")
             response.raise_for_status()
     except HTTPException as e:
@@ -157,7 +157,7 @@ async def get_workflow(workflow_id: str) -> Workflow:
 # Dependencies
 async def valid_workflow(workflow_id: str) -> str:
     """Check if a workflow exists."""
-    async with AuthenticatedAPIClient(http2=True) as client:
+    async with AuthenticatedAPIClient() as client:
         response = await client.get(f"/workflows/{workflow_id}")
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise HTTPException(
@@ -204,7 +204,7 @@ async def valid_webhook_request(path: str, secret: str) -> AuthenticateWebhookRe
     """
     # Change this to make a db call
     async with AuthenticatedAPIClient(
-        role=Role(type="service", service_id="tracecat-runner"), http2=True
+        role=Role(type="service", service_id="tracecat-runner")
     ) as client:
         response = await client.post(
             f"{TRACECAT__API_URL}/authenticate/webhooks/{path}/{secret}"
