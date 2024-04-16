@@ -178,6 +178,23 @@ def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the runner. This is the health endpoint."}
 
 
+@app.get("/health/api")
+async def check_runner_health() -> dict[str, str]:
+    service_role = Role(type="service", user_id="internal", service_id="tracecat-api")
+    async with AuthenticatedAPIClient(role=service_role) as client:
+        response = await client.get("/health")
+        try:
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Error checking runner health: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error checking runner health",
+            ) from e
+        else:
+            return {"message": "API is healthy"}
+
+
 async def valid_payload(request: Request) -> dict[str, Any] | FormData:
     """Validate the payload of a request."""
     payload: dict[str, Any] | FormData
