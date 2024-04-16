@@ -99,8 +99,9 @@ if TRACECAT__APP_ENV == "production":
     }
 elif TRACECAT__APP_ENV == "staging":
     cors_origins_kwargs = {
-        "allow_origins": [TRACECAT__API_URL],
-        "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
+        # "allow_origins": [TRACECAT__API_URL],
+        # "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
+        "allow_origins": "*"
     }
 else:
     cors_origins_kwargs = {
