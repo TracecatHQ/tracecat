@@ -108,3 +108,14 @@ bash services.sh stop --supabase # or -s, Stops Supabase services
 ## Restarting services
 
 Running `bash services.sh start` will restart all services if they are already running.
+
+## Troubldshooting
+
+### Docker networking
+
+Some users face issues with Docker DNS resolution. What has often resolved their issues is to use `host.docker.internal` in certain places where container services are being referenced.
+This allows Docker containers to reference the Docker host machine.
+
+For example, if you have a service `api` running in a container with port mapping `1234:8000` (mapping of port 1234 on the Docker host and 8000 in the container), from inside the Docker network you should be able to reference it using `http://api:8000`.
+
+We are working on a more robust solution to this issue - we appreciate your patience!
