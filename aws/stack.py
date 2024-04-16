@@ -220,29 +220,23 @@ class TracecatEngineStack(Stack):
         # Allow Scheduler to receive traffic from API and Runner
         scheduler_security_group.add_ingress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(
-                8000
-            ),  # Assuming Scheduler listens on a specific port, adjust as needed
+            connection=ec2.Port.tcp(8000),
             description="Allow traffic from API to Scheduler",
         )
         scheduler_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(8001),  # Adjust if different port is used
+            connection=ec2.Port.tcp(8001),
             description="Allow traffic from Runner to Scheduler",
         )
         # Allow Scheduler to send traffic to API and Runner
         scheduler_security_group.add_egress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(
-                8000
-            ),  # Adjust the port if API listens on a different one
+            connection=ec2.Port.tcp(8000),
             description="Allow Scheduler to connect to API",
         )
         scheduler_security_group.add_egress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(
-                8001
-            ),  # Adjust the port if Runner listens on a different one
+            connection=ec2.Port.tcp(8001),
             description="Allow Scheduler to connect to Runner",
         )
 
