@@ -122,7 +122,7 @@ async def _load_secret(secret_name_with_key: str) -> str:
         role = ctx_session_role.get()
 
         secret_name, key_name = secret_name_with_key.split(".")
-        async with AuthenticatedAPIClient(role=role, http2=True) as client:
+        async with AuthenticatedAPIClient(role=role) as client:
             response = await client.get(f"/secrets/{secret_name}")
             response.raise_for_status()
         secret = Secret.model_validate_json(response.content)

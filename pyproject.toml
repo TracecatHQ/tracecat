@@ -27,6 +27,7 @@ dependencies = [
     "croniter",
     "cryptography",
     "fastapi",
+    "httpx",
     "lancedb==0.6.3",
     "openai",
     "orjson",
@@ -52,7 +53,7 @@ Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
-runner = ["aiosmtplib", "httpx[http2]", "jsonpath_ng", "python-multipart"]
+runner = ["aiosmtplib", "jsonpath_ng", "python-multipart"]
 dev = ["respx", "pytest", "python-dotenv", "pytest-asyncio"]
 
 [tool.hatch.version]

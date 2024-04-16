@@ -42,7 +42,7 @@ async def emit_create_workflow_run_event(
         # Exclude
         workflow_id=workflow_id,
     )
-    async with AuthenticatedAPIClient(http2=True) as client:
+    async with AuthenticatedAPIClient() as client:
         response = await client.post(
             f"/workflows/{workflow_id}/runs",
             content=event.model_dump_json(exclude={"workflow_id"}),
@@ -77,7 +77,7 @@ async def emit_update_workflow_run_event(
         # Exclude
         workflow_id=workflow_id,
     )
-    async with AuthenticatedAPIClient(http2=True) as client:
+    async with AuthenticatedAPIClient() as client:
         response = await client.post(
             f"/workflows/{workflow_id}/runs/{workflow_run_id}",
             content=event.model_dump_json(exclude={"workflow_id"}),
@@ -114,7 +114,7 @@ async def emit_create_action_run_event(action_run: ActionRun) -> None:
         # Exclude
         action_id=action_id,
     )
-    async with AuthenticatedAPIClient(http2=True) as client:
+    async with AuthenticatedAPIClient() as client:
         response = await client.post(
             f"/actions/{action_id}/runs",
             content=event.model_dump_json(exclude={"action_id"}),
@@ -154,7 +154,7 @@ async def emit_update_action_run_event(
         # Exclude
         action_id=action_id,
     )
-    async with AuthenticatedAPIClient(http2=True) as client:
+    async with AuthenticatedAPIClient() as client:
         response = await client.post(
             f"/actions/{action_id}/runs/{action_run.id}",
             # Explicitly serialize to json using pydantic to handle datetimes

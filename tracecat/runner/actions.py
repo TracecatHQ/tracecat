@@ -612,7 +612,7 @@ async def run_http_request_action(
     custom_logger.debug(f"{payload = }")
 
     try:
-        async with httpx.AsyncClient(http2=True) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.request(
                 method=method,
                 url=url,
