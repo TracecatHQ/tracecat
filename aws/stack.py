@@ -447,7 +447,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=api_env,
             secrets=api_secrets,
-            port_mappings=[ecs.PortMapping(container_port=8000)],
+            port_mappings=[ecs.PortMapping(container_port=8000, name="api-port")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-api", log_group=log_group
             ),
@@ -516,7 +516,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=runner_env,
             secrets=runner_secrets,
-            port_mappings=[ecs.PortMapping(container_port=8001)],
+            port_mappings=[ecs.PortMapping(container_port=8001, name="runner-port")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-runner", log_group=log_group
             ),
@@ -580,6 +580,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=shared_env,
             secrets=shared_secrets,
+            port_mappings=[ecs.PortMapping(container_port=8002, name="scheduler-port")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-scheduler", log_group=log_group
             ),
