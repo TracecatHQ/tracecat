@@ -686,26 +686,6 @@ class TracecatEngineStack(Stack):
             ),
         )
 
-        # Make API, runner, and scheduler services depend on RabbitMQ
-        api_container.add_container_dependencies(
-            ecs.ContainerDependency(
-                container=rabbitmq_container,
-                condition=ecs.ContainerDependencyCondition.HEALTHY,
-            )
-        )
-        runner_container.add_container_dependencies(
-            ecs.ContainerDependency(
-                container=rabbitmq_container,
-                condition=ecs.ContainerDependencyCondition.HEALTHY,
-            )
-        )
-        scheduler_container.add_container_dependencies(
-            ecs.ContainerDependency(
-                container=rabbitmq_container,
-                condition=ecs.ContainerDependencyCondition.HEALTHY,
-            )
-        )
-
         # Load balancer
         alb = elbv2.ApplicationLoadBalancer(
             self,
