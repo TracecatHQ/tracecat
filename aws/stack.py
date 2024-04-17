@@ -671,7 +671,7 @@ class TracecatEngineStack(Stack):
         )
         rabbitmq_container = rabbitmq_task_definition.add_container(
             "RabbitMqContainer",
-            image=ecs.ContainerImage.from_registry("rabbitmq:3.13-management"),
+            image=ecs.ContainerImage.from_registry("rabbitmq:3.13"),
             user="999:999",  # UID and GID that RabbitMQ uses
             cpu=256,
             memory_limit_mib=512,
