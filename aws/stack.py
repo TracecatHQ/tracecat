@@ -552,7 +552,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
         )
         # Container
-        scheduler_task_definition.add_container(  # noqa
+        scheduler_container = scheduler_task_definition.add_container(  # noqa
             "SchedulerContainer",
             image=ecs.ContainerImage.from_registry(AWS_ECR__SCHEDULER_IMAGE_URI),
             cpu=CPU,
@@ -657,6 +657,11 @@ class TracecatEngineStack(Stack):
             cpu=256,
             memory_limit_mib=512,
             secrets=rabbitmq_secrets,
+            health_check=ecs.HealthCheck(
+                command=["CMD-SHELL", "rabbitmq-diagnostics" "ping", "-q"],
+                interval=Duration.seconds(10),
+                retries=5,
+            ),
             port_mappings=[ecs.PortMapping(container_port=5672, name="rabbitmq")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="rabbitmq", log_group=log_group
@@ -679,6 +684,26 @@ class TracecatEngineStack(Stack):
             service_connect_configuration=ecs.ServiceConnectProps(
                 services=[ecs.ServiceConnectService(port_mapping_name="rabbitmq")]
             ),
+        )
+
+        # Make API, runner, and scheduler services depend on RabbitMQ
+        api_container.add_container_dependencies(
+            ecs.ContainerDependency(
+                container=rabbitmq_container,
+                condition=ecs.ContainerDependencyCondition.HEALTHY,
+            )
+        )
+        runner_container.add_container_dependencies(
+            ecs.ContainerDependency(
+                container=rabbitmq_container,
+                condition=ecs.ContainerDependencyCondition.HEALTHY,
+            )
+        )
+        scheduler_container.add_container_dependencies(
+            ecs.ContainerDependency(
+                container=rabbitmq_container,
+                condition=ecs.ContainerDependencyCondition.HEALTHY,
+            )
         )
 
         # Load balancer
