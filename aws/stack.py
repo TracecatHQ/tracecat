@@ -691,10 +691,6 @@ class TracecatEngineStack(Stack):
                 services=[ecs.ServiceConnectService(port_mapping_name="rabbitmq-port")]
             ),
         )
-        rabbitmq_container.add_port_mappings(
-            ecs.PortMapping(container_port=5672),  # RabbitMQ server
-            # ecs.PortMapping(container_port=15672)  # Management UI
-        )
 
         # Load balancer
         alb = elbv2.ApplicationLoadBalancer(
