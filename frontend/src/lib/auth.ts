@@ -11,6 +11,20 @@ import { createWorkflow } from "@/lib/flow"
 type ThirdPartyAuthProvider = "google" | "github"
 const EXPECTED_ERR_MSG_USER_EXISTS = "Request failed with status code 409"
 
+export async function safeNewUserFlow(session: Session): Promise<void> {
+  try {
+    await newUserFlow(session)
+  } catch (error) {
+    const authError = error as AuthError
+    if (authError.message.includes(EXPECTED_ERR_MSG_USER_EXISTS)) {
+      console.log("User already exists, nothing to do here.")
+    } else {
+      console.error("Error creating user:", authError.message)
+      return redirect("/?level=error&message=Error occured when creating user")
+    }
+  }
+}
+
 /**
  * This sign-in flow is only used during local deployment.
  */
@@ -33,17 +47,7 @@ export async function signInFlow(formData: FormData) {
   }
 
   // If we are here, it means there's a valid session
-  try {
-    await newUserFlow(session)
-  } catch (error) {
-    const authError = error as AuthError
-    if (authError.message.includes(EXPECTED_ERR_MSG_USER_EXISTS)) {
-      console.log("User already exists, nothing to do here.")
-    } else {
-      console.error("Error creating user:", authError.message)
-      return redirect("/?level=error&message=Error occured when creating user")
-    }
-  }
+  await safeNewUserFlow(session)
 }
 
 export async function signOutFlow() {
@@ -112,6 +116,7 @@ export async function signInWithEmailMagicLink(formData: FormData) {
 }
 
 export async function newUserFlow(session: Session) {
+  console.log("Start new user flow")
   const client = getAuthenticatedClient(session)
 
   const response = await client.put("/users")
