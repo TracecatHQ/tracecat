@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import { NextResponse } from "next/server"
 import { createClient } from "@/utils/supabase/server"
 
-import { newUserFlow } from "@/lib/auth"
+import { safeNewUserFlow } from "@/lib/auth"
 
 export async function GET(request: Request) {
   // The `/auth/callback` route is required for the server-side auth flow implemented
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
 
   const supabase = createClient()
   if (code) {
+    console.log("Exchanging code for session")
     await supabase.auth.exchangeCodeForSession(code)
   }
 
@@ -27,7 +28,8 @@ export async function GET(request: Request) {
     console.error("Failed to get session")
     return redirect("/?level=error&message=Could not authenticate user")
   }
-  await newUserFlow(session)
+  // If we are here, it means there's a valid session
+  await safeNewUserFlow(session)
   // URL to redirect to after sign up process completes
   return NextResponse.redirect(`${origin}/workflows`)
 }
