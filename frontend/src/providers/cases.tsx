@@ -55,8 +55,6 @@ export default function CasesProvider({
     },
     onError: (error, variables, context) => {
       console.error("Failed to update cases:", error)
-      console.error("variables:", variables)
-      console.error("context:", context)
       toast({
         title: "Failed to update cases",
         description: "An error occurred while committing changes to the cases.",
