@@ -71,8 +71,8 @@ class TracecatEngineStack(Stack):
             shared_env = {
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 # Use http and internal DNS for internal communication
-                "TRACECAT__API_URL": "http://api.tracecat.local",
-                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local",
+                "TRACECAT__API_URL": "http://api.tracecat.local:80",
+                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:80",
             }
         else:
             shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
