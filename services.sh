@@ -81,10 +81,6 @@ start_services() {
     # Check if .env file exists, if not, create from .env.example
     if [ ! -f .env ]; then
         echo -e "${YELLOW}No .env file detected. Running setup.${NC}"
-        if ! command -v python >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
-            echo -e "${RED}Python is required to generate the Fernet key in the setup.${NC}"
-            exit 1
-        fi
 
         # Runner URL
         # Prompt the user for the runner URL, use stdin
@@ -111,10 +107,9 @@ start_services() {
 
 
         echo -e "${YELLOW}Generating a Fernet encryption key for the database...${NC}"
-        python -m pip install cryptography >/dev/null 2>&1
-        db_fernet_key=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-
-
+        db_fernet_key=$(docker run --rm python:3.12-slim-bookworm /bin/bash -c "\
+            pip install cryptography >/dev/null 2>&1; \
+            python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
 
         echo -e "${YELLOW}Creating new .env from .env.example...${NC}"
         cp .env.example .env
