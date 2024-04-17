@@ -175,23 +175,23 @@ class TracecatEngineStack(Stack):
         # 3. API and runner ingress / egress rules
         api_security_group.add_ingress_rule(
             peer=alb_security_group,
-            connection=ec2.Port.tcp(80),
+            connection=ec2.Port.tcp(8000),
             description="Allow HTTP traffic from the ALB",
         )
         runner_security_group.add_ingress_rule(
             peer=alb_security_group,
-            connection=ec2.Port.tcp(80),
+            connection=ec2.Port.tcp(8001),
             description="Allow HTTP traffic from the ALB",
         )
         # Ingress rules for API and Runner
         api_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(80),
+            connection=ec2.Port.tcp(8000),
             description="Allow traffic from Runner to API",
         )
         runner_security_group.add_ingress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(80),
+            connection=ec2.Port.tcp(8001),
             description="Allow traffic from API to Runner",
         )
 
@@ -205,13 +205,24 @@ class TracecatEngineStack(Stack):
         # Allow Scheduler to receive traffic from API and Runner
         scheduler_security_group.add_ingress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(80),
+            connection=ec2.Port.tcp(8000),
             description="Allow traffic from API to Scheduler",
         )
         scheduler_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(80),
+            connection=ec2.Port.tcp(8001),
             description="Allow traffic from Runner to Scheduler",
+        )
+        # Allow Scheduler to send traffic to API and Runner
+        scheduler_security_group.add_egress_rule(
+            peer=api_security_group,
+            connection=ec2.Port.tcp(8000),
+            description="Allow Scheduler to connect to API",
+        )
+        scheduler_security_group.add_egress_rule(
+            peer=runner_security_group,
+            connection=ec2.Port.tcp(8001),
+            description="Allow Scheduler to connect to Runner",
         )
 
         # 5. RabbitMQ security group
@@ -421,7 +432,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=api_env,
             secrets=api_secrets,
-            port_mappings=[ecs.PortMapping(container_port=80, name="api")],
+            port_mappings=[ecs.PortMapping(container_port=8000, name="api")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-api", log_group=log_group
             ),
@@ -491,7 +502,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=runner_env,
             secrets=runner_secrets,
-            port_mappings=[ecs.PortMapping(container_port=80, name="runner")],
+            port_mappings=[ecs.PortMapping(container_port=8001, name="runner")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-runner", log_group=log_group
             ),
@@ -556,7 +567,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=shared_env,
             secrets=shared_secrets,
-            port_mappings=[ecs.PortMapping(container_port=80, name="scheduler")],
+            port_mappings=[ecs.PortMapping(container_port=8002, name="scheduler")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-scheduler", log_group=log_group
             ),
