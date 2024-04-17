@@ -669,7 +669,7 @@ class TracecatEngineStack(Stack):
             cpu=256,
             memory_limit_mib=512,
             secrets=rabbitmq_secrets,
-            port_mappings=[ecs.PortMapping(container_port=5672)],
+            port_mappings=[ecs.PortMapping(container_port=5672, name="rabbitmq-port")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="rabbitmq", log_group=log_group
             ),
