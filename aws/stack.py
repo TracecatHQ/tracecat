@@ -67,21 +67,12 @@ class TracecatEngineStack(Stack):
         )
 
         ### Environment variables
-        if TRACECAT__APP_ENV == "production":
-            shared_env = {
-                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
-                # # Use http and internal DNS for internal communication
-                # "TRACECAT__API_URL": "http://api.tracecat.local:8000",
-                # "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:8001",
-                "TRACECAT__API_URL": "https://api.tracecat-engine.com",
-                "TRACECAT__RUNNER_URL": "https://runner.tracecat-engine.com",
-            }
-        elif TRACECAT__APP_ENV == "staging":
+        if TRACECAT__APP_ENV in ("production", "staging"):
             shared_env = {
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 # Use http and internal DNS for internal communication
-                "TRACECAT__API_URL": "https://api.staging.tracecat-engine.com",
-                "TRACECAT__RUNNER_URL": "https://runner.staging.tracecat-engine.com",
+                "TRACECAT__API_URL": "http://api.tracecat.local:8000",
+                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:8001",
             }
         else:
             shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
@@ -181,7 +172,7 @@ class TracecatEngineStack(Stack):
             description="Security group for Runner service",
         )
 
-        # 3. API and runner ingress / egress rules
+        # 3. API and runner ingress rules
         api_security_group.add_ingress_rule(
             peer=alb_security_group,
             connection=ec2.Port.tcp(8000),
@@ -195,13 +186,13 @@ class TracecatEngineStack(Stack):
         # Internal communication rules
         api_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(8001),
-            description="Allow traffic from Runner to API on port 8001",
+            connection=ec2.Port.tcp(8000),
+            description="Allow traffic from Runner to API",
         )
         runner_security_group.add_ingress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(8000),
-            description="Allow traffic from API to Runner on port 8000",
+            connection=ec2.Port.tcp(8001),
+            description="Allow traffic from API to Runner",
         )
 
         # 4. Scheduler Security Group
