@@ -67,12 +67,21 @@ class TracecatEngineStack(Stack):
         )
 
         ### Environment variables
-        if TRACECAT__APP_ENV in ("production", "staging"):
+        if TRACECAT__APP_ENV == "production":
+            shared_env = {
+                "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
+                # # Use http and internal DNS for internal communication
+                # "TRACECAT__API_URL": "http://api.tracecat.local:8000",
+                # "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:8001",
+                "TRACECAT__API_URL": "https://api.tracecat-engine.com",
+                "TRACECAT__RUNNER_URL": "https://runner.tracecat-engine.com",
+            }
+        elif TRACECAT__APP_ENV == "staging":
             shared_env = {
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 # Use http and internal DNS for internal communication
-                "TRACECAT__API_URL": "http://api.tracecat.local:8000",
-                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:8001",
+                "TRACECAT__API_URL": "https://api.staging.tracecat-engine.com",
+                "TRACECAT__RUNNER_URL": "https://runner.staging.tracecat-engine.com",
             }
         else:
             shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
