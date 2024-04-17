@@ -440,7 +440,11 @@ class TracecatEngineStack(Stack):
             task_definition=api_task_definition,
             security_groups=[api_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[ecs.ServiceConnectService(port_mapping_name="api")]
+                services=[
+                    ecs.ServiceConnectService(
+                        port_mapping_name="api", idle_timeout=Duration.minutes(15)
+                    )
+                ]
             ),
         )
         # API target group
@@ -516,7 +520,11 @@ class TracecatEngineStack(Stack):
             # Attach the security group to your ECS service
             security_groups=[runner_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[ecs.ServiceConnectService(port_mapping_name="runner")]
+                services=[
+                    ecs.ServiceConnectService(
+                        port_mapping_name="runner", idle_timeout=Duration.minutes(15)
+                    )
+                ]
             ),
         )
         # Runner target group
@@ -579,7 +587,11 @@ class TracecatEngineStack(Stack):
             task_definition=scheduler_task_definition,
             security_groups=[scheduler_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[ecs.ServiceConnectService(port_mapping_name="scheduler")]
+                services=[
+                    ecs.ServiceConnectService(
+                        port_mapping_name="scheduler", idle_timeout=Duration.minutes(15)
+                    )
+                ]
             ),
         )
 
@@ -682,7 +694,11 @@ class TracecatEngineStack(Stack):
             task_definition=rabbitmq_task_definition,
             security_groups=[rabbitmq_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[ecs.ServiceConnectService(port_mapping_name="rabbitmq")]
+                services=[
+                    ecs.ServiceConnectService(
+                        port_mapping_name="rabbitmq", idle_timeout=Duration.minutes(15)
+                    )
+                ]
             ),
         )
 
