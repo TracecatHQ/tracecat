@@ -13,7 +13,7 @@ from aws_cdk.aws_certificatemanager import Certificate
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
-TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "staging")
+TRACECAT__APP_ENV = os.environ["TRACECAT__APP_ENV"]
 AWS_ECR__API_IMAGE_URI = os.environ["AWS_ECR__API_IMAGE_URI"]
 AWS_ECR__SCHEDULER_IMAGE_URI = os.environ["AWS_ECR__SCHEDULER_IMAGE_URI"]
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
