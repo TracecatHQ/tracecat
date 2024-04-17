@@ -5,7 +5,7 @@ import CasePanelProvider, { useCasePanelContext } from "@/providers/case-panel"
 import { useCasesContext } from "@/providers/cases"
 import { useSession } from "@/providers/session"
 import { type Row } from "@tanstack/react-table"
-import { Loader2, Sparkles } from "lucide-react"
+import { GitGraph, Loader2, Sparkles } from "lucide-react"
 
 import {
   caseCompletionUpdateSchema,
@@ -62,12 +62,26 @@ const defaultToolbarProps: DataTableToolbarProps = {
  * 2.
  */
 function InternalCaseTable() {
-  const { cases, setCases } = useCasesContext()
+  const { cases, setCases, commitCases } = useCasesContext()
   const { setPanelCase: setSidePanelCase, setIsOpen } = useCasePanelContext()
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isCommitable, setIsCommitable] = useState(false)
+  const [isCommitting, setIsCommitting] = useState(false)
   const session = useSession()
 
   const memoizedColumns = useMemo(() => columns, [columns])
+
+  const commitChanges = async () => {
+    setIsCommitting(() => true)
+    try {
+      commitCases()
+    } catch (error) {
+      console.error("Error committing changes:", error)
+      setIsProcessing(() => false)
+    } finally {
+      setIsCommitting(() => false)
+    }
+  }
 
   const fetchCompletions = async () => {
     // 1. Set all 'null' values to a loading icon
@@ -103,6 +117,7 @@ function InternalCaseTable() {
         const newCase = caseSchema.parse(updatedCase)
         // Set the new case in the cases array
         setCases((cases) => cases.map((c) => (c.id === id ? newCase : c)))
+        setIsCommitable(() => true)
       }
     } catch (error) {
       console.error("Error reading stream:", error)
@@ -126,7 +141,19 @@ function InternalCaseTable() {
             Here are the cases for this workflow.
           </p>
         </div>
-        <div className="flex w-full flex-1 justify-end">
+        <div className="flex w-full flex-1 justify-end space-x-2">
+          <Button
+            onClick={commitChanges}
+            className="mt-1 text-xs"
+            disabled={isProcessing || !isCommitable}
+          >
+            {!isCommitting ? (
+              <GitGraph className="mr-2 h-3 w-3  fill-secondary" />
+            ) : (
+              <Loader2 className="stroke-6 mr-2 h-4 w-4 animate-spin transition-all ease-in-out" />
+            )}
+            Commit
+          </Button>
           <Button
             onClick={fetchCompletions}
             className="mt-1 text-xs"

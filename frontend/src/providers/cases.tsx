@@ -8,10 +8,11 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type Case } from "@/types/schemas"
-import { getCases } from "@/lib/cases"
+import { getCases, updateCases } from "@/lib/cases"
+import { toast } from "@/components/ui/use-toast"
 
 import { useSession } from "./session"
 import { useWorkflowMetadata } from "./workflow"
@@ -20,6 +21,7 @@ interface CasesContextType {
   cases: Case[]
   setCases: React.Dispatch<SetStateAction<Case[]>>
   isLoading: boolean
+  commitCases: () => void
 }
 const CasesContext = createContext<CasesContextType | undefined>(undefined)
 
@@ -29,6 +31,7 @@ export default function CasesProvider({
   const session = useSession()
   const [cases, setCases] = useState<Case[]>([])
   const { workflowId } = useWorkflowMetadata()
+  const queryClient = useQueryClient()
   if (!workflowId) {
     console.error(`Non-existent workflow ${workflowId}, cannot load cases`)
     throw new Error("Non-existent workflow, cannot load cases")
@@ -38,6 +41,24 @@ export default function CasesProvider({
     queryFn: async () => {
       const cases = await getCases(session, workflowId)
       return cases
+    },
+  })
+
+  const { mutate } = useMutation({
+    mutationFn: () => updateCases(session, workflowId, cases),
+    onSuccess: (data, variables, context) => {
+      toast({
+        title: "Updated cases",
+        description: "successfully committed changes.",
+      })
+      queryClient.invalidateQueries({ queryKey: ["cases"] })
+    },
+    onError: (error, variables, context) => {
+      console.error("Failed to update cases:", error)
+      toast({
+        title: "Failed to update cases",
+        description: "An error occurred while committing changes to the cases.",
+      })
     },
   })
 
@@ -51,6 +72,7 @@ export default function CasesProvider({
         cases,
         setCases,
         isLoading,
+        commitCases: mutate,
       }}
     >
       {children}
