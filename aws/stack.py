@@ -657,6 +657,7 @@ class TracecatEngineStack(Stack):
             task_role=rabbitmq_task_role,
             cpu=256,
             memory_limit_mib=512,
+            port_mappings=[ecs.PortMapping(container_port=5672)],
         )
         rabbitmq_task_definition.add_volume(
             name=rabbitmq_volume_name,
