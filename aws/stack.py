@@ -444,7 +444,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=api_env,
             secrets=api_secrets,
-            port_mappings=[ecs.PortMapping(container_port=8000, name="api-port")],
+            port_mappings=[ecs.PortMapping(container_port=8000, name="api")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-api", log_group=log_group
             ),
@@ -466,12 +466,7 @@ class TracecatEngineStack(Stack):
             task_definition=api_task_definition,
             security_groups=[api_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[
-                    ecs.ServiceConnectService(
-                        port_mapping_name="api-port",
-                        discovery_name="api",
-                    )
-                ]
+                services=[ecs.ServiceConnectService(port_mapping_name="api")]
             ),
         )
         # API target group
@@ -519,7 +514,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=runner_env,
             secrets=runner_secrets,
-            port_mappings=[ecs.PortMapping(container_port=8001, name="runner-port")],
+            port_mappings=[ecs.PortMapping(container_port=8001, name="runner")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-runner", log_group=log_group
             ),
@@ -541,12 +536,7 @@ class TracecatEngineStack(Stack):
             # Attach the security group to your ECS service
             security_groups=[runner_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[
-                    ecs.ServiceConnectService(
-                        port_mapping_name="runner-port",
-                        discovery_name="runner",
-                    )
-                ]
+                services=[ecs.ServiceConnectService(port_mapping_name="runner")]
             ),
         )
         # Runner target group
@@ -589,7 +579,7 @@ class TracecatEngineStack(Stack):
             memory_limit_mib=MEMORY_LIMIT_MIB,
             environment=shared_env,
             secrets=shared_secrets,
-            port_mappings=[ecs.PortMapping(container_port=8002, name="scheduler-port")],
+            port_mappings=[ecs.PortMapping(container_port=8002, name="scheduler")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="tracecat-scheduler", log_group=log_group
             ),
@@ -603,12 +593,7 @@ class TracecatEngineStack(Stack):
             task_definition=scheduler_task_definition,
             security_groups=[scheduler_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[
-                    ecs.ServiceConnectService(
-                        port_mapping_name="scheduler-port",
-                        discovery_name="scheduler",
-                    )
-                ]
+                services=[ecs.ServiceConnectService(port_mapping_name="scheduler")]
             ),
         )
 
@@ -686,7 +671,7 @@ class TracecatEngineStack(Stack):
             cpu=256,
             memory_limit_mib=512,
             secrets=rabbitmq_secrets,
-            port_mappings=[ecs.PortMapping(container_port=5672, name="rabbitmq-port")],
+            port_mappings=[ecs.PortMapping(container_port=5672, name="rabbitmq")],
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="rabbitmq", log_group=log_group
             ),
@@ -706,12 +691,7 @@ class TracecatEngineStack(Stack):
             task_definition=rabbitmq_task_definition,
             security_groups=[rabbitmq_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
-                services=[
-                    ecs.ServiceConnectService(
-                        port_mapping_name="rabbitmq-port",
-                        discovery_name="rabbitmq",
-                    )
-                ]
+                services=[ecs.ServiceConnectService(port_mapping_name="rabbitmq")]
             ),
         )
 
