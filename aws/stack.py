@@ -9,7 +9,6 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_secretsmanager as secretsmanager
-from aws_cdk import aws_servicediscovery as servicediscovery
 from aws_cdk.aws_certificatemanager import Certificate
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
@@ -46,10 +45,8 @@ class TracecatEngineStack(Stack):
         cluster_name = f"tracecat-ecs-cluster-{TRACECAT__APP_ENV}"
         vpc = ec2.Vpc(self, "Vpc", vpc_name=vpn_name)
         cluster = ecs.Cluster(self, "Cluster", cluster_name=cluster_name, vpc=vpc)
-
-        # Private DNS
-        dns_namespace = servicediscovery.PrivateDnsNamespace(
-            self, "PrivateDnsNamespace", vpc=vpc, name="tracecat.local"
+        cluster.add_default_cloud_map_namespace(
+            name="tracecat.local", vpc=vpc, use_for_service_connect=True
         )
 
         # Get hosted zone and certificate (created from AWS console)
@@ -467,8 +464,8 @@ class TracecatEngineStack(Stack):
             # Attach the security group to your ECS service
             task_definition=api_task_definition,
             security_groups=[api_security_group],
-            cloud_map_options=ecs.CloudMapOptions(
-                name="api", cloud_map_namespace=dns_namespace
+            service_connect_configuration=ecs.ServiceConnectProps(
+                services=[ecs.ServiceConnectService(port_mapping_name="api-port")]
             ),
         )
         # API target group
@@ -533,11 +530,12 @@ class TracecatEngineStack(Stack):
             self,
             "TracecatRunnerFargateService",
             cluster=cluster,
+            service_name="tracecat-runner",
             task_definition=runner_task_definition,
             # Attach the security group to your ECS service
             security_groups=[runner_security_group],
-            cloud_map_options=ecs.CloudMapOptions(
-                name="runner", cloud_map_namespace=dns_namespace
+            service_connect_configuration=ecs.ServiceConnectProps(
+                services=[ecs.ServiceConnectService(port_mapping_name="runner-port")]
             ),
         )
         # Runner target group
@@ -592,8 +590,8 @@ class TracecatEngineStack(Stack):
             cluster=cluster,
             task_definition=scheduler_task_definition,
             security_groups=[scheduler_security_group],
-            cloud_map_options=ecs.CloudMapOptions(
-                name="scheduler", cloud_map_namespace=dns_namespace
+            service_connect_configuration=ecs.ServiceConnectProps(
+                services=[ecs.ServiceConnectService(port_mapping_name="scheduler-port")]
             ),
         )
 
@@ -688,8 +686,8 @@ class TracecatEngineStack(Stack):
             cluster=cluster,
             task_definition=rabbitmq_task_definition,
             security_groups=[rabbitmq_security_group],
-            cloud_map_options=ecs.CloudMapOptions(
-                name="rabbitmq", cloud_map_namespace=dns_namespace
+            service_connect_configuration=ecs.ServiceConnectProps(
+                services=[ecs.ServiceConnectService(port_mapping_name="rabbitmq-port")]
             ),
         )
         rabbitmq_container.add_port_mappings(
