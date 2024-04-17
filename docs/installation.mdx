@@ -31,12 +31,12 @@ Run the command below to start Tracecat and all related services.
 git clone git@github.com:TracecatHQ/tracecat.git
 cd tracecat
 chmod +x services.sh
-bash services.sh start
+bash services.sh start --env prod
 ```
 
 <Note>
-  You can run `bash services.sh start --tail` to view the logs of all services
-  in real-time.
+  You can run `bash services.sh start --env prod --tail` to view the logs of all
+  services in real-time.
 </Note>
 
 You'll be prompted to enter your public facing Runner URL (you can set one up using ngrok), OpenAI API key, and Resend API key.
@@ -95,7 +95,7 @@ You can view the API docs at `http://localhost:8000/docs` and the runner docs at
 To spin down all services, run the following command:
 
 ```bash
-bash services.sh stop
+bash services.sh stop --env prod
 ```
 
 If you'd like to spin down specific services, you can pass additional options as such:
@@ -108,6 +108,11 @@ bash services.sh stop --supabase # or -s, Stops Supabase services
 ## Restarting services
 
 Running `bash services.sh start` will restart all services if they are already running.
+
+## Runtime environment configuration
+
+Note that we've been passing `--env prod` flag to the `services.sh` script. This is to avoid having to install `npm` and `pnpm` on the host machine.
+If you'd like to make code contributions or run the services in development mode, use `--env dev` instead or don't pass an environment flag (runs as `dev` by default).
 
 ## Troubldshooting
 
