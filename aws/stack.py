@@ -71,8 +71,8 @@ class TracecatEngineStack(Stack):
             shared_env = {
                 "TRACECAT__APP_ENV": TRACECAT__APP_ENV,
                 # Use http and internal DNS for internal communication
-                "TRACECAT__API_URL": "http://api.tracecat.local:80",
-                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:80",
+                "TRACECAT__API_URL": "http://api.tracecat.local:8000",
+                "TRACECAT__RUNNER_URL": "http://runner.tracecat.local:8001",
             }
         else:
             shared_env = {"TRACECAT__APP_ENV": TRACECAT__APP_ENV}
@@ -415,7 +415,6 @@ class TracecatEngineStack(Stack):
             port_mappings=[
                 ecs.PortMapping(
                     container_port=8000,
-                    host_port=80,
                     name="api",
                     app_protocol=ecs.AppProtocol.http,
                 )
@@ -492,7 +491,6 @@ class TracecatEngineStack(Stack):
             port_mappings=[
                 ecs.PortMapping(
                     container_port=8001,
-                    host_port=80,
                     name="runner",
                     app_protocol=ecs.AppProtocol.http,
                 )
@@ -564,7 +562,6 @@ class TracecatEngineStack(Stack):
             port_mappings=[
                 ecs.PortMapping(
                     container_port=8002,
-                    host_port=80,
                     name="scheduler",
                     app_protocol=ecs.AppProtocol.http,
                 )
