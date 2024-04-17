@@ -437,7 +437,7 @@ class TracecatEngineStack(Stack):
                     container_port=8000,
                     host_port=80,
                     name="api",
-                    app_protocol=ecs.Protocol.HTTP,
+                    app_protocol=ecs.AppProtocol.http,
                 )
             ],
             logging=ecs.LogDrivers.aws_logs(
@@ -514,7 +514,7 @@ class TracecatEngineStack(Stack):
                     container_port=8001,
                     host_port=80,
                     name="runner",
-                    app_protocol=ecs.Protocol.HTTP,
+                    app_protocol=ecs.AppProtocol.http,
                 )
             ],
             logging=ecs.LogDrivers.aws_logs(
@@ -586,7 +586,7 @@ class TracecatEngineStack(Stack):
                     container_port=8002,
                     host_port=80,
                     name="scheduler",
-                    app_protocol=ecs.Protocol.HTTP,
+                    app_protocol=ecs.AppProtocol.http,
                 )
             ],
             logging=ecs.LogDrivers.aws_logs(
