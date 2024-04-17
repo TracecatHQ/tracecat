@@ -206,6 +206,9 @@ class SearchSecretsParams(BaseModel):
 
 
 class CaseParams(BaseModel):
+    id: str
+    owner_id: str
+    workflow_id: str
     title: str
     payload: dict[str, Any]
     malice: Literal["malicious", "benign"]
@@ -214,6 +217,8 @@ class CaseParams(BaseModel):
     context: dict[str, str] | str | None = None
     action: str | None = None
     suppression: dict[str, bool] | None = None
+    created_at: str  # ISO 8601
+    updated_at: str  # ISO 8601
 
 
 class CaseActionParams(BaseModel):
