@@ -1,3 +1,4 @@
+# Base compose file
 version: "3.8"
 services:
   api:
@@ -106,10 +107,6 @@ services:
     env_file: .env
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/.next:/app/.next
-      - ./frontend/node_modules:/app/node_modules
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}

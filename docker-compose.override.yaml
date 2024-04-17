@@ -1,0 +1,12 @@
+# Overrides for dev environment
+# This should automatically override the docker-compose.yaml file
+# `docker-compose -f docker-compose.yaml -f docker-compose.prod.yaml up`
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: frontend
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+      - ./frontend/node_modules:/app/node_modules

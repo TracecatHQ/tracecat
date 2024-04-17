@@ -1,0 +1,10 @@
+# Overrides for prod environment
+# Merge this into the main docker-compose.yaml file using
+# `docker-compose -f docker-compose.yaml -f docker-compose.prod.yaml up`
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: frontend
+    volumes:
+      - ./frontend/src:/app/src
