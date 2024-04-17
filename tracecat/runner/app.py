@@ -180,17 +180,19 @@ def check_health() -> dict[str, str]:
 
 
 @app.get("/health/api")
-async def check_runner_health() -> dict[str, str]:
-    service_role = Role(type="service", user_id="internal", service_id="tracecat-api")
+async def check_api_health() -> dict[str, str]:
+    service_role = Role(
+        type="service", user_id="internal", service_id="tracecat-runner"
+    )
     async with AuthenticatedAPIClient(role=service_role) as client:
         response = await client.get("/health")
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error checking runner health: {e}", exc_info=True)
+            logger.error(f"Error checking API health: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error checking runner health",
+                detail="Error checking API health",
             ) from e
         else:
             return {"message": "API is healthy"}
