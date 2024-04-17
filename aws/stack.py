@@ -194,18 +194,6 @@ class TracecatEngineStack(Stack):
             connection=ec2.Port.tcp(8001),
             description="Allow traffic from API to Runner",
         )
-        # Egress rules for API and runner
-        api_security_group.add_egress_rule(
-            peer=runner_security_group,
-            connection=ec2.Port.tcp(8001),  # Assuming the Runner listens on 8001
-            description="Allow API to initiate traffic to the Runner",
-        )
-
-        runner_security_group.add_egress_rule(
-            peer=api_security_group,
-            connection=ec2.Port.tcp(8000),  # Assuming the API listens on 8000
-            description="Allow Runner to initiate traffic to the API",
-        )
 
         # 4. Scheduler security group
         scheduler_security_group = ec2.SecurityGroup(
