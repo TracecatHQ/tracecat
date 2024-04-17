@@ -461,6 +461,7 @@ class TracecatEngineStack(Stack):
             self,
             "TracecatApiFargateService",
             cluster=cluster,
+            service_name="tracecat-api",
             # Attach the security group to your ECS service
             task_definition=api_task_definition,
             security_groups=[api_security_group],
@@ -588,6 +589,7 @@ class TracecatEngineStack(Stack):
             self,
             "TracecatSchedulerFargateService",
             cluster=cluster,
+            service_name="tracecat-scheduler",
             task_definition=scheduler_task_definition,
             security_groups=[scheduler_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
@@ -685,6 +687,7 @@ class TracecatEngineStack(Stack):
             self,
             "RabbitMqFargateService",
             cluster=cluster,
+            service_name="rabbitmq",
             task_definition=rabbitmq_task_definition,
             security_groups=[rabbitmq_security_group],
             service_connect_configuration=ecs.ServiceConnectProps(
