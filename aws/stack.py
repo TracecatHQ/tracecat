@@ -175,54 +175,44 @@ class TracecatEngineStack(Stack):
         # 3. API and runner ingress / egress rules
         api_security_group.add_ingress_rule(
             peer=alb_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow HTTP traffic from the ALB",
+            connection=ec2.Port.tcp(8000),
+            description="Allow HTTP traffic from the ALB to API",
         )
         runner_security_group.add_ingress_rule(
             peer=alb_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow HTTP traffic from the ALB",
+            connection=ec2.Port.tcp(8001),
+            description="Allow HTTP traffic from the ALB to Runner",
         )
-        # Ingress rules for API and Runner
+        # Internal communication rules
         api_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow traffic from Runner to API",
+            connection=ec2.Port.tcp(8001),
+            description="Allow traffic from Runner to API on port 8001",
         )
         runner_security_group.add_ingress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow traffic from API to Runner",
+            connection=ec2.Port.tcp(8000),
+            description="Allow traffic from API to Runner on port 8000",
         )
 
-        # 4. Scheduler security group
+        # 4. Scheduler Security Group
         scheduler_security_group = ec2.SecurityGroup(
             self,
             "SchedulerSecurityGroup",
             vpc=vpc,
             description="Security group for Scheduler service",
         )
+        # Assume Scheduler listens on a port, let's say 8002
         # Allow Scheduler to receive traffic from API and Runner
         scheduler_security_group.add_ingress_rule(
             peer=api_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow traffic from API to Scheduler",
+            connection=ec2.Port.tcp(8002),
+            description="Allow traffic from API to Scheduler on port 8002",
         )
         scheduler_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow traffic from Runner to Scheduler",
-        )
-        # Allow Scheduler to send traffic to API and Runner
-        scheduler_security_group.add_egress_rule(
-            peer=api_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow Scheduler to connect to API",
-        )
-        scheduler_security_group.add_egress_rule(
-            peer=runner_security_group,
-            connection=ec2.Port.tcp(80),
-            description="Allow Scheduler to connect to Runner",
+            connection=ec2.Port.tcp(8002),
+            description="Allow traffic from Runner to Scheduler on port 8002",
         )
 
         # 5. RabbitMQ security group
@@ -231,16 +221,6 @@ class TracecatEngineStack(Stack):
             "RabbitmqSecurityGroup",
             vpc=vpc,
             description="Security group for RabbitMQ service",
-        )
-        api_security_group.add_egress_rule(
-            peer=rabbitmq_security_group,
-            connection=ec2.Port.tcp(5672),
-            description="Allow API to connect to RabbitMQ on AMQP port",
-        )
-        runner_security_group.add_egress_rule(
-            peer=rabbitmq_security_group,
-            connection=ec2.Port.tcp(5672),
-            description="Allow Runner to connect to RabbitMQ on AMQP port",
         )
         rabbitmq_security_group.add_ingress_rule(
             peer=api_security_group,
