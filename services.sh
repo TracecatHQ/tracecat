@@ -15,10 +15,17 @@ else
     NC='\033[0m' # No Color
 fi
 
-# Initial COMMAND setup for docker compose
-DOCKER_COMPOSE_UP_FLAGS=""
+# Start services flags
+DOCKER_COMPOSE_UP_FLAGS=
+DOCKER_COMPOSE_COMMAND=
 TAIL_LOGS=false
 BUILD_SERVICES=false
+ENVIRONMENT="dev"
+
+# Stop services flags
+# Remove all by default
+REMOVE_INTERNAL=true
+REMOVE_SUPABASE=true
 
 dotenv_replace() {
     local env_var_name=$1
@@ -38,6 +45,22 @@ dotenv_replace() {
     eval sed $sed_option "s$delimiter^${env_var_name}=.*$delimiter${env_var_name}=${new_value}$delimiter" $file_path
 }
 
+set_docker_compose_command() {
+    case $ENVIRONMENT in
+        dev)
+            DOCKER_COMPOSE_COMMAND="docker compose"
+            ;;
+        prod)
+            DOCKER_COMPOSE_COMMAND="docker compose -f docker-compose.yaml -f docker-compose.prod.yaml"
+            ;;
+        *)
+            echo -e "${RED}Invalid environment '${ENVIRONMENT}' specified. Please use 'dev' or 'prod'.${NC}"
+            exit 1
+            ;;
+    esac
+    echo -e "${YELLOW}Using command '$DOCKER_COMPOSE_COMMAND'.${NC}"
+}
+
 # Function to handle start command
 start_services() {
     # Check for --tail flag in subsequent arguments. If not present, start services in detached mode.
@@ -49,7 +72,6 @@ start_services() {
     if $BUILD_SERVICES; then
         DOCKER_COMPOSE_UP_FLAGS+=" --build"
     fi
-
 
     echo -e "${YELLOW}Starting Tracecat application setup...${NC}"
 
@@ -150,7 +172,7 @@ start_services() {
 
 
     echo -e "${YELLOW}Starting Tracecat services with docker compose flags '$DOCKER_COMPOSE_UP_FLAGS'.${NC}"
-    if docker compose down --remove-orphans && docker compose up $DOCKER_COMPOSE_UP_FLAGS; then
+    if $DOCKER_COMPOSE_COMMAND down --remove-orphans && $DOCKER_COMPOSE_COMMAND up $DOCKER_COMPOSE_UP_FLAGS; then
         echo -e "${GREEN}Tracecat local development setup started successfully.${NC}"
         echo -e "${BLUE}API URL:${NC} http://localhost:8000"
         echo -e "${BLUE}Runner URL:${NC} http://localhost:8001"
@@ -162,9 +184,7 @@ start_services() {
     echo -e "${GREEN}Tracecat local development setup is complete.${NC}"
 }
 
-# Remove all by default
-REMOVE_INTERNAL=true
-REMOVE_SUPABASE=true
+
 # Function to handle stop command
 stop_services() {
     if [ $REMOVE_INTERNAL = true ]; then
@@ -194,36 +214,29 @@ shift # Remove the first argument, leaving any additional arguments
 # Execute based on the action
 case $ACTION in
     start)
-        # Parse additional arguments
-        for arg in "$@"
-        do
-            case $arg in
-                --tail|-t)
-                TAIL_LOGS=true
-                ;;
-            esac
-            case $arg in
-                --build|-b)
-                BUILD_SERVICES=true
-                ;;
+        while true; do
+            case "$1" in
+                -t | --tail ) TAIL_LOGS=true; shift ;;
+                -b | --build ) BUILD_SERVICES=true; shift ;;
+                -e | --env ) ENVIRONMENT="$2"; shift 2 ;;
+                * ) break ;;
             esac
         done
+        echo -e "${YELLOW}Environment: $ENVIRONMENT${NC}"
+        set_docker_compose_command
         start_services
         ;;
     stop)
-        for arg in "$@"
-        do
-            case $arg in
-                --supabase|-s)
-                REMOVE_INTERNAL=false
-                ;;
-            esac
-            case $arg in
-                --internal|-i)
-                REMOVE_SUPABASE=false
-                ;;
+        while true; do
+            case "$1" in
+                -s | --supabase ) REMOVE_INTERNAL=false; shift ;;
+                -i | --internal ) REMOVE_SUPABASE=false; shift ;;
+                -e | --env ) ENVIRONMENT="$2"; shift 2 ;;
+                * ) break ;;
             esac
         done
+        echo -e "${YELLOW}Environment: $ENVIRONMENT${NC}"
+        set_docker_compose_command
         stop_services
         ;;
     *)
