@@ -59,6 +59,12 @@ For example, if your ngrok domain is `your-grnok-domain.ngrok-free.app`, start n
 ngrok http --domain=your-ngrok-domain.ngrok-free.app 8001
 ```
 
+If you don't have a static domain, you can use a free ephermeral domain by running:
+
+```bash
+ngrok http http://localhost:8001
+```
+
 <Note>
   Binding ngrok to port 8001 on the host machine forwards the runner server to
   the internet and enables incoming webhooks.
