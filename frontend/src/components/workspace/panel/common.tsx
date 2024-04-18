@@ -1,6 +1,6 @@
 import React from "react"
 import { CopyIcon } from "@radix-ui/react-icons"
-import { Trash2Icon } from "lucide-react"
+import { PlusCircle, Trash2Icon } from "lucide-react"
 import {
   ArrayPath,
   FieldPath,
@@ -338,4 +338,101 @@ function getParser(inputOption: ActionFieldOption): (value: string) => any {
     default:
       return (value: string) => value
   }
+}
+
+interface ActionFormKVArrayProps<T extends FieldValues>
+  extends ActionFormFieldProps<T> {
+  keyName?: string
+  valueName?: string
+  isPassword?: boolean
+}
+
+export function ActionFormFlatKVArray<T extends FieldValues>({
+  inputKey,
+  inputOption,
+  defaultValue,
+  // Extra
+  keyName = "key",
+  valueName = "value",
+  isPassword = false,
+}: ActionFormKVArrayProps<T>) {
+  const { control, register } = useFormContext<T>()
+  const typedKey = inputKey as FieldPath<T>
+  const { fields, append, remove } = useFieldArray<T>({
+    control,
+    name: inputKey as ArrayPath<T>,
+  })
+  const valueProps = isPassword ? { type: "password" } : {}
+  // If it's not an optional field, add a default value to the array
+
+  return (
+    <FormField
+      key={inputKey}
+      control={control}
+      name={typedKey}
+      render={({ field }) => (
+        <FormItem>
+          <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
+          <div className="flex flex-col space-y-2">
+            {fields.map((field, index) => {
+              return (
+                <div
+                  key={`${field.id}.${index}`}
+                  className="flex w-full items-center gap-2"
+                >
+                  <FormControl>
+                    <Input
+                      id={`key-${index}`}
+                      className="text-sm"
+                      // @ts-ignore
+                      {...register(`${inputKey}.${index}.${keyName}` as const, {
+                        required: true,
+                      })}
+                      placeholder={keyName}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <Input
+                      id={`value-${index}`}
+                      className="text-sm"
+                      {...register(
+                        // @ts-ignore
+                        `${inputKey}.${index}.${valueName}` as const,
+                        {
+                          required: true,
+                        }
+                      )}
+                      placeholder={valueName}
+                      {...valueProps}
+                    />
+                  </FormControl>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={DELETE_BUTTON_STYLE}
+                    onClick={() => remove(index)}
+                    // If this field is optional, enable the delete button
+                    disabled={!inputOption.optional && fields.length === 1}
+                  >
+                    <Trash2Icon className="size-3.5" />
+                  </Button>
+                </div>
+              )
+            })}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => append(defaultValue as TDefaultValue<T>)}
+              className="space-x-2 text-xs"
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Item
+            </Button>
+          </div>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
 }

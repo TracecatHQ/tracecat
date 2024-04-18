@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import { ActionType, NodeType } from "@/types/schemas"
-import { stringArray, stringToJSONSchema } from "@/types/validators"
+import { stringArray, stringToJSONSchema, tagSchema } from "@/types/validators"
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
@@ -97,6 +97,7 @@ const OpenCaseActionSchema = z.object({
   context: stringToJSONSchema.optional(),
   action: z.string().optional(),
   suppression: stringToJSONSchema.optional(),
+  tags: z.array(tagSchema),
 })
 export const baseActionSchema = z.object({
   title: z.string().min(1, { message: "Title cannot be empty" }),
@@ -104,7 +105,13 @@ export const baseActionSchema = z.object({
 })
 export type BaseActionForm = z.infer<typeof baseActionSchema>
 
-export type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
+export type ActionFieldType =
+  | "input"
+  | "select"
+  | "textarea"
+  | "json"
+  | "array"
+  | "flat-kv"
 export interface ActionFieldOption {
   type: ActionFieldType
   inputType?: React.HTMLInputTypeAttribute
@@ -301,6 +308,11 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
       type: "json",
       optional: true,
       placeholder: "An optional JSON object containing suppression rules.",
+    },
+    tags: {
+      type: "flat-kv",
+      optional: true,
+      placeholder: "Tags with values to label the case.",
     },
   },
 }

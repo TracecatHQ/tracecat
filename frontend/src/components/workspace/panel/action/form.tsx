@@ -40,6 +40,7 @@ import {
 } from "@/components/workspace/panel/action/schemas"
 import {
   ActionFormArray,
+  ActionFormFlatKVArray,
   ActionFormInputs,
   ActionFormJSON,
   ActionFormSelect,
@@ -307,6 +308,15 @@ export function ActionForm({
                           return (
                             <ActionFormArray<Schema>
                               key={inputKey}
+                              {...common}
+                            />
+                          )
+                        case "flat-kv":
+                          return (
+                            <ActionFormFlatKVArray<Schema>
+                              key={inputKey}
+                              keyName="tag"
+                              valueName="value"
                               {...common}
                             />
                           )
