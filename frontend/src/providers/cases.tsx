@@ -22,6 +22,10 @@ interface CasesContextType {
   setCases: React.Dispatch<SetStateAction<Case[]>>
   isLoading: boolean
   commitCases: () => void
+  isCommitable: boolean
+  setIsCommitable: React.Dispatch<SetStateAction<boolean>>
+  isCommitting: boolean
+  setIsCommitting: React.Dispatch<SetStateAction<boolean>>
 }
 const CasesContext = createContext<CasesContextType | undefined>(undefined)
 
@@ -31,6 +35,8 @@ export default function CasesProvider({
   const session = useSession()
   const [cases, setCases] = useState<Case[]>([])
   const { workflowId } = useWorkflowMetadata()
+  const [isCommitable, setIsCommitable] = useState(false)
+  const [isCommitting, setIsCommitting] = useState(false)
   const queryClient = useQueryClient()
   if (!workflowId) {
     console.error(`Non-existent workflow ${workflowId}, cannot load cases`)
@@ -44,7 +50,7 @@ export default function CasesProvider({
     },
   })
 
-  const { mutate } = useMutation({
+  const { mutateAsync } = useMutation({
     mutationFn: () => updateCases(session, workflowId, cases),
     onSuccess: (data, variables, context) => {
       toast({
@@ -52,6 +58,7 @@ export default function CasesProvider({
         description: "successfully committed changes.",
       })
       queryClient.invalidateQueries({ queryKey: ["cases"] })
+      setIsCommitable(false)
     },
     onError: (error, variables, context) => {
       console.error("Failed to update cases:", error)
@@ -59,6 +66,7 @@ export default function CasesProvider({
         title: "Failed to update cases",
         description: "An error occurred while committing changes to the cases.",
       })
+      setIsCommitting(false)
     },
   })
 
@@ -66,13 +74,26 @@ export default function CasesProvider({
     setCases(data || [])
   }, [data])
 
+  const commitChanges = async () => {
+    setIsCommitting(() => true)
+    try {
+      await mutateAsync()
+    } finally {
+      setIsCommitting(() => false)
+    }
+  }
+
   return (
     <CasesContext.Provider
       value={{
         cases,
         setCases,
         isLoading,
-        commitCases: mutate,
+        commitCases: commitChanges,
+        isCommitable,
+        setIsCommitable,
+        isCommitting,
+        setIsCommitting,
       }}
     >
       {children}
