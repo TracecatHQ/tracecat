@@ -5,6 +5,7 @@ import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { Case } from "@/types/schemas"
+import { Card, CardContent, CardDescription } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -18,6 +19,8 @@ import { Separator } from "@/components/ui/separator"
 import { SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { StatusBadge } from "@/components/badges"
 import { statuses } from "@/components/cases/data/categories"
+import NoContent from "@/components/no-content"
+import { ShallowKVTable } from "@/components/shallow-kv-table"
 
 type TStatus = (typeof statuses)[number]
 
@@ -34,13 +37,11 @@ export function CasePanelContent({
     payload,
     context,
     status: caseStatus,
+    action,
   },
 }: CasePanelContentProps) {
   const currentStatus = statuses.find((status) => status.value === caseStatus)
   const renderedPayload = JSON.stringify(payload, null, 2)
-  const renderedContext = context
-    ? JSON.stringify(context, null, 2)
-    : "No context available"
 
   return (
     <div className="flex flex-col space-y-4 overflow-auto">
@@ -58,21 +59,42 @@ export function CasePanelContent({
         </div>
       </SheetHeader>
       <Separator />
-      <div className="flex flex-col space-y-4 text-sm">
-        <div className="flex flex-col space-y-2">
+      <div className="space-y-4 text-sm">
+        <div className="space-y-2">
           <h5 className="text-xs font-semibold">Payload</h5>
           <CodeContent data={renderedPayload} />
         </div>
-        <div className="flex flex-col space-y-2">
+        <div className="space-y-2">
           <h5 className="text-xs font-semibold">Context</h5>
-          <pre>
-            <CodeContent data={renderedContext} />
-          </pre>
+          <Card className="p-4 shadow-sm">
+            <TagsTable context={context} />
+          </Card>
         </div>
-        <h5 className="text-xs font-semibold">Actions</h5>
+        <div className="space-y-2">
+          <h5 className="text-xs font-semibold">Actions</h5>
+          <Card>
+            <CardContent className="mt-4 text-xs">{action}</CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )
+}
+
+function TagsTable({
+  context,
+}: {
+  context: string | Record<string, string> | null
+}) {
+  if (!context) {
+    return <NoContent message="No context available" />
+  }
+
+  if (typeof context === "string") {
+    return <CardDescription>{context}</CardDescription>
+  }
+
+  return <ShallowKVTable keyName="Key" valueName="Value" data={context} />
 }
 
 function CaseStatusSelect({ status }: { status?: TStatus }) {
@@ -105,6 +127,7 @@ function CodeContent({ data }: { data: string }) {
     <SyntaxHighlighter
       language="json"
       style={atomOneDark}
+      showLineNumbers
       wrapLines
       customStyle={{
         width: "100%",
@@ -115,7 +138,7 @@ function CodeContent({ data }: { data: string }) {
         className:
           "text-xs text-background rounded-md max-w-full overflow-auto",
       }}
-      className="w-full max-w-full overflow-auto rounded-md p-4"
+      className="no-scrollbar w-full max-w-full overflow-auto rounded-md p-4"
     >
       {data}
     </SyntaxHighlighter>
