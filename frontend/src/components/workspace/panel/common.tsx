@@ -110,17 +110,17 @@ export function ActionFormLabel<T extends FieldValues>({
     </FormLabel>
   )
 }
-interface ActionFormFieldProps {
+interface ActionFormFieldProps<T extends FieldValues> {
   inputKey: string
   inputOption: ActionFieldOption
-  defaultValue?: string
+  defaultValue?: T[keyof T]
 }
 
 export function ActionFormTextarea<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   return (
@@ -134,7 +134,7 @@ export function ActionFormTextarea<T extends FieldValues>({
           <FormControl>
             <Textarea
               {...field}
-              value={watch(typedKey, defaultValue as TDefaultValue<T>)}
+              value={watch(typedKey, defaultValue)}
               className="min-h-48 text-xs"
               placeholder={inputOption.placeholder ?? "Input text here..."}
             />
@@ -149,8 +149,8 @@ export function ActionFormTextarea<T extends FieldValues>({
 export function ActionFormSelect<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   const parser = getParser(inputOption)
@@ -164,7 +164,7 @@ export function ActionFormSelect<T extends FieldValues>({
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <FormControl>
             <Select
-              value={String(watch(typedKey, defaultValue as TDefaultValue<T>))} // Ensure the Select component uses the current field value
+              value={String(watch(typedKey, defaultValue))} // Ensure the Select component uses the current field value
               defaultValue={defaultValue} // Set the default value from the fetched action data
               onValueChange={(value: string) => {
                 field.onChange(parser(value))
@@ -192,8 +192,8 @@ export function ActionFormSelect<T extends FieldValues>({
 export function ActionFormJSON<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   return (
@@ -208,7 +208,7 @@ export function ActionFormJSON<T extends FieldValues>({
             <pre>
               <Textarea
                 {...field}
-                value={watch(typedKey, defaultValue as TDefaultValue<T>)}
+                value={watch(typedKey, defaultValue)}
                 className="min-h-48 text-xs"
                 placeholder={inputOption.placeholder ?? "Input JSON here..."}
               />
@@ -224,8 +224,8 @@ export function ActionFormJSON<T extends FieldValues>({
 export function ActionFormArray<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch, register } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
 
@@ -293,8 +293,8 @@ export function ActionFormArray<T extends FieldValues>({
 export function ActionFormInputs<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   const parser = getParser(inputOption)
@@ -309,7 +309,7 @@ export function ActionFormInputs<T extends FieldValues>({
           <FormControl>
             <Input
               {...field}
-              value={watch(typedKey, defaultValue as TDefaultValue<T>)}
+              value={watch(typedKey, defaultValue)}
               className="text-xs"
               placeholder={inputOption.placeholder ?? "Input text here..."}
               disabled={inputOption.disabled}
