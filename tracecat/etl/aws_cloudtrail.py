@@ -25,6 +25,7 @@ logger = standard_logger("runner.aws_cloudtrail")
 
 
 AWS_CLOUDTRAIL__TRIAGE_DIR = TRACECAT__TRIAGE_DIR / "aws_cloudtrail"
+# NOTE: account_id = organization_id / account_id if organization_id is present
 AWS_CLOUDTRAIL__S3_PREFIX_FORMAT = (
     "AWSLogs/{account_id}/CloudTrail/{region}/{year}/{month:02d}/{day:02d}/"
 )
@@ -59,8 +60,11 @@ def _list_cloudtrail_objects_under_prefix(
     account_id: str,
     date_range: pl.Series,
     regions: list[str],
+    organization_id: str | None = None,
 ) -> list[str]:
     nested_object_names = []
+    if organization_id:
+        account_id = f"{organization_id}/{account_id}"
     for region in regions:
         # List all relevant prefixes given dates in date range
         prefixes = iter(
@@ -148,6 +152,7 @@ def load_cloudtrail_logs(
     start: datetime,
     end: datetime,
     regions: list[str] | None = None,
+    organization_id: str | None = None,
 ) -> list[dict]:
     regions = regions or _get_aws_regions()
     logger.info(
@@ -163,6 +168,7 @@ def load_cloudtrail_logs(
     )
     object_names = _list_cloudtrail_objects_under_prefix(
         bucket_name=bucket_name,
+        organization_id=organization_id,
         account_id=account_id,
         date_range=date_range,
         regions=regions,
