@@ -34,6 +34,7 @@ import {
 } from "@/components/new-credential-dialog"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
+import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 export default function CredentialsPage() {
   const session = useSession()
@@ -136,11 +137,7 @@ function SecretsTable({
             description="Are you sure you want to delete this secret? This action cannot be undone."
             onConfirm={() => deleteFn(secret)}
           >
-            <Button
-              size="sm"
-              variant="ghost"
-              className="border border-red-500/70 bg-red-500/10 text-red-500/80 hover:bg-red-500/20 hover:text-red-500"
-            >
+            <Button size="sm" variant="ghost" className={DELETE_BUTTON_STYLE}>
               <Trash2Icon className="size-3.5" />
             </Button>
           </ConfirmationDialog>

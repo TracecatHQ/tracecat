@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ActionFieldOption } from "@/components/workspace/panel/action/schemas"
+import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 export function processInputs(
   inputs: Record<string, any>
@@ -268,7 +269,7 @@ export function ActionFormArray<T extends FieldValues>({
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="border border-red-500/70 bg-red-500/10 text-red-500/70 hover:bg-red-500/20 hover:text-red-500"
+                    className={DELETE_BUTTON_STYLE}
                     onClick={() => remove(index)}
                   >
                     <Trash2Icon className="size-4" />

@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 interface NewCredentialsDialogProps
   extends PropsWithChildren<
@@ -203,7 +204,7 @@ export function NewCredentialsDialog({
                             <Button
                               type="button"
                               variant="ghost"
-                              className="border border-red-500/70 bg-red-500/10 text-red-500/80 hover:bg-red-500/20 hover:text-red-500"
+                              className={DELETE_BUTTON_STYLE}
                               onClick={() => remove(index)}
                               disabled={fields.length === 1}
                             >
