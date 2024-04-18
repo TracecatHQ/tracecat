@@ -253,10 +253,43 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Suppression" />
     ),
     cell: ({ row }) => {
+      const suppression = row.getValue<Case["suppression"]>("suppression")
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {JSON.stringify(row.getValue<Case["suppression"]>("suppression"))}
+            {suppression ? JSON.stringify(suppression) : "No suppression"}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "tags",
+    header: ({ column }) => (
+      <DataTableColumnHeader
+        column={column}
+        title="Tags"
+        icon={
+          <Sparkles className="mr-1 h-3 w-3 animate-pulse fill-yellow-500 text-yellow-500" />
+        }
+      />
+    ),
+    cell: ({ row, table }) => {
+      const tags = row.getValue<Case["tags"]>("tags")
+      if (table.options.meta?.isProcessing && tags === null) {
+        return <LoadingCellState />
+      }
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
+            {/* tags is null or empty array */}
+            {tags && tags.length > 0
+              ? tags.map(({ tag, value }, idx) => (
+                  <Badge key={idx} variant="outline">
+                    {tag}: {value}
+                  </Badge>
+                ))
+              : "No tags"}
           </span>
         </div>
       )
