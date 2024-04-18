@@ -109,7 +109,11 @@ export const columns: ColumnDef<Case>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Created At" />
     ),
-    cell: ({ row }) => row.getValue<Case["created_at"]>("created_at"),
+    cell: ({ row }) => {
+      const dt = new Date(row.getValue<Case["created_at"]>("created_at"))
+      const strDt = `${dt.toLocaleDateString()}, ${dt.toLocaleTimeString()}`
+      return <span className="truncate text-xs">{strDt}</span>
+    },
     filterFn: (row, id, value) => {
       return value.includes(row.getValue<Case["id"]>(id))
     },
