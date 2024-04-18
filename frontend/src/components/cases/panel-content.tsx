@@ -41,7 +41,6 @@ export function CasePanelContent({
   },
 }: CasePanelContentProps) {
   const currentStatus = statuses.find((status) => status.value === caseStatus)
-  const renderedPayload = JSON.stringify(payload, null, 2)
 
   return (
     <div className="flex flex-col space-y-4 overflow-auto">
@@ -62,7 +61,7 @@ export function CasePanelContent({
       <div className="space-y-4 text-sm">
         <div className="space-y-2">
           <h5 className="text-xs font-semibold">Payload</h5>
-          <CodeContent data={renderedPayload} />
+          <CodeContent data={payload} />
         </div>
         <div className="space-y-2">
           <h5 className="text-xs font-semibold">Context</h5>
@@ -122,7 +121,7 @@ function CaseStatusSelect({ status }: { status?: TStatus }) {
   )
 }
 
-function CodeContent({ data }: { data: string }) {
+function CodeContent({ data }: { data: Record<string, string> }) {
   return (
     <SyntaxHighlighter
       language="json"
@@ -140,7 +139,7 @@ function CodeContent({ data }: { data: string }) {
       }}
       className="no-scrollbar w-full max-w-full overflow-auto rounded-md p-4"
     >
-      {data}
+      {JSON.stringify(data, null, 2)}
     </SyntaxHighlighter>
   )
 }
