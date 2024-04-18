@@ -205,9 +205,18 @@ class SearchSecretsParams(BaseModel):
     names: list[str]
 
 
+class Tag(BaseModel):
+    tag: str
+    value: str
+
+
 class CaseParams(BaseModel):
+    # SQLModel defaults
     id: str
     owner_id: str
+    created_at: str  # ISO 8601
+    updated_at: str  # ISO 8601
+    # Case related fields
     workflow_id: str
     title: str
     payload: dict[str, Any]
@@ -217,8 +226,7 @@ class CaseParams(BaseModel):
     context: dict[str, str] | str | None = None
     action: str | None = None
     suppression: dict[str, bool] | None = None
-    created_at: str  # ISO 8601
-    updated_at: str  # ISO 8601
+    tags: list[Tag] | None = None
 
 
 class CaseActionParams(BaseModel):
