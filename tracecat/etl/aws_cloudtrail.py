@@ -49,13 +49,13 @@ AWS_CLOUDTRAIL__JSON_FIELDS = [
 ]
 
 
-def _get_aws_regions() -> list[str]:
+def get_aws_regions() -> list[str]:
     session = botocore.session.get_session()
     available_regions = session.get_available_regions("ec2")
     return available_regions
 
 
-def _list_cloudtrail_objects_under_prefix(
+def list_cloudtrail_objects_under_prefix(
     bucket_name: str,
     account_id: str,
     date_range: pl.Series,
@@ -154,19 +154,19 @@ def load_cloudtrail_logs(
     regions: list[str] | None = None,
     organization_id: str | None = None,
 ) -> list[dict]:
-    regions = regions or _get_aws_regions()
+    regions = regions or get_aws_regions()
     logger.info(
         "📂 Download AWS CloudTrail logs from: account_id=%s, regions=%s",
         account_id,
         regions,
     )
-    date_range = pl.date_range(
-        start=start.date(),
-        end=end.date(),
+    date_range = pl.datetime_range(
+        start=start,
+        end=end,
         interval=timedelta(days=1),
         eager=True,
     )
-    object_names = _list_cloudtrail_objects_under_prefix(
+    object_names = list_cloudtrail_objects_under_prefix(
         bucket_name=bucket_name,
         organization_id=organization_id,
         account_id=account_id,
