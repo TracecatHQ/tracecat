@@ -140,6 +140,15 @@ export const suppressionSchema = z.object({
   result: z.string().min(1, "Please enter a template expression or boolean"),
 })
 
+export const caseActionTypes = [
+  "ignore",
+  "quarantine",
+  "informational",
+  "sinkhole",
+  "active_compromise",
+] as const
+export type CaseActionType = (typeof caseActionTypes)[number]
+
 export const caseSchema = z.object({
   // SQLModel metadata
   id: z.string(),
@@ -155,7 +164,7 @@ export const caseSchema = z.object({
   priority: z.enum(["low", "medium", "high", "critical"]),
   // This needs to be a union type because it's serialized as a string
   context: z.record(z.string()).nullable().or(z.string()),
-  action: z.string().nullable(),
+  action: z.enum(caseActionTypes),
   suppression: z.array(suppressionSchema).nullish().default([]),
   tags: z.array(tagSchema).nullish().default([]),
 })

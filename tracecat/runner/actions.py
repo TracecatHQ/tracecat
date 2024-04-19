@@ -312,7 +312,9 @@ class OpenCaseAction(Action):
     priority: Literal["low", "medium", "high", "critical"]
     # Optional inputs (can be AI suggested)
     context: dict[str, str] | None = None
-    action: str | None = None
+    action: Literal[
+        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+    ]
     suppression: SuppressionList
     tags: TagList
 
@@ -792,8 +794,10 @@ async def run_open_case_action(
     malice: Literal["malicious", "benign"],
     status: Literal["open", "closed", "in_progress", "reported", "escalated"],
     priority: Literal["low", "medium", "high", "critical"],
+    action: Literal[
+        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+    ],
     context: dict[str, Any] | None = None,
-    action: str | None = None,
     suppression: SuppressionList | None = None,
     tags: TagList | None = None,
     # Common
