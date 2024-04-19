@@ -78,13 +78,7 @@ from tracecat.runner.templates import (
     evaluate_templated_secrets,
 )
 from tracecat.types.actions import ActionType
-from tracecat.types.api import (
-    CaseContext,
-    ListModel,
-    RunStatus,
-    SuppressionList,
-    TagList,
-)
+from tracecat.types.api import CaseContext, ListModel, RunStatus, Suppression, Tag
 from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
@@ -321,8 +315,8 @@ class OpenCaseAction(Action):
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
-    suppression: SuppressionList
-    tags: TagList
+    suppression: ListModel[Suppression]
+    tags: ListModel[Tag]
 
 
 class IntegrationAction(Action):
@@ -804,8 +798,8 @@ async def run_open_case_action(
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ],
     context: ListModel[CaseContext] | None = None,
-    suppression: SuppressionList | None = None,
-    tags: TagList | None = None,
+    suppression: ListModel[Suppression] | None = None,
+    tags: ListModel[Tag] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,

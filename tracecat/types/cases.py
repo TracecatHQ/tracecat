@@ -5,13 +5,7 @@ from uuid import uuid4
 import orjson
 from pydantic import BaseModel, Field
 
-from tracecat.types.api import (
-    CaseContext,
-    CaseParams,
-    ListModel,
-    SuppressionList,
-    TagList,
-)
+from tracecat.types.api import CaseContext, CaseParams, ListModel, Suppression, Tag
 
 
 class Case(BaseModel):
@@ -29,8 +23,8 @@ class Case(BaseModel):
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
-    suppression: SuppressionList | None = None  # JSON serialized
-    tags: TagList | None = None  # JSON serialized
+    suppression: ListModel[Suppression] | None = None  # JSON serialized
+    tags: ListModel[Tag] | None = None  # JSON serialized
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
