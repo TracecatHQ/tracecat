@@ -20,7 +20,9 @@ class Case(BaseModel):
     priority: Literal["low", "medium", "high", "critical"]
     # Optional inputs (can be AI suggested)
     context: dict[str, str] | None = None
-    action: str | None = None
+    action: Literal[
+        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+    ]
     suppression: SuppressionList | None = None  # JSON serialized
     tags: TagList | None = None  # JSON serialized
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

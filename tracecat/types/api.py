@@ -245,7 +245,9 @@ class CaseParams(BaseModel):
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     priority: Literal["low", "medium", "high", "critical"]
     context: dict[str, str] | str | None = None
-    action: str | None = None
+    action: Literal[
+        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+    ]
     suppression: SuppressionList
     tags: TagList
 

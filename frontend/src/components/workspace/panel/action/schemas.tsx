@@ -1,6 +1,11 @@
 import { z } from "zod"
 
-import { ActionType, NodeType, suppressionSchema } from "@/types/schemas"
+import {
+  ActionType,
+  caseActionTypes,
+  NodeType,
+  suppressionSchema,
+} from "@/types/schemas"
 import { stringArray, stringToJSONSchema, tagSchema } from "@/types/validators"
 
 const WebhookActionSchema = z.object({
@@ -95,7 +100,7 @@ const OpenCaseActionSchema = z.object({
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
   context: stringToJSONSchema.optional(),
-  action: z.string().optional(),
+  action: z.enum(caseActionTypes),
   suppression: z.array(suppressionSchema).nullish().default([]),
   tags: z.array(tagSchema).nullish().default([]),
 })
@@ -302,9 +307,14 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
       placeholder: "An optional JSON object containing additional context.",
     },
     action: {
-      type: "textarea",
-      optional: true,
-      placeholder: "Action to be taken.",
+      type: "select",
+      options: [
+        "ignore",
+        "quarantine",
+        "informational",
+        "sinkhole",
+        "active_compromise",
+      ],
     },
     suppression: {
       type: "flat-kv",
