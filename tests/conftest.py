@@ -1,6 +1,7 @@
 """Set up shared environment variables and S3 proxy server (MinIO) for integration tests.
 """
 
+import logging
 import os
 import subprocess
 import time
@@ -8,11 +9,6 @@ import time
 import pytest
 from cryptography.fernet import Fernet
 from minio import Minio
-
-from tracecat.logger import standard_logger
-
-logger = standard_logger("tests")
-
 
 # MinIO settings
 MINIO_CONTAINER_NAME = "minio_test_server"
@@ -26,12 +22,18 @@ MINIO_REGION = "us-west-2"
 AWS_CLOUDTRAIL__BUCKET_NAME = "aws-cloudtrail-logs"
 
 
+logging.basicConfig(level="INFO")
+
+
 @pytest.fixture(autouse=True)
 def setup_shared_env():
     os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
     os.environ["TRACECAT__API_URL"] = "http://api:8000"
     os.environ["TRACECAT__RUNNER_URL"] = "http://runner:8000"
     os.environ["TRACECAT__SERVICE_KEY"] = "test-service-key"
+
+    # AWS
+    os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"] = AWS_CLOUDTRAIL__BUCKET_NAME
 
     # MinIO Client (local)
     os.environ["MINIO_ACCESS_KEY"] = MINIO_ACCESS_KEY
@@ -67,7 +69,7 @@ def minio_container():
     )
 
     container_exists = MINIO_CONTAINER_NAME in existing_containers.stdout.strip()
-    logger.info("🐳 MinIO container exists: %r", container_exists)
+    logging.info("🐳 MinIO container exists: %r", container_exists)
 
     if not container_exists:
         # Setup: Start MinIO server
@@ -93,9 +95,9 @@ def minio_container():
         )
         # Wait for the server to start
         time.sleep(5)
-        logger.info("✅ Created minio container %r", MINIO_CONTAINER_NAME)
+        logging.info("✅ Created minio container %r", MINIO_CONTAINER_NAME)
     else:
-        logger.info("✅ Using existing minio container %r", MINIO_CONTAINER_NAME)
+        logging.info("✅ Using existing minio container %r", MINIO_CONTAINER_NAME)
 
     # Connect to MinIO
     client = Minio(
@@ -109,7 +111,7 @@ def minio_container():
     bucket = AWS_CLOUDTRAIL__BUCKET_NAME
     if not client.bucket_exists(bucket):
         client.make_bucket(bucket)
-        logger.info("✅ Created minio bucket %r", bucket)
+        logging.info("✅ Created minio bucket %r", bucket)
 
     yield
     should_cleanup = os.getenv("MINIO_CLEANUP", "1").lower() in (
@@ -117,10 +119,10 @@ def minio_container():
         "1",
     )
     if not container_exists and should_cleanup:
-        logger.info("🧹 Cleaning up minio container %r", MINIO_CONTAINER_NAME)
+        logging.info("🧹 Cleaning up minio container %r", MINIO_CONTAINER_NAME)
         subprocess.run(["docker", "stop", MINIO_CONTAINER_NAME], check=True)
     else:
-        logger.info(
+        logging.info(
             "🧹 Skipping cleanup of minio container %r. Set `MINIO_CLEANUP` to cleanup.",
             MINIO_CONTAINER_NAME,
         )

@@ -2,6 +2,8 @@ import glob
 import gzip
 import hashlib
 import io
+import logging
+import os
 import random
 from datetime import datetime
 
@@ -12,17 +14,7 @@ from minio import Minio
 from polars.testing import assert_frame_equal
 from tqdm.contrib.concurrent import thread_map
 
-from tests.conftest import (
-    AWS_CLOUDTRAIL__BUCKET_NAME,
-    MINIO_ACCESS_KEY,
-    MINIO_PORT,
-    MINIO_SECRET_KEY,
-)
 from tracecat.etl.aws_cloudtrail import get_aws_regions, load_cloudtrail_logs
-from tracecat.logger import standard_logger
-
-logger = standard_logger("tests")
-
 
 AWS_CLOUDTRAIL__DIR_PATH = "AWSLogs/o-123xyz1234/111222333444/CloudTrail"
 TEST__START_DATETIME = datetime(2023, 1, 1)
@@ -45,16 +37,16 @@ def cloudtrail_records() -> list[dict]:
 
 def put_cloudtrail_logs(logs_sample: list[dict], file_name: str) -> int:
     client = Minio(
-        f"localhost:{MINIO_PORT}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        os.environ["MINIO_ENDPOINT"],
+        access_key=os.environ["MINIO_ACCESS_KEY"],
+        secret_key=os.environ["MINIO_SECRET_KEY"],
         secure=False,
     )
     logs_data = orjson.dumps({"Records": logs_sample})
     obj_data = gzip.compress(logs_data)
     obj_size = len(obj_data)
     client.put_object(
-        bucket_name=AWS_CLOUDTRAIL__BUCKET_NAME,
+        bucket_name=os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"],
         object_name=file_name,
         data=io.BytesIO(obj_data),
         length=obj_size,
@@ -121,9 +113,7 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
         desc="🪣 Uploading AWS CloudTrail logs into MinIO",
     )
     bucket_size = sum(object_sizes)
-
-    # Check size of bucket
-    logger.info("✅ AWS CloudTrail bucket size: %.2f gb", bucket_size / 2**30)
+    logging.info("✅ AWS CloudTrail bucket size: %.2f gb", bucket_size / 2**30)
 
     return multi_region_records.select(
         "eventTime",
@@ -139,7 +129,7 @@ def test_load_cloudtrail_logs(organization_id, cloudtrail_log_files):
     expected_logs = cloudtrail_log_files
     logs = load_cloudtrail_logs(
         account_id="111222333444",
-        bucket_name=AWS_CLOUDTRAIL__BUCKET_NAME,
+        bucket_name=os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"],
         start=TEST__START_DATETIME,
         end=expected_logs.get_column("eventTime").max(),
         organization_id=organization_id,
