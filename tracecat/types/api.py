@@ -4,10 +4,11 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel
 
 from tracecat.db import ActionRun, WorkflowRun
 from tracecat.types.actions import ActionType
+from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
 
 # TODO: Consistent API design
@@ -220,22 +221,6 @@ class CaseContext(BaseModel):
     value: str
 
 
-class ListModel[T](RootModel[list[T]]):
-    def __iter__(self):
-        return iter(self.root)
-
-    def __getitem__(self, i: int):
-        return self.root[i]
-
-
-class TagList(ListModel[Tag]):
-    pass
-
-
-class SuppressionList(ListModel[Suppression]):
-    pass
-
-
 class CaseParams(BaseModel):
     # SQLModel defaults
     id: str
@@ -253,8 +238,8 @@ class CaseParams(BaseModel):
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
-    suppression: SuppressionList
-    tags: TagList
+    suppression: ListModel[Suppression]
+    tags: ListModel[Tag]
 
 
 class CaseActionParams(BaseModel):
