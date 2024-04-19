@@ -274,7 +274,7 @@ export function ActionForm({
                     is available for all actions.
                   </p>
                 </div>
-                <div className="space-y-2 capitalize">
+                <div className="space-y-4 capitalize">
                   {Object.entries(fieldConfig).map(
                     ([inputKey, inputOption]) => {
                       const common = {
