@@ -859,7 +859,6 @@ async def run_action(
     key: str,
     title: str,
     action_trail: dict[str, ActionRunResult],
-    tags: dict[str, Any] | None = None,
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
     **action_kwargs: Any,
@@ -884,7 +883,6 @@ async def run_action(
     custom_logger.debug(f"{key = }")
     custom_logger.debug(f"{title = }")
     custom_logger.debug(f"{type = }")
-    custom_logger.debug(f"{tags = }")
     custom_logger.debug(f"{action_run_kwargs = }")
     custom_logger.debug(f"{action_kwargs = }")
     custom_logger.debug(f"{"*" * 20}")
