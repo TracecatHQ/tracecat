@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
@@ -18,6 +19,12 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { StatusBadge } from "@/components/badges"
 import { statuses } from "@/components/cases/data/categories"
 import { LabelsTable } from "@/components/labels-table"
@@ -39,63 +46,85 @@ export function CasePanelContent({
     status: caseStatus,
     action,
     suppression,
+    tags,
   },
 }: CasePanelContentProps) {
   const currentStatus = statuses.find((status) => status.value === caseStatus)
 
   return (
-    <div className="flex flex-col space-y-4 overflow-auto">
-      <SheetHeader>
-        <small>Case #{id}</small>
-        <div className="flex items-center justify-between">
-          <SheetTitle className="text-md">{title}</SheetTitle>
-          <CaseStatusSelect status={currentStatus} />
-        </div>
-        <div className="flex items-center space-x-2">
-          <StatusBadge status={priority ?? ""}>
-            priority: {priority}
-          </StatusBadge>
-          <StatusBadge status={malice ?? ""}>{malice}</StatusBadge>
-        </div>
-      </SheetHeader>
-      <Separator />
-      <div className="space-y-4 text-sm">
-        <div className="space-y-2">
-          <h5 className="text-xs font-semibold">Payload</h5>
-          <CodeContent data={payload} />
-        </div>
-        <div className="space-y-2">
-          <h5 className="text-xs font-semibold">Context</h5>
-          <Card className="p-4 shadow-sm">
-            <LabelsTable
-              keyName="key"
-              valueName="value"
-              labels={context as NamedPair<"key", "value", string>[] | null}
-              emptyMessage="No context available"
-            />
-          </Card>
-        </div>
-        <div className="space-y-2">
-          <h5 className="text-xs font-semibold">Suppressions</h5>
-          <Card className="p-4 shadow-sm">
-            <LabelsTable
-              keyName="condition"
-              valueName="result"
-              labels={
-                suppression as NamedPair<"condition", "result", string>[] | null
-              }
-              emptyMessage="No context available"
-            />
-          </Card>
-        </div>
-        <div className="space-y-2">
-          <h5 className="text-xs font-semibold">Actions</h5>
-          <Card>
-            <CardContent className="mt-4 text-xs">{action}</CardContent>
-          </Card>
+    <TooltipProvider>
+      <div className="flex flex-col space-y-4 overflow-auto">
+        <SheetHeader>
+          <small>Case #{id}</small>
+          <div className="flex items-center justify-between">
+            <SheetTitle className="text-md">{title}</SheetTitle>
+            <CaseStatusSelect status={currentStatus} />
+          </div>
+          <div className="flex items-center space-x-2">
+            <StatusBadge status={priority ?? ""}>
+              priority: {priority}
+            </StatusBadge>
+            <StatusBadge status={malice ?? ""}>{malice}</StatusBadge>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TagsIcon className="size-5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="top">Tags</TooltipContent>
+            </Tooltip>
+            {tags?.map((tag, idx) => (
+              <StatusBadge key={idx} status={tag.value}>
+                {tag.tag}:{tag.value}
+              </StatusBadge>
+            ))}
+          </div>
+        </SheetHeader>
+        <Separator />
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="col-span-1 space-y-4 ">
+            <div className="space-y-2">
+              <h5 className="text-xs font-semibold">Context</h5>
+              <Card className="p-4 shadow-sm">
+                <LabelsTable
+                  keyName="key"
+                  valueName="value"
+                  labels={context as NamedPair<"key", "value", string>[] | null}
+                  emptyMessage="No context available"
+                />
+              </Card>
+            </div>
+            <div className="space-y-2">
+              <h5 className="text-xs font-semibold">Suppressions</h5>
+              <Card className="p-4 shadow-sm">
+                <LabelsTable
+                  keyName="condition"
+                  valueName="result"
+                  labels={
+                    suppression as
+                      | NamedPair<"condition", "result", string>[]
+                      | null
+                  }
+                  emptyMessage="No context available"
+                />
+              </Card>
+            </div>
+            <div className="space-y-2">
+              <h5 className="text-xs font-semibold">Actions</h5>
+              <Card>
+                <CardContent className="mt-4 text-xs">{action}</CardContent>
+              </Card>
+            </div>
+          </div>
+          <div className="col-span-1 flex flex-1 flex-col space-y-2">
+            <h5 className="text-xs font-semibold">Payload</h5>
+            <div className="flex-1 space-y-2">
+              <CodeContent data={payload} />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
 
@@ -132,6 +161,7 @@ function CodeContent({ data }: { data: Record<string, string> }) {
       showLineNumbers
       wrapLines
       customStyle={{
+        height: "100%",
         width: "100%",
         maxWidth: "100%",
         overflowX: "auto",
