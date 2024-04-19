@@ -17,3 +17,15 @@ export const stringToJSONSchema = z.string().transform((str, ctx) => {
 export const stringArray = z
   .array(z.string().min(1, { message: "Strings cannot be empty" }))
   .min(1, { message: "List cannot be empty" })
+
+// General schemas
+
+export const keyValueSchema = z.object({
+  key: z.string().min(1, "Please enter a key."),
+  value: z.string().min(1, "Please enter a value."),
+})
+
+export const tagSchema = z.object({
+  tag: z.string().min(1, "Please enter a tag."),
+  value: z.string().min(1, "Please enter a value."),
+})

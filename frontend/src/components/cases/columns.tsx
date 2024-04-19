@@ -109,7 +109,11 @@ export const columns: ColumnDef<Case>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Created At" />
     ),
-    cell: ({ row }) => row.getValue<Case["created_at"]>("created_at"),
+    cell: ({ row }) => {
+      const dt = new Date(row.getValue<Case["created_at"]>("created_at"))
+      const strDt = `${dt.toLocaleDateString()}, ${dt.toLocaleTimeString()}`
+      return <span className="truncate text-xs">{strDt}</span>
+    },
     filterFn: (row, id, value) => {
       return value.includes(row.getValue<Case["id"]>(id))
     },
@@ -246,13 +250,40 @@ export const columns: ColumnDef<Case>[] = [
   {
     accessorKey: "suppression",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Suppression" />
+      <DataTableColumnHeader column={column} title="Suppressions" />
     ),
     cell: ({ row }) => {
+      const maybeSuppressions = row.getValue<Case["suppression"]>("suppression")
+      return <span className="text-xs">{maybeSuppressions?.length ?? 0}</span>
+    },
+  },
+  {
+    accessorKey: "tags",
+    header: ({ column }) => (
+      <DataTableColumnHeader
+        column={column}
+        title="Tags"
+        icon={
+          <Sparkles className="mr-1 h-3 w-3 animate-pulse fill-yellow-500 text-yellow-500" />
+        }
+      />
+    ),
+    cell: ({ row, table }) => {
+      const tags = row.getValue<Case["tags"]>("tags")
+      if (table.options.meta?.isProcessing && tags === null) {
+        return <LoadingCellState />
+      }
       return (
         <div className="flex space-x-2">
-          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {JSON.stringify(row.getValue<Case["suppression"]>("suppression"))}
+          <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
+            {/* tags is null or empty array */}
+            {tags && tags.length > 0
+              ? tags.map(({ tag, value }, idx) => (
+                  <Badge key={idx} variant="outline">
+                    {tag}: {value}
+                  </Badge>
+                ))
+              : "No tags"}
           </span>
         </div>
       )

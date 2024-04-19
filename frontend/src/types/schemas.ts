@@ -1,6 +1,10 @@
 import { z } from "zod"
 
-import { stringToJSONSchema } from "@/types/validators"
+import {
+  keyValueSchema,
+  stringToJSONSchema,
+  tagSchema,
+} from "@/types/validators"
 
 /**
  * Core action types.
@@ -131,20 +135,29 @@ export const workflowRunSchema = z.object({
 
 export type WorkflowRun = z.infer<typeof workflowRunSchema>
 
+export const suppressionSchema = z.object({
+  condition: z.string().min(1, "Please enter a suppression condition."),
+  result: z.string().min(1, "Please enter a template expression or boolean"),
+})
+
 export const caseSchema = z.object({
+  // SQLModel metadata
   id: z.string(),
   owner_id: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  // Case related data
   workflow_id: z.string(),
   title: z.string(),
   payload: z.record(z.string()),
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
+  // Does this need to be a union type?
   context: z.record(z.string()).nullable().or(z.string()),
   action: z.string().nullable(),
-  suppression: z.record(z.boolean()).nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
+  suppression: z.array(suppressionSchema).nullish().default([]),
+  tags: z.array(tagSchema).nullish().default([]),
 })
 
 export type Case = z.infer<typeof caseSchema>
@@ -160,11 +173,6 @@ export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
 
 export const secretTypes = ["custom", "token", "oauth2"] as const
 export type SecretType = (typeof secretTypes)[number]
-
-const keyValueSchema = z.object({
-  key: z.string().min(1, "Please enter a key."),
-  value: z.string().min(1, "Please enter a value."),
-})
 
 const snakeCaseRegex = /^[a-z]+(_[a-z]+)*$/
 export const secretSchema = z.object({

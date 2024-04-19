@@ -1,7 +1,7 @@
 import { z } from "zod"
 
-import { ActionType, NodeType } from "@/types/schemas"
-import { stringArray, stringToJSONSchema } from "@/types/validators"
+import { ActionType, NodeType, suppressionSchema } from "@/types/schemas"
+import { stringArray, stringToJSONSchema, tagSchema } from "@/types/validators"
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
@@ -96,7 +96,8 @@ const OpenCaseActionSchema = z.object({
   priority: z.enum(["low", "medium", "high", "critical"]),
   context: stringToJSONSchema.optional(),
   action: z.string().optional(),
-  suppression: stringToJSONSchema.optional(),
+  suppression: z.array(suppressionSchema).nullish().default([]),
+  tags: z.array(tagSchema).nullish().default([]),
 })
 export const baseActionSchema = z.object({
   title: z.string().min(1, { message: "Title cannot be empty" }),
@@ -104,7 +105,13 @@ export const baseActionSchema = z.object({
 })
 export type BaseActionForm = z.infer<typeof baseActionSchema>
 
-export type ActionFieldType = "input" | "select" | "textarea" | "json" | "array"
+export type ActionFieldType =
+  | "input"
+  | "select"
+  | "textarea"
+  | "json"
+  | "array"
+  | "flat-kv"
 export interface ActionFieldOption {
   type: ActionFieldType
   inputType?: React.HTMLInputTypeAttribute
@@ -114,6 +121,8 @@ export interface ActionFieldOption {
   disabled?: boolean
   optional?: boolean
   copyable?: boolean
+  key?: string
+  value?: string
 }
 
 export interface ActionFieldConfig {
@@ -298,9 +307,16 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
       placeholder: "Action to be taken.",
     },
     suppression: {
-      type: "json",
+      type: "flat-kv",
       optional: true,
-      placeholder: "An optional JSON object containing suppression rules.",
+      key: "condition",
+      value: "result",
+    },
+    tags: {
+      type: "flat-kv",
+      optional: true,
+      key: "tag",
+      value: "value",
     },
   },
 }

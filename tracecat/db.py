@@ -372,6 +372,7 @@ CaseSchema = pa.schema(
         pa.field("priority", pa.string(), nullable=False),
         pa.field("action", pa.string(), nullable=True),
         pa.field("suppression", pa.string(), nullable=True),  # JSON-serialized
+        pa.field("tags", pa.string(), nullable=True),  # JSON-serialized
         pa.field(
             "created_at", pa.timestamp("us", tz="UTC"), nullable=True
         ),  # JSON-serialized

@@ -1,6 +1,6 @@
 import React from "react"
 import { CopyIcon } from "@radix-ui/react-icons"
-import { Trash2Icon } from "lucide-react"
+import { PlusCircle, Trash2Icon } from "lucide-react"
 import {
   ArrayPath,
   FieldPath,
@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ActionFieldOption } from "@/components/workspace/panel/action/schemas"
+import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 export function processInputs(
   inputs: Record<string, any>
@@ -110,17 +111,17 @@ export function ActionFormLabel<T extends FieldValues>({
     </FormLabel>
   )
 }
-interface ActionFormFieldProps {
+interface ActionFormFieldProps<T extends FieldValues> {
   inputKey: string
   inputOption: ActionFieldOption
-  defaultValue?: string
+  defaultValue?: T[keyof T]
 }
 
 export function ActionFormTextarea<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   return (
@@ -134,7 +135,7 @@ export function ActionFormTextarea<T extends FieldValues>({
           <FormControl>
             <Textarea
               {...field}
-              value={watch(typedKey, defaultValue as TDefaultValue<T>)}
+              value={watch(typedKey, defaultValue)}
               className="min-h-48 text-xs"
               placeholder={inputOption.placeholder ?? "Input text here..."}
             />
@@ -149,8 +150,8 @@ export function ActionFormTextarea<T extends FieldValues>({
 export function ActionFormSelect<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   const parser = getParser(inputOption)
@@ -164,7 +165,7 @@ export function ActionFormSelect<T extends FieldValues>({
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <FormControl>
             <Select
-              value={String(watch(typedKey, defaultValue as TDefaultValue<T>))} // Ensure the Select component uses the current field value
+              value={String(watch(typedKey, defaultValue))} // Ensure the Select component uses the current field value
               defaultValue={defaultValue} // Set the default value from the fetched action data
               onValueChange={(value: string) => {
                 field.onChange(parser(value))
@@ -192,8 +193,8 @@ export function ActionFormSelect<T extends FieldValues>({
 export function ActionFormJSON<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   return (
@@ -208,7 +209,7 @@ export function ActionFormJSON<T extends FieldValues>({
             <pre>
               <Textarea
                 {...field}
-                value={watch(typedKey, defaultValue as TDefaultValue<T>)}
+                value={watch(typedKey, defaultValue)}
                 className="min-h-48 text-xs"
                 placeholder={inputOption.placeholder ?? "Input JSON here..."}
               />
@@ -224,8 +225,8 @@ export function ActionFormJSON<T extends FieldValues>({
 export function ActionFormArray<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch, register } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
 
@@ -268,7 +269,7 @@ export function ActionFormArray<T extends FieldValues>({
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="border border-red-500/70 bg-red-500/10 text-red-500/70 hover:bg-red-500/20 hover:text-red-500"
+                    className={DELETE_BUTTON_STYLE}
                     onClick={() => remove(index)}
                   >
                     <Trash2Icon className="size-4" />
@@ -293,8 +294,8 @@ export function ActionFormArray<T extends FieldValues>({
 export function ActionFormInputs<T extends FieldValues>({
   inputKey,
   inputOption,
-  defaultValue = "",
-}: ActionFormFieldProps) {
+  defaultValue,
+}: ActionFormFieldProps<T>) {
   const { control, watch } = useFormContext<T>()
   const typedKey = inputKey as FieldPath<T>
   const parser = getParser(inputOption)
@@ -309,7 +310,7 @@ export function ActionFormInputs<T extends FieldValues>({
           <FormControl>
             <Input
               {...field}
-              value={watch(typedKey, defaultValue as TDefaultValue<T>)}
+              value={watch(typedKey, defaultValue)}
               className="text-xs"
               placeholder={inputOption.placeholder ?? "Input text here..."}
               disabled={inputOption.disabled}
@@ -337,4 +338,101 @@ function getParser(inputOption: ActionFieldOption): (value: string) => any {
     default:
       return (value: string) => value
   }
+}
+
+interface ActionFormKVArrayProps<T extends FieldValues>
+  extends ActionFormFieldProps<T> {
+  keyName?: string
+  valueName?: string
+  isPassword?: boolean
+}
+
+export function ActionFormFlatKVArray<T extends FieldValues>({
+  inputKey,
+  inputOption,
+  defaultValue,
+  // Extra
+  isPassword = false,
+}: ActionFormKVArrayProps<T>) {
+  const { control, register } = useFormContext<T>()
+  const typedKey = inputKey as FieldPath<T>
+  const { fields, append, remove } = useFieldArray<T>({
+    control,
+    name: inputKey as ArrayPath<T>,
+  })
+  const valueProps = isPassword ? { type: "password" } : {}
+
+  const keyName = inputOption.key ?? "key"
+  const valueName = inputOption.value ?? "value"
+
+  return (
+    <FormField
+      key={inputKey}
+      control={control}
+      name={typedKey}
+      render={({ field }) => (
+        <FormItem>
+          <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
+          <div className="flex flex-col space-y-2">
+            {fields.map((field, index) => {
+              return (
+                <div
+                  key={`${field.id}.${index}`}
+                  className="flex w-full items-center gap-2"
+                >
+                  <FormControl>
+                    <Input
+                      id={`key-${index}`}
+                      className="text-sm"
+                      // @ts-ignore
+                      {...register(`${inputKey}.${index}.${keyName}` as const, {
+                        required: true,
+                      })}
+                      placeholder={keyName}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <Input
+                      id={`value-${index}`}
+                      className="text-sm"
+                      {...register(
+                        // @ts-ignore
+                        `${inputKey}.${index}.${valueName}` as const,
+                        {
+                          required: true,
+                        }
+                      )}
+                      placeholder={valueName}
+                      {...valueProps}
+                    />
+                  </FormControl>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={DELETE_BUTTON_STYLE}
+                    onClick={() => remove(index)}
+                    // If this field is optional, enable the delete button
+                    disabled={!inputOption.optional && fields.length === 1}
+                  >
+                    <Trash2Icon className="size-3.5" />
+                  </Button>
+                </div>
+              )
+            })}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => append(defaultValue as TDefaultValue<T>)}
+              className="space-x-2 text-xs"
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Item
+            </Button>
+          </div>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
 }

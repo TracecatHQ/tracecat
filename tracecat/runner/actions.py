@@ -78,7 +78,7 @@ from tracecat.runner.templates import (
     evaluate_templated_secrets,
 )
 from tracecat.types.actions import ActionType
-from tracecat.types.api import RunStatus
+from tracecat.types.api import RunStatus, SuppressionList, TagList
 from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
@@ -200,7 +200,7 @@ class Action(BaseModel):
     key: str = Field(pattern=ACTION_KEY_PATTERN)
     type: ActionType
     title: str = Field(pattern=ALNUM_AND_WHITESPACE_PATTERN, max_length=50)
-    tags: dict[str, Any] | None = None
+    # tags: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Action:
@@ -313,7 +313,8 @@ class OpenCaseAction(Action):
     # Optional inputs (can be AI suggested)
     context: dict[str, str] | None = None
     action: str | None = None
-    suppression: dict[str, bool] | None = None
+    suppression: SuppressionList
+    tags: TagList
 
 
 class IntegrationAction(Action):
@@ -793,7 +794,8 @@ async def run_open_case_action(
     priority: Literal["low", "medium", "high", "critical"],
     context: dict[str, Any] | None = None,
     action: str | None = None,
-    suppression: dict[str, bool] | None = None,
+    suppression: SuppressionList | None = None,
+    tags: TagList | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
@@ -815,7 +817,9 @@ async def run_open_case_action(
         context=context,
         action=action,
         suppression=suppression,
+        tags=tags,
     )
+    custom_logger.info(f"Sinking case: {case = }")
     try:
         await asyncio.to_thread(tbl.add, [case.flatten()])
     except Exception as e:
@@ -859,7 +863,6 @@ async def run_action(
     key: str,
     title: str,
     action_trail: dict[str, ActionRunResult],
-    tags: dict[str, Any] | None = None,
     action_run_kwargs: dict[str, Any] | None = None,
     custom_logger: logging.Logger = logger,
     **action_kwargs: Any,
@@ -884,7 +887,6 @@ async def run_action(
     custom_logger.debug(f"{key = }")
     custom_logger.debug(f"{title = }")
     custom_logger.debug(f"{type = }")
-    custom_logger.debug(f"{tags = }")
     custom_logger.debug(f"{action_run_kwargs = }")
     custom_logger.debug(f"{action_kwargs = }")
     custom_logger.debug(f"{"*" * 20}")

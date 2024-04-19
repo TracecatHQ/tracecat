@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 from tracecat.db import ActionRun, WorkflowRun
 from tracecat.types.actions import ActionType
@@ -205,9 +205,39 @@ class SearchSecretsParams(BaseModel):
     names: list[str]
 
 
+class Tag(BaseModel):
+    tag: str
+    value: str
+
+
+class Suppression(BaseModel):
+    condition: str
+    result: str  # Should evaluate to 'true' or 'false'
+
+
+class ListModel[T](RootModel[list[T]]):
+    def __iter__(self):
+        return iter(self.root)
+
+    def __getitem__(self, i: int):
+        return self.root[i]
+
+
+class TagList(ListModel[Tag]):
+    pass
+
+
+class SuppressionList(ListModel[Suppression]):
+    pass
+
+
 class CaseParams(BaseModel):
+    # SQLModel defaults
     id: str
     owner_id: str
+    created_at: str  # ISO 8601
+    updated_at: str  # ISO 8601
+    # Case related fields
     workflow_id: str
     title: str
     payload: dict[str, Any]
@@ -216,9 +246,8 @@ class CaseParams(BaseModel):
     priority: Literal["low", "medium", "high", "critical"]
     context: dict[str, str] | str | None = None
     action: str | None = None
-    suppression: dict[str, bool] | None = None
-    created_at: str  # ISO 8601
-    updated_at: str  # ISO 8601
+    suppression: SuppressionList
+    tags: TagList
 
 
 class CaseActionParams(BaseModel):

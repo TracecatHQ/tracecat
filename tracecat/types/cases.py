@@ -5,7 +5,7 @@ from uuid import uuid4
 import orjson
 from pydantic import BaseModel, Field
 
-from tracecat.types.api import CaseParams
+from tracecat.types.api import CaseParams, SuppressionList, TagList
 
 
 class Case(BaseModel):
@@ -21,7 +21,8 @@ class Case(BaseModel):
     # Optional inputs (can be AI suggested)
     context: dict[str, str] | None = None
     action: str | None = None
-    suppression: dict[str, bool] | None = None
+    suppression: SuppressionList | None = None  # JSON serialized
+    tags: TagList | None = None  # JSON serialized
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -42,9 +43,10 @@ class Case(BaseModel):
             "priority": self.priority,
             "status": self.status,
             "action": self.action,
-            "suppression": orjson.dumps(self.suppression).decode("utf-8")
+            "suppression": self.suppression.model_dump_json()
             if self.suppression
             else None,
+            "tags": self.tags.model_dump_json() if self.tags else None,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -70,6 +72,7 @@ class Case(BaseModel):
             suppression=orjson.loads(flat_dict["suppression"])
             if flat_dict["suppression"]
             else None,
+            tags=orjson.loads(flat_dict["tags"]) if flat_dict["tags"] else None,
             created_at=flat_dict["created_at"],
             updated_at=flat_dict["updated_at"],
         )

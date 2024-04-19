@@ -28,6 +28,7 @@ import {
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { WorkflowControlsForm } from "@/components/console/console"
 import { tileIconMapping } from "@/components/workspace/canvas/action-node"
+import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 export const supportedInputTypes = [
   {
@@ -200,7 +201,7 @@ export function ConsolePanel({
             onConfirm={handleClearEvents}
           >
             <Button
-              className="w-full border border-red-500/70 bg-red-500/10 text-red-500/70 hover:bg-red-500/20 hover:text-red-500"
+              className={cn("w-full", DELETE_BUTTON_STYLE)}
               type="button"
               variant="outline"
             >
