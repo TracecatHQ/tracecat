@@ -78,7 +78,13 @@ from tracecat.runner.templates import (
     evaluate_templated_secrets,
 )
 from tracecat.types.actions import ActionType
-from tracecat.types.api import RunStatus, SuppressionList, TagList
+from tracecat.types.api import (
+    CaseContext,
+    ListModel,
+    RunStatus,
+    SuppressionList,
+    TagList,
+)
 from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
@@ -311,7 +317,7 @@ class OpenCaseAction(Action):
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     priority: Literal["low", "medium", "high", "critical"]
     # Optional inputs (can be AI suggested)
-    context: dict[str, str] | None = None
+    context: ListModel[CaseContext]
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
@@ -797,7 +803,7 @@ async def run_open_case_action(
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ],
-    context: dict[str, Any] | None = None,
+    context: ListModel[CaseContext] | None = None,
     suppression: SuppressionList | None = None,
     tags: TagList | None = None,
     # Common
