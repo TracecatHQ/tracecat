@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { ActionType, NodeType } from "@/types/schemas"
+import { ActionType, NodeType, suppressionSchema } from "@/types/schemas"
 import { stringArray, stringToJSONSchema, tagSchema } from "@/types/validators"
 
 const WebhookActionSchema = z.object({
@@ -96,8 +96,8 @@ const OpenCaseActionSchema = z.object({
   priority: z.enum(["low", "medium", "high", "critical"]),
   context: stringToJSONSchema.optional(),
   action: z.string().optional(),
-  suppression: stringToJSONSchema.optional(),
-  tags: z.array(tagSchema),
+  suppression: z.array(suppressionSchema).nullish().default([]),
+  tags: z.array(tagSchema).nullish().default([]),
 })
 export const baseActionSchema = z.object({
   title: z.string().min(1, { message: "Title cannot be empty" }),
@@ -121,6 +121,8 @@ export interface ActionFieldOption {
   disabled?: boolean
   optional?: boolean
   copyable?: boolean
+  key?: string
+  value?: string
 }
 
 export interface ActionFieldConfig {
@@ -305,14 +307,16 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
       placeholder: "Action to be taken.",
     },
     suppression: {
-      type: "json",
+      type: "flat-kv",
       optional: true,
-      placeholder: "An optional JSON object containing suppression rules.",
+      key: "condition",
+      value: "result",
     },
     tags: {
       type: "flat-kv",
       optional: true,
-      placeholder: "Tags with values to label the case.",
+      key: "tag",
+      value: "value",
     },
   },
 }

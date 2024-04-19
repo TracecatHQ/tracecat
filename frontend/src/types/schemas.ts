@@ -135,6 +135,11 @@ export const workflowRunSchema = z.object({
 
 export type WorkflowRun = z.infer<typeof workflowRunSchema>
 
+export const suppressionSchema = z.object({
+  condition: z.string().min(1, "Please enter a suppression condition."),
+  result: z.string().min(1, "Please enter a template expression or boolean"),
+})
+
 export const caseSchema = z.object({
   // SQLModel metadata
   id: z.string(),
@@ -151,7 +156,7 @@ export const caseSchema = z.object({
   // Does this need to be a union type?
   context: z.record(z.string()).nullable().or(z.string()),
   action: z.string().nullable(),
-  suppression: z.record(z.boolean()).nullable(),
+  suppression: z.array(suppressionSchema).nullish().default([]),
   tags: z.array(tagSchema).nullish().default([]),
 })
 

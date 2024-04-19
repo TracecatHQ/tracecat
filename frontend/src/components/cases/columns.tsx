@@ -250,17 +250,11 @@ export const columns: ColumnDef<Case>[] = [
   {
     accessorKey: "suppression",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Suppression" />
+      <DataTableColumnHeader column={column} title="Suppressions" />
     ),
     cell: ({ row }) => {
-      const suppression = row.getValue<Case["suppression"]>("suppression")
-      return (
-        <div className="flex space-x-2">
-          <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-            {suppression ? JSON.stringify(suppression) : "No suppression"}
-          </span>
-        </div>
-      )
+      const maybeSuppressions = row.getValue<Case["suppression"]>("suppression")
+      return <span className="text-xs">{maybeSuppressions?.length ?? 0}</span>
     },
   },
   {

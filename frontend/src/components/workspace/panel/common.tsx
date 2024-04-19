@@ -352,8 +352,6 @@ export function ActionFormFlatKVArray<T extends FieldValues>({
   inputOption,
   defaultValue,
   // Extra
-  keyName = "key",
-  valueName = "value",
   isPassword = false,
 }: ActionFormKVArrayProps<T>) {
   const { control, register } = useFormContext<T>()
@@ -363,7 +361,9 @@ export function ActionFormFlatKVArray<T extends FieldValues>({
     name: inputKey as ArrayPath<T>,
   })
   const valueProps = isPassword ? { type: "password" } : {}
-  // If it's not an optional field, add a default value to the array
+
+  const keyName = inputOption.key ?? "key"
+  const valueName = inputOption.value ?? "value"
 
   return (
     <FormField
