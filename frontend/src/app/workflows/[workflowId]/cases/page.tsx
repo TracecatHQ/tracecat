@@ -20,7 +20,6 @@ export default function CasesPage() {
               className="max-w-[600px]"
             />
           )}
-          <CasesStatsBanner />
           <CaseTable />
         </div>
       </div>
