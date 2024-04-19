@@ -153,7 +153,7 @@ export const caseSchema = z.object({
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  // Does this need to be a union type?
+  // This needs to be a union type because it's serialized as a string
   context: z.record(z.string()).nullable().or(z.string()),
   action: z.string().nullable(),
   suppression: z.array(suppressionSchema).nullish().default([]),
