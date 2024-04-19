@@ -6,7 +6,12 @@ import {
   NodeType,
   suppressionSchema,
 } from "@/types/schemas"
-import { stringArray, stringToJSONSchema, tagSchema } from "@/types/validators"
+import {
+  keyValueSchema,
+  stringArray,
+  stringToJSONSchema,
+  tagSchema,
+} from "@/types/validators"
 
 const WebhookActionSchema = z.object({
   path: z.string(), // The webhook ID
@@ -99,7 +104,7 @@ const OpenCaseActionSchema = z.object({
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  context: stringToJSONSchema.optional(),
+  context: z.array(keyValueSchema).nullish().default([]),
   action: z.enum(caseActionTypes),
   suppression: z.array(suppressionSchema).nullish().default([]),
   tags: z.array(tagSchema).nullish().default([]),
@@ -302,9 +307,10 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
       options: ["low", "medium", "high", "critical"],
     },
     context: {
-      type: "json",
+      type: "flat-kv",
       optional: true,
-      placeholder: "An optional JSON object containing additional context.",
+      key: "key",
+      value: "value",
     },
     action: {
       type: "select",

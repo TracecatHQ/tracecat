@@ -203,42 +203,24 @@ export const columns: ColumnDef<Case>[] = [
       />
     ),
     cell: ({ row, table }) => {
-      const context = row.getValue<Case["context"]>("context")
-      if (table.options.meta?.isProcessing && context === null) {
+      const caseContextFields = row.getValue<Case["context"]>("context")
+      if (table.options.meta?.isProcessing && caseContextFields === null) {
         return <LoadingCellState />
       }
-      switch (typeof context) {
-        case "object":
-          return (
-            <div className="flex space-x-2">
-              <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-                {context
-                  ? Object.values(context).map((label, idx) => (
-                      <Badge key={idx} variant="outline">
-                        {label}
-                      </Badge>
-                    ))
-                  : "No context available"}
-              </span>
-            </div>
-          )
-        case "string":
-          return (
-            <div className="flex space-x-2">
-              <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-                {context}
-              </span>
-            </div>
-          )
-        default:
-          return (
-            <div className="flex space-x-2">
-              <span className="max-w-[300px] truncate text-xs text-muted-foreground">
-                {JSON.stringify(context)}
-              </span>
-            </div>
-          )
-      }
+      return (
+        <div className="flex space-x-2">
+          <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
+            {/* tags is null or empty array */}
+            {caseContextFields && caseContextFields.length > 0
+              ? caseContextFields.map(({ key, value }, idx) => (
+                  <Badge key={idx} variant="outline">
+                    {value}
+                  </Badge>
+                ))
+              : "No tags"}
+          </span>
+        </div>
+      )
     },
   },
   {

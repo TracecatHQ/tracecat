@@ -215,6 +215,11 @@ class Suppression(BaseModel):
     result: str  # Should evaluate to 'true' or 'false'
 
 
+class CaseContext(BaseModel):
+    key: str
+    value: str
+
+
 class ListModel[T](RootModel[list[T]]):
     def __iter__(self):
         return iter(self.root)
@@ -244,7 +249,7 @@ class CaseParams(BaseModel):
     malice: Literal["malicious", "benign"]
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     priority: Literal["low", "medium", "high", "critical"]
-    context: dict[str, str] | str | None = None
+    context: ListModel[CaseContext]
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]

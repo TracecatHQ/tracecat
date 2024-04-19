@@ -4,8 +4,9 @@ import React from "react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
+import { NamedPair } from "@/types/generics"
 import { Case } from "@/types/schemas"
-import { Card, CardContent, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -19,8 +20,7 @@ import { Separator } from "@/components/ui/separator"
 import { SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { StatusBadge } from "@/components/badges"
 import { statuses } from "@/components/cases/data/categories"
-import NoContent from "@/components/no-content"
-import { ShallowKVTable } from "@/components/shallow-kv-table"
+import { LabelsTable } from "@/components/labels-table"
 
 type TStatus = (typeof statuses)[number]
 
@@ -38,6 +38,7 @@ export function CasePanelContent({
     context,
     status: caseStatus,
     action,
+    suppression,
   },
 }: CasePanelContentProps) {
   const currentStatus = statuses.find((status) => status.value === caseStatus)
@@ -66,7 +67,25 @@ export function CasePanelContent({
         <div className="space-y-2">
           <h5 className="text-xs font-semibold">Context</h5>
           <Card className="p-4 shadow-sm">
-            <TagsTable context={context} />
+            <LabelsTable
+              keyName="key"
+              valueName="value"
+              labels={context as NamedPair<"key", "value", string>[] | null}
+              emptyMessage="No context available"
+            />
+          </Card>
+        </div>
+        <div className="space-y-2">
+          <h5 className="text-xs font-semibold">Suppressions</h5>
+          <Card className="p-4 shadow-sm">
+            <LabelsTable
+              keyName="condition"
+              valueName="result"
+              labels={
+                suppression as NamedPair<"condition", "result", string>[] | null
+              }
+              emptyMessage="No context available"
+            />
           </Card>
         </div>
         <div className="space-y-2">
@@ -78,22 +97,6 @@ export function CasePanelContent({
       </div>
     </div>
   )
-}
-
-function TagsTable({
-  context,
-}: {
-  context: string | Record<string, string> | null
-}) {
-  if (!context) {
-    return <NoContent message="No context available" />
-  }
-
-  if (typeof context === "string") {
-    return <CardDescription>{context}</CardDescription>
-  }
-
-  return <ShallowKVTable keyName="Key" valueName="Value" data={context} />
 }
 
 function CaseStatusSelect({ status }: { status?: TStatus }) {

@@ -5,7 +5,13 @@ from uuid import uuid4
 import orjson
 from pydantic import BaseModel, Field
 
-from tracecat.types.api import CaseParams, SuppressionList, TagList
+from tracecat.types.api import (
+    CaseContext,
+    CaseParams,
+    ListModel,
+    SuppressionList,
+    TagList,
+)
 
 
 class Case(BaseModel):
@@ -19,7 +25,7 @@ class Case(BaseModel):
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     priority: Literal["low", "medium", "high", "critical"]
     # Optional inputs (can be AI suggested)
-    context: dict[str, str] | None = None
+    context: ListModel[CaseContext] | None = None
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
@@ -38,9 +44,7 @@ class Case(BaseModel):
             "payload": orjson.dumps(self.payload).decode("utf-8")
             if self.payload
             else None,
-            "context": orjson.dumps(self.context).decode("utf-8")
-            if self.context
-            else None,
+            "context": self.context.model_dump_json() if self.context else None,
             "malice": self.malice,
             "priority": self.priority,
             "status": self.status,

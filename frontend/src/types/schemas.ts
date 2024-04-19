@@ -163,7 +163,7 @@ export const caseSchema = z.object({
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
   // This needs to be a union type because it's serialized as a string
-  context: z.record(z.string()).nullable().or(z.string()),
+  context: z.array(keyValueSchema).nullish().default([]),
   action: z.enum(caseActionTypes),
   suppression: z.array(suppressionSchema).nullish().default([]),
   tags: z.array(tagSchema).nullish().default([]),
