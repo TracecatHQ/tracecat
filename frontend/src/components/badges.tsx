@@ -23,7 +23,7 @@ export function StatusBadge({ status, children }: StatusBadgeProps) {
     <Badge
       variant="outline"
       className={cn(
-        "border-gray-400 bg-gray-100 text-gray-700",
+        "border-slate-400 bg-slate-50 text-slate-600",
         status &&
           status in statusColors &&
           statusColors[status as keyof typeof statusColors]
