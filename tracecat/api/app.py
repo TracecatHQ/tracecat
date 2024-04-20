@@ -14,7 +14,11 @@ from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
-from tracecat.api.completions import CategoryConstraint, stream_case_completions
+from tracecat.api.completions import (
+    CategoryConstraint,
+    FieldCons,
+    stream_case_completions,
+)
 from tracecat.auth import (
     AuthenticatedRunnerClient,
     Role,
@@ -1206,6 +1210,7 @@ def delete_case_context(
 async def streaming_autofill_case_fields(
     role: Annotated[Role, Depends(authenticate_user)],
     cases: list[Case],  # TODO: Replace this with case IDs
+    fields: list[str],
 ) -> dict[str, str]:
     """List of case IDs.
     Steps
@@ -1215,47 +1220,45 @@ async def streaming_autofill_case_fields(
     3. Complete the fields
 
     """
-    logger.info(f"Received cases: {cases = }, {role = }")
-    case_actions = list_case_actions(role)
-    actions_mapping = (
-        pl.DataFrame(case_actions)
-        .lazy()
-        .select(
-            pl.col.tag,
-            pl.col.value.str.split(".").list.first(),
-        )
-        .unique()
-        .group_by(pl.col.tag)
-        .agg(pl.col.value)
-        .collect(streaming=True)
-        .to_dicts()
-    )
+    logger.info(f"Received: {cases = }, {role = }, {fields = }")
+    fields_set = set(fields)
 
-    case_contexts = list_case_contexts(role)
-    contexts_mapping = (
-        pl.DataFrame(case_contexts)
-        .lazy()
-        .select(
-            pl.col.tag,
-            pl.col.value.str.split(".").list.first(),
+    if not fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided for completions",
         )
-        .unique()
-        .group_by(pl.col.tag)
-        .agg(pl.col.value)
-        .collect(streaming=True)
-        .to_dicts()
-    )
-    context_cons = [
-        CategoryConstraint.model_validate(d, strict=True) for d in contexts_mapping
-    ]
-    action_cons = [
-        CategoryConstraint.model_validate(d, strict=True) for d in actions_mapping
-    ]
+    if not all((f in Case.model_fields) for f in fields_set):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid fields provided for case completions",
+        )
+
+    field_cons_map: FieldCons = {}
+
+    if "tags" in fields_set:
+        # TODO: Rename context to tags, in DB as well
+        case_contexts = list_case_contexts(role)
+        contexts_mapping = (
+            pl.DataFrame(case_contexts)
+            .lazy()
+            .select(
+                pl.col.tag,
+                pl.col.value.str.split(".").list.first(),
+            )
+            .unique()
+            .group_by(pl.col.tag)
+            .agg(pl.col.value)
+            .collect(streaming=True)
+            .to_dicts()
+        )
+        context_cons = [
+            CategoryConstraint.model_validate(d, strict=True) for d in contexts_mapping
+        ]
+        field_cons_map["tags"] = context_cons
 
     return StreamingResponse(
-        stream_case_completions(
-            cases, context_cons=context_cons, action_cons=action_cons
-        ),
+        stream_case_completions(cases, field_cons=field_cons_map),
         media_type="application/x-ndjson",
     )
 

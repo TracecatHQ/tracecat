@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import inspect
-from typing import TypeVar
+from typing import Annotated, Literal, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slugify import slugify
 
 from tracecat.llm import async_openai_call
@@ -34,8 +36,47 @@ def model_as_text(cls: type[T]) -> str:
     return "\n".join(lines)
 
 
+type CaseField = Literal["tags", "action"]
+
+type ConsType = Annotated[
+    list[CategoryConstraint] | list[str] | None,
+    "This can be: a list of strings (constrained selection), "
+    "a list of CategoryConstraints (categorical constrained selection), or None (unconstrained/freeform).",
+]
+
+type FieldCons = dict[CaseField, ConsType]
+
+# These magic placeholders are used for 2 reasons:
+# 1. To use as substitution placeholders for concerete type constraints
+# 2. Type checking of the actual output, to inform the general shape of the repsonse
 __ACTION_CONSTRAINT_REPLACE__ = str
-__CONTEXT_CONSTRAINT_REPLACE__ = str
+
+
+class __TAGS_CONSTRAINT_REPLACE__(BaseModel):
+    tag: str
+    value: str
+
+
+case_field_to_placeholder: dict[CaseField, str] = {
+    "action": "__ACTION_CONSTRAINT_REPLACE__",
+    "tags": "__TAGS_CONSTRAINT_REPLACE__",
+}
+
+_UNCONSTRAINED_TYPE = "typing.Any"
+
+
+# NOTE: Instructions for the `CaseMissingFieldsResponse` model.
+# NOTE: Do not modify the docstring of the `CaseMissingFieldsResponse` model, as we use it to generate the LLM system context.
+
+# NOTE: Implementation
+# NOTE: --------------
+# NOTE: We use magic placeholder strings in the model to represent the constraints for the `context` and `action` fields.
+# NOTE: These placeholders are replaced with concrete types during runtime. This works because we use `inspect.getsource(cls)`
+# NOTE: to get the source code of the model class. We can then replace the magic strings with the concrete types.
+
+# NOTE: Usage
+# NOTE: -----
+# NOTE: - To extend this for other Case fields, you can add additional fields to the model.
 
 
 class CaseMissingFieldsResponse(BaseModel):
@@ -43,46 +84,73 @@ class CaseMissingFieldsResponse(BaseModel):
 
     Params
     ------
-    context: dict[Literal[<CATEGORY_CONSTRAINT.tag>], Literal[<CATEGORY_CONSTRAINT.value>]]
-        The context of the case, represented as key-value pairs of `CATEGORY_CONSTRAINT` 1-to-1 tag-value mappings.
+    tags: list[__SOME_CONSTRAINT__]
+        __SOME_CONSTRAINT__.tag -> Literal[<CATEGORY_CONSTRAINT.tag>]
+        __SOME_CONSTRAINT__.value -> Literal[<CATEGORY_CONSTRAINT.value>]
+        The tags of the case, represented as a list of `CATEGORY_CONSTRAINT` 1-to-1 tag-value pairs.
         You MUST only use the valid tag-value combinations within the provided disciminated unions (prefixed with `_CATEGORY_CONSTRAINT_`).
     action: Literal[...]
         The action to be taken for the case.
     """
 
-    context: dict[str, __CONTEXT_CONSTRAINT_REPLACE__]
-    action: __ACTION_CONSTRAINT_REPLACE__
+    tags: list[__TAGS_CONSTRAINT_REPLACE__] = Field(
+        default=[], description="Empty list if you don't know how to tag the case."
+    )
 
 
 def _dynamic_constraint_factory(
-    cls: type[T], *, cons_types: dict[str, list[str] | list[CategoryConstraint] | None]
-) -> str:
-    """Performs replacements of magic strings with concrete types."""
+    cls: type[T], *, field_cons: FieldCons
+) -> tuple[str, list[str]]:
+    """Performs replacements of placeholder strings with concrete types."""
+
     src = inspect.getsource(cls)
-    all_supporting_types = []
-    for placeholder, value in cons_types.items():
-        if all(isinstance(v, CategoryConstraint) for v in value):
-            # Map this into a disciminated union
-            inner, supporting_types = _to_disciminated_union(value)
-            all_supporting_types.append(supporting_types)
-        elif isinstance(value, list):
-            inner = f"Literal[{",".join(f"{v!r}" for v in value)}]"
-        elif isinstance(value, str):
-            inner = f"Literal[{value!r}]"
-        elif value is None:
-            # If the constraint value is None, we should use the Any type
-            inner = "typing.Any"
+    all_supporting_types: list[str] = []
+
+    # TODO(perf): One shot replace
+    for field, maybe_cons in field_cons.items():
+        if maybe_cons is None:
+            # Unconstrained selection / freeform
+            inner = _UNCONSTRAINED_TYPE
+        elif isinstance(maybe_cons, list):
+            if all(isinstance(v, CategoryConstraint) for v in maybe_cons):
+                # Categorical constrained selection: Select values wrt a set of categories
+                # >> Map into a disciminated union
+                inner, supporting_types = _to_disciminated_union(maybe_cons)
+                all_supporting_types.append(supporting_types)
+            else:
+                # Contrained selection: Select values from a set
+                # >> Literal union for list of strings
+                inner = _to_literal_union(maybe_cons)
         else:
-            raise ValueError(f"Unsupported type: {type(value)}")
+            raise ValueError(f"Unsupported type: {type(maybe_cons)}")
 
         # Make the Literal optional so the model can return an "IDK" case
-        src = src.replace(
-            placeholder, inner + " | Literal['Please investigate further']"
-        )
+        placeholder = case_field_to_placeholder[field]
+        src = src.replace(placeholder, inner)
     return src, all_supporting_types
 
 
-def _to_disciminated_union(cons: list[CategoryConstraint]):
+def _to_literal_union(values: list[str]) -> str:
+    """Generate a Literal union type for a list of values.
+
+    Args:
+        values (list[str]): List of values
+
+    Returns:
+        str: The Literal union type
+    """
+    return f"Literal[{",".join(f"{v!r}" for v in values)}]"
+
+
+def _to_disciminated_union(cons: list[CategoryConstraint]) -> tuple[str, str]:
+    """Generate a discriminated union type for a list of CategoryConstraints.
+
+    Args:
+        cons (list[CategoryConstraint]): List of CategoryConstraints
+
+    Returns:
+        tuple[str, str]: The discriminated union type and the supporting types
+    """
     logger.info(f"Creating discriminated union for {cons =}")
     supporting_tags = {}
     for tc in cons:
@@ -91,14 +159,14 @@ def _to_disciminated_union(cons: list[CategoryConstraint]):
         classname = f"_CATEGORY_CONSTRAINT_{slugify(tag, separator='_').upper()}"
         # if there are no values, we should use the Any type
         value_type = (
-            f"Literal[{", ".join(f"{v!r}" for v in values)}]"
+            _to_literal_union(values)
             if values  # Catch empty list or None
-            else "typing.Any"
+            else _UNCONSTRAINED_TYPE
         )
         fmt_tag = (
             f"class {classname}(BaseModel):"
-            f"    tag: Literal['{tag}'] = Field('{tag}', frozen=True)"
-            f"    value: {value_type}"
+            f"\n    tag: Literal['{tag}'] = Field('{tag}', frozen=True)"
+            f"\n    value: {value_type}"
         )
         supporting_tags[classname] = fmt_tag
     union_type = " | ".join(supporting_tags.keys())
@@ -107,19 +175,22 @@ def _to_disciminated_union(cons: list[CategoryConstraint]):
 
 
 def _generate_pydantic_model_json_response_schema(
-    cls: type[T],
-    *,
-    cons_types: dict[str, list[CategoryConstraint] | None] = None,
+    unconstrained_cls: type[T], *, field_cons: FieldCons
 ) -> str:
-    constrained_cls, supporting_types = _dynamic_constraint_factory(
-        cls, cons_types=cons_types
+    """Using the given unconstrained Pydantic model, generate a constrained Pydantic model schema for a JSON response.
+
+    For a class to be unconstrained means that it still contains placeholders that need to be replaced with concrete types.
+    """
+
+    constrained_cls, supporting_discriminated_unions = _dynamic_constraint_factory(
+        unconstrained_cls, field_cons=field_cons
     )
     return (
-        f"\nCPlease complete the `{cls.__name__}` according to the following"
+        f"\nCPlease complete the `{unconstrained_cls.__name__}` according to the following"
         " pydantic model and discriminated unions:"
         "\n```"
         f"\n{constrained_cls}"
-        f"\n\n{"\n\n".join(supporting_types)}"
+        f"\n\n{"\n\n".join(supporting_discriminated_unions)}"
         "\n```"
         "\nFor each discriminated union, you should provide the appropriate value."
     )
@@ -128,17 +199,11 @@ def _generate_pydantic_model_json_response_schema(
 def _case_completions_system_context(
     *,
     output_cls: type[T] = type[CaseMissingFieldsResponse],
-    context_cons: list[CategoryConstraint] | None = None,
-    action_cons: list[CategoryConstraint] | None = None,
+    field_cons: dict[CaseField, list[CategoryConstraint]],
 ) -> str:
     # Concretize the magic strings in the output_cls
-    cons_types = {
-        # NOTE: There currently only is 1 tag for action_cons: case_action
-        "__ACTION_CONSTRAINT_REPLACE__": action_cons[0].value if action_cons else None,
-        "__CONTEXT_CONSTRAINT_REPLACE__": context_cons,
-    }
     output_schema_prompt = _generate_pydantic_model_json_response_schema(
-        output_cls, cons_types=cons_types
+        output_cls, field_cons=field_cons
     )
     system_context = (
         "\nYou are an expert at completing cases (Case objects), which are created from alerts."
@@ -161,8 +226,7 @@ class CaseCompletionResponse(BaseModel):
 async def stream_case_completions(
     cases: list[Case],
     *,
-    context_cons: list[CategoryConstraint] | None = None,
-    action_cons: list[CategoryConstraint] | None = None,
+    field_cons: FieldCons,
 ):
     """Given a list of cases, fill in the missing fields for each.
 
@@ -170,14 +234,22 @@ async def stream_case_completions(
     --------
     - We might want to batch these
 
+
+    Extension
+    ---------
+    - We want full control over this. Meaning, we should be able to specify which fields and constraints we want to complete.
+    - Refactor the API to accept a mapping of Case fields to constraints.
+
     """
 
     system_context = _case_completions_system_context(
         output_cls=CaseMissingFieldsResponse,
-        context_cons=context_cons,
-        action_cons=action_cons,
+        field_cons=field_cons,
     )
-    logger.info(f"🧠 Starting case completions for %d cases... {system_context =}")
+    # logger.info(f"🧠 Starting case completions for %d cases... {system_context =}")
+
+    logger.critical(system_context)
+    logger.critical(f"{field_cons =}")
 
     async def task(case: Case) -> str:
         prompt = f"""Case JSON Object: ```\n{case.model_dump_json()}\n```"""
