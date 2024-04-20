@@ -28,4 +28,5 @@ export const keyValueSchema = z.object({
 export const tagSchema = z.object({
   tag: z.string().min(1, "Please enter a tag."),
   value: z.string().min(1, "Please enter a value."),
+  is_ai_generated: z.boolean().default(false),
 })
