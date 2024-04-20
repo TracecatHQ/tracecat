@@ -34,7 +34,7 @@ DD_REGION_TO_URL = {
 
 
 def create_datadog_client(region: str):
-    base_url = DD_REGION_TO_URL.get(region, "https://app.datadoghq.com")
+    base_url = DD_REGION_TO_URL.get(region, DD_REGION_TO_URL["us1"])
     dd_api_key = os.environ["DD_API_KEY"]
     dd_app_key = os.environ["DD_APP_KEY"]
     headers = {
