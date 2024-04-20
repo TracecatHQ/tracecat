@@ -104,10 +104,10 @@ const OpenCaseActionSchema = z.object({
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  context: z.array(keyValueSchema).nullish().default([]),
+  context: z.array(keyValueSchema).default([]),
   action: z.enum(caseActionTypes),
-  suppression: z.array(suppressionSchema).nullish().default([]),
-  tags: z.array(tagSchema).nullish().default([]),
+  suppression: z.array(suppressionSchema).default([]),
+  tags: z.array(tagSchema).default([]),
 })
 export const baseActionSchema = z.object({
   title: z.string().min(1, { message: "Title cannot be empty" }),
