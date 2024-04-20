@@ -237,17 +237,15 @@ export const columns: ColumnDef<Case>[] = [
       }
       return (
         <div className="flex space-x-2">
-          <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
+          <span className="flex max-w-[300px] flex-col space-y-1 text-xs text-muted-foreground">
             {tags.length > 0
-              ? tags.map(
-                  ({ tag, value, is_ai_generated: isAIGenerated }, idx) => (
-                    <StatusBadge key={idx}>
-                      <AIGeneratedFlair isAIGenerated={isAIGenerated}>
-                        {tag}:{value}
-                      </AIGeneratedFlair>
-                    </StatusBadge>
-                  )
-                )
+              ? tags.map(({ tag, value, is_ai_generated }, idx) => (
+                  <StatusBadge key={idx}>
+                    <AIGeneratedFlair isAIGenerated={is_ai_generated}>
+                      {tag}:{value}
+                    </AIGeneratedFlair>
+                  </StatusBadge>
+                ))
               : "No tags"}
           </span>
         </div>
