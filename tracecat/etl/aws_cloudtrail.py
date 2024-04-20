@@ -161,14 +161,16 @@ def _load_cloudtrail_ndjson_files(ndjson_file_paths: list[Path]) -> pl.LazyFrame
         pl.scan_ndjson(ndjson_file_paths, infer_schema_length=None)
         .select(AWS_CLOUDTRAIL__SELECTED_FIELDS)
         # Cast eventTime to datetime
+        # Defensive to avoid concats with mismatched struct column schemas
+        # TODO: Find out where the extra quotations at start and end get added in...
+        .with_columns(pl.all().cast(pl.Utf8).str.strip_chars('"'))
         .with_columns(
-            eventTime=pl.col("eventTime")
-            .str.strip_chars('"')
-            .str.strip_chars("'")
-            .str.strptime(format=AWS_CLOUDTRAIL__DATETIME_FORMAT, dtype=pl.Datetime)
+            eventTime=pl.col("eventTime").str.strptime(
+                format=AWS_CLOUDTRAIL__DATETIME_FORMAT, dtype=pl.Datetime
+            )
         )
         # Defensive to avoid concats with mismatched struct column schemas
-        .with_columns(pl.all().exclude("eventTime").cast(pl.Utf8))
+        .with_columns(pl.all().exclude("eventTime").cast(pl.Utf8).str.strip_chars('"'))
     )
     return logs
 
