@@ -25,5 +25,7 @@ ActionType = Literal[
     ## Material Security
     "integrations.sublime_security.test",
     ## Datadog
-    "integrations.datadog.test",
+    "integrations.datadog.list_security_signals",
+    "integrations.datadog.update_security_signal_state",
+    "integrations.datadog.list_detection_rules",
 ]
