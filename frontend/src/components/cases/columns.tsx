@@ -172,11 +172,8 @@ export const columns: ColumnDef<Case>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Action" />
     ),
-    cell: ({ row, table }) => {
+    cell: ({ row }) => {
       const action = row.getValue<Case["action"]>("action")
-      if (table.options.meta?.isProcessing && action === null) {
-        return <LoadingCellState />
-      }
       return (
         <div className="flex space-x-2">
           <span
@@ -185,7 +182,7 @@ export const columns: ColumnDef<Case>[] = [
               !action && "text-muted-foreground"
             )}
           >
-            {action ? action : "No action available"}
+            {action}
           </span>
         </div>
       )
@@ -194,30 +191,20 @@ export const columns: ColumnDef<Case>[] = [
   {
     accessorKey: "context",
     header: ({ column }) => (
-      <DataTableColumnHeader
-        column={column}
-        title="Context"
-        icon={
-          <Sparkles className="mr-1 h-3 w-3 animate-pulse fill-yellow-500 text-yellow-500" />
-        }
-      />
+      <DataTableColumnHeader column={column} title="Context" />
     ),
-    cell: ({ row, table }) => {
+    cell: ({ row }) => {
       const caseContextFields = row.getValue<Case["context"]>("context")
-      if (table.options.meta?.isProcessing && caseContextFields === null) {
-        return <LoadingCellState />
-      }
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-            {/* tags is null or empty array */}
-            {caseContextFields && caseContextFields.length > 0
+            {caseContextFields.length > 0
               ? caseContextFields.map(({ key, value }, idx) => (
                   <Badge key={idx} variant="outline">
                     {value}
                   </Badge>
                 ))
-              : "No tags"}
+              : "No context tags"}
           </span>
         </div>
       )
@@ -229,8 +216,8 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Suppressions" />
     ),
     cell: ({ row }) => {
-      const maybeSuppressions = row.getValue<Case["suppression"]>("suppression")
-      return <span className="text-xs">{maybeSuppressions?.length ?? 0}</span>
+      const suppressions = row.getValue<Case["suppression"]>("suppression")
+      return <span className="text-xs">{suppressions.length}</span>
     },
   },
   {
@@ -246,17 +233,17 @@ export const columns: ColumnDef<Case>[] = [
     ),
     cell: ({ row, table }) => {
       const tags = row.getValue<Case["tags"]>("tags")
-      if (table.options.meta?.isProcessing && tags === null) {
+      // NOTE: Only run on empty tags, but this may change
+      if (table.options.meta?.isProcessing && tags.length === 0) {
         return <LoadingCellState />
       }
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
-            {/* tags is null or empty array */}
-            {tags && tags.length > 0
+            {tags.length > 0
               ? tags.map(({ tag, value }, idx) => (
                   <Badge key={idx} variant="outline">
-                    {tag}: {value}
+                    {tag}:{value}
                   </Badge>
                 ))
               : "No tags"}

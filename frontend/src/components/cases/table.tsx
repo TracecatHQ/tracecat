@@ -77,6 +77,12 @@ function InternalCaseTable() {
 
   const memoizedColumns = useMemo(() => columns, [columns])
 
+  /**
+   * Perform autocompletions for the cases
+   *
+   * - Set all completable 'null' values to a loading icon
+   * - We only support autocompleting `tags` for now
+   */
   const fetchCompletions = async () => {
     // 1. Set all 'null' values to a loading icon
     setIsAutocompleting(() => true)
@@ -86,12 +92,16 @@ function InternalCaseTable() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(cases),
+      body: JSON.stringify({
+        cases,
+        fields: ["tags"],
+      }),
     })
 
     try {
       for await (const response of generator) {
         const parsedJSONResponse = JSON.parse(response)
+        console.log("Parsed JSON Response", parsedJSONResponse)
         const parsedResponse =
           caseCompletionUpdateSchema.parse(parsedJSONResponse)
         const id = parsedResponse.id
@@ -100,12 +110,11 @@ function InternalCaseTable() {
           console.error(`Case ${id} not found`)
           continue
         }
-        const { action, context } = parsedResponse.response
+        const { tags } = parsedResponse.response
         const updatedCase = {
           ...prevCase,
-          // Replace if the originals are null
-          action: prevCase?.action ?? action,
-          context: prevCase?.context ?? context,
+          // Add the new tags to the existing tags
+          tags: prevCase?.tags ? [...prevCase.tags, ...tags] : tags,
         }
         console.log("Updated Case", updatedCase.id)
         const newCase = caseSchema.parse(updatedCase)
