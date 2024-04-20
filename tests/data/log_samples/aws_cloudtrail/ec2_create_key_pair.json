@@ -1,0 +1,50 @@
+{"Records": [{
+    "eventVersion": "1.08",
+    "userIdentity": {
+        "type": "IAMUser",
+        "principalId": "AIDA6ON6E4XEGIEXAMPLE",
+        "arn": "arn:aws:iam::444455556666:user/Arnav",
+        "accountId": "444455556666",
+        "accessKeyId": "AKIAI44QH8DHBEXAMPLE",
+        "userName": "Arnav",
+        "sessionContext": {
+            "sessionIssuer": {},
+            "webIdFederationData": {},
+            "attributes": {
+                "creationDate": "2023-07-19T21:11:57Z",
+                "mfaAuthenticated": "false"
+            }
+        }
+    },
+    "eventTime": "2023-07-19T21:19:22Z",
+    "eventSource": "ec2.amazonaws.com",
+    "eventName": "CreateKeyPair",
+    "awsRegion": "us-east-1",
+    "sourceIPAddress": "192.0.2.0",
+    "userAgent": "aws-cli/2.13.5 Python/3.11.4 Linux/4.14.255-314-253.539.amzn2.x86_64 exec-env/CloudShell exe/x86_64.amzn.2 prompt/off command/ec2.create-key-pair",
+    "requestParameters": {
+        "keyName": "my-key",
+        "keyType": "rsa",
+        "keyFormat": "pem"
+    },
+    "responseElements": {
+        "requestId": "9aa4938f-720f-4f4b-9637-EXAMPLE9a196",
+        "keyName": "my-key",
+        "keyFingerprint": "1f:51:ae:28:bf:89:e9:d8:1f:25:5d:37:2d:7d:b8:ca:9f:f5:f1:6f",
+        "keyPairId": "key-abcd12345eEXAMPLE",
+        "keyMaterial": "<sensitiveDataRemoved>"
+    },
+    "requestID": "9aa4938f-720f-4f4b-9637-EXAMPLE9a196",
+    "eventID": "2ae450ff-e72b-4de1-87b0-EXAMPLE5227cb",
+    "readOnly": false,
+    "eventType": "AwsApiCall",
+    "managementEvent": true,
+    "recipientAccountId": "444455556666",
+    "eventCategory": "Management",
+    "tlsDetails": {
+        "tlsVersion": "TLSv1.2",
+        "cipherSuite": "ECDHE-RSA-AES128-GCM-SHA256",
+        "clientProvidedHostHeader": "ec2.us-east-1.amazonaws.com"
+    },
+    "sessionCredentialFromConsole": "true"
+}]}

@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "adbc-driver-sqlite",
+    "boto3==1.34.69",
     "colorlog",
     "croniter",
     "cryptography",
@@ -31,7 +32,7 @@ dependencies = [
     "lancedb==0.6.3",
     "openai",
     "orjson",
-    "polars",
+    "polars==0.20.21",
     "psycopg[binary]",
     "psycopg2-binary",
     "pyarrow",
@@ -54,7 +55,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
 runner = ["aiosmtplib", "jsonpath_ng", "python-multipart"]
-dev = ["respx", "pytest", "python-dotenv", "pytest-asyncio"]
+dev = ["respx", "pytest", "python-dotenv", "pytest-asyncio", "minio"]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"

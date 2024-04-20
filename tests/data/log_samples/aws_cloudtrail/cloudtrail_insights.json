@@ -1,0 +1,55 @@
+{
+    "Records": [{
+        "eventVersion": "1.08",
+        "eventTime": "2023-01-02T02:51:00Z",
+        "awsRegion": "us-east-1",
+        "eventID": "654a30ff-b0f3-4527-81b6-EXAMPLEf2393",
+        "eventType": "AwsCloudTrailInsight",
+        "recipientAccountId": "123456789012",
+        "sharedEventID": "bcbfc274-8559-4a56-beb0-EXAMPLEa6c34",
+        "insightDetails": {
+            "state": "Start",
+            "eventSource": "ssm.amazonaws.com",
+            "eventName": "UpdateInstanceInformation",
+            "insightType": "ApiCallRateInsight",
+            "insightContext": {
+                "statistics": {
+                    "baseline": {
+                        "average": 84.410596421
+                    },
+                    "insight": {
+                        "average": 669
+                    }
+                }
+            }
+        },
+        "eventCategory": "Insight"
+    },
+    {
+        "eventVersion": "1.08",
+        "eventTime": "2023-01-02T00:22:00Z",
+        "awsRegion": "us-east-1",
+        "eventID": "258de2fb-e2a9-4fb5-aeb2-EXAMPLE449a4",
+        "eventType": "AwsCloudTrailInsight",
+        "recipientAccountId": "123456789012",
+        "sharedEventID": "8b74a7bc-d5d3-4d19-9d60-EXAMPLE08b51",
+        "insightDetails": {
+            "state": "End",
+            "eventSource": "ssm.amazonaws.com",
+            "eventName": "UpdateInstanceInformation",
+            "insightType": "ApiCallRateInsight",
+            "insightContext": {
+                "statistics": {
+                    "baseline": {
+                        "average": 74.156423842
+                    },
+                    "insight": {
+                        "average": 657
+                    },
+                    "insightDuration": 1
+                }
+            }
+        },
+        "eventCategory": "Insight"
+    }]
+}

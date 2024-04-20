@@ -1,0 +1,43 @@
+{"Records": [{
+    "eventVersion": "1.09",
+    "userIdentity": {
+        "type": "IAMUser",
+        "principalId": "AIDA6ON6E4XEGIEXAMPLE",
+        "arn": "arn:aws:iam::111122223333:user/Terry",
+        "accountId": "111122223333",
+        "accessKeyId": "AKIAIOSFODNN7EXAMPLE",
+        "userName": "Terry",
+        "sessionContext": {
+            "attributes": {
+                "creationDate": "2023-07-19T21:11:57Z",
+                "mfaAuthenticated": "false"
+            }
+        }
+    },
+    "eventTime": "2023-07-19T21:35:03Z",
+    "eventSource": "cloudtrail.amazonaws.com",
+    "eventName": "UpdateTrail",
+    "awsRegion": "us-east-1",
+    "sourceIPAddress": "192.0.2.0",
+    "userAgent": "aws-cli/2.13.0 Python/3.11.4 Linux/4.14.255-314-253.539.amzn2.x86_64 exec-env/CloudShell exe/x86_64.amzn.2 prompt/off command/cloudtrail.update-trail",
+    "errorCode": "TrailNotFoundException",
+    "errorMessage": "Unknown trail: arn:aws:cloudtrail:us-east-1:111122223333:trail/myTrail2 for the user: 111122223333",
+    "requestParameters": {
+        "name": "myTrail2",
+        "isMultiRegionTrail": true
+    },
+    "responseElements": null,
+    "requestID": "28d2faaf-3319-4649-998d-EXAMPLE72818",
+    "eventID": "694d604a-d190-4470-8dd1-EXAMPLEe20c1",
+    "readOnly": false,
+    "eventType": "AwsApiCall",
+    "managementEvent": true,
+    "recipientAccountId": "111122223333",
+    "eventCategory": "Management",
+    "tlsDetails": {
+        "tlsVersion": "TLSv1.2",
+        "cipherSuite": "ECDHE-RSA-AES128-GCM-SHA256",
+        "clientProvidedHostHeader": "cloudtrail.us-east-1.amazonaws.com"
+    },
+    "sessionCredentialFromConsole": "true"
+}]}
