@@ -56,7 +56,7 @@ def list_security_signals(
     end: datetime | None = None,
     limit: int = 100,
     region: str = "us1",
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Return list of security signals."""
     body = {
         "filter": {
