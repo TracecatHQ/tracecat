@@ -4,7 +4,9 @@ import hashlib
 import io
 import logging
 import os
-from datetime import datetime
+import shutil
+from copy import deepcopy
+from datetime import datetime, timedelta
 
 import orjson
 import polars as pl
@@ -13,29 +15,47 @@ from minio import Minio
 from polars.testing import assert_frame_equal
 from tqdm.contrib.concurrent import thread_map
 
+from tracecat.config import TRACECAT__TRIAGE_DIR
 from tracecat.etl.aws_cloudtrail import (
+    AWS_CLOUDTRAIL__JSON_FIELDS,
+    AWS_CLOUDTRAIL__SELECTED_FIELDS,
+    list_cloudtrail_objects_under_prefix,
     load_cloudtrail_logs,
 )
 
 TEST__AWS_CLOUDTRAIL__S3_PREFIX_FORMAT = (
     "AWSLogs/o-123xyz1234/111222333444/CloudTrail/{region}/{year}/{month:02d}/{day:02d}"
 )
-TEST__START_DATETIME = datetime(2023, 1, 1)
+TEST__AWS_CLOUDTRAIL_REGIONS = ["us-west-1", "us-west-2", "eu-central-1"]
+TEST__N_RECORDS = 100
 TEST__DATES_TO_RECORDS_RATIO = 3
 
 
-# AWS CloudTrail log samples
+TEST__START_DATETIME = datetime(2023, 1, 1)
+TEST__END_DATETIME = TEST__START_DATETIME + timedelta(
+    minutes=TEST__N_RECORDS * TEST__DATES_TO_RECORDS_RATIO
+)
 
 
 @pytest.fixture(scope="session")
-def cloudtrail_records() -> list[dict]:
+def cloudtrail_records() -> dict[str, list[dict]]:
+    """Multi-region records"""
     # Parse all sample logs into list of records
     records = []
     for path in glob.iglob("tests/data/log_samples/aws_cloudtrail/*.json"):
         with open(path) as f:
             sample_records = orjson.loads(f.read())["Records"]
         records += sample_records
-    return records
+
+    # NOTE: Can be vectorized
+    new_records = []
+    for region in TEST__AWS_CLOUDTRAIL_REGIONS:
+        for record in records:
+            new_record = deepcopy(record)
+            new_record["awsRegion"] = region
+            new_records.append(new_record)
+
+    return new_records
 
 
 def put_cloudtrail_logs(records_object_name: tuple[list[dict], str]) -> int:
@@ -60,25 +80,20 @@ def put_cloudtrail_logs(records_object_name: tuple[list[dict], str]) -> int:
     return obj_size
 
 
-@pytest.fixture(
-    scope="session",
-    params=[1000],
-)
-def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
+@pytest.fixture(scope="session")
+def cloudtrail_log_files(cloudtrail_records):
     """Add AWS CloudTrail log files into MinIO and return the expected DataFrame of records."""
 
     bucket_size = 0
-    n_records = request.param
+    n_records = TEST__N_RECORDS
     # Use pigeonhole principle to map each record to a unique timestamp
     timestamps = pl.datetime_range(
         start=TEST__START_DATETIME,
-        end=TEST__START_DATETIME
-        + pl.duration(minutes=n_records * TEST__DATES_TO_RECORDS_RATIO),
+        end=TEST__END_DATETIME,
         interval="1m",
     )
     # NOTE: Assume only 3 regions active
-    aws_regions = ["us-west-1", "us-west-2", "eu-central-1"]
-    records = (
+    logs = (
         pl.from_dicts(cloudtrail_records)
         .sample(n_records, with_replacement=True)
         .with_columns(eventTime=timestamps.sample(n_records))
@@ -86,22 +101,21 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
         .set_sorted("eventTime")
         .to_struct(name="record")
         .to_frame()
-        .with_columns(eventTime=pl.col("record").struct.field("eventTime"))
+        .with_columns(
+            eventTime=pl.col("record").struct.field("eventTime"),
+            awsRegion=pl.col("record").struct.field("awsRegion"),
+        )
         # Split records into 15-minute intervals
-        .group_by_dynamic("eventTime", every="15m")
+        .group_by_dynamic("eventTime", every="15m", group_by="awsRegion")
         .agg(pl.col("record").alias("records"))
-    )
-    multi_region_records = pl.concat(
-        [records.with_columns(region=pl.lit(region)) for region in aws_regions]
     )
 
     put_cloudtrail_params = []
     # For testing purposes, just assume each region has the same records
     # NOTE: This loop is can be vectorized
-    for row in multi_region_records.to_dicts():
+    for row in logs.to_dicts():
         event_time = row["eventTime"]
-        region = row["region"]
-        # NOTE: For performance sake, we do NOT normalize record region to match faked region
+        region = row["awsRegion"]
         records = row["records"]
         # NOTE: AccountID_CloudTrail_RegionName_YYYYMMDDTHHmmZ_UniqueString.FileNameFormat
         # For example: 123456789012_CloudTrail_us-west-2_20230101T0000Z_1a2b3c4d.json.gz
@@ -125,29 +139,49 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
     bucket_size = sum(object_sizes)
     logging.info("✅ AWS CloudTrail bucket size: %.2f bytes", bucket_size)
 
-    return multi_region_records.select(
-        "eventTime",
-        "records",
-    )
+    yield logs.select("eventTime", "records")
+
+    # Cleanup triage direcotry
+    shutil.rmtree(TRACECAT__TRIAGE_DIR)
 
 
-@pytest.mark.parametrize(
-    "organization_id",
-    [None, "o-123xyz1234"],
-)
-def test_load_cloudtrail_logs(organization_id, cloudtrail_log_files):
+def test_list_objects_under_prefix_length(cloudtrail_log_files):
     # Set AWS credentials to minio creds
     os.environ["AWS_ACCESS_KEY_ID"] = os.environ["MINIO_ACCESS_KEY"]
     os.environ["AWS_SECRET_ACCESS_KEY"] = os.environ["MINIO_SECRET_KEY"]
     os.environ["AWS_ENDPOINT_URL_S3"] = f'http://{os.environ["MINIO_ENDPOINT"]}'
 
-    expected_logs = cloudtrail_log_files
+    # Check number of objects listed is equal to number of files uplaoded
+    object_names = list_cloudtrail_objects_under_prefix(
+        account_id="111222333444",
+        bucket_name=os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"],
+        start=TEST__START_DATETIME,
+        end=TEST__END_DATETIME,
+        organization_id="o-123xyz1234",
+    )
+    assert len(object_names) == len(cloudtrail_log_files)
+
+
+def test_load_cloudtrail_logs(cloudtrail_log_files):
+    # Set AWS credentials to minio creds
+    os.environ["AWS_ACCESS_KEY_ID"] = os.environ["MINIO_ACCESS_KEY"]
+    os.environ["AWS_SECRET_ACCESS_KEY"] = os.environ["MINIO_SECRET_KEY"]
+    os.environ["AWS_ENDPOINT_URL_S3"] = f'http://{os.environ["MINIO_ENDPOINT"]}'
+
+    expected_logs = (
+        cloudtrail_log_files.select("records")
+        .explode("records")
+        .unnest("records")
+        .select(AWS_CLOUDTRAIL__SELECTED_FIELDS)
+        .with_columns(pl.col(AWS_CLOUDTRAIL__JSON_FIELDS).struct.json_encode())
+    )
     logs = load_cloudtrail_logs(
         account_id="111222333444",
         bucket_name=os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"],
         start=TEST__START_DATETIME,
-        end=expected_logs.get_column("eventTime").max(),
-        organization_id=organization_id,
-    )
-    # Check loaded logs match up with uploaded logs
+        end=TEST__END_DATETIME,
+        organization_id="o-123xyz1234",
+    ).collect()
+
+    # Check decoded logs match up with uploaded logs
     assert_frame_equal(logs, expected_logs)
