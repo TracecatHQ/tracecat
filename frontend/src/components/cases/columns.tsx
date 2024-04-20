@@ -5,11 +5,11 @@ import { Sparkles } from "lucide-react"
 
 import { type Case } from "@/types/schemas"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
 import { DataTableColumnHeader } from "@/components/data-table/column-header"
+import { AIGeneratedFlair } from "@/components/flair"
 import { LoadingCellState } from "@/components/loading/table"
 
 export const columns: ColumnDef<Case>[] = [
@@ -200,9 +200,7 @@ export const columns: ColumnDef<Case>[] = [
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
             {caseContextFields.length > 0
               ? caseContextFields.map(({ key, value }, idx) => (
-                  <Badge key={idx} variant="outline">
-                    {value}
-                  </Badge>
+                  <StatusBadge key={idx}>{value}</StatusBadge>
                 ))
               : "No context tags"}
           </span>
@@ -241,11 +239,15 @@ export const columns: ColumnDef<Case>[] = [
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
             {tags.length > 0
-              ? tags.map(({ tag, value }, idx) => (
-                  <Badge key={idx} variant="outline">
-                    {tag}:{value}
-                  </Badge>
-                ))
+              ? tags.map(
+                  ({ tag, value, is_ai_generated: isAIGenerated }, idx) => (
+                    <StatusBadge key={idx}>
+                      <AIGeneratedFlair isAIGenerated={isAIGenerated}>
+                        {tag}:{value}
+                      </AIGeneratedFlair>
+                    </StatusBadge>
+                  )
+                )
               : "No tags"}
           </span>
         </div>

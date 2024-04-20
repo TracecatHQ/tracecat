@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/tooltip"
 import { StatusBadge } from "@/components/badges"
 import { statuses } from "@/components/cases/data/categories"
+import { AIGeneratedFlair } from "@/components/flair"
 import { LabelsTable } from "@/components/labels-table"
 
 type TStatus = (typeof statuses)[number]
@@ -60,10 +61,8 @@ export function CasePanelContent({
             <CaseStatusSelect status={currentStatus} />
           </div>
           <div className="flex items-center space-x-2">
-            <StatusBadge status={priority ?? ""}>
-              priority: {priority}
-            </StatusBadge>
-            <StatusBadge status={malice ?? ""}>{malice}</StatusBadge>
+            <StatusBadge status={priority}>priority: {priority}</StatusBadge>
+            <StatusBadge status={malice}>{malice}</StatusBadge>
           </div>
           <div className="flex items-center space-x-2">
             <Tooltip>
@@ -73,8 +72,10 @@ export function CasePanelContent({
               <TooltipContent side="top">Tags</TooltipContent>
             </Tooltip>
             {tags?.map((tag, idx) => (
-              <StatusBadge key={idx} status={tag.value}>
-                {tag.tag}:{tag.value}
+              <StatusBadge key={idx} className="flex items-center">
+                <AIGeneratedFlair isAIGenerated={tag.is_ai_generated}>
+                  {tag.tag}:{tag.value}
+                </AIGeneratedFlair>
               </StatusBadge>
             ))}
           </div>
