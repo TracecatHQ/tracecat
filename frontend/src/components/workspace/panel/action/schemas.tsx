@@ -294,23 +294,17 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
       placeholder:
         "A JSON payload to be included in the case. You may use templated expressions here.",
     },
-    malice: {
+    priority: {
       type: "select",
-      options: ["malicious", "benign"],
+      options: ["low", "medium", "high", "critical"],
     },
     status: {
       type: "select",
       options: ["open", "closed", "in_progress", "reported", "escalated"],
     },
-    priority: {
+    malice: {
       type: "select",
-      options: ["low", "medium", "high", "critical"],
-    },
-    context: {
-      type: "flat-kv",
-      optional: true,
-      key: "key",
-      value: "value",
+      options: ["malicious", "benign"],
     },
     action: {
       type: "select",
@@ -321,6 +315,12 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
         "sinkhole",
         "active_compromise",
       ],
+    },
+    context: {
+      type: "flat-kv",
+      optional: true,
+      key: "key",
+      value: "value",
     },
     suppression: {
       type: "flat-kv",
