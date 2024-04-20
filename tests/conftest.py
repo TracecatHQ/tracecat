@@ -25,7 +25,7 @@ AWS_CLOUDTRAIL__BUCKET_NAME = "aws-cloudtrail-logs"
 logging.basicConfig(level="INFO")
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="session")
 def setup_shared_env():
     os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
     os.environ["TRACECAT__API_URL"] = "http://api:8000"
