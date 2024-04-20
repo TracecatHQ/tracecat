@@ -5,6 +5,7 @@ API reference: https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudt
 
 import gzip
 import io
+import logging
 from datetime import datetime, timedelta
 from functools import partial
 from itertools import chain
@@ -23,8 +24,13 @@ from tracecat.logger import standard_logger
 
 logger = standard_logger("runner.aws_cloudtrail")
 
+# Supress botocore info logs
+logging.getLogger("botocore").setLevel(logging.CRITICAL)
+
 
 AWS_CLOUDTRAIL__TRIAGE_DIR = TRACECAT__TRIAGE_DIR / "aws_cloudtrail"
+AWS_CLOUDTRAIL__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
+
 # NOTE: account_id = organization_id / account_id if organization_id is present
 AWS_CLOUDTRAIL__S3_PREFIX_FORMAT = (
     "AWSLogs/{account_id}/CloudTrail/{region}/{year}/{month:02d}/{day:02d}/"
@@ -58,13 +64,27 @@ def get_aws_regions() -> list[str]:
 def list_cloudtrail_objects_under_prefix(
     bucket_name: str,
     account_id: str,
-    date_range: pl.Series,
+    start: datetime,
+    end: datetime,
     regions: list[str],
     organization_id: str | None = None,
 ) -> list[str]:
     nested_object_names = []
     if organization_id:
         account_id = f"{organization_id}/{account_id}"
+
+    start_date = start.date()
+    end_date = end.date()
+    if start_date == end_date:
+        date_range = pl.Series([start_date])
+    else:
+        date_range = pl.date_range(
+            start=start.date(),
+            end=end.date(),
+            interval=timedelta(days=1),
+            eager=True,
+        )
+
     for region in regions:
         # List all relevant prefixes given dates in date range
         prefixes = iter(
@@ -127,20 +147,20 @@ def _load_cloudtrail_gzip_files(
     ndjson_file_paths = thread_map(
         partial(_load_cloudtrail_gzip_file, bucket_name=bucket_name),
         object_names,
-        desc="📂 Download AWS CloudTrail logs",
+        desc="📥 Download AWS CloudTrail logs",
     )
     return ndjson_file_paths
 
 
 def _load_cloudtrail_ndjson_files(ndjson_file_paths: list[Path]) -> list[dict]:
-    logger.info("📂 Convert and filter triaged AWS CloudTrail logs")
+    logger.info("🗂️ Coalesce triaged AWS CloudTrail logs")
     logs = (
         # NOTE: This might cause memory to blow up
         pl.scan_ndjson(ndjson_file_paths, infer_schema_length=None)
         .select(AWS_CLOUDTRAIL__SELECTED_FIELDS)
         # Defensive to avoid concats with mismatched struct column schemas
         .select(pl.all().cast(pl.Utf8))
-        .collect(streaming=True)
+        .collect()
         .to_dicts()
     )
     return logs
@@ -156,21 +176,16 @@ def load_cloudtrail_logs(
 ) -> list[dict]:
     regions = regions or get_aws_regions()
     logger.info(
-        "📂 Download AWS CloudTrail logs from: account_id=%s, regions=%s",
+        "🆗 Download AWS CloudTrail logs from: account_id=%r across regions=%s",
         account_id,
         regions,
-    )
-    date_range = pl.date_range(
-        start=start,
-        end=end,
-        interval=timedelta(days=1),
-        eager=True,
     )
     object_names = list_cloudtrail_objects_under_prefix(
         bucket_name=bucket_name,
         organization_id=organization_id,
         account_id=account_id,
-        date_range=date_range,
+        start=start,
+        end=end,
         regions=regions,
     )
     ndjson_file_paths = _load_cloudtrail_gzip_files(
