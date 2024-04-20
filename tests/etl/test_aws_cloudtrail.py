@@ -35,24 +35,25 @@ def cloudtrail_records() -> list[dict]:
     return records
 
 
-def put_cloudtrail_logs(logs_sample: list[dict], file_name: str) -> int:
+def put_cloudtrail_logs(records_object_name: tuple[list[dict], str]) -> int:
+    records, object_name = records_object_name
     client = Minio(
         os.environ["MINIO_ENDPOINT"],
         access_key=os.environ["MINIO_ACCESS_KEY"],
         secret_key=os.environ["MINIO_SECRET_KEY"],
         secure=False,
     )
-    logs_data = orjson.dumps({"Records": logs_sample})
+    logs_data = orjson.dumps({"Records": records})
     obj_data = gzip.compress(logs_data)
     obj_size = len(obj_data)
     client.put_object(
         bucket_name=os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"],
-        object_name=file_name,
+        object_name=object_name,
         data=io.BytesIO(obj_data),
         length=obj_size,
     )
     # # Check if the upload was successful
-    # assert client.stat_object(AWS_CLOUDTRAIL__BUCKET_NAME, file_name)
+    # assert client.stat_object(AWS_CLOUDTRAIL__BUCKET_NAME, object_name)
     return obj_size
 
 
@@ -67,7 +68,7 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
     bucket_size = 0
     n_records, n_regions = request.param
     # Use pigeonhole principle to map each record to a unique timestamp
-    timestamps = pl.date_range(
+    timestamps = pl.datetime_range(
         start=TEST__START_DATETIME,
         end=TEST__START_DATETIME
         + pl.duration(minutes=n_records * TEST__DATES_TO_RECORDS_RATIO),
@@ -85,8 +86,7 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
         .with_columns(eventTime=pl.col("record").struct.field("eventTime"))
         # Split records into 15-minute intervals
         .group_by_dynamic("eventTime", every="15m")
-        .agg(pl.col("record"))
-        .with_columns(uuid=pl.col)
+        .agg(pl.col("record").alias("records"))
     )
     multi_region_records = pl.concat(
         [records.with_columns(region=pl.lit(region)) for region in aws_regions]
@@ -95,16 +95,16 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
     put_cloudtrail_params = []
     # For testing purposes, just assume each region has the same records
     # NOTE: This loop is can be vectorized
-    for record in multi_region_records.to_dicts(drop_null_fields=False):
-        event_time = record["eventTime"]
-        record = record["record"]
-        region = record["region"]
-        record["awsRegion"] = region
+    for row in multi_region_records.to_dicts():
+        event_time = row["eventTime"]
+        region = row["region"]
+        # NOTE: For performance sake, we do NOT normalize record region to match faked region
+        records = row["records"]
         # NOTE: AccountID_CloudTrail_RegionName_YYYYMMDDTHHmmZ_UniqueString.FileNameFormat
         # For example: 123456789012_CloudTrail_us-west-2_20230101T0000Z_1a2b3c4d.json.gz
-        uuid = hashlib.md5(str(record).encode()).hexdigest()[:8]
+        uuid = hashlib.md5(str(event_time).encode()).hexdigest()[:8]
         object_name = f"{AWS_CLOUDTRAIL__DIR_PATH}/{region}_{event_time.strftime('%Y%m%dT%H%MZ')}_{uuid}.json.gz"
-        put_cloudtrail_params.append((record, object_name))
+        put_cloudtrail_params.append((records, object_name))
 
     # Upload logs into MinIO
     object_sizes = thread_map(
@@ -113,11 +113,11 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
         desc="🪣 Uploading AWS CloudTrail logs into MinIO",
     )
     bucket_size = sum(object_sizes)
-    logging.info("✅ AWS CloudTrail bucket size: %.2f gb", bucket_size / 2**30)
+    logging.info("✅ AWS CloudTrail bucket size: %.2f bytes", bucket_size)
 
     return multi_region_records.select(
         "eventTime",
-        "record",
+        "records",
     )
 
 
@@ -126,6 +126,11 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
     [None, "o-123xyz1234"],
 )
 def test_load_cloudtrail_logs(organization_id, cloudtrail_log_files):
+    # Set AWS credentials to minio creds
+    os.environ["AWS_ACCESS_KEY_ID"] = os.environ["MINIO_ACCESS_KEY"]
+    os.environ["AWS_SECRET_ACCESS_KEY"] = os.environ["MINIO_SECRET_KEY"]
+    os.environ["AWS_ENDPOINT_URL_S3"] = f'http://{os.environ["MINIO_ENDPOINT"]}'
+
     expected_logs = cloudtrail_log_files
     logs = load_cloudtrail_logs(
         account_id="111222333444",
