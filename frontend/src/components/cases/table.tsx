@@ -113,8 +113,10 @@ function InternalCaseTable() {
         const { tags } = parsedResponse.response
         const updatedCase = {
           ...prevCase,
-          // Add the new tags to the existing tags
-          tags: prevCase?.tags ? [...prevCase.tags, ...tags] : tags,
+          // Add the new tags to the existing tags, without overwriting
+          tags: prevCase.tags.concat(
+            tags.map((tag) => ({ ...tag, is_ai_generated: true }))
+          ),
         }
         console.log("Updated Case", updatedCase.id)
         const newCase = caseSchema.parse(updatedCase)

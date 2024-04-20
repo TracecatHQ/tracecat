@@ -209,6 +209,7 @@ class SearchSecretsParams(BaseModel):
 class Tag(BaseModel):
     tag: str
     value: str
+    is_ai_generated: bool = False
 
 
 class Suppression(BaseModel):
