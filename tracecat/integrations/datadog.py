@@ -11,7 +11,7 @@ API reference: https://docs.datadoghq.com/api/latest/security-monitoring
 
 import os
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 import orjson
