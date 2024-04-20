@@ -25,11 +25,11 @@ logger = standard_logger(__name__)
 
 
 DD_REGION_TO_URL = {
-    "us1": "https://app.datadoghq.com",
-    "us3": "https://us3.datadoghq.com",
-    "us2": "https://us2.datadoghq.com",
-    "eu1": "https://app.datadoghq.eu",
-    "ap1": "https://app.datadoghq.com",
+    "ap1": "https://api.ap1.datadoghq.com",
+    "eu1": "https://api.datadoghq.eu",
+    "us1": "https://api.datadoghq.com",
+    "us3": "https://api.us3.datadoghq.com",
+    "us5": "https://api.us5.datadoghq.com",
 }
 
 
