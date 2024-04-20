@@ -101,7 +101,7 @@ export function CasePanelContent({
                   keyName="condition"
                   valueName="result"
                   labels={suppression}
-                  emptyMessage="No context available"
+                  emptyMessage="No suppressions available"
                 />
               </Card>
             </div>

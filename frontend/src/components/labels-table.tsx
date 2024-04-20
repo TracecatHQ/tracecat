@@ -55,7 +55,7 @@ export function LabelsTable<T>({
   labels,
   emptyMessage = "No labels availbale",
 }: LabelsTableProps<T>) {
-  return labels ? (
+  return labels.length > 0 ? (
     <FlatKVTable<T> keyName={keyName} valueName={valueName} data={labels} />
   ) : (
     <NoContent message={emptyMessage} />
