@@ -99,7 +99,7 @@ def update_security_signal_state(
     archive_comment: str | None = None,
     archive_reason: str | None = None,
     region: str = "us1",
-) -> dict:
+) -> dict[str, Any]:
     """Return updated security signal object."""
     with create_datadog_client(region=region) as client:
         rsp = client.patch(
