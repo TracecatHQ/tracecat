@@ -162,11 +162,10 @@ export const caseSchema = z.object({
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
-  // This needs to be a union type because it's serialized as a string
-  context: z.array(keyValueSchema).nullish().default([]),
   action: z.enum(caseActionTypes),
-  suppression: z.array(suppressionSchema).nullish().default([]),
-  tags: z.array(tagSchema).nullish().default([]),
+  context: z.array(keyValueSchema).default([]),
+  suppression: z.array(suppressionSchema).default([]),
+  tags: z.array(tagSchema).default([]),
 })
 
 export type Case = z.infer<typeof caseSchema>
@@ -174,8 +173,7 @@ export type Case = z.infer<typeof caseSchema>
 export const caseCompletionUpdateSchema = z.object({
   id: z.string(),
   response: z.object({
-    context: z.record(z.string()),
-    action: z.string(),
+    tags: z.array(tagSchema),
   }),
 })
 export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
