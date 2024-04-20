@@ -35,6 +35,7 @@ AWS_CLOUDTRAIL__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
 AWS_CLOUDTRAIL__S3_PREFIX_FORMAT = (
     "AWSLogs/{account_id}/CloudTrail/{region}/{year}/{month:02d}/{day:02d}/"
 )
+AWS_CLOUDTRAIL__DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 AWS_CLOUDTRAIL__SELECTED_FIELDS = [
     "userIdentity",
@@ -152,16 +153,21 @@ def _load_cloudtrail_gzip_files(
     return ndjson_file_paths
 
 
-def _load_cloudtrail_ndjson_files(ndjson_file_paths: list[Path]) -> list[dict]:
+def _load_cloudtrail_ndjson_files(ndjson_file_paths: list[Path]) -> pl.LazyFrame:
     logger.info("🗂️ Coalesce triaged AWS CloudTrail logs")
     logs = (
         # NOTE: This might cause memory to blow up
         pl.scan_ndjson(ndjson_file_paths, infer_schema_length=None)
         .select(AWS_CLOUDTRAIL__SELECTED_FIELDS)
+        # Cast eventTime to datetime
+        .with_columns(
+            eventTime=pl.col("eventTime")
+            .str.strip_chars('"')
+            .str.strip_chars("'")
+            .str.strptime(format=AWS_CLOUDTRAIL__DATETIME_FORMAT, dtype=pl.Datetime)
+        )
         # Defensive to avoid concats with mismatched struct column schemas
-        .select(pl.all().cast(pl.Utf8))
-        .collect()
-        .to_dicts()
+        .with_columns(pl.all().exclude("eventTime").cast(pl.Utf8))
     )
     return logs
 
@@ -173,7 +179,7 @@ def load_cloudtrail_logs(
     end: datetime,
     regions: list[str] | None = None,
     organization_id: str | None = None,
-) -> list[dict]:
+) -> pl.LazyFrame:
     regions = regions or get_aws_regions()
     logger.info(
         "🆗 Download AWS CloudTrail logs from: account_id=%r across regions=%s",
