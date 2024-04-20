@@ -67,9 +67,10 @@ def list_cloudtrail_objects_under_prefix(
     account_id: str,
     start: datetime,
     end: datetime,
-    regions: list[str],
+    regions: list[str] | None = None,
     organization_id: str | None = None,
 ) -> list[str]:
+    regions = regions or get_aws_regions()
     nested_object_names = []
     if organization_id:
         account_id = f"{organization_id}/{account_id}"
@@ -180,7 +181,6 @@ def load_cloudtrail_logs(
     regions: list[str] | None = None,
     organization_id: str | None = None,
 ) -> pl.LazyFrame:
-    regions = regions or get_aws_regions()
     logger.info(
         "🆗 Download AWS CloudTrail logs from: account_id=%r across regions=%s",
         account_id,
