@@ -151,6 +151,21 @@ export const caseActionTypes = [
 ] as const
 export type CaseActionType = (typeof caseActionTypes)[number]
 
+export const caseMaliceTypes = ["malicious", "benign"] as const
+export type CaseMaliceType = (typeof caseMaliceTypes)[number]
+
+export const caseStatusTypes = [
+  "open",
+  "closed",
+  "in_progress",
+  "reported",
+  "escalated",
+] as const
+export type CaseStatusType = (typeof caseStatusTypes)[number]
+
+export const casePriorityTypes = ["low", "medium", "high", "critical"] as const
+export type CasePriorityType = (typeof casePriorityTypes)[number]
+
 export const caseSchema = z.object({
   // SQLModel metadata
   id: z.string(),
@@ -161,9 +176,9 @@ export const caseSchema = z.object({
   workflow_id: z.string(),
   title: z.string(),
   payload: z.record(z.string()),
-  malice: z.enum(["malicious", "benign"]),
-  status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
-  priority: z.enum(["low", "medium", "high", "critical"]),
+  malice: z.enum(caseMaliceTypes),
+  status: z.enum(caseStatusTypes),
+  priority: z.enum(casePriorityTypes),
   action: z.enum(caseActionTypes),
   context: z.array(keyValueSchema).default([]),
   suppression: z.array(suppressionSchema).default([]),
