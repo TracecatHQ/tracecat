@@ -1,4 +1,3 @@
-import { NamedPair } from "@/types/generics"
 import {
   Table,
   TableBody,
@@ -9,32 +8,32 @@ import {
 } from "@/components/ui/table"
 import NoContent from "@/components/no-content"
 
-interface FlatKVTableProps<KName extends string, VName extends string, VType> {
-  keyName: KName
-  valueName: VName
-  data: NamedPair<KName, VName, VType>[]
+interface FlatKVTableProps<T> {
+  keyName: keyof T
+  valueName: keyof T
+  data: T[]
 }
-function FlatKVTable<KeyName extends string, ValueName extends string, TValue>({
-  keyName,
-  valueName,
-  data,
-}: FlatKVTableProps<KeyName, ValueName, TValue>) {
+function FlatKVTable<T>({ keyName, valueName, data }: FlatKVTableProps<T>) {
   return (
     <Table>
       <TableHeader>
         <TableRow className="grid h-6 grid-cols-2 text-xs capitalize ">
-          <TableHead className="col-span-1 font-bold">{keyName}</TableHead>
-          <TableHead className="col-span-1 font-bold">{valueName}</TableHead>
+          <TableHead className="col-span-1 font-bold">
+            {keyName as string}
+          </TableHead>
+          <TableHead className="col-span-1 font-bold">
+            {valueName as string}
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {data.map((pair, idx) => (
           <TableRow key={idx} className="grid grid-cols-2 text-xs">
             <TableCell className="col-span-1">
-              {pair[keyName as keyof typeof pair] as string}
+              {pair[keyName] as string}
             </TableCell>
             <TableCell className="col-span-1">
-              {pair[valueName as keyof typeof pair] as string}
+              {pair[valueName] as string}
             </TableCell>
           </TableRow>
         ))}
@@ -43,25 +42,21 @@ function FlatKVTable<KeyName extends string, ValueName extends string, TValue>({
   )
 }
 
-interface LabelsTableProps<KName extends string, VName extends string, VType> {
-  keyName: KName
-  valueName: VName
-  labels: NamedPair<KName, VName, VType>[] | null
+interface LabelsTableProps<T> {
+  keyName: keyof T
+  valueName: keyof T
+  labels: T[]
   emptyMessage?: string
 }
 
-export function LabelsTable<KName extends string, VName extends string, VType>({
+export function LabelsTable<T>({
   keyName,
   valueName,
   labels,
   emptyMessage = "No labels availbale",
-}: LabelsTableProps<KName, VName, VType>) {
+}: LabelsTableProps<T>) {
   return labels ? (
-    <FlatKVTable<KName, VName, VType>
-      keyName={keyName}
-      valueName={valueName}
-      data={labels}
-    />
+    <FlatKVTable<T> keyName={keyName} valueName={valueName} data={labels} />
   ) : (
     <NoContent message={emptyMessage} />
   )

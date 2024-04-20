@@ -5,7 +5,6 @@ import { TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
-import { NamedPair } from "@/types/generics"
 import { Case } from "@/types/schemas"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -89,7 +88,7 @@ export function CasePanelContent({
                 <LabelsTable
                   keyName="key"
                   valueName="value"
-                  labels={context as NamedPair<"key", "value", string>[] | null}
+                  labels={context}
                   emptyMessage="No context available"
                 />
               </Card>
@@ -100,11 +99,7 @@ export function CasePanelContent({
                 <LabelsTable
                   keyName="condition"
                   valueName="result"
-                  labels={
-                    suppression as
-                      | NamedPair<"condition", "result", string>[]
-                      | null
-                  }
+                  labels={suppression}
                   emptyMessage="No context available"
                 />
               </Card>
