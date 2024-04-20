@@ -160,7 +160,7 @@ def load_cloudtrail_logs(
         account_id,
         regions,
     )
-    date_range = pl.datetime_range(
+    date_range = pl.date_range(
         start=start,
         end=end,
         interval=timedelta(days=1),
