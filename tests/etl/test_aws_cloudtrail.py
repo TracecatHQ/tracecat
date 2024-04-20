@@ -4,7 +4,6 @@ import hashlib
 import io
 import logging
 import os
-import random
 from datetime import datetime
 
 import orjson
@@ -14,9 +13,13 @@ from minio import Minio
 from polars.testing import assert_frame_equal
 from tqdm.contrib.concurrent import thread_map
 
-from tracecat.etl.aws_cloudtrail import get_aws_regions, load_cloudtrail_logs
+from tracecat.etl.aws_cloudtrail import (
+    load_cloudtrail_logs,
+)
 
-AWS_CLOUDTRAIL__DIR_PATH = "AWSLogs/o-123xyz1234/111222333444/CloudTrail"
+TEST__AWS_CLOUDTRAIL__S3_PREFIX_FORMAT = (
+    "AWSLogs/o-123xyz1234/111222333444/CloudTrail/{region}/{year}/{month:02d}/{day:02d}"
+)
 TEST__START_DATETIME = datetime(2023, 1, 1)
 TEST__DATES_TO_RECORDS_RATIO = 3
 
@@ -59,14 +62,13 @@ def put_cloudtrail_logs(records_object_name: tuple[list[dict], str]) -> int:
 
 @pytest.fixture(
     scope="session",
-    params=[(1000, 3)],
-    ids=lambda n: f"n_records={n[0]},n_regions={n[1]}",
+    params=[1000],
 )
 def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
     """Add AWS CloudTrail log files into MinIO and return the expected DataFrame of records."""
 
     bucket_size = 0
-    n_records, n_regions = request.param
+    n_records = request.param
     # Use pigeonhole principle to map each record to a unique timestamp
     timestamps = pl.datetime_range(
         start=TEST__START_DATETIME,
@@ -74,7 +76,8 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
         + pl.duration(minutes=n_records * TEST__DATES_TO_RECORDS_RATIO),
         interval="1m",
     )
-    aws_regions = random.choices(get_aws_regions(), k=n_regions)
+    # NOTE: Assume only 3 regions active
+    aws_regions = ["us-west-1", "us-west-2", "eu-central-1"]
     records = (
         pl.from_dicts(cloudtrail_records)
         .sample(n_records, with_replacement=True)
@@ -103,7 +106,14 @@ def cloudtrail_log_files(request, cloudtrail_records) -> pl.DataFrame:
         # NOTE: AccountID_CloudTrail_RegionName_YYYYMMDDTHHmmZ_UniqueString.FileNameFormat
         # For example: 123456789012_CloudTrail_us-west-2_20230101T0000Z_1a2b3c4d.json.gz
         uuid = hashlib.md5(str(event_time).encode()).hexdigest()[:8]
-        object_name = f"{AWS_CLOUDTRAIL__DIR_PATH}/{region}_{event_time.strftime('%Y%m%dT%H%MZ')}_{uuid}.json.gz"
+        prefix = TEST__AWS_CLOUDTRAIL__S3_PREFIX_FORMAT.format(
+            region=region,
+            year=event_time.year,
+            month=event_time.month,
+            day=event_time.day,
+        )
+        file_name = f"{region}_{event_time.strftime('%Y%m%dT%H%MZ')}_{uuid}.json.gz"
+        object_name = f"{prefix}/{file_name}"
         put_cloudtrail_params.append((records, object_name))
 
     # Upload logs into MinIO

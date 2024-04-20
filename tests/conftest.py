@@ -123,6 +123,6 @@ def minio_container():
         subprocess.run(["docker", "stop", MINIO_CONTAINER_NAME], check=True)
     else:
         logging.info(
-            "🧹 Skipping cleanup of minio container %r. Set `MINIO_CLEANUP` to cleanup.",
+            "🧹 Skipping cleanup of minio container %r. Set `MINIO_CLEANUP==1` to cleanup.",
             MINIO_CONTAINER_NAME,
         )
