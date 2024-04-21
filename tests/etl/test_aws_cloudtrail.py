@@ -5,6 +5,8 @@ import io
 import logging
 import os
 import shutil
+import subprocess
+import time
 from copy import deepcopy
 from datetime import datetime, timedelta
 
@@ -35,6 +37,90 @@ TEST__START_DATETIME = datetime(2023, 1, 1)
 TEST__END_DATETIME = TEST__START_DATETIME + timedelta(
     minutes=TEST__N_RECORDS * TEST__DATES_TO_RECORDS_RATIO
 )
+
+
+# MinIO settings
+MINIO_CONTAINER_NAME = "minio_test_server"
+MINIO_ACCESS_KEY = "admin"
+MINIO_SECRET_KEY = "password"
+MINIO_PORT = 9000
+MINIO_REGION = "us-west-2"
+
+
+@pytest.fixture(scope="session")
+def minio_container():
+    # Check if the MinIO container is already running
+    existing_containers = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            f"name={MINIO_CONTAINER_NAME}",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    container_exists = MINIO_CONTAINER_NAME in existing_containers.stdout.strip()
+    logging.info("🐳 MinIO container exists: %r", container_exists)
+
+    if not container_exists:
+        # Setup: Start MinIO server
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                MINIO_CONTAINER_NAME,
+                "-p",
+                f"{MINIO_PORT}:{MINIO_PORT}",
+                "-e",
+                f"MINIO_ACCESS_KEY={MINIO_ACCESS_KEY}",
+                "-e",
+                f"MINIO_SECRET_KEY={MINIO_SECRET_KEY}",
+                "minio/minio",
+                "server",
+                "/data",
+            ],
+            check=True,
+        )
+        # Wait for the server to start
+        time.sleep(5)
+        logging.info("✅ Created minio container %r", MINIO_CONTAINER_NAME)
+    else:
+        logging.info("✅ Using existing minio container %r", MINIO_CONTAINER_NAME)
+
+    # Connect to MinIO
+    client = Minio(
+        f"localhost:{MINIO_PORT}",
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False,
+    )
+
+    # Create or connect to AWS CloudTrail bucket
+    bucket = os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"]
+    if not client.bucket_exists(bucket):
+        client.make_bucket(bucket)
+        logging.info("✅ Created minio bucket %r", bucket)
+
+    yield
+    should_cleanup = os.getenv("MINIO_CLEANUP", "1").lower() in (
+        "true",
+        "1",
+    )
+    if not container_exists and should_cleanup:
+        logging.info("🧹 Cleaning up minio container %r", MINIO_CONTAINER_NAME)
+        subprocess.run(["docker", "stop", MINIO_CONTAINER_NAME], check=True)
+    else:
+        logging.info(
+            "🧹 Skipping cleanup of minio container %r. Set `MINIO_CLEANUP=1` to cleanup.",
+            MINIO_CONTAINER_NAME,
+        )
 
 
 @pytest.fixture(scope="session")
@@ -81,7 +167,7 @@ def put_cloudtrail_logs(records_object_name: tuple[list[dict], str]) -> int:
 
 
 @pytest.fixture(scope="session")
-def cloudtrail_log_files(cloudtrail_records):
+def cloudtrail_log_files(minio_container, cloudtrail_records):
     """Add AWS CloudTrail log files into MinIO and return the expected DataFrame of records."""
 
     bucket_size = 0
