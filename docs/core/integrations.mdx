@@ -70,7 +70,7 @@ def requires_api_key(resource_name: str, value: int) -> str:
 3. Import the `registry` singleton from `tracecat/integrations/_registry.py` and register the integration function using the decorator `@registry.register(...)`.
 4. [IMPORTANT] Import the integration nodule into the scope of `integrations/__init__.py`. This eagerly registers all integrations in this module with the registry.
 5. Update `ActionType` in types/actions.py
-6. (Frontend) Update `integrationTypes` in frontend/src/types/schemas.ts
+6. (Frontend) Update `integrationTypes` and `integrationPlatforms` in `frontend/src/types/schemas.ts`
 
 Once this is done, the integration should be available in the frontend and backend and can be used like any other action node.
 
