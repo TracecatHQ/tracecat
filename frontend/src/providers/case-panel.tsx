@@ -49,7 +49,7 @@ export default function CasePanelProvider({
         setIsOpen={setIsOpen}
       >
         {selectedCase && isOpen && (
-          <CasePanelContent currentCase={selectedCase} />
+          <CasePanelContent caseId={selectedCase.id} />
         )}
       </SlidingPanel>
     </CasePanelContext.Provider>

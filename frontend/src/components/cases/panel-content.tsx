@@ -1,11 +1,15 @@
 "use client"
 
 import React from "react"
+import { useParams } from "next/navigation"
+import { useSession } from "@/providers/session"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
-import { Case } from "@/types/schemas"
+import { Case, CaseStatusType } from "@/types/schemas"
+import { fetchCase, updateCase } from "@/lib/cases"
 import { Card } from "@/components/ui/card"
 import {
   Select,
@@ -24,33 +28,91 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
 import { AIGeneratedFlair } from "@/components/flair"
 import { LabelsTable } from "@/components/labels-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 
 type TStatus = (typeof statuses)[number]
 
 interface CasePanelContentProps {
-  currentCase: Case
+  caseId: string
 }
 
-export function CasePanelContent({
-  currentCase: {
+export function CasePanelContent({ caseId }: CasePanelContentProps) {
+  const session = useSession()
+  const { workflowId } = useParams<{
+    workflowId: string
+  }>()
+  const queryClient = useQueryClient()
+  const {
+    data: case_,
+    isLoading,
+    error,
+  } = useQuery<Case, Error>({
+    queryKey: ["case", caseId],
+    queryFn: async () => await fetchCase(session, workflowId, caseId),
+  })
+  const { mutateAsync } = useMutation({
+    mutationFn: (newCase: Case) =>
+      updateCase(session, workflowId, caseId, newCase),
+    onSuccess: (data) => {
+      toast({
+        title: "Updated case",
+        description: "Your case has been updated successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case", caseId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases"],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update action:", error)
+      toast({
+        title: "Failed to save action",
+        description: "Could not update your action. Please try again.",
+      })
+    },
+  })
+
+  if (isLoading) {
+    return <CenteredSpinner />
+  }
+  if (error || !case_) {
+    return (
+      <AlertNotification
+        level="error"
+        message={error?.message ?? "Error occurred"}
+      />
+    )
+  }
+  const {
     id,
     title,
+    status: caseStatus,
     priority,
     malice,
+    action,
+    tags,
     payload,
     context,
-    status: caseStatus,
-    action,
     suppression,
-    tags,
-  },
-}: CasePanelContentProps) {
-  const currentStatus = statuses.find((status) => status.value === caseStatus)
+  } = case_
 
+  const handleStatusChange = async (newStatus: CaseStatusType) => {
+    console.log("Updating status to", newStatus)
+    await mutateAsync({
+      ...case_,
+      status: newStatus,
+    })
+  }
+
+  const currentStatus = statuses.find((status) => status.value === caseStatus)!
   const { label, icon: Icon } = priorities.find((p) => p.value === priority)!
   return (
     <TooltipProvider delayDuration={300}>
@@ -59,7 +121,10 @@ export function CasePanelContent({
           <small className="text-xs text-muted-foreground">Case #{id}</small>
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg">{title}</SheetTitle>
-            <CaseStatusSelect status={currentStatus} />
+            <CaseStatusSelect
+              status={currentStatus}
+              onStatusChange={handleStatusChange}
+            />
           </div>
           <div className="flex flex-col space-y-2 text-muted-foreground">
             <div className="flex items-center space-x-2">
@@ -109,7 +174,7 @@ export function CasePanelContent({
               </Tooltip>
               {tags.length > 0 ? (
                 tags.map((tag, idx) => (
-                  <StatusBadge key={idx} className="flex items-center">
+                  <StatusBadge key={idx}>
                     <AIGeneratedFlair isAIGenerated={tag.is_ai_generated}>
                       {tag.tag}: {tag.value}
                     </AIGeneratedFlair>
@@ -159,9 +224,13 @@ export function CasePanelContent({
   )
 }
 
-function CaseStatusSelect({ status }: { status?: TStatus }) {
+interface CaseStatusSelectProps {
+  status: TStatus
+  onStatusChange: (status: CaseStatusType) => void
+}
+function CaseStatusSelect({ status, onStatusChange }: CaseStatusSelectProps) {
   return (
-    <Select defaultValue={status?.value}>
+    <Select defaultValue={status?.value} onValueChange={onStatusChange}>
       <SelectTrigger className="w-40 focus:ring-0">
         <SelectValue />
       </SelectTrigger>
