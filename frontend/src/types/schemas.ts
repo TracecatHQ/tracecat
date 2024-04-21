@@ -42,14 +42,15 @@ const integrationTypes = [
   "integrations.virustotal.get_file_report",
   "integrations.virustotal.get_url_report",
   "integrations.virustotal.get_domain_report",
-  "integrations.virustotal.get_ip_address_report"
+  "integrations.virustotal.get_ip_address_report",
+  "integrations.urlscan.analyze_url"
 ] as const
 export type IntegrationType = (typeof integrationTypes)[number]
 
 /**
  * All platforms that are supported by the system.
  */
-const integrationPlatforms = ["sublime_security", "datadog", "virustotal"] as const
+const integrationPlatforms = ["sublime_security", "datadog", "virustotal", "urlscan"] as const
 export type IntegrationPlatform = (typeof integrationPlatforms)[number]
 
 export type NodeType = ActionType | IntegrationType
