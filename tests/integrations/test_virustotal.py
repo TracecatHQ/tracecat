@@ -1,5 +1,4 @@
 import pytest
-from httpx import Client
 
 from tracecat.integrations.virustotal import (
     get_domain_report,
@@ -7,9 +6,6 @@ from tracecat.integrations.virustotal import (
     get_ip_address_report,
     get_url_report,
 )
-
-# Create a reusable HTTP client instance
-client = Client(base_url="https://www.virustotal.com/api/v3/")
 
 
 @pytest.mark.parametrize(
@@ -21,12 +17,15 @@ def test_get_file_report(file_hash):
     """Check expected attributes in File object."""
     result = get_file_report(file_hash)
     assert result["sha256"] == file_hash
-    assert [
+    required_keys = [
         "sandbox_verdicts",
         "reputation",
         "last_analysis_results",
         "last_analysis_stats",
     ]
+    assert all(
+        key in result for key in required_keys
+    ), "Some keys are missing in the file report"
 
 
 def test_get_url_report():
@@ -34,29 +33,38 @@ def test_get_url_report():
     url = "http://example.com"
     result = get_url_report(url)
     assert result["url"] == url
-    assert [
+    required_keys = [
         "title",
         "last_analysis_results",
         "last_analysis_stats",
         "total_votes",
         "reputation",
-    ] in result.keys()
+    ]
+    assert all(
+        key in result for key in required_keys
+    ), "Some keys are missing in the URL report"
 
 
 def test_get_domain_report():
     domain = "ycombinator.com"
     result = get_domain_report(domain)
     assert result["domain"] == domain
-    assert [
+    required_keys = [
         "title",
         "last_analysis_results",
         "last_analysis_stats",
         "total_votes",
-    ] in result.keys()
+    ]
+    assert all(
+        key in result for key in required_keys
+    ), "Some keys are missing in the domain report"
 
 
 def test_get_ip_address_report():
-    ip = "8.8.8.8"  # Google
+    ip = "8.8.8.8"  # Google's DNS
     result = get_ip_address_report(ip)
     assert result["id"] == ip
-    assert ["title", "regional_internet_registry", "whois"] in result.keys()
+    required_keys = ["title", "regional_internet_registry", "whois"]
+    assert all(
+        key in result for key in required_keys
+    ), "Some keys are missing in the IP address report"
