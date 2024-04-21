@@ -49,7 +49,7 @@ export type IntegrationType = (typeof integrationTypes)[number]
 /**
  * All platforms that are supported by the system.
  */
-const integrationPlatforms = ["example", "sublime_security", "datadog"] as const
+const integrationPlatforms = ["example", "sublime_security", "datadog", "virustotal"] as const
 export type IntegrationPlatform = (typeof integrationPlatforms)[number]
 
 export type NodeType = ActionType | IntegrationType
