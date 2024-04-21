@@ -1,9 +1,6 @@
-import pytest
-
 from tracecat.integrations.urlscan import analyze_url
 
 
-@pytest.mark.integration
 def test_analyze_url_live():
     test_url = "http://google.com"
     result = analyze_url(test_url)
