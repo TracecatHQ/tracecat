@@ -1060,7 +1060,11 @@ def get_case(
         .to_polars()
         .to_dicts()
     )
-    return [Case.from_flattened(c) for c in result]
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        )
+    return Case.from_flattened(result[0])
 
 
 @app.post("/workflows/{workflow_id}/cases/{case_id}")
