@@ -1,16 +1,19 @@
 import {
   AlertTriangleIcon,
-  ArrowDownIcon,
-  ArrowRightIcon,
-  ArrowUpIcon,
   CheckCircleIcon,
   CircleIcon,
   FlagTriangleRightIcon,
   InfoIcon,
+  LucideIcon,
   ShieldAlertIcon,
   ShieldOffIcon,
+  SignalHighIcon,
+  SignalIcon,
+  SignalMediumIcon,
   TrafficConeIcon,
 } from "lucide-react"
+
+import { CasePriorityType } from "@/types/schemas"
 
 export const statuses = [
   {
@@ -41,21 +44,25 @@ export const statuses = [
 ]
 export type Status = (typeof statuses)[number]["value"]
 
-export const priorities = [
+export const priorities: {
+  label: string
+  value: CasePriorityType
+  icon: LucideIcon
+}[] = [
   {
     label: "Low",
     value: "low",
-    icon: ArrowDownIcon,
+    icon: SignalMediumIcon,
   },
   {
     label: "Medium",
     value: "medium",
-    icon: ArrowRightIcon,
+    icon: SignalHighIcon,
   },
   {
     label: "High",
     value: "high",
-    icon: ArrowUpIcon,
+    icon: SignalIcon,
   },
   {
     label: "Critical",
