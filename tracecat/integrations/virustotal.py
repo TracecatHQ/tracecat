@@ -30,6 +30,7 @@ def create_virustotal_client() -> httpx.Client:
 
 @registry.register(description="Get file report by hash", secrets=["virustotal"])
 def get_file_report(file_hash: str) -> dict[str, Any]:
+    """Returns File object: https://docs.virustotal.com/reference/files"""
     with create_virustotal_client() as client:
         rsp = client.get(
             f"urls/{file_hash}", headers={"x-apikey": os.environ["VT_API_KEY"]}
@@ -40,6 +41,7 @@ def get_file_report(file_hash: str) -> dict[str, Any]:
 
 @registry.register(description="Get URL analysis report by URL", secrets=["virustotal"])
 def get_url_report(url: str) -> dict[str, Any]:
+    """Returns URL object: https://docs.virustotal.com/reference/url-object"""
     # Recipe from https://docs.virustotal.com/reference/url#url-identifiers
     url_id = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
     with create_virustotal_client() as client:
@@ -55,6 +57,7 @@ def get_url_report(url: str) -> dict[str, Any]:
 
 @registry.register(description="Get domain report", secrets=["virustotal"])
 def get_domain_report(domain: str) -> dict[str, Any]:
+    """Returns Domain object: https://docs.virustotal.com/reference/domains-object"""
     with create_virustotal_client() as client:
         rsp = client.get(
             f"domains/{domain}",
@@ -68,6 +71,7 @@ def get_domain_report(domain: str) -> dict[str, Any]:
 
 @registry.register(description="Get IP address report", secrets=["virustotal"])
 def get_ip_address_report(ip: str) -> dict[str, Any]:
+    """Returns IP object: https://docs.virustotal.com/reference/ip-object"""
     with create_virustotal_client() as client:
         rsp = client.get(
             f"ip_addresses/{ip}",

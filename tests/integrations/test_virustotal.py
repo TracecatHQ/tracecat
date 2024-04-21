@@ -12,25 +12,51 @@ from tracecat.integrations.virustotal import (
 client = Client(base_url="https://www.virustotal.com/api/v3/")
 
 
-@pytest.mark.parametrize("file_hash", ["your_test_file_hash"])
+@pytest.mark.parametrize(
+    "file_hash",
+    # Mirai hash
+    ["10c796b7308ac0b9c38f1caa95c798b2b28c46adaa037a9c3a9ebdd3569824e3"],
+)
 def test_get_file_report(file_hash):
-    response = get_file_report(file_hash)
-    assert response.status_code == 200, "Expected a 200 OK status code"
+    """Check expected attributes in File object."""
+    result = get_file_report(file_hash)
+    assert result["sha256"] == file_hash
+    assert [
+        "sandbox_verdicts",
+        "reputation",
+        "last_analysis_results",
+        "last_analysis_stats",
+    ]
 
 
 def test_get_url_report():
+    """Check expected attributes in URL object."""
     url = "http://example.com"
-    response = get_url_report(url)
-    assert response.status_code == 200, "Expected a 200 OK status code"
+    result = get_url_report(url)
+    assert result["url"] == url
+    assert [
+        "title",
+        "last_analysis_results",
+        "last_analysis_stats",
+        "total_votes",
+        "reputation",
+    ] in result.keys()
 
 
 def test_get_domain_report():
-    domain = "example.com"
-    response = get_domain_report(domain)
-    assert response.status_code == 200, "Expected a 200 OK status code"
+    domain = "ycombinator.com"
+    result = get_domain_report(domain)
+    assert result["domain"] == domain
+    assert [
+        "title",
+        "last_analysis_results",
+        "last_analysis_stats",
+        "total_votes",
+    ] in result.keys()
 
 
 def test_get_ip_address_report():
-    ip = "8.8.8.8"
-    response = get_ip_address_report(ip)
-    assert response.status_code == 200, "Expected a 200 OK status code"
+    ip = "8.8.8.8"  # Google
+    result = get_ip_address_report(ip)
+    assert result["id"] == ip
+    assert ["title", "regional_internet_registry", "whois"] in result.keys()
