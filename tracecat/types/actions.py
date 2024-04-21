@@ -17,14 +17,6 @@ ActionType = Literal[
     "receive_email",
     "open_case",
     # Integrations
-    "integrations.example.add",
-    "integrations.example.secretive_add",
-    "integrations.example.subtract",
-    "integrations.example.complex_example",
-    "integrations.example.join",
-    ## Material Security
-    "integrations.sublime_security.test",
-    ## Datadog
     "integrations.datadog.list_security_signals",
     "integrations.datadog.update_security_signal_state",
     "integrations.datadog.list_detection_rules",
