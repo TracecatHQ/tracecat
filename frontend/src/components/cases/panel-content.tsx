@@ -8,7 +8,7 @@ import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
-import { Case, CaseStatusType } from "@/types/schemas"
+import { Case, CasePriorityType, CaseStatusType } from "@/types/schemas"
 import { fetchCase, updateCase } from "@/lib/cases"
 import { Card } from "@/components/ui/card"
 import {
@@ -37,6 +37,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
 type TStatus = (typeof statuses)[number]
+type TPriority = (typeof priorities)[number]
 
 interface CasePanelContentProps {
   caseId: string
@@ -112,8 +113,16 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     })
   }
 
+  const handlePriorityChange = async (newPriority: CasePriorityType) => {
+    console.log("Updating priority to", newPriority)
+    await mutateAsync({
+      ...case_,
+      priority: newPriority,
+    })
+  }
+
   const currentStatus = statuses.find((status) => status.value === caseStatus)!
-  const { label, icon: Icon } = priorities.find((p) => p.value === priority)!
+  const currentPriority = priorities.find((p) => p.value === priority)!
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex flex-col space-y-4 overflow-auto">
@@ -121,10 +130,16 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
           <small className="text-xs text-muted-foreground">Case #{id}</small>
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg">{title}</SheetTitle>
-            <CaseStatusSelect
-              status={currentStatus}
-              onStatusChange={handleStatusChange}
-            />
+            <div className="flex items-center gap-2">
+              <PrioritySelect
+                priority={currentPriority}
+                onValueChange={handlePriorityChange}
+              />
+              <StatusSelect
+                status={currentStatus}
+                onValueChange={handleStatusChange}
+              />
+            </div>
           </div>
           <div className="flex flex-col space-y-2 text-muted-foreground">
             <div className="flex items-center space-x-2">
@@ -137,8 +152,11 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                 </TooltipContent>
               </Tooltip>
               <StatusBadge status={priority}>
-                <Icon className="stroke-inherit/5 size-3" strokeWidth={3} />
-                <span className="text-xs">{label}</span>
+                <currentPriority.icon
+                  className="stroke-inherit/5 size-3"
+                  strokeWidth={3}
+                />
+                <span className="text-xs">{currentPriority.label}</span>
               </StatusBadge>
             </div>
             <div className="flex items-center space-x-2">
@@ -224,13 +242,13 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   )
 }
 
-interface CaseStatusSelectProps {
+interface StatusSelectProps {
   status: TStatus
-  onStatusChange: (status: CaseStatusType) => void
+  onValueChange: (status: CaseStatusType) => void
 }
-function CaseStatusSelect({ status, onStatusChange }: CaseStatusSelectProps) {
+function StatusSelect({ status, onValueChange }: StatusSelectProps) {
   return (
-    <Select defaultValue={status?.value} onValueChange={onStatusChange}>
+    <Select defaultValue={status?.value} onValueChange={onValueChange}>
       <SelectTrigger className="w-40 focus:ring-0">
         <SelectValue />
       </SelectTrigger>
@@ -247,6 +265,44 @@ function CaseStatusSelect({ status, onStatusChange }: CaseStatusSelectProps) {
               </span>
             </SelectItem>
           ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
+}
+
+interface PrioritySelectProps {
+  priority: TPriority
+  onValueChange: (status: CasePriorityType) => void
+}
+function PrioritySelect({
+  priority: { value },
+  onValueChange,
+}: PrioritySelectProps) {
+  return (
+    <Select defaultValue={value} onValueChange={onValueChange}>
+      <SelectTrigger className="w-40 focus:ring-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="flex w-full">
+        <SelectGroup>
+          <SelectLabel>Status</SelectLabel>
+          {priorities.map(({ label, value, icon: Icon }) => {
+            return (
+              <SelectItem key={value} value={value} className="flex w-full">
+                <StatusBadge
+                  status={value}
+                  className="inline-flex w-full border-none"
+                >
+                  <Icon
+                    className="stroke-inherit/5 size-3 flex-1"
+                    strokeWidth={3}
+                  />
+                  <span className="text-xs">{label}</span>
+                </StatusBadge>
+              </SelectItem>
+            )
+          })}
         </SelectGroup>
       </SelectContent>
     </Select>
