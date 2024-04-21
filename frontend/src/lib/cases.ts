@@ -18,6 +18,13 @@ export async function getCases(
   }
 }
 
+/**
+ * Use this for autocomplete
+ *
+ * @param session
+ * @param workflowId
+ * @param cases
+ */
 export async function updateCases(
   session: Session | null,
   workflowId: string, // They should all have the same workflow ID
@@ -37,6 +44,44 @@ export async function updateCases(
     const err = error as Error
     console.error("Error updating cases:", error)
     console.error("Detail", err.cause, err.message, err.stack)
+    throw error
+  }
+}
+
+export async function fetchCase(
+  session: Session | null,
+  workflowId: string,
+  caseId: string
+): Promise<Case> {
+  try {
+    const client = getAuthenticatedClient(session)
+    const response = await client.get<Case>(
+      `/workflows/${workflowId}/cases/${caseId}`
+    )
+    return caseSchema.parse(response.data)
+  } catch (error) {
+    console.error("Error fetching case:", error)
+    throw error
+  }
+}
+
+export async function updateCase(
+  session: Session | null,
+  workflowId: string,
+  caseId: string,
+  case_: Case
+) {
+  try {
+    const client = getAuthenticatedClient(session)
+    const response = await client.post(
+      `/workflows/${workflowId}/cases/${caseId}`,
+      case_
+    )
+    if (response.status !== 200) {
+      throw new Error("Failed to update case")
+    }
+  } catch (error) {
+    console.error("Error updating case:", error)
     throw error
   }
 }
