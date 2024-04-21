@@ -15,7 +15,7 @@ export function AIGeneratedFlair({
   return (
     <div className={cn("flex items-center", className)}>
       {flair && (
-        <Sparkles className="mr-1 h-3 w-3 fill-yellow-500 text-yellow-500" />
+        <Sparkles className="mr-1 h-3 w-3 fill-yellow-500/70 text-amber-500/70" />
       )}
       {children}
     </div>

@@ -82,22 +82,16 @@ export const columns: ColumnDef<Case>[] = [
       <DataTableColumnHeader column={column} title="Priority" />
     ),
     cell: ({ row }) => {
-      const priority = priorities.find(
-        (priority) =>
-          priority.value === row.getValue<Case["priority"]>("priority")
-      )
-
-      if (!priority) {
-        return null
-      }
+      const priority = row.getValue<Case["priority"]>("priority")
+      const { label, icon: Icon } = priorities.find(
+        (p) => p.value === priority
+      )!
 
       return (
-        <div className="flex items-center space-x-2">
-          {priority.icon && (
-            <priority.icon className="h-3 w-3 text-muted-foreground" />
-          )}
-          <span className="text-xs">{priority.label}</span>
-        </div>
+        <StatusBadge status={priority}>
+          <Icon className="stroke-inherit/5 size-3" strokeWidth={3} />
+          <span className="text-xs">{label}</span>
+        </StatusBadge>
       )
     },
     filterFn: (row, id, value) => {
