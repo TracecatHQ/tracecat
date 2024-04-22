@@ -81,7 +81,7 @@ function TimelineItemActivity(props: TimelineItemActivityProps) {
   const { detail, ...rest } = props
 
   return (
-    <div className="rounded-lg border border-gray-200 p-4 shadow-sm">
+    <div className="space-y-4 rounded-lg border border-gray-200 p-4 shadow-sm">
       <TimelineItemActivityHeader {...rest} />
       {detail && (
         <TimelineItemActivityDetail>{detail}</TimelineItemActivityDetail>

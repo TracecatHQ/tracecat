@@ -29,6 +29,7 @@ export const timelineItems: TimelineItemProps[] = [
   {
     ...baseTimelineItemProps,
     action: "added_comment",
+    detail: "This is a comment",
   },
   {
     ...baseTimelineItemProps,
