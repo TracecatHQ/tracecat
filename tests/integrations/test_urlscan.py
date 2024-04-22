@@ -15,13 +15,19 @@ def urlscan_secret(create_mock_secret) -> dict[str, str | bytes]:
     return mock_secret_obj
 
 
+@pytest.mark.respx(assert_all_mocked=False)
 def test_analyze_url_live(urlscan_secret, respx_mock):
     test_url = "http://google.com"
 
     # Mock secrets manager
-    route = respx_mock.get(f'{os.environ["TRACECAT__API_URL"]}/secrets/urlscan').mock(
+    respx_mock.base_url = os.environ["TRACECAT__API_URL"]
+    route = respx_mock.get("/secrets/urlscan").mock(
         return_value=Response(status_code=200, content=urlscan_secret)
     )
+    # Passthrough URLScan
+    respx_mock.route(host="urlscan.io").pass_through()
+
+    # Run Action
     result = analyze_url(test_url)
 
     assert route.called
