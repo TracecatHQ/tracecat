@@ -53,7 +53,7 @@ def setup_shared_env():
         del os.environ["MINIO_ENDPOINT"]
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def create_mock_secret():
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
         keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]

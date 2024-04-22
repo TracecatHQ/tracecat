@@ -33,7 +33,7 @@ def get_file_report(file_hash: str) -> dict[str, Any]:
     """Returns File object: https://docs.virustotal.com/reference/files"""
     with create_virustotal_client() as client:
         rsp = client.get(
-            f"urls/{file_hash}", headers={"x-apikey": os.environ["VT_API_KEY"]}
+            f"files/{file_hash}", headers={"x-apikey": os.environ["VT_API_KEY"]}
         )
         rsp.raise_for_status()
         return rsp.json()
