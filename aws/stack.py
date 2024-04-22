@@ -139,14 +139,6 @@ class TracecatEngineStack(Stack):
                 tracecat_secret, field="resend-api-key"
             ),
         }
-        rabbitmq_secrets = {
-            "RABBITMQ_DEFAULT_USER": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="rabbitmq-default-user"
-            ),
-            "RABBITMQ_DEFAULT_PASS": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="rabbitmq-default-pass"
-            ),
-        }
 
         ### Security Groups
         # 1. Create ALB security group
@@ -224,24 +216,6 @@ class TracecatEngineStack(Stack):
             description="Allow traffic from Runner to Scheduler on port 8002",
         )
 
-        # 5. RabbitMQ security group
-        rabbitmq_security_group = ec2.SecurityGroup(
-            self,
-            "RabbitmqSecurityGroup",
-            vpc=vpc,
-            description="Security group for RabbitMQ service",
-        )
-        rabbitmq_security_group.add_ingress_rule(
-            peer=api_security_group,
-            connection=ec2.Port.tcp(5672),
-            description="Allow incoming AMQP traffic from API service",
-        )
-        rabbitmq_security_group.add_ingress_rule(
-            peer=runner_security_group,
-            connection=ec2.Port.tcp(5672),
-            description="Allow incoming AMQP traffic from Runner service",
-        )
-
         # 5. EFS security group
         shared_efs_security_group = ec2.SecurityGroup(
             self,
@@ -259,20 +233,6 @@ class TracecatEngineStack(Stack):
             peer=runner_security_group,
             connection=ec2.Port.tcp(2049),
             description="Allow NFS traffic from Runner service",
-        )
-
-        # 6. RabbitMQ EFS Security Group
-        rabbitmq_efs_security_group = ec2.SecurityGroup(
-            self,
-            "RabbitmqEfsSecurityGroup",
-            vpc=vpc,
-            description="Security group EFS accessible by RabbitMQ only",
-        )
-        # Restrict NFS traffic to just the RabbitMQ service
-        rabbitmq_efs_security_group.add_ingress_rule(
-            peer=rabbitmq_security_group,
-            connection=ec2.Port.tcp(2049),
-            description="Allow NFS traffic from RabbitMQ service",
         )
 
         # Create shared EFS for API and Runner
@@ -604,114 +564,9 @@ class TracecatEngineStack(Stack):
             ),
         )
 
-        ### RabbitMQ Fargate Service
-        # Create the execution role for RabbitMQ
-        rabbitmq_execution_role = iam.Role(
-            self,
-            "RabbitMqExecutionRole",
-            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        )
-        # Define the policy for logging to CloudWatch Logs
-        rabbitmq_logging_policy = iam.PolicyStatement(
-            actions=["logs:CreateLogStream", "logs:PutLogEvents"],
-            resources=[
-                f"arn:aws:logs:{self.region}:{self.account}:log-group:/ecs/rabbitmq:*"
-            ],
-        )
-        rabbitmq_execution_role.add_to_policy(rabbitmq_logging_policy)
-        # Create task role for RabbitMQ
-        rabbitmq_task_role = iam.Role(
-            self,
-            "RabbitMqTaskRole",
-            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        )
+        ### Amazon MQ (RabbitMQ) Service
 
-        # Isolated EFS for RabbitMQ
-        rabbitmq_file_system = efs.FileSystem(
-            self,
-            "RabbitMqEfs",
-            vpc=vpc,
-            lifecycle_policy=efs.LifecyclePolicy.AFTER_14_DAYS,
-            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
-            throughput_mode=efs.ThroughputMode.BURSTING,
-            security_group=rabbitmq_efs_security_group,
-        )
-        rabbitmq_efs_access_point = rabbitmq_file_system.add_access_point(
-            "RabbitMqAccessPoint",
-            path="/data",
-            posix_user=efs.PosixUser(
-                uid="999", gid="999"
-            ),  # UID and GID that RabbitMQ uses
-            create_acl=efs.Acl(owner_uid="999", owner_gid="999", permissions="755"),
-        )
-
-        # Create Volume for RabbitMQ
-        rabbitmq_volume_name = f"RabbitmqVolume-{TRACECAT__APP_ENV}"
-        rabbitmq_volume = ecs.Volume(
-            name=rabbitmq_volume_name,
-            efs_volume_configuration=ecs.EfsVolumeConfiguration(
-                file_system_id=rabbitmq_file_system.file_system_id,
-                transit_encryption="ENABLED",
-                authorization_config=ecs.AuthorizationConfig(
-                    access_point_id=rabbitmq_efs_access_point.access_point_id
-                ),
-            ),
-        )
-
-        # RabbitMQ Fargate service
-        rabbitmq_task_definition = ecs.FargateTaskDefinition(
-            self,
-            "RabbitMqTaskDefinition",
-            execution_role=rabbitmq_execution_role,
-            task_role=rabbitmq_task_role,
-            cpu=256,
-            memory_limit_mib=512,
-        )
-        rabbitmq_task_definition.add_volume(
-            name=rabbitmq_volume_name,
-            efs_volume_configuration=rabbitmq_volume.efs_volume_configuration,
-        )
-        rabbitmq_container = rabbitmq_task_definition.add_container(
-            "RabbitMqContainer",
-            image=ecs.ContainerImage.from_registry("rabbitmq:3.13"),
-            user="999:999",  # UID and GID that RabbitMQ uses
-            cpu=256,
-            memory_limit_mib=512,
-            secrets=rabbitmq_secrets,
-            health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "rabbitmq-diagnostics" "ping", "-q"],
-                interval=Duration.seconds(10),
-                retries=5,
-            ),
-            port_mappings=[ecs.PortMapping(container_port=5672, name="rabbitmq")],
-            logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="rabbitmq", log_group=log_group
-            ),
-        )
-        rabbitmq_container.add_mount_points(
-            ecs.MountPoint(
-                container_path="/var/lib/rabbitmq/mnesia",
-                read_only=False,
-                source_volume=rabbitmq_volume_name,
-            )
-        )
-        ecs.FargateService(
-            self,
-            "RabbitMqFargateService",
-            cluster=cluster,
-            service_name="rabbitmq",
-            task_definition=rabbitmq_task_definition,
-            security_groups=[rabbitmq_security_group],
-            service_connect_configuration=ecs.ServiceConnectProps(
-                services=[
-                    ecs.ServiceConnectService(
-                        port_mapping_name="rabbitmq", idle_timeout=Duration.minutes(15)
-                    )
-                ]
-            ),
-        )
-
-        # Load balancer
+        ### Load balancer
         alb = elbv2.ApplicationLoadBalancer(
             self,
             "TracecatEngineAlb",
