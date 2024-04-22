@@ -49,21 +49,20 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   const { workflowId } = useParams<{
     workflowId: string
   }>()
-  const {
-    data: case_,
-    isLoading,
-    error,
-    mutateCaseAsync,
-  } = usePanelCase(session, workflowId, caseId)
+  const { caseData, caseIsLoading, caseError, mutateCaseAsync } = usePanelCase(
+    session,
+    workflowId,
+    caseId
+  )
 
-  if (isLoading) {
+  if (caseIsLoading) {
     return <CenteredSpinner />
   }
-  if (error || !case_) {
+  if (caseError || !caseData) {
     return (
       <AlertNotification
         level="error"
-        message={error?.message ?? "Error occurred"}
+        message={caseError?.message ?? "Error occurred"}
       />
     )
   }
@@ -78,12 +77,12 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     payload,
     context,
     suppression,
-  } = case_
+  } = caseData
 
   const handleStatusChange = async (newStatus: CaseStatusType) => {
     console.log("Updating status to", newStatus)
     await mutateCaseAsync({
-      ...case_,
+      ...caseData,
       id: caseId,
       status: newStatus,
     })
@@ -92,7 +91,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   const handlePriorityChange = async (newPriority: CasePriorityType) => {
     console.log("Updating priority to", newPriority)
     await mutateCaseAsync({
-      ...case_,
+      ...caseData,
       id: caseId,
       priority: newPriority,
     })

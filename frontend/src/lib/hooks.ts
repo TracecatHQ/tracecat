@@ -93,9 +93,9 @@ export function usePanelCase(
   })
 
   return {
-    data,
-    isLoading,
-    error,
+    caseData: data,
+    caseIsLoading: isLoading,
+    caseError: error,
     mutateCaseAsync: mutateAsync,
   }
 }
