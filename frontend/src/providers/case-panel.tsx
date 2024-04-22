@@ -44,7 +44,7 @@ export default function CasePanelProvider({
     >
       {children}
       <SlidingPanel
-        className={cn("sm:w-4/5 md:w-4/5 lg:w-4/5", className)}
+        className={cn("py-0 sm:w-4/5 md:w-4/5 lg:w-4/5", className)}
         isOpen={isOpen}
         setIsOpen={setIsOpen}
       >
