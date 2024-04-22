@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { Session } from "@supabase/supabase-js"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { z } from "zod"
 
-import { Integration, IntegrationType } from "@/types/schemas"
+import { Integration, IntegrationType, type Case } from "@/types/schemas"
+import { fetchCase, updateCase } from "@/lib/cases"
 import { fetchIntegration, parseSpec } from "@/lib/integrations"
+import { toast } from "@/components/ui/use-toast"
 import {
   ActionFieldConfig,
   baseActionSchema,
@@ -54,4 +56,46 @@ export function useIntegrationFormSchema(
   const { fieldSchema, fieldConfig } = parseSpec(integrationSpec.parameters)
 
   return { fieldSchema, fieldConfig, isLoading, integrationSpec }
+}
+
+export function usePanelCase(
+  session: Session | null,
+  workflowId: string,
+  caseId: string
+) {
+  const queryClient = useQueryClient()
+  const { data, isLoading, error } = useQuery<Case, Error>({
+    queryKey: ["case", caseId],
+    queryFn: async () => await fetchCase(session, workflowId, caseId),
+  })
+  const { mutateAsync } = useMutation({
+    mutationFn: (newCase: Case) =>
+      updateCase(session, workflowId, caseId, newCase),
+    onSuccess: () => {
+      toast({
+        title: "Updated case",
+        description: "Your case has been updated successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case", caseId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases"],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update action:", error)
+      toast({
+        title: "Failed to save action",
+        description: "Could not update your action. Please try again.",
+      })
+    },
+  })
+
+  return {
+    data,
+    isLoading,
+    error,
+    mutateCaseAsync: mutateAsync,
+  }
 }
