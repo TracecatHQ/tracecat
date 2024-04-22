@@ -39,11 +39,11 @@ const integrationTypes = [
   "integrations.datadog.list_security_signals",
   "integrations.datadog.update_security_signal_state",
   "integrations.datadog.list_detection_rules",
+  "integrations.urlscan.analyze_url",
   "integrations.virustotal.get_file_report",
   "integrations.virustotal.get_url_report",
   "integrations.virustotal.get_domain_report",
   "integrations.virustotal.get_ip_address_report",
-  "integrations.urlscan.analyze_url"
 ] as const
 export type IntegrationType = (typeof integrationTypes)[number]
 
