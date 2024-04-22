@@ -1409,6 +1409,8 @@ def get_secret(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found"
             )
+        # NOTE: IMPLICIT TYPE COERCION
+        # Encrypted keys as bytes gets cast a string as to be JSON serializable
         return secret
 
 

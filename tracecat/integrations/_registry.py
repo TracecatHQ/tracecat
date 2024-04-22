@@ -5,7 +5,6 @@ import inspect
 import os
 from typing import TYPE_CHECKING, Any, Self
 
-from tracecat import secrets as ts
 from tracecat.auth import Role
 from tracecat.integrations._meta import (
     IntegrationSpec,
@@ -18,6 +17,7 @@ from tracecat.integrations.utils import (
     get_integration_platform,
 )
 from tracecat.logger import standard_logger
+from tracecat.secrets import batch_get_secrets
 
 if TYPE_CHECKING:
     from tracecat.db import Secret
@@ -117,7 +117,7 @@ class Registry:
         """Retrieve secrets from the secrets API."""
 
         self._logger.info(f"Getting secrets {secret_names!r}")
-        return asyncio.run(ts.batch_get_secrets(role, secret_names))
+        return asyncio.run(batch_get_secrets(role, secret_names))
 
     def _set_secrets(self, secrets: list[Secret]):
         """Set secrets in the environment."""
