@@ -291,3 +291,8 @@ class SecretResponse(BaseModel):
     name: str
     description: str | None = None
     keys: list[SecretKeyValue]
+
+
+class CaseEventParams(BaseModel):
+    type: str
+    data: dict[str, str | None] | None

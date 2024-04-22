@@ -26,7 +26,7 @@ import { DataTable, type DataTableToolbarProps } from "@/components/table"
 
 export default function CaseTable() {
   return (
-    <CasePanelProvider className="sm:w-3/5 sm:max-w-none md:w-3/5 lg:w-4/5 lg:max-w-[1200px]">
+    <CasePanelProvider className="h-full overflow-auto sm:w-3/5 sm:max-w-none md:w-3/5 lg:w-4/5 lg:max-w-[1200px]">
       <InternalCaseTable />
     </CasePanelProvider>
   )

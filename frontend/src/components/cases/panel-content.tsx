@@ -3,13 +3,13 @@
 import React from "react"
 import { useParams } from "next/navigation"
 import { useSession } from "@/providers/session"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
-import { Case, CasePriorityType, CaseStatusType } from "@/types/schemas"
-import { fetchCase, updateCase } from "@/lib/cases"
+import { CasePriorityType, CaseStatusType } from "@/types/schemas"
+import { useCaseEvents, usePanelCase } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import {
   Select,
@@ -28,13 +28,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
 import { AIGeneratedFlair } from "@/components/flair"
 import { LabelsTable } from "@/components/labels-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { Timeline } from "@/components/timeline"
 
 type TStatus = (typeof statuses)[number]
 type TPriority = (typeof priorities)[number]
@@ -48,47 +48,21 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   const { workflowId } = useParams<{
     workflowId: string
   }>()
-  const queryClient = useQueryClient()
-  const {
-    data: case_,
-    isLoading,
-    error,
-  } = useQuery<Case, Error>({
-    queryKey: ["case", caseId],
-    queryFn: async () => await fetchCase(session, workflowId, caseId),
-  })
-  const { mutateAsync } = useMutation({
-    mutationFn: (newCase: Case) =>
-      updateCase(session, workflowId, caseId, newCase),
-    onSuccess: (data) => {
-      toast({
-        title: "Updated case",
-        description: "Your case has been updated successfully.",
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["case", caseId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["cases"],
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to update action:", error)
-      toast({
-        title: "Failed to save action",
-        description: "Could not update your action. Please try again.",
-      })
-    },
-  })
+  const { caseData, caseIsLoading, caseError, mutateCaseAsync } = usePanelCase(
+    session,
+    workflowId,
+    caseId
+  )
+  const { mutateCaseEventsAsync } = useCaseEvents(session, workflowId, caseId)
 
-  if (isLoading) {
+  if (caseIsLoading) {
     return <CenteredSpinner />
   }
-  if (error || !case_) {
+  if (caseError || !caseData) {
     return (
       <AlertNotification
         level="error"
-        message={error?.message ?? "Error occurred"}
+        message={caseError?.message ?? "Error occurred"}
       />
     )
   }
@@ -103,21 +77,35 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     payload,
     context,
     suppression,
-  } = case_
+  } = caseData
 
   const handleStatusChange = async (newStatus: CaseStatusType) => {
     console.log("Updating status to", newStatus)
-    await mutateAsync({
-      ...case_,
+    await mutateCaseAsync({
+      ...caseData,
+      id: caseId,
       status: newStatus,
+    })
+    await mutateCaseEventsAsync({
+      type: "status_changed",
+      data: {
+        status: newStatus,
+      },
     })
   }
 
   const handlePriorityChange = async (newPriority: CasePriorityType) => {
     console.log("Updating priority to", newPriority)
-    await mutateAsync({
-      ...case_,
+    await mutateCaseAsync({
+      ...caseData,
+      id: caseId,
       priority: newPriority,
+    })
+    await mutateCaseEventsAsync({
+      type: "priority_changed",
+      data: {
+        priority: newPriority,
+      },
     })
   }
 
@@ -125,115 +113,135 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   const currentPriority = priorities.find((p) => p.value === priority)!
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex flex-col space-y-4 overflow-auto">
-        <SheetHeader>
-          <small className="text-xs text-muted-foreground">Case #{id}</small>
-          <div className="flex items-center justify-between">
-            <SheetTitle className="text-lg">{title}</SheetTitle>
-            <div className="flex items-center gap-2">
-              <PrioritySelect
-                priority={currentPriority}
-                onValueChange={handlePriorityChange}
-              />
-              <StatusSelect
-                status={currentStatus}
-                onValueChange={handleStatusChange}
-              />
-            </div>
-          </div>
-          <div className="flex flex-col space-y-2 text-muted-foreground">
-            <div className="flex items-center space-x-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Bell className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent side="left" sideOffset={20}>
-                  Priority
-                </TooltipContent>
-              </Tooltip>
-              <StatusBadge status={priority}>
-                <currentPriority.icon
-                  className="stroke-inherit/5 size-3"
-                  strokeWidth={3}
+      <div className="flex h-full flex-col">
+        <div className="my-6 space-y-4">
+          <SheetHeader>
+            <small className="text-xs text-muted-foreground">Case #{id}</small>
+            <div className="flex items-center justify-between">
+              <SheetTitle className="text-lg">{title}</SheetTitle>
+              <div className="flex items-center gap-2">
+                <PrioritySelect
+                  priority={currentPriority}
+                  onValueChange={handlePriorityChange}
                 />
-                <span className="text-xs">{currentPriority.label}</span>
-              </StatusBadge>
+                <StatusSelect
+                  status={currentStatus}
+                  onValueChange={handleStatusChange}
+                />
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Smile className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent side="left" sideOffset={20}>
-                  Malice
-                </TooltipContent>
-              </Tooltip>
-              <StatusBadge status={malice}>{malice}</StatusBadge>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ShieldQuestion className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent side="left" sideOffset={20}>
-                  Action
-                </TooltipContent>
-              </Tooltip>
-              <StatusBadge status={action}>{action}</StatusBadge>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TagsIcon className="size-4" />
-                </TooltipTrigger>
-                <TooltipContent side="left" sideOffset={20}>
-                  Tags
-                </TooltipContent>
-              </Tooltip>
-              {tags.length > 0 ? (
-                tags.map((tag, idx) => (
-                  <StatusBadge key={idx}>
-                    <AIGeneratedFlair isAIGenerated={tag.is_ai_generated}>
-                      {tag.tag}: {tag.value}
-                    </AIGeneratedFlair>
+            <div className="flex flex-col space-y-2 text-muted-foreground">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center space-x-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Bell className="size-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={5}>
+                      Priority
+                    </TooltipContent>
+                  </Tooltip>
+                  <StatusBadge status={priority}>
+                    <currentPriority.icon
+                      className="stroke-inherit/5 size-3"
+                      strokeWidth={3}
+                    />
+                    <span className="text-xs">{currentPriority.label}</span>
                   </StatusBadge>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground">No tags</span>
-              )}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Smile className="size-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={5}>
+                      Malice
+                    </TooltipContent>
+                  </Tooltip>
+                  <StatusBadge status={malice}>{malice}</StatusBadge>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <ShieldQuestion className="size-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={5}>
+                      Action
+                    </TooltipContent>
+                  </Tooltip>
+                  <StatusBadge status={action}>{action}</StatusBadge>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <TagsIcon className="size-4" />
+                  </TooltipTrigger>
+                  <TooltipContent side="left" sideOffset={20}>
+                    Tags
+                  </TooltipContent>
+                </Tooltip>
+                {tags.length > 0 ? (
+                  tags.map((tag, idx) => (
+                    <StatusBadge key={idx}>
+                      <AIGeneratedFlair isAIGenerated={tag.is_ai_generated}>
+                        {tag.tag}: {tag.value}
+                      </AIGeneratedFlair>
+                    </StatusBadge>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">No tags</span>
+                )}
+              </div>
             </div>
-          </div>
-        </SheetHeader>
-        <Separator />
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="col-span-2 flex flex-1 flex-col space-y-2">
-            <h5 className="text-xs font-semibold">Payload</h5>
-            <div className="flex-1 space-y-2">
-              <CodeContent data={payload} />
-            </div>
-          </div>
-          <div className="col-span-2 grid grid-cols-2 gap-4">
-            <div className="col-span-1 space-y-2">
-              <h5 className="text-xs font-semibold">Context</h5>
-              <Card className="p-4 shadow-sm">
-                <LabelsTable
-                  keyName="key"
-                  valueName="value"
-                  labels={context}
-                  emptyMessage="No context available"
-                />
-              </Card>
-            </div>
-            <div className="col-span-1 space-y-2">
-              <h5 className="text-xs font-semibold">Suppressions</h5>
-              <Card className="p-4 shadow-sm">
-                <LabelsTable
-                  keyName="condition"
-                  valueName="result"
-                  labels={suppression}
-                  emptyMessage="No suppressions available"
-                />
-              </Card>
+          </SheetHeader>
+          <Separator />
+          <div className="flex-1">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="col-span-2 flex min-h-[20vh] flex-1 flex-col space-y-2">
+                <h5 className="text-xs font-semibold">Payload</h5>
+                <div className="flex-1 space-y-2">
+                  <CodeContent data={payload} />
+                </div>
+              </div>
+              <div id="body" className="col-span-2 grid grid-cols-2 gap-4">
+                <div id="body-left" className="col-span-1 space-y-2">
+                  <h5 className="text-xs font-semibold">Context</h5>
+                  <Card
+                    className={cn(
+                      "flex min-h-[10vh] p-4 shadow-sm",
+                      context.length === 0 && "items-center"
+                    )}
+                  >
+                    <LabelsTable
+                      keyName="key"
+                      valueName="value"
+                      labels={context}
+                      emptyMessage="No context available"
+                    />
+                  </Card>
+                </div>
+                <div id="body-right" className="col-span-1 space-y-2">
+                  <h5 className="text-xs font-semibold">Suppressions</h5>
+                  <Card
+                    className={cn(
+                      "flex min-h-[10vh] p-4 shadow-sm",
+                      suppression.length === 0 && "items-center"
+                    )}
+                  >
+                    <LabelsTable
+                      keyName="condition"
+                      valueName="result"
+                      labels={suppression}
+                      emptyMessage="No suppressions available"
+                    />
+                  </Card>
+                </div>
+                <div className="col-span-2 space-y-4">
+                  <h5 className="text-xs font-semibold">Activity</h5>
+                  <Timeline workflowId={workflowId} caseId={caseId} />
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -7,6 +7,14 @@ from pydantic import BaseModel, Field
 
 from tracecat.types.api import CaseContext, CaseParams, ListModel, Suppression, Tag
 
+CaseEvent = Literal[
+    "changed_status",
+    "changed_priority",
+    "added_comment",
+    "opened_case",
+    "closed_case",
+]
+
 
 class Case(BaseModel):
     """Case model used in the API and runner."""

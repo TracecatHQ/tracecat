@@ -32,6 +32,7 @@ from tracecat.db import (
     ActionRun,
     CaseAction,
     CaseContext,
+    CaseEvent,
     Integration,
     Secret,
     User,
@@ -56,6 +57,7 @@ from tracecat.types.api import (
     AuthenticateWebhookResponse,
     CaseActionParams,
     CaseContextParams,
+    CaseEventParams,
     CaseParams,
     CopyWorkflowParams,
     CreateActionParams,
@@ -1082,6 +1084,71 @@ def update_case(
         where=f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})",
         values=updated_case.flatten(),
     )
+
+
+@app.post(
+    "/workflows/{workflow_id}/cases/{case_id}/events",
+    status_code=status.HTTP_201_CREATED,
+)
+def create_case_event(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    case_id: str,
+    params: CaseEventParams,
+) -> None:
+    """Create a new Case Event."""
+    case_event = CaseEvent(
+        owner_id=role.user_id,
+        case_id=case_id,
+        workflow_id=workflow_id,
+        initiator_role=role.type,
+        **params.model_dump(),
+    )
+    with Session(engine) as session:
+        session.add(case_event)
+        session.commit()
+        session.refresh(case_event)
+        return case_event
+
+
+@app.get("/workflows/{workflow_id}/cases/{case_id}/events")
+def list_case_events(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    case_id: str,
+) -> list[CaseEvent]:
+    """List all Case Events."""
+    with Session(engine) as session:
+        query = select(CaseEvent).where(
+            CaseEvent.owner_id == role.user_id,
+            CaseEvent.workflow_id == workflow_id,
+            CaseEvent.case_id == case_id,
+        )
+        case_events = session.exec(query).all()
+        return case_events
+
+
+@app.get("/workflows/{workflow_id}/cases/{case_id}/events/{event_id}")
+def get_case_event(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+    case_id: str,
+    event_id: str,
+):
+    """Get a specific case event by ID under a workflow."""
+    with Session(engine) as session:
+        query = select(CaseEvent).where(
+            CaseEvent.owner_id == role.user_id,
+            CaseEvent.workflow_id == workflow_id,
+            CaseEvent.case_id == case_id,
+            CaseEvent.id == event_id,
+        )
+        case_event = session.exec(query).one_or_none()
+        if case_event is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            )
+        return case_event
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}/metrics")

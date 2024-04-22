@@ -153,6 +153,23 @@ class CaseContext(Resource, table=True):
     user: User | None = Relationship(back_populates="case_contexts")
 
 
+class CaseEvent(Resource, table=True):
+    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    type: str  # The CaseEvent type
+    workflow_id: str | None = Field(foreign_key="workflow.id")
+    case_id: str
+    # Tells us what kind of role modified the case
+    initiator_role: str  # "user", "service"
+    # Changes: We'll use a dict to store the changes
+    # The dict takes key-value pairs where the key is a field name in the Case model
+    # The value represents the new value.
+    # Possible events:
+    # - Key not in dict: The field was not modified
+    # - Key in dict with value None: The field was deleted
+    # - Key in dict with value: The field was modified
+    data: dict[str, str | None] | None = Field(sa_column=Column(JSON))
+
+
 class Integration(Resource, table=True):
     """Integration spec.
 

@@ -1,10 +1,23 @@
 import { useEffect, useState } from "react"
 import { Session } from "@supabase/supabase-js"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { z } from "zod"
 
-import { Integration, IntegrationType } from "@/types/schemas"
+import {
+  CaseEvent,
+  Integration,
+  IntegrationType,
+  type Case,
+} from "@/types/schemas"
+import {
+  CaseEventParams,
+  createCaseEvent,
+  fetchCase,
+  fetchCaseEvents,
+  updateCase,
+} from "@/lib/cases"
 import { fetchIntegration, parseSpec } from "@/lib/integrations"
+import { toast } from "@/components/ui/use-toast"
 import {
   ActionFieldConfig,
   baseActionSchema,
@@ -54,4 +67,90 @@ export function useIntegrationFormSchema(
   const { fieldSchema, fieldConfig } = parseSpec(integrationSpec.parameters)
 
   return { fieldSchema, fieldConfig, isLoading, integrationSpec }
+}
+
+export function usePanelCase(
+  session: Session | null,
+  workflowId: string,
+  caseId: string
+) {
+  const queryClient = useQueryClient()
+  const { data, isLoading, error } = useQuery<Case, Error>({
+    queryKey: ["case", caseId],
+    queryFn: async () => await fetchCase(session, workflowId, caseId),
+  })
+  const { mutateAsync } = useMutation({
+    mutationFn: (newCase: Case) =>
+      updateCase(session, workflowId, caseId, newCase),
+    onSuccess: () => {
+      toast({
+        title: "Updated case",
+        description: "Your case has been updated successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case", caseId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases"],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update action:", error)
+      toast({
+        title: "Failed to save action",
+        description: "Could not update your action. Please try again.",
+      })
+    },
+  })
+
+  return {
+    caseData: data,
+    caseIsLoading: isLoading,
+    caseError: error,
+    mutateCaseAsync: mutateAsync,
+  }
+}
+
+export function useCaseEvents(
+  session: Session | null,
+  workflowId: string,
+  caseId: string
+) {
+  const queryClient = useQueryClient()
+  const { data, isLoading, error } = useQuery<CaseEvent[], Error>({
+    queryKey: ["caseEvents", caseId],
+    queryFn: async () => await fetchCaseEvents(session, workflowId, caseId),
+  })
+
+  const { mutateAsync } = useMutation({
+    mutationFn: async (newEvent: CaseEventParams) =>
+      await createCaseEvent(session, workflowId, caseId, newEvent),
+    onSuccess: () => {
+      console.log("Case event created")
+      toast({
+        title: "Created case event",
+        description: "Your case event has been created successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["caseEvents", caseId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case", caseId],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to create case event:", error)
+      toast({
+        title: "Failed to create case event",
+        description: "Could not create case event. Please try again.",
+      })
+    },
+  })
+
+  return {
+    caseEvents: data,
+    caseEventsIsLoading: isLoading,
+    caseEventsError: error,
+    mutateCaseEventsAsync: mutateAsync,
+  }
 }
