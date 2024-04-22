@@ -3,9 +3,13 @@
 
 import logging
 import os
+from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
+
+from tracecat.db import Secret
+from tracecat.types.secrets import SecretKeyValue
 
 # MinIO settings
 MINIO_CONTAINER_NAME = "minio_test_server"
@@ -47,3 +51,19 @@ def setup_shared_env():
         del os.environ["MINIO_ACCESS_KEY"]
         del os.environ["MINIO_SECRET_KEY"]
         del os.environ["MINIO_ENDPOINT"]
+
+
+@pytest.fixture
+def create_mock_secret():
+    def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
+        keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]
+        new_secret = Secret(
+            owner_id=uuid4().hex,  # Assuming owner_id should be unique per secret
+            id=uuid4().hex,  # Generate a unique ID for each secret
+            name=secret_name,
+            type="custom",  # Assuming a fixed type; adjust as necessary
+        )
+        new_secret.keys = keys
+        return new_secret
+
+    return _get_secret
