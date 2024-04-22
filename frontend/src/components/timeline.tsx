@@ -1,17 +1,38 @@
 import React from "react"
+import { useSession } from "@/providers/session"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { ChatBubbleIcon } from "@radix-ui/react-icons"
+import { User } from "@supabase/supabase-js"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
 
-import { CasePriorityType, CaseStatusType } from "@/types/schemas"
+import { CaseEvent, CasePriorityType, CaseStatusType } from "@/types/schemas"
+import { userDefaults } from "@/config/user"
+import { useCaseEvents } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import NoContent from "@/components/no-content"
+import { AlertNotification } from "@/components/notifications"
 import UserAvatar from "@/components/user-avatar"
 
-type User = {
-  src: string
-  name: string
-}
+const timelineCommentFormSchema = z.object({
+  comment: z.string().min(1, "Comment cannot be empty"),
+})
+
+export type TimelineCommentForm = z.infer<typeof timelineCommentFormSchema>
 
 /**
  *
@@ -21,70 +42,126 @@ type User = {
  * @returns
  */
 export function Timeline({
-  items,
+  workflowId,
+  caseId,
   className,
 }: React.HTMLAttributes<HTMLUListElement> & {
-  items: TimelineItemProps[]
+  workflowId: string
+  caseId: string
 }) {
-  console.log("items", items)
+  const session = useSession()
+  const {
+    caseEvents,
+    caseEventsIsLoading,
+    caseEventsError,
+    mutateCaseEventsAsync,
+  } = useCaseEvents(session, workflowId, caseId)
+
+  const methods = useForm<TimelineCommentForm>({
+    resolver: zodResolver(timelineCommentFormSchema),
+    defaultValues: {
+      comment: "",
+    },
+  })
+  const { control, handleSubmit } = methods
+
+  if (caseEventsIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  if (caseEventsError || !caseEvents) {
+    return (
+      <AlertNotification level="error" message="Failed to load case events" />
+    )
+  }
+  const onSubmit = async (data: TimelineCommentForm) => {
+    console.log("data", data)
+    await mutateCaseEventsAsync({
+      type: "comment_created",
+      data,
+    })
+  }
+
   return (
-    <div className={cn("pl-4", className)}>
-      <ol className="relative space-y-8 border-s border-gray-200 p-4 dark:border-gray-700">
-        {items.map((item, index) => (
-          <TimelineItem key={index} {...item} />
-        ))}
-      </ol>
-      <Textarea
-        className="mt-4 min-h-20 text-xs"
-        placeholder="Add a comment..."
-      />
-      <Button className="ml-auto mt-2 flex justify-end text-xs">
-        Add Comment
-      </Button>
+    <div className={className}>
+      <div className="pl-4">
+        {caseEvents.length > 0 ? (
+          <ol className="relative mb-2 space-y-8 border-s border-gray-200 pb-8 pl-4 dark:border-gray-700">
+            {caseEvents.map((caseEvent, index) => (
+              <TimelineItem key={index} {...caseEvent} user={session?.user} />
+            ))}
+          </ol>
+        ) : (
+          <NoContent className="min-h-10" message="No activity." />
+        )}
+      </div>
+      <Form {...methods}>
+        <form onSubmit={handleSubmit(onSubmit)} className="mb-10 h-full">
+          <div className="relative overflow-hidden rounded-lg border bg-background shadow-sm focus-within:ring-1 focus-within:ring-ring">
+            <FormField
+              control={control}
+              name="comment"
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      id="comment"
+                      placeholder="Add a comment..."
+                      className="min-h-12 resize-none border-0 p-3 shadow-none focus-visible:ring-0"
+                    />
+                  </FormControl>
+                  <FormMessage className="p-3" />
+                </FormItem>
+              )}
+            />
+            <div className="flex items-center p-3 pt-0">
+              <Button type="submit" size="sm" className="ml-auto gap-1.5">
+                Add Comment
+                <ChatBubbleIcon className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        </form>
+      </Form>
     </div>
   )
 }
-export type TimelineAction =
-  | "changed_status"
-  | "changed_priority"
-  | "added_comment"
-  | "opened_case"
-  | "closed_case"
+export type CaseEventType =
+  | "status_changed"
+  | "priority_changed"
+  | "comment_created"
+  | "case_opened"
+  | "case_closed"
 
-export type TimelineItemProps = TimelineItemActivityProps & {
+export type TimelineItemProps = CaseEvent & {
   className?: string
+  user?: User
 }
 
 export function TimelineItem({
   className,
+  user,
   ...activityProps
 }: TimelineItemProps) {
   return (
     <li className={cn("ms-6 rounded-lg text-xs shadow-sm", className)}>
       <UserAvatar
-        className="absolute -start-3 flex size-6 items-center justify-center ring-8 ring-white"
-        src={activityProps.user.src}
-        alt={activityProps.user.name}
+        className="absolute -start-4 flex size-8 items-center justify-center border ring-8 ring-white"
+        src={user?.user_metadata?.avatar_url || userDefaults.avatarUrl}
+        alt={user?.user_metadata?.alt || userDefaults.alt}
       />
-      <TimelineItemActivity {...activityProps} />
+      <TimelineItemActivity {...activityProps} user={user} />
     </li>
   )
 }
-export interface TimelineItemActivityProps {
-  user: User
-  action: TimelineAction
-  updatedAt: string
-  detail?: string
-  activity?: Record<string, any>
-}
-function TimelineItemActivity(props: TimelineItemActivityProps) {
-  const { detail, ...rest } = props
-
+function TimelineItemActivity(props: TimelineItemProps) {
+  const comment = props.data?.comment
   return (
-    <div className="space-y-4 rounded-lg border border-gray-200 p-4 shadow-sm">
-      <TimelineItemActivityHeader {...rest} />
-      {detail && (
-        <TimelineItemActivityDetail>{detail}</TimelineItemActivityDetail>
+    <div className="space-y-2 rounded-lg border border-gray-200 p-4 shadow-sm">
+      <TimelineItemActivityHeader {...props} />
+      {comment && (
+        <TimelineItemActivityDetail>{comment}</TimelineItemActivityDetail>
       )}
     </div>
   )
@@ -92,19 +169,19 @@ function TimelineItemActivity(props: TimelineItemActivityProps) {
 
 const getActivityDescription = ({
   user,
-  action,
-  activity,
-}: TimelineItemActivityHeaderProps): React.ReactNode => {
-  const name = <b>{user.name}</b>
-  switch (action) {
-    case "added_comment":
+  type,
+  data,
+}: TimelineItemProps): React.ReactNode => {
+  const name = <b>{user?.user_metadata?.name || userDefaults.name}</b>
+  switch (type) {
+    case "comment_created":
       return <span>{name} added a comment to the case.</span>
-    case "opened_case":
+    case "case_opened":
       return <span>{name} opened the case.</span>
-    case "closed_case":
+    case "case_closed":
       return <span>{name} closed the case.</span>
-    case "changed_status":
-      const statusVal = activity?.status as CaseStatusType
+    case "status_changed":
+      const statusVal = data?.status as CaseStatusType | null
       const statusObj = statuses.find((s) => s.value === statusVal)
       const newStatus = (
         <StatusBadge status={statusObj?.value} className="ml-1">
@@ -119,8 +196,8 @@ const getActivityDescription = ({
           {name} updated the case status to {newStatus}.
         </span>
       )
-    case "changed_priority":
-      const priorityVal = activity?.priority as CasePriorityType
+    case "priority_changed":
+      const priorityVal = data?.priority as CasePriorityType | null
       const priorityObj = priorities.find((p) => p.value === priorityVal)
       const newPriority = (
         <StatusBadge status={priorityObj?.value} className="ml-1">
@@ -140,20 +217,13 @@ const getActivityDescription = ({
   }
 }
 
-type TimelineItemActivityHeaderProps = Omit<
-  TimelineItemActivityProps,
-  "detail"
-> & {
-  className?: string
-}
-
-function TimelineItemActivityHeader(props: TimelineItemActivityHeaderProps) {
+function TimelineItemActivityHeader(props: TimelineItemProps) {
   const activityDescription = getActivityDescription(props)
-  const { updatedAt, className } = props
+  const { created_at, className } = props
   return (
     <div className={cn("items-center justify-between sm:flex", className)}>
       <time className="mb-1 text-xs font-normal text-muted-foreground sm:order-last sm:mb-0">
-        {updatedAt}
+        {created_at.toLocaleString()}
       </time>
       <div className="lex font-normal text-muted-foreground">
         {activityDescription}

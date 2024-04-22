@@ -6,6 +6,7 @@ import { User } from "@supabase/supabase-js"
 import { BookText, KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
 import { siteConfig } from "@/config/site"
+import { userDefaults } from "@/config/user"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -19,13 +20,6 @@ import {
 import { Icons } from "@/components/icons"
 import UserAvatar from "@/components/user-avatar"
 
-const userDefaults = {
-  name: "Hello, friend!",
-  email: "friend@example.com",
-  avatarUrl:
-    "https://gravatar.com/avatar/fb1a12daafe05ae4b59489de1ab63026?s=400&d=robohash&r=x",
-  alt: "@friend",
-}
 export default function UserNav() {
   const { session, signOut } = useSessionContext()
   const user = session?.user as User | null

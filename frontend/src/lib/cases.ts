@@ -1,7 +1,12 @@
 import { Session } from "@supabase/supabase-js"
 import { z } from "zod"
 
-import { caseSchema, type Case } from "@/types/schemas"
+import {
+  CaseEvent,
+  caseEventSchema,
+  caseSchema,
+  type Case,
+} from "@/types/schemas"
 import { getAuthenticatedClient } from "@/lib/api"
 
 export async function getCases(
@@ -82,6 +87,48 @@ export async function updateCase(
     }
   } catch (error) {
     console.error("Error updating case:", error)
+    throw error
+  }
+}
+
+export async function fetchCaseEvents(
+  session: Session | null,
+  workflowId: string,
+  caseId: string
+): Promise<CaseEvent[]> {
+  try {
+    const client = getAuthenticatedClient(session)
+    const response = await client.get<CaseEvent[]>(
+      `/workflows/${workflowId}/cases/${caseId}/events`
+    )
+    return z.array(caseEventSchema).parse(response.data)
+  } catch (error) {
+    console.error("Error fetching case events:", error)
+    throw error
+  }
+}
+
+export type CaseEventParams = Omit<
+  CaseEvent,
+  "id" | "created_at" | "workflow_id" | "case_id" | "initiator_role"
+>
+export async function createCaseEvent(
+  session: Session | null,
+  workflowId: string,
+  caseId: string,
+  payload: CaseEventParams
+) {
+  try {
+    const client = getAuthenticatedClient(session)
+    const response = await client.post(
+      `/workflows/${workflowId}/cases/${caseId}/events`,
+      payload
+    )
+    if (response.status !== 201) {
+      throw new Error("Failed to create case event")
+    }
+  } catch (error) {
+    console.error("Error creating case event:", error)
     throw error
   }
 }

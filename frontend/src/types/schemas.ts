@@ -220,3 +220,24 @@ export const integrationSchema = z.object({
 })
 
 export type Integration = z.infer<typeof integrationSchema>
+
+export const caseEventTypes = [
+  "status_changed",
+  "priority_changed",
+  "comment_created",
+  "case_opened",
+  "case_closed",
+] as const
+export type CaseEventType = (typeof caseEventTypes)[number]
+
+export const caseEventSchema = z.object({
+  id: z.string(),
+  created_at: strAsDate,
+  type: z.enum(caseEventTypes),
+  workflow_id: z.string().nullable(),
+  case_id: z.string(),
+  initiator_role: z.enum(["user", "service"]),
+  data: z.record(z.string(), z.string().nullish()),
+})
+
+export type CaseEvent = z.infer<typeof caseEventSchema>

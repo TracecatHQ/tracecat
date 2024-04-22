@@ -8,7 +8,7 @@ import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { CasePriorityType, CaseStatusType } from "@/types/schemas"
-import { usePanelCase } from "@/lib/hooks"
+import { useCaseEvents, usePanelCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import {
@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/tooltip"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
-import { timelineItems } from "@/components/cases/data/timeline"
 import { AIGeneratedFlair } from "@/components/flair"
 import { LabelsTable } from "@/components/labels-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -54,6 +53,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     workflowId,
     caseId
   )
+  const { mutateCaseEventsAsync } = useCaseEvents(session, workflowId, caseId)
 
   if (caseIsLoading) {
     return <CenteredSpinner />
@@ -86,6 +86,12 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
       id: caseId,
       status: newStatus,
     })
+    await mutateCaseEventsAsync({
+      type: "status_changed",
+      data: {
+        status: newStatus,
+      },
+    })
   }
 
   const handlePriorityChange = async (newPriority: CasePriorityType) => {
@@ -95,13 +101,19 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
       id: caseId,
       priority: newPriority,
     })
+    await mutateCaseEventsAsync({
+      type: "priority_changed",
+      data: {
+        priority: newPriority,
+      },
+    })
   }
 
   const currentStatus = statuses.find((status) => status.value === caseStatus)!
   const currentPriority = priorities.find((p) => p.value === priority)!
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-full flex-col overflow-auto">
+      <div className="flex h-full flex-col">
         <div className="my-6 space-y-4">
           <SheetHeader>
             <small className="text-xs text-muted-foreground">Case #{id}</small>
@@ -227,7 +239,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                 </div>
                 <div className="col-span-2 space-y-4">
                   <h5 className="text-xs font-semibold">Activity</h5>
-                  <Timeline items={timelineItems} />
+                  <Timeline workflowId={workflowId} caseId={caseId} />
                 </div>
               </div>
             </div>
