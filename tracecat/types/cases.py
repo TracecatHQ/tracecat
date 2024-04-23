@@ -23,7 +23,7 @@ class Case(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)  # Action run id
     owner_id: str  # NOTE: Ideally this would inherit form db.Resource
     workflow_id: str
-    title: str
+    case_title: str
     payload: dict[str, Any]
     malice: Literal["malicious", "benign"]
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]

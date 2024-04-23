@@ -789,7 +789,7 @@ async def run_open_case_action(
     action_run_id: str,
     workflow_id: str,
     # Action Inputs
-    title: str,
+    case_title: str,
     payload: dict[str, Any],
     malice: Literal["malicious", "benign"],
     status: Literal["open", "closed", "in_progress", "reported", "escalated"],
@@ -813,7 +813,7 @@ async def run_open_case_action(
         id=action_run_id,
         owner_id=role.user_id,
         workflow_id=workflow_id,
-        title=title,
+        case_title=case_title,
         payload=payload,
         malice=malice,
         status=status,

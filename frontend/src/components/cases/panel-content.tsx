@@ -68,7 +68,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   }
   const {
     id,
-    title,
+    case_title,
     status: caseStatus,
     priority,
     malice,
@@ -118,7 +118,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
           <SheetHeader>
             <small className="text-xs text-muted-foreground">Case #{id}</small>
             <div className="flex items-center justify-between">
-              <SheetTitle className="text-lg">{title}</SheetTitle>
+              <SheetTitle className="text-lg">{case_title}</SheetTitle>
               <div className="flex items-center gap-2">
                 <PrioritySelect
                   priority={currentPriority}

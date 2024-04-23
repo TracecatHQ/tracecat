@@ -114,7 +114,7 @@ export const columns: ColumnDef<Case>[] = [
     },
   },
   {
-    accessorKey: "title",
+    accessorKey: "case_title",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Case Title" />
     ),
@@ -122,7 +122,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] truncate text-xs">
-            {row.getValue<Case["title"]>("title")}
+            {row.getValue<Case["case_title"]>("case_title")}
           </span>
         </div>
       )
