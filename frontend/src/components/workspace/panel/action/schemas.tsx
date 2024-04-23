@@ -109,8 +109,16 @@ const OpenCaseActionSchema = z.object({
   suppression: z.array(suppressionSchema).default([]),
   tags: z.array(tagSchema).default([]),
 })
+
+const BASE_ACTION_SCHEMA_REGEX = /^[a-zA-Z0-9_]+$/
 export const baseActionSchema = z.object({
-  title: z.string().min(1, { message: "Title cannot be empty" }),
+  title: z
+    .string()
+    .min(1, { message: "Title cannot be empty" })
+    .regex(BASE_ACTION_SCHEMA_REGEX, {
+      message:
+        "Title can only include alphanumeric characters, spaces, and underscores",
+    }),
   description: z.string(),
 })
 export type BaseActionForm = z.infer<typeof baseActionSchema>
