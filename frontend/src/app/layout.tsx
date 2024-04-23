@@ -6,6 +6,7 @@ import dynamic from "next/dynamic"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { SessionContextProvider } from "@/providers/session"
 import { createClient } from "@/utils/supabase/server"
+import { ClerkProvider } from "@clerk/nextjs"
 
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
@@ -49,9 +50,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const MaybeAnalytics = PHProvider ? PHProvider : React.Fragment
 
   return (
-    <>
-      <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
-        <head />
+    <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
+      <head />
+      <ClerkProvider>
         <MaybeAnalytics>
           <body
             className={cn(
@@ -68,7 +69,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             <Toaster />
           </body>
         </MaybeAnalytics>
-      </html>
-    </>
+      </ClerkProvider>
+    </html>
   )
 }
