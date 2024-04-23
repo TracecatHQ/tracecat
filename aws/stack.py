@@ -19,11 +19,6 @@ AWS_ECR__SCHEDULER_IMAGE_URI = os.environ["AWS_ECR__SCHEDULER_IMAGE_URI"]
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
-PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME = (
-    f"staging.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
-    if TRACECAT__APP_ENV == "staging"
-    else AWS_ROUTE53__HOSTED_ZONE_NAME
-)
 AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
 AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__API_CERTIFICATE_ARN"]
 AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ["AWS_ACM__RUNNER_CERTIFICATE_ARN"]
@@ -564,8 +559,6 @@ class TracecatEngineStack(Stack):
             ),
         )
 
-        ### Amazon MQ (RabbitMQ) Service
-
         ### Load balancer
         alb = elbv2.ApplicationLoadBalancer(
             self,
@@ -588,6 +581,11 @@ class TracecatEngineStack(Stack):
             ),
         )
 
+        if TRACECAT__APP_ENV == "staging":
+            host = f"staging.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
+        else:
+            host = AWS_ROUTE53__HOSTED_ZONE_NAME
+
         # Main HTTPS listener
         listener = alb.add_listener(
             "DefaultHttpsListener",
@@ -600,7 +598,7 @@ class TracecatEngineStack(Stack):
             priority=30,
             conditions=[elbv2.ListenerCondition.path_patterns(["/"])],
             action=elbv2.ListenerAction.redirect(
-                host=f"api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",  # Redirect to the API subdomain
+                host=f"api.{host}",  # Redirect to the API subdomain
                 protocol="HTTPS",
                 port="443",
                 path="/",
@@ -612,21 +610,13 @@ class TracecatEngineStack(Stack):
         listener.add_action(
             "ApiTarget",
             priority=10,
-            conditions=[
-                elbv2.ListenerCondition.host_headers(
-                    [f"api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}"]
-                )
-            ],
+            conditions=[elbv2.ListenerCondition.host_headers([f"api.{host}"])],
             action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
         )
         listener.add_action(
             "RunnerTarget",
             priority=20,
-            conditions=[
-                elbv2.ListenerCondition.host_headers(
-                    [f"runner.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}"]
-                )
-            ],
+            conditions=[elbv2.ListenerCondition.host_headers([f"runner.{host}"])],
             action=elbv2.ListenerAction.forward(target_groups=[runner_target_group]),
         )
 
@@ -634,7 +624,7 @@ class TracecatEngineStack(Stack):
         route53.ARecord(
             self,
             "AliasRecord",
-            record_name=PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME,
+            record_name=host,
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
@@ -642,7 +632,7 @@ class TracecatEngineStack(Stack):
         route53.ARecord(
             self,
             "ApiAliasRecord",
-            record_name=f"api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
+            record_name=f"api.{host}",
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
@@ -651,7 +641,7 @@ class TracecatEngineStack(Stack):
         route53.ARecord(
             self,
             "RunnerAliasRecord",
-            record_name=f"runner.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
+            record_name=f"runner.{host}",
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
