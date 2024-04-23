@@ -18,7 +18,10 @@ RABBITMQ_RUNNER_EVENTS_EXCHANGE = "runner_events"
 
 async def get_connection() -> AbstractRobustConnection:
     logger.info(f"Connecting to RabbitMQ at {RABBITMQ_URI}")
-    return await aio_pika.connect_robust(RABBITMQ_URI)
+    if RABBITMQ_URI.startswith("amqps://"):
+        return await aio_pika.connect_robust(RABBITMQ_URI, ssl=True)
+    else:
+        return await aio_pika.connect_robust(RABBITMQ_URI)
 
 
 @asynccontextmanager
