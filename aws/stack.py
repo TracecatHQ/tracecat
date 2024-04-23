@@ -39,13 +39,7 @@ class TracecatEngineStack(Stack):
         # Create cluster
         vpc_name = f"tracecat-vpc-{TRACECAT__APP_ENV}"
         cluster_name = f"tracecat-ecs-cluster-{TRACECAT__APP_ENV}"
-        vpc = ec2.Vpc.from_lookup(
-            self,
-            "Vpc",
-            vpc_name=vpc_name,
-            owner_account_id=os.environ["AWS_ACCOUNT_ID"],
-            region=os.environ["AWS_REGION"],
-        )
+        vpc = ec2.Vpc.from_lookup(self, "Vpc", vpc_name=vpc_name)
         cluster = ecs.Cluster(self, "Cluster", cluster_name=cluster_name, vpc=vpc)
         cluster.add_default_cloud_map_namespace(
             name="tracecat.local", vpc=vpc, use_for_service_connect=True
