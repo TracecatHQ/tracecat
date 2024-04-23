@@ -381,31 +381,31 @@ async def run_workflow(
     """
     # TODO: Move some of these into ContextVars
     workflow_run_id = uuid4().hex
-    await emit_create_workflow_run_event(
-        workflow_id=workflow_id, workflow_run_id=workflow_run_id
-    )
-    run_logger = standard_logger(f"wfr-{workflow_run_id}")
-    workflow = await get_workflow(workflow_id)
-    logger.info(f"Set workflow context for user {workflow.owner_id}")
-    ctx_workflow.set(workflow)
-
-    # Initial state
-    ready_jobs_queue.put_nowait(
-        ActionRun(
-            workflow_run_id=workflow_run_id,
-            run_kwargs=entrypoint_payload,
-            action_key=entrypoint_key,
-        )
-    )
-
-    run_status: RunStatus = "success"
-
-    await emit_update_workflow_run_event(
-        workflow_id=workflow_id,
-        workflow_run_id=workflow_run_id,
-        status="running",
-    )
     try:
+        await emit_create_workflow_run_event(
+            workflow_id=workflow_id, workflow_run_id=workflow_run_id
+        )
+        run_logger = standard_logger(f"wfr-{workflow_run_id}")
+        workflow = await get_workflow(workflow_id)
+        logger.info(f"Set workflow context for user {workflow.owner_id}")
+        ctx_workflow.set(workflow)
+
+        # Initial state
+        ready_jobs_queue.put_nowait(
+            ActionRun(
+                workflow_run_id=workflow_run_id,
+                run_kwargs=entrypoint_payload,
+                action_key=entrypoint_key,
+            )
+        )
+
+        run_status: RunStatus = "success"
+
+        await emit_update_workflow_run_event(
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            status="running",
+        )
         while (
             not ready_jobs_queue.empty() or running_jobs_store
         ) and runner_status == RunnerStatus.RUNNING:
