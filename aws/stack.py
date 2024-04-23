@@ -8,9 +8,9 @@ from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_route53 as route53
+from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk.aws_certificatemanager import Certificate
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
-from aws_cdk.aws_secretsmanager import Secret
 from constructs import Construct
 
 TRACECAT__APP_ENV = os.environ["TRACECAT__APP_ENV"]
@@ -19,10 +19,14 @@ AWS_ECR__SCHEDULER_IMAGE_URI = os.environ["AWS_ECR__SCHEDULER_IMAGE_URI"]
 AWS_SECRET__ARN = os.environ["AWS_SECRET__ARN"]
 AWS_ROUTE53__HOSTED_ZONE_ID = os.environ["AWS_ROUTE53__HOSTED_ZONE_ID"]
 AWS_ROUTE53__HOSTED_ZONE_NAME = os.environ["AWS_ROUTE53__HOSTED_ZONE_NAME"]
+PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME = (
+    f"staging.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
+    if TRACECAT__APP_ENV == "staging"
+    else AWS_ROUTE53__HOSTED_ZONE_NAME
+)
 AWS_ACM__CERTIFICATE_ARN = os.environ["AWS_ACM__CERTIFICATE_ARN"]
 AWS_ACM__API_CERTIFICATE_ARN = os.environ["AWS_ACM__API_CERTIFICATE_ARN"]
 AWS_ACM__RUNNER_CERTIFICATE_ARN = os.environ["AWS_ACM__RUNNER_CERTIFICATE_ARN"]
-RABBITMQ__SECURITY_GROUP_ID = os.environ["RABBITMQ__SECURITY_GROUP_ID"]
 
 if TRACECAT__APP_ENV == "production":
     CPU = 512
@@ -37,9 +41,9 @@ class TracecatEngineStack(Stack):
         super().__init__(scope, id, **kwargs)
 
         # Create cluster
-        vpc_name = f"tracecat-vpc-{TRACECAT__APP_ENV}"
+        vpn_name = f"tracecat-vpc-{TRACECAT__APP_ENV}"
         cluster_name = f"tracecat-ecs-cluster-{TRACECAT__APP_ENV}"
-        vpc = ec2.Vpc.from_lookup(self, "Vpc", vpc_name=vpc_name)
+        vpc = ec2.Vpc(self, "Vpc", vpc_name=vpn_name)
         cluster = ecs.Cluster(self, "Cluster", cluster_name=cluster_name, vpc=vpc)
         cluster.add_default_cloud_map_namespace(
             name="tracecat.local", vpc=vpc, use_for_service_connect=True
@@ -97,12 +101,12 @@ class TracecatEngineStack(Stack):
         }
 
         ### Secrets
-        tracecat_secret = Secret.from_secret_complete_arn(
+        tracecat_secret = secretsmanager.Secret.from_secret_complete_arn(
             self, "Secret", secret_complete_arn=AWS_SECRET__ARN
         )
         shared_secrets = {
             "RABBITMQ_URI": ecs.Secret.from_secrets_manager(
-                tracecat_secret, field="db-encryption-key"
+                tracecat_secret, field="rabbitmq-uri"
             ),
             "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
                 tracecat_secret, field="db-encryption-key"
@@ -192,33 +196,6 @@ class TracecatEngineStack(Stack):
             description="Allow traffic from API to Runner",
         )
 
-        ### Amazon MQ (RabbitMQ) Service
-        rabbitmq_security_group = ec2.SecurityGroup.from_security_group_id(
-            self,
-            "RabbitMQSecurityGroup",
-            security_group_id=os.environ["RABBITMQ__SECURITY_GROUP_ID"],
-        )
-        rabbitmq_security_group.add_ingress_rule(
-            peer=api_security_group,
-            connection=ec2.Port.tcp(5672),
-            description="Allow incoming AMQP traffic from API service",
-        )
-        rabbitmq_security_group.add_ingress_rule(
-            peer=runner_security_group,
-            connection=ec2.Port.tcp(5672),
-            description="Allow incoming AMQP traffic from Runner service",
-        )
-        api_security_group.add_ingress_rule(
-            peer=rabbitmq_security_group,
-            connection=ec2.Port.tcp(8000),
-            description="Allow traffic from Runner to API",
-        )
-        runner_security_group.add_ingress_rule(
-            peer=rabbitmq_security_group,
-            connection=ec2.Port.tcp(8001),
-            description="Allow traffic from API to Runner",
-        )
-
         # 4. Scheduler Security Group
         scheduler_security_group = ec2.SecurityGroup(
             self,
@@ -235,11 +212,6 @@ class TracecatEngineStack(Stack):
         )
         scheduler_security_group.add_ingress_rule(
             peer=runner_security_group,
-            connection=ec2.Port.tcp(8002),
-            description="Allow traffic from Runner to Scheduler on port 8002",
-        )
-        scheduler_security_group.add_ingress_rule(
-            peer=rabbitmq_security_group,
             connection=ec2.Port.tcp(8002),
             description="Allow traffic from Runner to Scheduler on port 8002",
         )
@@ -592,6 +564,8 @@ class TracecatEngineStack(Stack):
             ),
         )
 
+        ### Amazon MQ (RabbitMQ) Service
+
         ### Load balancer
         alb = elbv2.ApplicationLoadBalancer(
             self,
@@ -614,11 +588,6 @@ class TracecatEngineStack(Stack):
             ),
         )
 
-        if TRACECAT__APP_ENV == "staging":
-            host = f"staging.{AWS_ROUTE53__HOSTED_ZONE_NAME}"
-        else:
-            host = AWS_ROUTE53__HOSTED_ZONE_NAME
-
         # Main HTTPS listener
         listener = alb.add_listener(
             "DefaultHttpsListener",
@@ -631,7 +600,7 @@ class TracecatEngineStack(Stack):
             priority=30,
             conditions=[elbv2.ListenerCondition.path_patterns(["/"])],
             action=elbv2.ListenerAction.redirect(
-                host=f"api.{host}",  # Redirect to the API subdomain
+                host=f"api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",  # Redirect to the API subdomain
                 protocol="HTTPS",
                 port="443",
                 path="/",
@@ -643,13 +612,21 @@ class TracecatEngineStack(Stack):
         listener.add_action(
             "ApiTarget",
             priority=10,
-            conditions=[elbv2.ListenerCondition.host_headers([f"api.{host}"])],
+            conditions=[
+                elbv2.ListenerCondition.host_headers(
+                    [f"api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}"]
+                )
+            ],
             action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
         )
         listener.add_action(
             "RunnerTarget",
             priority=20,
-            conditions=[elbv2.ListenerCondition.host_headers([f"runner.{host}"])],
+            conditions=[
+                elbv2.ListenerCondition.host_headers(
+                    [f"runner.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}"]
+                )
+            ],
             action=elbv2.ListenerAction.forward(target_groups=[runner_target_group]),
         )
 
@@ -657,7 +634,7 @@ class TracecatEngineStack(Stack):
         route53.ARecord(
             self,
             "AliasRecord",
-            record_name=host,
+            record_name=PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME,
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
@@ -665,7 +642,7 @@ class TracecatEngineStack(Stack):
         route53.ARecord(
             self,
             "ApiAliasRecord",
-            record_name=f"api.{host}",
+            record_name=f"api.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
@@ -674,7 +651,7 @@ class TracecatEngineStack(Stack):
         route53.ARecord(
             self,
             "RunnerAliasRecord",
-            record_name=f"runner.{host}",
+            record_name=f"runner.{PREFIXED_AWS_ROUTE53__HOSTED_ZONE_NAME}",
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )

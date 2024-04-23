@@ -24,6 +24,8 @@ Tracecat's AWS deployment includes the following resources:
   <Step title="Create AWS secret">
     Go into AWS secrets manager and create a key-value pair type secret with the following sensitive data:
     ```
+    rabbitmq-default-pass = your_rabbitmq_password
+    rabbitmq-default-user = your_rabbitmq_user
     db-encryption-key     = your_fernet_key
     db-uri                = your_postgres_uri
     service-key           = ${ openssl rand -hex 32 }
