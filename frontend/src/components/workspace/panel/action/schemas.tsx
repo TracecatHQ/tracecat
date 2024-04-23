@@ -99,7 +99,7 @@ const LLMSummarizeTaskActionSchema = z.object({
 })
 
 const OpenCaseActionSchema = z.object({
-  title: z.string().min(1, { message: "Strings cannot be empty" }),
+  case_title: z.string().min(1, { message: "Strings cannot be empty" }),
   payload: stringToJSONSchema,
   malice: z.enum(["malicious", "benign"]),
   status: z.enum(["open", "closed", "in_progress", "reported", "escalated"]),
@@ -288,7 +288,7 @@ const actionFieldSchemas: Partial<AllActionFieldSchemas> = {
     },
   },
   open_case: {
-    title: { type: "input" },
+    case_title: { type: "input" },
     payload: {
       type: "json",
       placeholder:

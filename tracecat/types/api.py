@@ -230,7 +230,7 @@ class CaseParams(BaseModel):
     updated_at: str  # ISO 8601
     # Case related fields
     workflow_id: str
-    title: str
+    case_title: str
     payload: dict[str, Any]
     malice: Literal["malicious", "benign"]
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
