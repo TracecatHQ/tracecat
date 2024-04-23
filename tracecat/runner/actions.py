@@ -305,7 +305,7 @@ class SendEmailAction(Action):
 class OpenCaseAction(Action):
     type: Literal["open_case"] = Field("open_case", frozen=True)
 
-    title: str
+    case_title: str
     payload: dict[str, Any]
     malice: Literal["malicious", "benign"]
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
@@ -914,7 +914,7 @@ async def run_action(
 
     elif type == "open_case":
         processed_action_kwargs.update(
-            action_run_id=action_run_id, workflow_id=workflow_id, title=title
+            action_run_id=action_run_id, workflow_id=workflow_id
         )
 
     custom_logger.debug(f"{processed_action_kwargs = }")
