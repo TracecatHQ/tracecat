@@ -12,24 +12,34 @@ Tracecat supports deployment to AWS using infrastructure-as-code.
 You can find the AWS CDK stack in the `aws` [directory](https://github.com/TracecatHQ/tracecat/blob/main/aws/stack.py).
 
 Tracecat's AWS deployment includes the following resources:
-- 1 VPC
 - 2 ECS Fargate Services
 - 1 Application Load Balancer
 - 1 Elastic File System
-- Security groups
-- Log groups
+- Security Groups
+- Log Groups
+
+The following resources must be created before deploying the Tracecat CDK stack:
+- 1 VPC
+- 1 AmazonMQ Broker
+- 1 Private Subnet for the AmazonMQ Broker
+- 1 Security Group attached to the AmazonMQ Broker
+
+You can either do this manually in the AWS console or use the Tracecat managed CDK stack `aws/rabbitmq.py` (coming soon).
+
+Once the AmazonMQ service is up and running. Make sure to note the AmazonMQ URI and the security group ID:
+- The AmazonMQ URI is used to connect to the RabbitMQ broker and needs to be added to the AWS secret (see instructions below).
+- The security group ID is set as environment variable `RABBITMQ__SECURITY_GROUP_ID` (see instructions below) and is used to allow the ECS Fargate services to connect to the RabbitMQ broker.
 
 <Steps>
   <Step title="Create AWS secret">
     Go into AWS secrets manager and create a key-value pair type secret with the following sensitive data:
     ```
-    rabbitmq-default-pass = your_rabbitmq_password
-    rabbitmq-default-user = your_rabbitmq_user
     db-encryption-key     = your_fernet_key
     db-uri                = your_postgres_uri
     service-key           = ${ openssl rand -hex 32 }
     signing-secret        = ${ openssl rand -hex 32 }
     supabase-jwt-secret   = your_supabase_jwt_secret
+    rabbitmq-uri          = your_rabbitmq_uri
 
     # Optional
     openai-api-key=       = your-openai-api-key
@@ -55,6 +65,7 @@ Tracecat's AWS deployment includes the following resources:
     AWS_ACM__CERTIFICATE_ARN
     AWS_ACM__API_CERTIFICATE_ARN
     AWS_ACM__RUNNER_CERTIFICATE_ARN
+    RABBITMQ__SECURITY_GROUP_ID
     ```
     <Info>You can define `TRACECAT__APP_ENV` as `production`, `staging`, or `development`.</Info>
 
