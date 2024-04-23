@@ -50,7 +50,12 @@ export type IntegrationType = (typeof integrationTypes)[number]
 /**
  * All platforms that are supported by the system.
  */
-const integrationPlatforms = ["sublime_security", "datadog", "virustotal", "urlscan"] as const
+const integrationPlatforms = [
+  "sublime_security",
+  "datadog",
+  "virustotal",
+  "urlscan",
+] as const
 export type IntegrationPlatform = (typeof integrationPlatforms)[number]
 
 export type NodeType = ActionType | IntegrationType
@@ -170,7 +175,7 @@ export const caseSchema = z.object({
   updated_at: z.string(),
   // Case related data
   workflow_id: z.string(),
-  title: z.string(),
+  case_title: z.string(),
   payload: z.record(z.string()),
   malice: z.enum(caseMaliceTypes),
   status: z.enum(caseStatusTypes),
