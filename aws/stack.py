@@ -190,6 +190,16 @@ class TracecatEngineStack(Stack):
             connection=ec2.Port.tcp(8001),
             description="Allow traffic from API to Runner",
         )
+        api_security_group.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(5671),
+            description="Allow traffic from external RabbitMQ to API",
+        )
+        runner_security_group.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(5671),
+            description="Allow traffic from external RabbitMQ to Runner",
+        )
 
         # 4. Scheduler Security Group
         scheduler_security_group = ec2.SecurityGroup(
