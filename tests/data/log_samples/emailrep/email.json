@@ -1,0 +1,33 @@
+{
+  "email": "john@google.com",
+  "reputation": "high",
+  "suspicious": false,
+  "references": 83,
+  "details": {
+    "blacklisted": false,
+    "malicious_activity": false,
+    "malicious_activity_recent": false,
+    "credentials_leaked": true,
+    "credentials_leaked_recent": false,
+    "data_breach": true,
+    "first_seen": "07/01/2008",
+    "last_seen": "01/16/2024",
+    "domain_exists": true,
+    "domain_reputation": "high",
+    "new_domain": false,
+    "days_since_domain_creation": 9719,
+    "suspicious_tld": false,
+    "spam": false,
+    "free_provider": false,
+    "disposable": false,
+    "deliverable": true,
+    "accept_all": false,
+    "valid_mx": true,
+    "primary_mx": "smtp.google.com",
+    "spoofable": true,
+    "spf_strict": false,
+    "dmarc_enforced": false,
+    "profiles": ["linkedin"]
+  },
+  "summary": "Not suspicious. This email address has been seen in 83 reputable sources on the internet, including Linkedin. It has been seen in data breaches or credential leaks dating back to 07/01/2008, but not since 01/16/2024. The sender domain is highly reputable. We've observed no malicious or suspicious activity from this address. "
+}
