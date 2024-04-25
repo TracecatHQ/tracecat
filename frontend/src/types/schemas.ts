@@ -27,37 +27,39 @@ const actionTypes = [
 ] as const
 export type ActionType = (typeof actionTypes)[number]
 
+/** All platforms that are supported by the system. */
+const integrationPlatforms = [
+  "aws_cloudtrail",
+  "datadog",
+  "emailrep",
+  "urlscan",
+  "virustotal"
+] as const
+export type IntegrationPlatform = (typeof integrationPlatforms)[number]
+
 /**
  * Integration types are prefixed with the platform name.
  * This is to ensure that integrations from different platforms do not clash.
  *
  * Format: integrations.<platform>.<optional_namespaces>.<function>
  *
- * Not sure how to generate this dynamically - cuyrrently needs to be manually updated.
+ * Not sure how to generate this dynamically - currently needs to be manually updated.
  */
 const integrationTypes = [
+  "integrations.aws_cloudtrail.query_cloudtrail_logs",
+  "integrations.datadog.list_detection_rules",
   "integrations.datadog.list_security_signals",
   "integrations.datadog.update_security_signal_state",
-  "integrations.datadog.list_detection_rules",
+  "integrations.emailrep.check_email_reputation",
   "integrations.urlscan.analyze_url",
-  "integrations.virustotal.get_file_report",
-  "integrations.virustotal.get_url_report",
   "integrations.virustotal.get_domain_report",
+  "integrations.virustotal.get_file_report",
   "integrations.virustotal.get_ip_address_report",
+  "integrations.virustotal.get_url_report",
 ] as const
 export type IntegrationType = (typeof integrationTypes)[number]
 
-/**
- * All platforms that are supported by the system.
- */
-const integrationPlatforms = [
-  "sublime_security",
-  "datadog",
-  "virustotal",
-  "urlscan",
-] as const
-export type IntegrationPlatform = (typeof integrationPlatforms)[number]
-
+/** Workflow Schemas */
 export type NodeType = ActionType | IntegrationType
 
 const actionStatusSchema = z.enum(["online", "offline"])
