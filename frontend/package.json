@@ -20,6 +20,7 @@
   "dependencies": {
     "@blocknote/core": "^0.12.0",
     "@blocknote/react": "^0.12.0",
+    "@clerk/clerk-js": "^5.1.1",
     "@clerk/nextjs": "^5.0.1",
     "@hookform/resolvers": "^3.3.4",
     "@radix-ui/react-accordion": "^1.1.2",
