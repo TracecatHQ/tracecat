@@ -4,20 +4,17 @@ import React from "react"
 import { type Params } from "next/dist/shared/lib/router/utils/route-matcher"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
-import { Session } from "@supabase/supabase-js"
 
 import { cn } from "@/lib/utils"
 import WorkflowsNav from "@/components/nav/workflows-nav"
 
-interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {
-  session: Session | null
-}
-export default function DynamicNavbar({ session, ...props }: NavbarProps) {
+interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
+export default function DynamicNavbar(props: NavbarProps) {
   const pathname = usePathname()
   const params = useParams()
   const DynNav = getNavBar(pathname, params)
 
-  return <DynNav session={session} />
+  return <DynNav />
 }
 
 function getNavBar(pathname: string, params: Params) {

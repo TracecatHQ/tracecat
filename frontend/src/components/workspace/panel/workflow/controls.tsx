@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import * as React from "react"
-import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 
@@ -76,7 +75,6 @@ export function WorkflowControlsForm({
 }: {
   workflow: Workflow
 }): React.JSX.Element {
-  const session = useSession()
   const [confirmationIsOpen, setConfirmationIsOpen] = useState(false)
   const form = useForm<WorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
@@ -99,7 +97,7 @@ export function WorkflowControlsForm({
     }
 
     try {
-      triggerWorkflow(session, workflow.id, values.actionKey, values.payload)
+      triggerWorkflow(workflow.id, values.actionKey, values.payload)
       setConfirmationIsOpen(false)
       toast({
         title: "Workflow started",

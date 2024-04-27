@@ -6,7 +6,6 @@ import {
   CheckIcon,
   PlusCircledIcon,
 } from "@radix-ui/react-icons"
-import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 
 import { WorkflowMetadata } from "@/types/schemas"
@@ -34,35 +33,17 @@ import {
 
 type PopoverTriggerProps = React.ComponentPropsWithoutRef<typeof PopoverTrigger>
 
-interface WorkflowSwitcherProps extends PopoverTriggerProps {
-  session: Session | null
-}
+interface WorkflowSwitcherProps extends PopoverTriggerProps {}
 
-export default function WorkflowSwitcher({
-  session,
-  className,
-}: WorkflowSwitcherProps) {
+export default function WorkflowSwitcher({ className }: WorkflowSwitcherProps) {
   const [open, setOpen] = React.useState(false)
   const { workflow } = useWorkflowMetadata()
   const router = useRouter()
   const pathname = usePathname()
 
-  if (!session) {
-    console.error("Invalid session, redirecting to login")
-    router.push("/")
-    router.refresh()
-  }
-
   const { data: workflows } = useQuery<WorkflowMetadata[], Error>({
     queryKey: ["workflows"],
-    queryFn: async () => {
-      if (!session) {
-        console.error("Invalid session")
-        throw new Error("Invalid session")
-      }
-      const workflows = await fetchAllWorkflows(session)
-      return workflows
-    },
+    queryFn: fetchAllWorkflows,
   })
 
   return (

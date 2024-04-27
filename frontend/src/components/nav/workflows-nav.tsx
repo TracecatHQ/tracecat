@@ -4,7 +4,6 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { Session } from "@supabase/supabase-js"
 import { BellRingIcon, SquareTerminal, WorkflowIcon } from "lucide-react"
 
 import { Label } from "@/components/ui/label"
@@ -12,11 +11,9 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import WorkflowSwitcher from "@/components/nav/workflow-switcher"
 
-interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {
-  session: Session | null
-}
+interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-export default function WorkflowsNavbar({ session }: NavbarProps) {
+export default function WorkflowsNavbar(props: NavbarProps) {
   const { workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
   if (isLoading) {
@@ -25,7 +22,7 @@ export default function WorkflowsNavbar({ session }: NavbarProps) {
   return (
     workflowId && (
       <div className="flex w-full items-center space-x-8">
-        <WorkflowSwitcher session={session} />
+        <WorkflowSwitcher />
         <TabSwitcher workflowId={workflowId} />
         <div className="flex flex-1 items-center justify-end space-x-2">
           <Switch

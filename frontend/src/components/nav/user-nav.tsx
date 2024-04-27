@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useSessionContext } from "@/providers/session"
-import { User } from "@supabase/supabase-js"
+import { useRouter } from "next/navigation"
+import { useClerk, useUser } from "@clerk/nextjs"
 import { BookText, KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
 import { siteConfig } from "@/config/site"
@@ -21,15 +21,17 @@ import { Icons } from "@/components/icons"
 import UserAvatar from "@/components/user-avatar"
 
 export default function UserNav() {
-  const { session, signOut } = useSessionContext()
-  const user = session?.user as User | null
+  const { user } = useUser()
+  const { signOut } = useClerk()
+  const router = useRouter()
+  const handleSignOut = () => signOut(() => router.push("/"))
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
           <UserAvatar
-            src={user?.user_metadata?.avatar_url || userDefaults.avatarUrl}
-            alt={user?.user_metadata?.alt || userDefaults.alt}
+            src={user?.imageUrl}
+            alt={user?.fullName || userDefaults.alt}
           />
         </Button>
       </DropdownMenuTrigger>
@@ -37,10 +39,10 @@ export default function UserNav() {
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">
-              {user?.user_metadata.name ?? userDefaults.name}
+              {user?.firstName ?? userDefaults.name}
             </p>
             <p className="text-xs leading-none text-muted-foreground">
-              {user?.email ?? userDefaults.email}
+              {user?.primaryEmailAddress?.toString() ?? userDefaults.email}
             </p>
           </div>
         </DropdownMenuLabel>
@@ -62,7 +64,7 @@ export default function UserNav() {
               Settings
             </DropdownMenuItem>
           </Link>
-          <Link href="/settings" className="my-2 w-full">
+          <Link href="/settings/credentials" className="my-2 w-full">
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <KeyRound className="mr-2 h-4 w-4" />
               <span>Credentials</span>
@@ -76,7 +78,7 @@ export default function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-xs hover:cursor-pointer"
-          onClick={signOut}
+          onClick={handleSignOut}
         >
           <LogOut className="mr-2 h-4 w-4" />
           <span>Logout</span>

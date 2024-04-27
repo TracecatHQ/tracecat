@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
@@ -56,7 +55,6 @@ export function WorkflowForm({
     title: workflowTitle,
     description: workflowDescription,
   } = workflow
-  const session = useSession()
   const queryClient = useQueryClient()
   const form = useForm<WorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
@@ -68,9 +66,8 @@ export function WorkflowForm({
 
   function useUpdateWorkflow(workflowId: string) {
     const mutation = useMutation({
-      mutationFn: (values: WorkflowForm) =>
-        updateWorkflow(session, workflowId, values),
-      onSuccess: (data, variables, context) => {
+      mutationFn: (values: WorkflowForm) => updateWorkflow(workflowId, values),
+      onSuccess: (data) => {
         console.log("Workflow update successful", data)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
         toast({
@@ -78,7 +75,7 @@ export function WorkflowForm({
           description: "Workflow updated successfully.",
         })
       },
-      onError: (error, variables, context) => {
+      onError: (error) => {
         console.error("Failed to update workflow:", error)
         toast({
           title: "Error updating workflow",

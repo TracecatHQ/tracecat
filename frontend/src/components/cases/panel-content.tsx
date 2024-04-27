@@ -2,7 +2,6 @@
 
 import React from "react"
 import { useParams } from "next/navigation"
-import { useSession } from "@/providers/session"
 import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
@@ -44,16 +43,14 @@ interface CasePanelContentProps {
 }
 
 export function CasePanelContent({ caseId }: CasePanelContentProps) {
-  const session = useSession()
   const { workflowId } = useParams<{
     workflowId: string
   }>()
   const { caseData, caseIsLoading, caseError, mutateCaseAsync } = usePanelCase(
-    session,
     workflowId,
     caseId
   )
-  const { mutateCaseEventsAsync } = useCaseEvents(session, workflowId, caseId)
+  const { mutateCaseEventsAsync } = useCaseEvents(workflowId, caseId)
 
   if (caseIsLoading) {
     return <CenteredSpinner />

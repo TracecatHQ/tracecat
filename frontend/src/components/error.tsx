@@ -6,7 +6,6 @@ import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.share
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/utils/supabase/client"
 import { AxiosError } from "axios"
 import TracecatIcon from "public/icon.png"
 
@@ -52,8 +51,6 @@ function refineError(
         <Button
           variant="outline"
           onClick={async () => {
-            const supabase = createClient()
-            await supabase.auth.signOut()
             router.push("/")
             router.refresh()
           }}

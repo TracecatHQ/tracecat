@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import * as React from "react"
-import { useSession } from "@/providers/session"
 
 import "@radix-ui/react-dialog"
 
@@ -42,8 +41,6 @@ export function WorkflowRunsView({
   workflowId: string
   className?: string
 }) {
-  const session = useSession()
-
   const {
     data: workflowRuns,
     isLoading,
@@ -59,8 +56,7 @@ export function WorkflowRunsView({
       if (!workflowId) {
         throw new Error("No workflow ID provided")
       }
-      const data = await fetchWorkflowRuns(session, workflowId)
-      return data
+      return await fetchWorkflowRuns(workflowId)
     },
   })
   return (
@@ -108,14 +104,13 @@ function WorkflowRunItem({
   updated_at,
   ...props
 }: React.PropsWithoutRef<WorkflowRun> & React.HTMLAttributes<HTMLDivElement>) {
-  const session = useSession()
   const [open, setOpen] = useState(false)
   const [actionRuns, setActionRuns] = useState<ActionRun[]>([])
   const handleClick = () => setOpen(!open)
 
   useEffect(() => {
     if (open) {
-      fetchWorkflowRun(session, workflowId, workflowRunId).then((res) =>
+      fetchWorkflowRun(workflowId, workflowRunId).then((res) =>
         setActionRuns(res?.action_runs ?? [])
       )
     }

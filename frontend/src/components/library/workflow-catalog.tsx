@@ -1,16 +1,11 @@
 import React, { Suspense } from "react"
-import { type Session } from "@supabase/supabase-js"
 
 import { fetchLibraryWorkflows } from "@/lib/flow"
 import { Skeleton } from "@/components/ui/skeleton"
 import { LibraryTile } from "@/components/library/workflow-tile"
 
-interface WorkflowsDashboardProps extends React.HTMLAttributes<HTMLElement> {
-  session: Session
-}
-
-export async function Library({ session }: WorkflowsDashboardProps) {
-  const catalogItems = await fetchLibraryWorkflows(session)
+export async function Library() {
+  const catalogItems = await fetchLibraryWorkflows()
 
   return (
     <div className="h-full w-full overflow-auto">

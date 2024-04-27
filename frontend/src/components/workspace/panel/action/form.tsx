@@ -1,6 +1,5 @@
 import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleIcon, Save } from "lucide-react"
@@ -59,7 +58,6 @@ export function ActionForm({
 }) {
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
-  const session = useSession()
 
   // Set the schema for the action type
   const { fieldSchema, fieldConfig } = getSubActionSchema(actionType)
@@ -75,12 +73,12 @@ export function ActionForm({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [_, actionId, workflowId] = queryKey as [string, string, string]
-      return await getActionById(session, actionId, workflowId)
+      return await getActionById(actionId, workflowId)
     },
   })
 
   const { mutate } = useMutation({
-    mutationFn: (values: Schema) => updateAction(session, actionId, values),
+    mutationFn: (values: Schema) => updateAction(actionId, values),
     onSuccess: (data: Action) => {
       setNodes((nds: ActionNodeType[]) =>
         nds.map((node: ActionNodeType) => {

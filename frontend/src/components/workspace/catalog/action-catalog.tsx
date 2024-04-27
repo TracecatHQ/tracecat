@@ -2,7 +2,6 @@
 
 import { DragEvent, useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useSession } from "@/providers/session"
 
 import { ActionType } from "@/types/schemas"
 import { createAction } from "@/lib/flow"
@@ -24,13 +23,12 @@ interface ActionTilesProps {
 const ACTION_NODE_TAG = "action" as const
 
 export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
-  const session = useSession()
   const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
     useWorkflowBuilder()
   const handleTileClick = useCallback(
     async (type?: ActionType, title?: string) => {
       const selectedNode = getNode(selectedNodeId ?? "")
-      if (!type || !selectedNode || !workflowId || !session || !title) {
+      if (!type || !selectedNode || !workflowId || !title) {
         console.error("Missing required data to create action")
         return
       }
@@ -44,7 +42,6 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
         numberOfEvents: 0,
       }
       const actionId = await createAction(
-        session,
         newNodeData.type,
         newNodeData.title,
         workflowId

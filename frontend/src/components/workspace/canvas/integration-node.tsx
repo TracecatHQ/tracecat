@@ -1,6 +1,5 @@
 import React, { useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useSession } from "@/providers/session"
 import {
   BellDotIcon,
   ChevronDownIcon,
@@ -46,7 +45,6 @@ export default React.memo(function IntegrationNode({
   selected,
 }: NodeProps<IntegrationNodeData>) {
   const id = useNodeId()
-  const session = useSession()
   const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
   const [_, platform, name] = type.split(".")
@@ -87,7 +85,7 @@ export default React.memo(function IntegrationNode({
         description: "Failed to delete action node.",
       })
     }
-  }, [session, id, toast])
+  }, [id, toast])
 
   return (
     <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>

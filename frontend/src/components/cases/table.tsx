@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react"
 import CasePanelProvider, { useCasePanelContext } from "@/providers/case-panel"
 import { useCasesContext } from "@/providers/cases"
-import { useSession } from "@/providers/session"
 import { type Row } from "@tanstack/react-table"
 import { GitGraph, Loader2, Sparkles } from "lucide-react"
 
@@ -73,7 +72,6 @@ function InternalCaseTable() {
   } = useCasesContext()
   const { setPanelCase: setSidePanelCase, setIsOpen } = useCasePanelContext()
   const [isAutocompleting, setIsAutocompleting] = useState(false)
-  const session = useSession()
 
   const memoizedColumns = useMemo(() => columns, [columns])
 
@@ -87,7 +85,7 @@ function InternalCaseTable() {
     // 1. Set all 'null' values to a loading icon
     setIsAutocompleting(() => true)
 
-    const generator = streamGenerator("/completions/cases/stream", session, {
+    const generator = streamGenerator("/completions/cases/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
