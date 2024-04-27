@@ -1,4 +1,4 @@
-import { Metadata } from "next"
+import { type Metadata } from "next"
 import { cookies } from "next/headers"
 
 import { Workspace } from "@/components/workspace/workspace"
