@@ -273,7 +273,7 @@ def score_message(
 
 
 @registry.register(description="Restore trashed message given ID", secrets=["sublime"])
-def restore_trashed_message(
+def restore_message(
     message_id: str, wait_for_completion: bool = False, app_name: str | None = None
 ) -> str | dict[str, Any]:
     """Restores trashed message.
