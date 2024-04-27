@@ -1,23 +1,18 @@
 import React from "react"
-import { redirect } from "next/navigation"
-import { createClient } from "@/utils/supabase/server"
+import { type Metadata } from "next"
 
 import { Library } from "@/components/library/workflow-catalog"
 import Navbar from "@/components/nav/navbar"
 
+export const metadata: Metadata = {
+  title: "Library",
+  description: "Pre-built workflows and templates ready to deploy.",
+}
 export default async function Page() {
-  const supabase = createClient()
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  if (!session) {
-    redirect("/")
-  }
   return (
     <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-      <Navbar session={session} />
-      <Library session={session} />
+      <Navbar />
+      <Library />
     </div>
   )
 }

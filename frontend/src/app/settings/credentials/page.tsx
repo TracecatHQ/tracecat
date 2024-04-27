@@ -1,6 +1,5 @@
 "use client"
 
-import { useSession } from "@/providers/session"
 import { Label } from "@radix-ui/react-label"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PlusCircle, Trash2Icon } from "lucide-react"
@@ -37,7 +36,6 @@ import { AlertNotification } from "@/components/notifications"
 import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 export default function CredentialsPage() {
-  const session = useSession()
   const queryClient = useQueryClient()
   const {
     data: secrets,
@@ -45,7 +43,7 @@ export default function CredentialsPage() {
     error,
   } = useQuery<Secret[], Error>({
     queryKey: ["secrets"],
-    queryFn: async () => await fetchAllSecrets(session),
+    queryFn: async () => await fetchAllSecrets(),
   })
   const { mutate } = useMutation({
     mutationFn: async (secret: Secret) => {
@@ -55,16 +53,16 @@ export default function CredentialsPage() {
         console.error("No secret provided to delete")
         return
       }
-      await deleteSecret(session, secret?.id) // Fix for Problem 2: Await the deleteSecret function
+      await deleteSecret(secret?.id) // Fix for Problem 2: Await the deleteSecret function
     },
-    onSuccess: (data, variables, context) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["secrets"] })
       toast({
         title: "Deleted secret",
         description: "Secret deleted successfully.",
       })
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       console.error("Failed to delete credentials", error)
       toast({
         title: "Failed to delete secret",
