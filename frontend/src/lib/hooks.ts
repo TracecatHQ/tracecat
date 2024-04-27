@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { Session } from "@supabase/supabase-js"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { z } from "zod"
 
@@ -40,10 +39,7 @@ export function useLocalStorage<T>(
   return [value, setValue]
 }
 
-export function useIntegrationFormSchema(
-  session: Session | null,
-  integrationKey: IntegrationType
-): {
+export function useIntegrationFormSchema(integrationKey: IntegrationType): {
   isLoading: boolean
   fieldSchema: z.ZodObject<Record<string, any>>
   fieldConfig: ActionFieldConfig
@@ -53,7 +49,7 @@ export function useIntegrationFormSchema(
     queryKey: ["integration_field_config", integrationKey],
     queryFn: async ({ queryKey }) => {
       const [_, integrationKey] = queryKey as [string, IntegrationType]
-      return await fetchIntegration(session, integrationKey)
+      return await fetchIntegration(integrationKey)
     },
   })
   // Parse the schema and config
@@ -69,19 +65,14 @@ export function useIntegrationFormSchema(
   return { fieldSchema, fieldConfig, isLoading, integrationSpec }
 }
 
-export function usePanelCase(
-  session: Session | null,
-  workflowId: string,
-  caseId: string
-) {
+export function usePanelCase(workflowId: string, caseId: string) {
   const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery<Case, Error>({
     queryKey: ["case", caseId],
-    queryFn: async () => await fetchCase(session, workflowId, caseId),
+    queryFn: async () => await fetchCase(workflowId, caseId),
   })
   const { mutateAsync } = useMutation({
-    mutationFn: (newCase: Case) =>
-      updateCase(session, workflowId, caseId, newCase),
+    mutationFn: (newCase: Case) => updateCase(workflowId, caseId, newCase),
     onSuccess: () => {
       toast({
         title: "Updated case",
@@ -111,20 +102,19 @@ export function usePanelCase(
   }
 }
 
-export function useCaseEvents(
-  session: Session | null,
-  workflowId: string,
-  caseId: string
-) {
+export function useCaseEvents(workflowId: string, caseId: string) {
   const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery<CaseEvent[], Error>({
     queryKey: ["caseEvents", caseId],
-    queryFn: async () => await fetchCaseEvents(session, workflowId, caseId),
+    queryFn: async () => {
+      return await fetchCaseEvents(workflowId, caseId)
+    },
   })
 
   const { mutateAsync } = useMutation({
-    mutationFn: async (newEvent: CaseEventParams) =>
-      await createCaseEvent(session, workflowId, caseId, newEvent),
+    mutationFn: async (newEvent: CaseEventParams) => {
+      await createCaseEvent(workflowId, caseId, newEvent)
+    },
     onSuccess: () => {
       console.log("Case event created")
       toast({

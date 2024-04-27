@@ -1,4 +1,3 @@
-import { Session } from "@supabase/supabase-js"
 import { ReactFlowInstance } from "reactflow"
 import { z } from "zod"
 
@@ -15,11 +14,10 @@ import {
   type Workflow,
   type WorkflowMetadata,
 } from "@/types/schemas"
-import { getAuthenticatedClient } from "@/lib/api"
+import { client } from "@/lib/api"
 import type { BaseActionForm } from "@/components/workspace/panel/action/schemas"
 
 export async function updateDndFlow(
-  maybeSession: Session | null,
   workflowId: string,
   reactFlowInstance: ReactFlowInstance | null
 ) {
@@ -30,7 +28,7 @@ export async function updateDndFlow(
     const updateFlowObjectParams = JSON.stringify({
       object: JSON.stringify(objectContent),
     })
-    const client = getAuthenticatedClient(maybeSession)
+
     await client.post(`/workflows/${workflowId}`, updateFlowObjectParams, {
       headers: {
         "Content-Type": "application/json",
@@ -42,12 +40,8 @@ export async function updateDndFlow(
   }
 }
 
-export async function fetchWorkflow(
-  maybeSession: Session | null,
-  workflowId: string
-): Promise<Workflow> {
+export async function fetchWorkflow(workflowId: string): Promise<Workflow> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<Workflow>(`/workflows/${workflowId}`)
     return workflowSchema.parse(response.data)
   } catch (error) {
@@ -57,11 +51,9 @@ export async function fetchWorkflow(
 }
 
 export async function createWorkflow(
-  maybeSession: Session | null,
   title: string,
   description: string = ""
 ): Promise<WorkflowMetadata> {
-  const client = getAuthenticatedClient(maybeSession)
   const response = await client.post<WorkflowMetadata>(
     "/workflows",
     JSON.stringify({
@@ -77,11 +69,8 @@ export async function createWorkflow(
   return workflowMetadataSchema.parse(response.data)
 }
 
-export async function fetchAllWorkflows(
-  maybeSession: Session | null
-): Promise<WorkflowMetadata[]> {
+export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<WorkflowMetadata[]>("/workflows")
     let workflows = response.data
 
@@ -92,22 +81,13 @@ export async function fetchAllWorkflows(
   }
 }
 
-export async function updateWorkflow(
-  maybeSession: Session | null,
-  workflowId: string,
-  values: Object
-) {
-  const client = getAuthenticatedClient(maybeSession)
+export async function updateWorkflow(workflowId: string, values: Object) {
   const response = await client.post(`/workflows/${workflowId}`, values)
   return response.data
 }
 
-export async function deleteWorkflow(
-  maybeSession: Session | null,
-  workflowId: string
-): Promise<void> {
+export async function deleteWorkflow(workflowId: string): Promise<void> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     await client.delete(`/workflows/${workflowId}`)
     console.log(`Workflow with ID ${workflowId} deleted successfully.`)
   } catch (error) {
@@ -116,12 +96,10 @@ export async function deleteWorkflow(
 }
 
 export async function getActionById(
-  maybeSession: Session | null,
   actionId: string,
   workflowId: string
 ): Promise<Action> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<Action>(`/actions/${actionId}`, {
       params: { workflow_id: workflowId },
     })
@@ -135,7 +113,6 @@ export async function getActionById(
 type ActionProps = (BaseActionForm & Record<string, any>) | Record<string, any>
 // Form submission
 export async function updateAction(
-  maybeSession: Session | null,
   actionId: string,
   actionProps: ActionProps
 ): Promise<Action> {
@@ -147,7 +124,6 @@ export async function updateAction(
     inputs: inputsJson,
   }
 
-  const client = getAuthenticatedClient(maybeSession)
   const response = await client.post<Action>(
     `/actions/${actionId}`,
     JSON.stringify(updateActionParams),
@@ -160,12 +136,8 @@ export async function updateAction(
   return actionSchema.parse(response.data)
 }
 
-export async function deleteAction(
-  maybeSession: Session | null,
-  actionId: string
-): Promise<void> {
+export async function deleteAction(actionId: string): Promise<void> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     await client.delete(`/actions/${actionId}`)
     console.log(`Action with ID ${actionId} deleted successfully.`)
   } catch (error) {
@@ -174,7 +146,6 @@ export async function deleteAction(
 }
 
 export async function createAction(
-  maybeSession: Session | null,
   type: NodeType,
   title: string,
   workflowId: string
@@ -185,7 +156,7 @@ export async function createAction(
       type: type,
       title: title,
     })
-    const client = getAuthenticatedClient(maybeSession)
+
     const response = await client.post<ActionMetadata>(
       "/actions",
       createActionMetadata,
@@ -205,13 +176,11 @@ export async function createAction(
 }
 
 export async function triggerWorkflow(
-  maybeSession: Session | null,
   workflowId: string,
   actionKey: string,
   payload: Record<string, any>
 ) {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.post(
       `/workflows/${workflowId}/trigger`,
       JSON.stringify({
@@ -234,11 +203,9 @@ export async function triggerWorkflow(
 }
 
 export async function fetchWorkflowRuns(
-  maybeSession: Session | null,
   workflowId: string
 ): Promise<WorkflowRun[]> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<WorkflowRun[]>(
       `/workflows/${workflowId}/runs`
     )
@@ -250,12 +217,10 @@ export async function fetchWorkflowRuns(
 }
 
 export async function fetchWorkflowRun(
-  maybeSession: Session | null,
   workflowId: string,
   workflowRunId: string
 ): Promise<WorkflowRun> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get<WorkflowRun>(
       `/workflows/${workflowId}/runs/${workflowRunId}`
     )
@@ -270,16 +235,12 @@ export async function fetchWorkflowRun(
  *
  * To add a workflow from the library,
  *
- * @param maybeSession
+ * @param maybeToken
  * @param workflowId
  * @returns
  */
-export async function addLibraryWorkflow(
-  maybeSession: Session | null,
-  workflowId: string
-) {
+export async function addLibraryWorkflow(workflowId: string) {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.post(`/workflows/${workflowId}/copy`)
     return response.data
   } catch (error) {
@@ -292,16 +253,12 @@ export async function addLibraryWorkflow(
  *
  * View all library workflows,
  *
- * @param maybeSession
+ * @param maybeToken
  * @returns
  */
-export async function fetchLibraryWorkflows(
-  maybeSession: Session | null
-): Promise<WorkflowMetadata[]> {
+export async function fetchLibraryWorkflows(): Promise<WorkflowMetadata[]> {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const response = await client.get("/workflows?library=true")
-    console.log("response", response)
     return response.data
   } catch (error) {
     console.error("Error adding integration:", error)

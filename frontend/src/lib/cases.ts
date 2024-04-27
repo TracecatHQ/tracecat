@@ -1,4 +1,3 @@
-import { Session } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import {
@@ -7,14 +6,10 @@ import {
   caseSchema,
   type Case,
 } from "@/types/schemas"
-import { getAuthenticatedClient } from "@/lib/api"
+import { client } from "@/lib/api"
 
-export async function getCases(
-  session: Session | null,
-  workflowId: string
-): Promise<Case[]> {
+export async function getCases(workflowId: string): Promise<Case[]> {
   try {
-    const client = getAuthenticatedClient(session)
     const response = await client.get<Case[]>(`/workflows/${workflowId}/cases`)
     return z.array(caseSchema).parse(response.data)
   } catch (error) {
@@ -26,19 +21,17 @@ export async function getCases(
 /**
  * Use this for autocomplete
  *
- * @param session
  * @param workflowId
  * @param cases
  */
 export async function updateCases(
-  session: Session | null,
   workflowId: string, // They should all have the same workflow ID
   cases: Case[]
 ) {
   try {
     z.array(caseSchema).parse(cases)
     console.log("Updating cases", cases)
-    const client = getAuthenticatedClient(session)
+
     const responses = await Promise.all(
       cases.map((c) => client.post(`/workflows/${workflowId}/cases/${c.id}`, c))
     )
@@ -54,12 +47,10 @@ export async function updateCases(
 }
 
 export async function fetchCase(
-  session: Session | null,
   workflowId: string,
   caseId: string
 ): Promise<Case> {
   try {
-    const client = getAuthenticatedClient(session)
     const response = await client.get<Case>(
       `/workflows/${workflowId}/cases/${caseId}`
     )
@@ -71,13 +62,11 @@ export async function fetchCase(
 }
 
 export async function updateCase(
-  session: Session | null,
   workflowId: string,
   caseId: string,
   case_: Case
 ) {
   try {
-    const client = getAuthenticatedClient(session)
     const response = await client.post(
       `/workflows/${workflowId}/cases/${caseId}`,
       case_
@@ -92,12 +81,10 @@ export async function updateCase(
 }
 
 export async function fetchCaseEvents(
-  session: Session | null,
   workflowId: string,
   caseId: string
 ): Promise<CaseEvent[]> {
   try {
-    const client = getAuthenticatedClient(session)
     const response = await client.get<CaseEvent[]>(
       `/workflows/${workflowId}/cases/${caseId}/events`
     )
@@ -113,13 +100,11 @@ export type CaseEventParams = Omit<
   "id" | "created_at" | "workflow_id" | "case_id" | "initiator_role"
 >
 export async function createCaseEvent(
-  session: Session | null,
   workflowId: string,
   caseId: string,
   payload: CaseEventParams
 ) {
   try {
-    const client = getAuthenticatedClient(session)
     const response = await client.post(
       `/workflows/${workflowId}/cases/${caseId}/events`,
       payload

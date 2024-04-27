@@ -1,15 +1,10 @@
-import { Session } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import { Secret, secretSchema } from "@/types/schemas"
-import { getAuthenticatedClient } from "@/lib/api"
+import { client } from "@/lib/api"
 
-export async function createSecret(
-  maybeSession: Session | null,
-  secret: Secret
-) {
+export async function createSecret(secret: Secret) {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     await client.put("/secrets", JSON.stringify(secret), {
       headers: {
         "Content-Type": "application/json",
@@ -20,9 +15,8 @@ export async function createSecret(
   }
 }
 
-export async function fetchAllSecrets(maybeSession: Session | null) {
+export async function fetchAllSecrets() {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     const repsonse = await client.get<Secret[]>("/secrets")
     return z.array(secretSchema).parse(repsonse.data)
   } catch (error) {
@@ -31,12 +25,8 @@ export async function fetchAllSecrets(maybeSession: Session | null) {
   }
 }
 
-export async function deleteSecret(
-  maybeSession: Session | null,
-  secretId: string
-) {
+export async function deleteSecret(secretId: string) {
   try {
-    const client = getAuthenticatedClient(maybeSession)
     await client.delete(`/secrets/${secretId}`)
   } catch (error) {
     console.error("Failed to delete secret", error)
