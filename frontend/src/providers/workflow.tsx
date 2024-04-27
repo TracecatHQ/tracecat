@@ -9,7 +9,6 @@ import React, {
   useState,
 } from "react"
 import { useParams } from "next/navigation"
-import { Session } from "@supabase/supabase-js"
 import { useQuery } from "@tanstack/react-query"
 
 import { Workflow } from "@/types/schemas"
@@ -29,10 +28,9 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(
 )
 
 interface WorkflowProviderProps {
-  session: Session | null
   children: ReactNode
 }
-export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
+export function WorkflowProvider({ children }: WorkflowProviderProps) {
   const { workflowId } = useParams<{ workflowId: string }>()
 
   const {
@@ -46,8 +44,7 @@ export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
       if (!workflowId) {
         throw new Error("No workflow ID provided")
       }
-      const data = await fetchWorkflow(session, workflowId)
-      return data
+      return await fetchWorkflow(workflowId)
     },
   })
   const [isOnlineVisual, setIsOnlineVisual] = useState<boolean>(
@@ -61,12 +58,12 @@ export function WorkflowProvider({ session, children }: WorkflowProviderProps) {
 
   const setIsOnline = useCallback(
     (isOnline: boolean) => {
-      updateWorkflow(session, workflowId, {
+      updateWorkflow(workflowId, {
         status: isOnline ? "online" : "offline",
       })
       setIsOnlineVisual(isOnline)
     },
-    [session, workflowId]
+    [workflowId]
   )
   return (
     <WorkflowContext.Provider
