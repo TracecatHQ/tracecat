@@ -5,6 +5,7 @@ from tracecat.integrations import (
     aws_cloudtrail,
     datadog,
     emailrep,
+    sublime,
     urlscan,
     virustotal,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "aws_cloudtrail",
     "datadog",
     "emailrep",
+    "sublime",
     "urlscan",
     "virustotal",
 ]
