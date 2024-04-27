@@ -1,31 +1,55 @@
 import { redirect } from "next/navigation"
-import { type Session } from "@supabase/supabase-js"
-import axios from "axios"
+import { Clerk } from "@clerk/clerk-js"
+import { auth } from "@clerk/nextjs/server"
+import axios, { type InternalAxiosRequestConfig } from "axios"
+
+import { isServer } from "@/lib/utils"
 
 // Determine the base URL based on the execution environment
 let baseURL = process.env.NEXT_PUBLIC_API_URL
+export const IS_AUTH_DISABLED: boolean = ["1", "true"].includes(
+  process.env.DISABLE_AUTH || "false"
+)
 
 // Use different base url for server-side
-if (process.env.NODE_ENV === "development" && typeof window === "undefined") {
+if (process.env.NODE_ENV === "development" && isServer()) {
   baseURL = "http://host.docker.internal:8000"
 }
 
-const client = axios.create({
+export const client = axios.create({
   baseURL,
 })
+const __clerk = new Clerk(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!)
 
-export type Client = typeof client
-
-export const getAuthenticatedClient = (session: Session | null) => {
-  if (!session) {
-    console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/")
+export async function getAuthToken() {
+  if (isServer()) {
+    return await auth().getToken()
   }
 
-  client.defaults.headers.common["Authorization"] =
-    `Bearer ${session.access_token}`
-  return client
+  await __clerk.load()
+  return await __clerk.session?.getToken()
 }
+
+if (IS_AUTH_DISABLED) {
+  console.log(
+    "Running with `DISABLE_AUTH` enabled, Axios client will not use authenticated interceptor."
+  )
+} else {
+  console.log("Configuring Axios client with authenticated interceptor")
+  client.interceptors.request.use(
+    async (config: InternalAxiosRequestConfig) => {
+      const token = await getAuthToken()
+      if (!token) {
+        console.error("Failed to get token, redirecting to login")
+        return redirect("/")
+      }
+      config.headers["Authorization"] = `Bearer ${token}`
+      return config
+    }
+  )
+}
+
+export type Client = typeof client
 
 export async function streamingResponse(endpoint: string, init?: RequestInit) {
   return fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, init)
@@ -36,30 +60,20 @@ export async function streamingResponse(endpoint: string, init?: RequestInit) {
  * We're using this over EventSource because we need authentication
  *
  * @param endpoint
- * @param session
+ * @param token
  * @param init
  * @param delimiter
  * @returns
  */
 export async function* streamGenerator(
   endpoint: string,
-  session: Session | null,
   init?: RequestInit,
   delimiter: string = "\n"
 ) {
-  if (!session) {
-    console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/")
-  }
-  const { headers, ...rest } = init ?? {}
-  const response = await fetch(
+  const response = await authFetch(
     `${process.env.NEXT_PUBLIC_API_URL}${endpoint}`,
     {
-      ...rest,
-      headers: {
-        ...headers, // Merge the headers from init object
-        Authorization: `Bearer ${session?.access_token}`,
-      },
+      ...init,
       signal: new AbortController().signal,
     }
   )
@@ -95,4 +109,21 @@ export async function* streamGenerator(
   } finally {
     reader.releaseLock()
   }
+}
+
+export async function authFetch(input: RequestInfo, init?: RequestInit) {
+  const token = await getAuthToken()
+  if (!token) {
+    console.error("Failed to get authenticated client, redirecting to login")
+    return redirect("/")
+  }
+  const { headers, ...rest } = init ?? {}
+  const enhancedInit = {
+    ...rest,
+    headers: {
+      ...headers,
+      Authorization: `Bearer ${token}`,
+    },
+  }
+  return await fetch(input, enhancedInit)
 }
