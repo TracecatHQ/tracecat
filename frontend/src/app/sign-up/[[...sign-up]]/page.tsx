@@ -9,7 +9,7 @@ export default function Page() {
         forceRedirectUrl="/workflows"
         appearance={{
           elements: {
-            logoBox: "w-full flex size-12 justify-center",
+            logoBox: "w-full flex size-16 justify-center",
           },
         }}
       />
