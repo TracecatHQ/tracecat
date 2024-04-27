@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from functools import partial
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -13,7 +14,7 @@ from fastapi.security import (
     APIKeyHeader,
     OAuth2PasswordBearer,
 )
-from jose import ExpiredSignatureError, JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwk, jwt
 from pydantic import BaseModel
 
 import tracecat.config as cfg
@@ -180,19 +181,51 @@ async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
     return record
 
 
+async def get_clerk_public_key(kid: str) -> dict[str, Any] | None:
+    """Get the public key from the JWKS endpoint using the JWT kid claim."""
+    async with httpx.AsyncClient() as client:
+        jwks_uri = os.environ["CLERK_FRONTEND_API_URL"] + "/.well-known/jwks.json"
+        response = await client.get(jwks_uri)
+        jwks = response.json()
+    public_keys = {
+        key["kid"]: jwk.construct(key) for key in jwks["keys"] if key["kid"] == kid
+    }
+    return public_keys.get(kid)
+
+
+HTTP_EXC = partial(
+    lambda msg: HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=msg or "Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+)
+
+
 async def _get_role_from_jwt(token: str | bytes) -> Role:
     try:
+        match jwt.get_unverified_headers(token):
+            case {
+                "alg": alg,
+                "kid": kid,
+                "typ": "JWT",
+            }:
+                clerk_public_key = await get_clerk_public_key(kid=kid)
+            case _:
+                raise HTTP_EXC("Invalid JWT headers")
+        if clerk_public_key is None:
+            raise HTTP_EXC("Could not get public key")
         payload = jwt.decode(
             token,
-            key=os.environ["SUPABASE_JWT_SECRET"],
-            algorithms=os.environ["SUPABASE_JWT_ALGORITHM"],
+            key=clerk_public_key,
+            algorithms=alg,
+            issuer=os.environ["CLERK_FRONTEND_API_URL"],
             # NOTE: Workaround, not sure if there are alternatives
             options={"verify_aud": False},
         )
         user_id: str = payload.get("sub")
         if user_id is None:
-            logger.error("No sub claim in JWT")
-            raise CREDENTIALS_EXCEPTION
+            raise HTTP_EXC("No sub claim in JWT")
     except ExpiredSignatureError as e:
         logger.error(f"ExpiredSignatureError: {e}")
         raise HTTPException(
@@ -205,13 +238,18 @@ async def _get_role_from_jwt(token: str | bytes) -> Role:
             },
         ) from e
     except JWTError as e:
-        logger.error(f"JWT Error {e}")
-        raise CREDENTIALS_EXCEPTION from e
+        msg = f"JWT Error {e}"
+        logger.error(msg)
+        raise HTTP_EXC(msg) from e
+    except Exception as e:
+        msg = f"Error {e}"
+        logger.error(msg)
+        raise HTTP_EXC(msg) from e
 
     # Validate this against supabase
-    if await _validate_user_exists_in_db(user_id) is None:
-        logger.error("User not authenticated")
-        raise CREDENTIALS_EXCEPTION
+    # if await _validate_user_exists_in_db(user_id) is None:
+    #     logger.error("User not authenticated")
+    #     raise CREDENTIALS_EXCEPTION
     role = Role(type="user", user_id=user_id)
     ctx_session_role.set(role)
     return role
@@ -271,4 +309,4 @@ async def authenticate_user_or_service(
         return await _get_role_from_jwt(token)
     if api_key:
         return await _get_role_from_service_key(request, api_key)
-    raise CREDENTIALS_EXCEPTION
+    raise HTTP_EXC("Could not validate credentials")
