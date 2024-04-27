@@ -1,12 +1,11 @@
-import { Metadata } from "next"
+import { type Metadata } from "next"
 import { EventFeedProvider } from "@/providers/event-feed-stream"
 import { WorkflowProvider } from "@/providers/workflow"
-import { createClient } from "@/utils/supabase/server"
 
 import Navbar from "@/components/nav/navbar"
 
 export const metadata: Metadata = {
-  title: "Workflows | Tracecat",
+  title: "Workflows",
 }
 
 export default async function WorkflowsLayout({
@@ -14,16 +13,11 @@ export default async function WorkflowsLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = createClient()
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
   return (
-    <WorkflowProvider session={session}>
+    <WorkflowProvider>
       <EventFeedProvider>
         <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-          <Navbar session={session} />
+          <Navbar />
           {children}
         </div>
       </EventFeedProvider>

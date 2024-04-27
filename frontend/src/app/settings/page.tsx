@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
 
 export default function SettingsProfilePage() {
-  return redirect("/settings/credentials")
+  return redirect("/settings/account")
 }

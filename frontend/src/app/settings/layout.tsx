@@ -1,17 +1,22 @@
-import { Metadata } from "next"
-import { createClient } from "@/utils/supabase/server"
+import { Suspense } from "react"
+import { type Metadata } from "next"
 
 import { Separator } from "@/components/ui/separator"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import Navbar from "@/components/nav/navbar"
 
 import { SidebarNav } from "./sidebar-nav"
 
 export const metadata: Metadata = {
-  title: "Forms",
-  description: "Advanced form example using react-hook-form and Zod.",
+  title: "Settings",
+  description: "Tracecat Settings",
 }
 
 const sidebarNavItems = [
+  {
+    title: "Account",
+    href: "/settings/account",
+  },
   {
     title: "Credentials",
     href: "/settings/credentials",
@@ -25,13 +30,9 @@ interface SettingsLayoutProps {
 export default async function SettingsLayout({
   children,
 }: SettingsLayoutProps) {
-  const supabase = createClient()
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
   return (
     <div className="no-scrollbar h-screen max-h-screen overflow-auto">
-      <Navbar session={session} />
+      <Navbar />
       <div className="container space-y-6 p-10 pb-16 pt-16 md:block">
         <div className="space-y-0.5">
           <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
@@ -44,7 +45,9 @@ export default async function SettingsLayout({
           <aside className="-mx-4 lg:w-1/5">
             <SidebarNav items={sidebarNavItems} />
           </aside>
-          <div className="w-full flex-1">{children}</div>
+          <div className="w-full flex-1">
+            <Suspense fallback={<CenteredSpinner />}>{children}</Suspense>
+          </div>
         </div>
       </div>
     </div>
