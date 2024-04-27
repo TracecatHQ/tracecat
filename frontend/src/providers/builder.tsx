@@ -8,7 +8,6 @@ import React, {
   useContext,
   useState,
 } from "react"
-import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import {
   Edge,
@@ -41,7 +40,6 @@ interface ReactFlowInteractionsProviderProps {
 export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
-  const maybeSession = useSession()
   const reactFlowInstance = useReactFlow()
   const { workflowId, error } = useWorkflowMetadata()
 
@@ -55,16 +53,16 @@ export const WorkflowBuilderProvider: React.FC<
       nodes: ActionNodeType[] | ((nodes: ActionNodeType[]) => ActionNodeType[])
     ) => {
       reactFlowInstance.setNodes(nodes)
-      updateDndFlow(maybeSession, workflowId, reactFlowInstance)
+      updateDndFlow(workflowId, reactFlowInstance)
     },
-    [maybeSession, workflowId, reactFlowInstance]
+    [workflowId, reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
     (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
       reactFlowInstance.setEdges(edges)
-      updateDndFlow(maybeSession, workflowId, reactFlowInstance)
+      updateDndFlow(workflowId, reactFlowInstance)
     },
-    [maybeSession, workflowId, reactFlowInstance]
+    [workflowId, reactFlowInstance]
   )
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {

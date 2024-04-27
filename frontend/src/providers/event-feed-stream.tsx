@@ -9,7 +9,6 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import { useSession } from "@/providers/session"
 import { useWorkflowMetadata } from "@/providers/workflow"
 
 import { streamGenerator } from "@/lib/api"
@@ -41,7 +40,6 @@ interface EventFeedProviderProps {
 export const EventFeedProvider: React.FC<EventFeedProviderProps> = ({
   children,
 }) => {
-  const session = useSession()
   const { workflowId } = useWorkflowMetadata()
   const [events, setEvents] = useState<GenericConsoleEvent[] | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
@@ -59,7 +57,7 @@ export const EventFeedProvider: React.FC<EventFeedProviderProps> = ({
       console.log(`Start streaming for workflow ${workflowId}`)
       setIsStreaming(() => true)
 
-      const generator = streamGenerator("/events/subscribe", session, {
+      const generator = streamGenerator("/events/subscribe", {
         method: "GET",
       })
 
@@ -86,7 +84,7 @@ export const EventFeedProvider: React.FC<EventFeedProviderProps> = ({
       stopSignal = true
       setEvents(() => null)
       setIsStreaming(() => false)
-      console.log("Cleaned up", workflowId)
+      console.log("Cleaned up event feed stream for workflow: ", workflowId)
     }
   }, [workflowId])
 

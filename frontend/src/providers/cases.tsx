@@ -8,14 +8,12 @@ import React, {
   useEffect,
   useState,
 } from "react"
+import { useWorkflowMetadata } from "@/providers/workflow"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type Case } from "@/types/schemas"
 import { getCases, updateCases } from "@/lib/cases"
 import { toast } from "@/components/ui/use-toast"
-
-import { useSession } from "./session"
-import { useWorkflowMetadata } from "./workflow"
 
 interface CasesContextType {
   cases: Case[]
@@ -32,7 +30,6 @@ const CasesContext = createContext<CasesContextType | undefined>(undefined)
 export default function CasesProvider({
   children,
 }: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
-  const session = useSession()
   const [cases, setCases] = useState<Case[]>([])
   const { workflowId } = useWorkflowMetadata()
   const [isCommitable, setIsCommitable] = useState(false)
@@ -44,15 +41,12 @@ export default function CasesProvider({
   }
   const { data, isLoading } = useQuery<Case[], Error>({
     queryKey: ["cases"],
-    queryFn: async () => {
-      const cases = await getCases(session, workflowId)
-      return cases
-    },
+    queryFn: async () => await getCases(workflowId),
   })
 
   const { mutateAsync } = useMutation({
-    mutationFn: () => updateCases(session, workflowId, cases),
-    onSuccess: (data, variables, context) => {
+    mutationFn: () => updateCases(workflowId, cases),
+    onSuccess: () => {
       toast({
         title: "Updated cases",
         description: "successfully committed changes.",
@@ -60,7 +54,7 @@ export default function CasesProvider({
       queryClient.invalidateQueries({ queryKey: ["cases"] })
       setIsCommitable(false)
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       console.error("Failed to update cases:", error)
       toast({
         title: "Failed to update cases",
