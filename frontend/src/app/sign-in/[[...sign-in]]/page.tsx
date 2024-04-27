@@ -7,6 +7,11 @@ export default function Page() {
         path="/sign-in"
         signUpUrl="/sign-up"
         forceRedirectUrl="/workflows"
+        appearance={{
+          elements: {
+            logoBox: "w-full flex size-12 justify-center",
+          },
+        }}
       />
     </div>
   )
