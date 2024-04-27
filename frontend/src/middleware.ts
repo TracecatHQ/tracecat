@@ -6,6 +6,8 @@ import {
 } from "@clerk/nextjs/server"
 import { get } from "@vercel/edge-config"
 
+import { authConfig } from "@/config/auth"
+
 const isProtectedRoute = createRouteMatcher([
   "/workflows(.*)",
   "/settings(.*)",
@@ -14,6 +16,10 @@ const isProtectedRoute = createRouteMatcher([
 ])
 export default clerkMiddleware(
   async (auth: ClerkMiddlewareAuth, req: NextRequest) => {
+    if (authConfig.disabled) {
+      console.warn("Auth disabled, skipping authentication middleware")
+      return NextResponse.next()
+    }
     // ** Site down **
     if (
       process.env.NEXT_PUBLIC_APP_ENV === "production" &&

@@ -3,13 +3,11 @@ import { Clerk } from "@clerk/clerk-js"
 import { auth } from "@clerk/nextjs/server"
 import axios, { type InternalAxiosRequestConfig } from "axios"
 
+import { authConfig } from "@/config/auth"
 import { isServer } from "@/lib/utils"
 
 // Determine the base URL based on the execution environment
 let baseURL = process.env.NEXT_PUBLIC_API_URL
-export const IS_AUTH_DISABLED: boolean = ["1", "true"].includes(
-  process.env.DISABLE_AUTH || "false"
-)
 
 // Use different base url for server-side
 if (process.env.NODE_ENV === "development" && isServer()) {
@@ -21,35 +19,51 @@ export const client = axios.create({
 })
 const __clerk = new Clerk(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!)
 
-export async function getAuthToken() {
-  if (isServer()) {
-    return await auth().getToken()
-  }
-
-  await __clerk.load()
-  return await __clerk.session?.getToken()
-}
-
-if (IS_AUTH_DISABLED) {
-  console.log(
-    "Running with `DISABLE_AUTH` enabled, Axios client will not use authenticated interceptor."
-  )
-} else {
-  console.log("Configuring Axios client with authenticated interceptor")
-  client.interceptors.request.use(
-    async (config: InternalAxiosRequestConfig) => {
-      const token = await getAuthToken()
-      if (!token) {
-        console.error("Failed to get token, redirecting to login")
-        return redirect("/")
-      }
-      config.headers["Authorization"] = `Bearer ${token}`
-      return config
-    }
-  )
-}
+client.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
+  const token = await getAuthToken()
+  config.headers["Authorization"] = `Bearer ${token}`
+  return config
+})
 
 export type Client = typeof client
+
+/**
+ * Gets the auth token, or redirects to the login page
+ *
+ * @returns The authentication token
+ *
+ */
+export async function getAuthToken() {
+  if (authConfig.disabled) {
+    console.warn("Auth is disabled, using test token.")
+    return "super-secret-token-32-characters-long"
+  }
+  let token: string | null | undefined
+  if (isServer()) {
+    token = await auth().getToken()
+  } else {
+    await __clerk.load()
+    token = await __clerk.session?.getToken()
+  }
+  if (!token) {
+    console.error("Failed to get authenticated client, redirecting to login")
+    return redirect("/")
+  }
+  return token
+}
+
+export async function authFetch(input: RequestInfo, init?: RequestInit) {
+  const token = await getAuthToken()
+  const { headers, ...rest } = init ?? {}
+  const enhancedInit = {
+    ...rest,
+    headers: {
+      ...headers,
+      Authorization: `Bearer ${token}`,
+    },
+  }
+  return await fetch(input, enhancedInit)
+}
 
 export async function streamingResponse(endpoint: string, init?: RequestInit) {
   return fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, init)
@@ -109,21 +123,4 @@ export async function* streamGenerator(
   } finally {
     reader.releaseLock()
   }
-}
-
-export async function authFetch(input: RequestInfo, init?: RequestInit) {
-  const token = await getAuthToken()
-  if (!token) {
-    console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/")
-  }
-  const { headers, ...rest } = init ?? {}
-  const enhancedInit = {
-    ...rest,
-    headers: {
-      ...headers,
-      Authorization: `Bearer ${token}`,
-    },
-  }
-  return await fetch(input, enhancedInit)
 }
