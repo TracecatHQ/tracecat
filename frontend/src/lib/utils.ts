@@ -166,3 +166,7 @@ export function groupBy<T, K extends keyof T>(
     {} as Record<string, T[]>
   )
 }
+
+export function isServer() {
+  return typeof window === "undefined"
+}
