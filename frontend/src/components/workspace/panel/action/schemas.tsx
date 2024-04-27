@@ -110,7 +110,7 @@ const OpenCaseActionSchema = z.object({
   tags: z.array(tagSchema).default([]),
 })
 
-const BASE_ACTION_SCHEMA_REGEX = /^[a-zA-Z0-9_]+$/
+const BASE_ACTION_SCHEMA_REGEX = /^[a-zA-Z0-9_\s]+$/
 export const baseActionSchema = z.object({
   title: z
     .string()
