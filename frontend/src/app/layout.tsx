@@ -1,11 +1,9 @@
 import "@/styles/globals.css"
 
 import React from "react"
-import { Metadata } from "next"
+import { type Metadata } from "next"
 import dynamic from "next/dynamic"
 import { DefaultQueryClientProvider } from "@/providers/query"
-import { SessionContextProvider } from "@/providers/session"
-import { createClient } from "@/utils/supabase/server"
 import { ClerkProvider } from "@clerk/nextjs"
 
 import { siteConfig } from "@/config/site"
@@ -41,18 +39,12 @@ if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
 }
 
 export default async function RootLayout({ children }: RootLayoutProps) {
-  const supabase = createClient()
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
   const MaybeAnalytics = PHProvider ? PHProvider : React.Fragment
 
   return (
-    <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
-      <head />
-      <ClerkProvider>
+    <ClerkProvider>
+      <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
+        <head />
         <MaybeAnalytics>
           <body
             className={cn(
@@ -60,16 +52,14 @@ export default async function RootLayout({ children }: RootLayoutProps) {
               fontSans.variable
             )}
           >
-            <SessionContextProvider initialSession={session}>
-              <DefaultQueryClientProvider>
-                {PostHogPageView && <PostHogPageView />}
-                {children}
-              </DefaultQueryClientProvider>
-            </SessionContextProvider>
+            <DefaultQueryClientProvider>
+              {PostHogPageView && <PostHogPageView />}
+              {children}
+            </DefaultQueryClientProvider>
             <Toaster />
           </body>
         </MaybeAnalytics>
-      </ClerkProvider>
-    </html>
+      </html>
+    </ClerkProvider>
   )
 }
