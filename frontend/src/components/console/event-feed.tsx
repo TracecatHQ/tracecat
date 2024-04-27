@@ -1,6 +1,5 @@
 import { useParams } from "next/navigation"
 import { useEventFeedContext } from "@/providers/event-feed-stream"
-import { useSession } from "@/providers/session"
 import { CloudOff, CornerDownLeft, Loader, Mic, Paperclip } from "lucide-react"
 import { useFormContext } from "react-hook-form"
 
@@ -27,7 +26,6 @@ import { EventFeedItem } from "@/components/console/event-feed-item"
 
 interface ConsoleFeedProps extends React.HTMLAttributes<HTMLDivElement> {}
 export function ConsoleFeed({ className }: ConsoleFeedProps) {
-  const session = useSession()
   const { workflowId } = useParams<{ workflowId: string }>()
   const { events, isStreaming } = useEventFeedContext()
   const { control, handleSubmit, watch } =
@@ -45,7 +43,7 @@ export function ConsoleFeed({ className }: ConsoleFeedProps) {
     }
 
     try {
-      triggerWorkflow(session, workflowId, values.actionKey, values.payload)
+      triggerWorkflow(workflowId, values.actionKey, values.payload)
       toast({
         title: "Workflow started",
         description: "The workflow has been started successfully.",

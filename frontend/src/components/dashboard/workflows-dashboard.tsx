@@ -1,5 +1,4 @@
 import { Suspense } from "react"
-import { type Session } from "@supabase/supabase-js"
 import { PlusCircle } from "lucide-react"
 
 import { fetchAllWorkflows } from "@/lib/flow"
@@ -11,11 +10,7 @@ import {
   NewWorkflowDialogTrigger,
 } from "@/components/new-workflow-dialog"
 
-interface WorkflowsDashboardProps extends React.HTMLAttributes<HTMLElement> {
-  session: Session
-}
-
-export async function WorkflowsDashboard({ session }: WorkflowsDashboardProps) {
+export async function WorkflowsDashboard() {
   return (
     <div className="h-full w-full overflow-auto">
       <div className="container flex h-full max-w-[800px] flex-col  space-y-4 p-16">
@@ -49,19 +44,15 @@ export async function WorkflowsDashboard({ session }: WorkflowsDashboardProps) {
             </div>
           }
         >
-          <WorkflowList session={session} />
+          <WorkflowList />
         </Suspense>
       </div>
     </div>
   )
 }
 
-interface WorkflowListProps {
-  session: Session
-}
-
-export async function WorkflowList({ session }: WorkflowListProps) {
-  const workflows = await fetchAllWorkflows(session)
+export async function WorkflowList() {
+  const workflows = await fetchAllWorkflows()
   return (
     <div className="flex flex-col gap-2 pt-4">
       {workflows.length === 0 ? (

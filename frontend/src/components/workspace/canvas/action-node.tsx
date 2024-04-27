@@ -1,6 +1,5 @@
 import React, { useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useSession } from "@/providers/session"
 import {
   BellDotIcon,
   Blend,
@@ -130,7 +129,6 @@ export default React.memo(function ActionNode({
   selected,
 }: NodeProps<ActionNodeData>) {
   const id = useNodeId()
-  const session = useSession()
   const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
   const tileIcon = tileIconMapping[type] ?? Sparkles
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
@@ -171,7 +169,7 @@ export default React.memo(function ActionNode({
         description: "Failed to delete action node.",
       })
     }
-  }, [session, id, toast])
+  }, [id, toast])
 
   return (
     <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>

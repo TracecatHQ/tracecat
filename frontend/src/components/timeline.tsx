@@ -1,8 +1,7 @@
 import React from "react"
-import { useSession } from "@/providers/session"
+import { useUser } from "@clerk/nextjs"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ChatBubbleIcon } from "@radix-ui/react-icons"
-import { User } from "@supabase/supabase-js"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -16,10 +15,8 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/data/categories"
@@ -49,13 +46,13 @@ export function Timeline({
   workflowId: string
   caseId: string
 }) {
-  const session = useSession()
+  const { user } = useUser()
   const {
     caseEvents,
     caseEventsIsLoading,
     caseEventsError,
     mutateCaseEventsAsync,
-  } = useCaseEvents(session, workflowId, caseId)
+  } = useCaseEvents(workflowId, caseId)
 
   const methods = useForm<TimelineCommentForm>({
     resolver: zodResolver(timelineCommentFormSchema),
@@ -88,7 +85,7 @@ export function Timeline({
         {caseEvents.length > 0 ? (
           <ol className="relative mb-2 space-y-8 border-s border-gray-200 pb-8 pl-4 dark:border-gray-700">
             {caseEvents.map((caseEvent, index) => (
-              <TimelineItem key={index} {...caseEvent} user={session?.user} />
+              <TimelineItem key={index} {...caseEvent} user={user} />
             ))}
           </ol>
         ) : (
@@ -134,9 +131,11 @@ export type CaseEventType =
   | "case_opened"
   | "case_closed"
 
+type TUser = ReturnType<typeof useUser>["user"]
+
 export type TimelineItemProps = CaseEvent & {
   className?: string
-  user?: User
+  user?: TUser
 }
 
 export function TimelineItem({
@@ -148,8 +147,8 @@ export function TimelineItem({
     <li className={cn("ms-6 rounded-lg text-xs shadow-sm", className)}>
       <UserAvatar
         className="absolute -start-4 flex size-8 items-center justify-center border ring-8 ring-white"
-        src={user?.user_metadata?.avatar_url || userDefaults.avatarUrl}
-        alt={user?.user_metadata?.alt || userDefaults.alt}
+        src={user?.imageUrl}
+        alt={userDefaults.alt}
       />
       <TimelineItemActivity {...activityProps} user={user} />
     </li>
@@ -172,7 +171,7 @@ const getActivityDescription = ({
   type,
   data,
 }: TimelineItemProps): React.ReactNode => {
-  const name = <b>{user?.user_metadata?.name || userDefaults.name}</b>
+  const name = <b>{user?.fullName || userDefaults.name}</b>
   switch (type) {
     case "comment_created":
       return <span>{name} added a comment to the case.</span>

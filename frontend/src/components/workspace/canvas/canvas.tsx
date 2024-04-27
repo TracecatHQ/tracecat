@@ -17,7 +17,6 @@ import ReactFlow, {
 import "reactflow/dist/style.css"
 
 import { useParams } from "next/navigation"
-import { useSession } from "@/providers/session"
 
 import { NodeType } from "@/types/schemas"
 import {
@@ -60,7 +59,6 @@ const WorkflowCanvas: React.FC = () => {
     useState<ReactFlowInstance | null>(null)
   const { setViewport } = useReactFlow()
   const { workflowId } = useParams<{ workflowId: string }>()
-  const session = useSession()
   const { toast } = useToast()
 
   useEffect(() => {
@@ -69,7 +67,7 @@ const WorkflowCanvas: React.FC = () => {
         return
       }
       try {
-        const response = await fetchWorkflow(session, workflowId)
+        const response = await fetchWorkflow(workflowId)
         const flow = response.object as ReactFlowJsonObject
         if (flow) {
           // If there is a saved React Flow configuration, load it
@@ -131,7 +129,6 @@ const WorkflowCanvas: React.FC = () => {
 
     // Create Action in database
     const actionId = await createAction(
-      session,
       nodeData.type,
       nodeData.title,
       workflowId
@@ -157,13 +154,11 @@ const WorkflowCanvas: React.FC = () => {
 
   const onNodesDelete = async (nodesToDelete: ActionNodeType[]) => {
     try {
-      await Promise.all(
-        nodesToDelete.map((node) => deleteAction(session, node.id))
-      )
+      await Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
       setNodes((nds) =>
         nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
       )
-      await updateDndFlow(session, workflowId, reactFlowInstance)
+      await updateDndFlow(workflowId, reactFlowInstance)
       console.log("Nodes deleted successfully")
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
@@ -182,7 +177,7 @@ const WorkflowCanvas: React.FC = () => {
   // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      updateDndFlow(session, workflowId, reactFlowInstance)
+      updateDndFlow(workflowId, reactFlowInstance)
     }
   }, [edges])
 
@@ -192,7 +187,7 @@ const WorkflowCanvas: React.FC = () => {
     nodes: ActionNodeType[]
   ) => {
     if (workflowId && reactFlowInstance) {
-      updateDndFlow(session, workflowId, reactFlowInstance)
+      updateDndFlow(workflowId, reactFlowInstance)
     }
   }
 

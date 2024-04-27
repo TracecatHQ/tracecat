@@ -2,7 +2,6 @@
 
 import React, { PropsWithChildren } from "react"
 import { useRouter } from "next/navigation"
-import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { useQueryClient } from "@tanstack/react-query"
@@ -49,7 +48,6 @@ export function NewWorkflowDialog({
   const [showDialog, setShowDialog] = React.useState(false)
   const queryClient = useQueryClient()
   const router = useRouter()
-  const session = useSession()
 
   const form = useForm<NewWorkflowFormInputs>({
     resolver: zodResolver(newWorkflowFormSchema),
@@ -57,10 +55,7 @@ export function NewWorkflowDialog({
 
   const onSubmit = async (data: NewWorkflowFormInputs) => {
     try {
-      if (!session) {
-        throw new Error("Invalid session")
-      }
-      const newWfMetdata = await createWorkflow(session, data.title)
+      const newWfMetdata = await createWorkflow(data.title)
       form.reset()
       queryClient.invalidateQueries({
         queryKey: ["workflows"],

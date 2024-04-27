@@ -1,10 +1,8 @@
 "use client"
 
 import React, { useState } from "react"
-import { useSession } from "@/providers/session"
-import { type Session } from "@supabase/supabase-js"
 
-import { getAuthenticatedClient, type Client } from "@/lib/api"
+import { client, type Client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   ContextMenu,
@@ -28,7 +26,6 @@ export interface BaseAuxClickMenuOption<TData> {
   shortcut?: React.ReactNode
   action?: (data: TData, client?: Client, context?: Record<string, any>) => void
   data?: TData
-  session?: Session | null
 }
 
 export interface AuxClickMenuItemProps<TData>
@@ -73,18 +70,12 @@ export default function AuxClickMenu<TData>({
   options,
   data,
 }: AuxClickMenuProps<TData>) {
-  const session = useSession()
   return options ? (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className={cn("w-64", className)}>
         {options.map((optionProps, idx) => (
-          <DynamicAuxClickMenuOption
-            key={idx}
-            {...optionProps}
-            data={data}
-            session={session}
-          />
+          <DynamicAuxClickMenuOption key={idx} {...optionProps} data={data} />
         ))}
       </ContextMenuContent>
     </ContextMenu>
@@ -116,10 +107,8 @@ export function AuxClickMenuItem<TData>({
   shortcut,
   action,
   data,
-  session,
 }: AuxClickMenuItemProps<TData>) {
   // If we fail to get the current session, this should kick us out
-  const client = getAuthenticatedClient(session || null)
   return (
     <ContextMenuItem
       className={cn("hover:cursor-pointer")}

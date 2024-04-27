@@ -1,7 +1,6 @@
 "use client"
 
 import React, { PropsWithChildren } from "react"
-import { useSession } from "@/providers/session"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -45,19 +44,20 @@ export function NewCredentialsDialog({
   className,
 }: NewCredentialsDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
-  const session = useSession()
   const queryClient = useQueryClient()
 
   const { mutate } = useMutation({
-    mutationFn: (secret: Secret) => createSecret(session, secret),
-    onSuccess: (data, variables, context) => {
+    mutationFn: async (secret: Secret) => {
+      return await createSecret(secret)
+    },
+    onSuccess: () => {
       toast({
         title: "Added new secret",
         description: "New secret added successfully.",
       })
       queryClient.invalidateQueries({ queryKey: ["secrets"] })
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       console.error("Failed to add new credentials", error)
       toast({
         title: "Failed to add new secret",
@@ -129,7 +129,7 @@ export function NewCredentialsDialog({
                       <Input
                         {...field}
                         className="text-sm"
-                        placeholder="Name"
+                        placeholder="Name (snake case)"
                         value={watch("name", "")}
                       />
                     </FormControl>

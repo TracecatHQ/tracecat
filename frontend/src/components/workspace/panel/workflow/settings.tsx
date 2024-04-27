@@ -1,7 +1,6 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useSession } from "@/providers/session"
 import { HamburgerMenuIcon } from "@radix-ui/react-icons"
 
 import { Workflow } from "@/types/schemas"
@@ -26,11 +25,10 @@ import {
 import { toast } from "@/components/ui/use-toast"
 
 export function WorkflowSettings({ workflow }: { workflow: Workflow }) {
-  const session = useSession()
   const router = useRouter()
   const handleDeleteWorkflow = async () => {
     console.log("Delete workflow")
-    await deleteWorkflow(session, workflow.id)
+    await deleteWorkflow(workflow.id)
     router.push("/workflows")
     toast({
       title: "Workflow deleted",

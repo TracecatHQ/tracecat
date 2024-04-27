@@ -1,7 +1,6 @@
 "use client"
 
 import React from "react"
-import { useSession } from "@/providers/session"
 import { Layers3, PlusCircle } from "lucide-react"
 
 import { WorkflowMetadata } from "@/types/schemas"
@@ -27,11 +26,10 @@ export function LibraryTile({
 }: {
   catalogItem: WorkflowMetadata
 }) {
-  const session = useSession()
   const { title, description, id: workflowId } = catalogItem
 
   const handleAddWorkflow = async () => {
-    const response = await addLibraryWorkflow(session, workflowId)
+    const response = await addLibraryWorkflow(workflowId)
     if (response.error) {
       console.error("Error adding workflow:", response.error)
     }
