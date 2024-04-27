@@ -33,6 +33,8 @@ CREDENTIALS_EXCEPTION = HTTPException(
     headers={"WWW-Authenticate": "Bearer"},
 )
 
+IS_AUTH_DISABLED = str(os.environ.get("TRACECAT__DISABLE_AUTH")) in ("true", "1")
+
 
 class AuthenticatedServiceClient(httpx.AsyncClient):
     """An authenticated service client. Typically used by internal services.
@@ -164,6 +166,7 @@ def decrypt_object(encrypted_obj: bytes) -> dict[str, Any]:
     return orjson.loads(obj_bytes)
 
 
+# TODO: Fix this
 async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
     """Check that a user exists in supabase and is authenticated."""
     # psycopg only supports postgresql:// URIs.
@@ -179,6 +182,28 @@ async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
 
             record = await acur.fetchone()
     return record
+
+
+def _internal_get_role_from_service_key(
+    *, user_id: str, service_role_name: str, api_key: str
+) -> Role:
+    if (
+        not service_role_name
+        or service_role_name not in cfg.TRACECAT__SERVICE_ROLES_WHITELIST
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Service-Role {service_role_name!r} invalid or not allowed",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
+        logger.error("Could not validate service key")
+        raise CREDENTIALS_EXCEPTION
+    return Role(
+        type="service",
+        user_id=user_id,
+        service_id=service_role_name,
+    )
 
 
 async def get_clerk_public_key(kid: str) -> dict[str, Any] | None:
@@ -201,82 +226,88 @@ HTTP_EXC = partial(
     )
 )
 
+if IS_AUTH_DISABLED:
+    # Override the authentication functions with a dummy function
+    logger.warning("User authentication is disabled, using default user.")
+    _DEFAULT_TRACECAT_USER_ID = "default-tracecat-user"
 
-async def _get_role_from_jwt(token: str | bytes) -> Role:
-    try:
-        match jwt.get_unverified_headers(token):
-            case {
-                "alg": alg,
-                "kid": kid,
-                "typ": "JWT",
-            }:
-                clerk_public_key = await get_clerk_public_key(kid=kid)
-            case _:
-                raise HTTP_EXC("Invalid JWT headers")
-        if clerk_public_key is None:
-            raise HTTP_EXC("Could not get public key")
-        payload = jwt.decode(
-            token,
-            key=clerk_public_key,
-            algorithms=alg,
-            issuer=os.environ["CLERK_FRONTEND_API_URL"],
-            # NOTE: Workaround, not sure if there are alternatives
-            options={"verify_aud": False},
+    async def _get_role_from_jwt(token: str | bytes) -> Role:
+        logger.warning(f"User authentication is disabled {token = }")
+        role = Role(type="user", user_id=_DEFAULT_TRACECAT_USER_ID)
+        ctx_session_role.set(role)
+        return role
+
+    async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
+        user_id = _DEFAULT_TRACECAT_USER_ID
+        service_role_name = request.headers.get("Service-Role")
+        role = _internal_get_role_from_service_key(
+            user_id=user_id, service_role_name=service_role_name, api_key=api_key
         )
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise HTTP_EXC("No sub claim in JWT")
-    except ExpiredSignatureError as e:
-        logger.error(f"ExpiredSignatureError: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired",
-            headers={
-                "WWW-Authenticate": "Bearer",
-                "Access-Control-Expose-Headers": "X-Expired-Token",
-                "X-Expired-Token": "true",
-            },
-        ) from e
-    except JWTError as e:
-        msg = f"JWT Error {e}"
-        logger.error(msg)
-        raise HTTP_EXC(msg) from e
-    except Exception as e:
-        msg = f"Error {e}"
-        logger.error(msg)
-        raise HTTP_EXC(msg) from e
+        ctx_session_role.set(role)
+        return role
+else:
+    logger.info("User authentication is enabled")
 
-    # Validate this against supabase
-    # if await _validate_user_exists_in_db(user_id) is None:
-    #     logger.error("User not authenticated")
-    #     raise CREDENTIALS_EXCEPTION
-    role = Role(type="user", user_id=user_id)
-    ctx_session_role.set(role)
-    return role
+    async def _get_role_from_jwt(token: str | bytes) -> Role:
+        try:
+            match jwt.get_unverified_headers(token):
+                case {
+                    "alg": alg,
+                    "kid": kid,
+                    "typ": "JWT",
+                }:
+                    clerk_public_key = await get_clerk_public_key(kid=kid)
+                case _:
+                    raise HTTP_EXC("Invalid JWT headers")
+            if clerk_public_key is None:
+                raise HTTP_EXC("Could not get public key")
+            payload = jwt.decode(
+                token,
+                key=clerk_public_key,
+                algorithms=alg,
+                issuer=os.environ["CLERK_FRONTEND_API_URL"],
+                # NOTE: Workaround, not sure if there are alternatives
+                options={"verify_aud": False},
+            )
+            user_id: str = payload.get("sub")
+            if user_id is None:
+                raise HTTP_EXC("No sub claim in JWT")
+        except ExpiredSignatureError as e:
+            logger.error(f"ExpiredSignatureError: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired",
+                headers={
+                    "WWW-Authenticate": "Bearer",
+                    "Access-Control-Expose-Headers": "X-Expired-Token",
+                    "X-Expired-Token": "true",
+                },
+            ) from e
+        except JWTError as e:
+            msg = f"JWT Error {e}"
+            logger.error(msg)
+            raise HTTP_EXC(msg) from e
+        except Exception as e:
+            msg = f"Error {e}"
+            logger.error(msg)
+            raise HTTP_EXC(msg) from e
 
+        # Validate this against supabase
+        # if await _validate_user_exists_in_db(user_id) is None:
+        #     logger.error("User not authenticated")
+        #     raise CREDENTIALS_EXCEPTION
+        role = Role(type="user", user_id=user_id)
+        ctx_session_role.set(role)
+        return role
 
-async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
-    user_id = request.headers.get("Service-User-ID")
-    service_role_name = request.headers.get("Service-Role")
-    if (
-        not service_role_name
-        or service_role_name not in cfg.TRACECAT__SERVICE_ROLES_WHITELIST
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Service-Role {service_role_name!r} invalid or not allowed",
-            headers={"WWW-Authenticate": "Bearer"},
+    async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
+        user_id = request.headers.get("Service-User-ID")
+        service_role_name = request.headers.get("Service-Role")
+        role = _internal_get_role_from_service_key(
+            user_id=user_id, service_role_name=service_role_name, api_key=api_key
         )
-    if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
-        logger.error("Could not validate service key")
-        raise CREDENTIALS_EXCEPTION
-    role = Role(
-        type="service",
-        user_id=user_id,
-        service_id=service_role_name,
-    )
-    ctx_session_role.set(role)
-    return role
+        ctx_session_role.set(role)
+        return role
 
 
 async def authenticate_user(

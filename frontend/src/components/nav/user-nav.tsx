@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useClerk, useUser } from "@clerk/nextjs"
 import { BookText, KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
+import { authConfig } from "@/config/auth"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
 import { Button } from "@/components/ui/button"
@@ -24,7 +25,12 @@ export default function UserNav() {
   const { user } = useUser()
   const { signOut } = useClerk()
   const router = useRouter()
-  const handleSignOut = () => signOut(() => router.push("/"))
+  const handleSignOut = () => {
+    if (authConfig.disabled) {
+      return router.push("/")
+    }
+    return signOut(() => router.push("/"))
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
