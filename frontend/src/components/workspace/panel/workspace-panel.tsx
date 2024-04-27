@@ -17,7 +17,6 @@ export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const selectedNode = getNode(selectedNodeId ?? "")
   const { workflow, workflowId, isOnline } = useWorkflowMetadata()
-  console.log("selectedNode", selectedNode)
 
   return (
     <div className="h-full w-full overflow-auto">
