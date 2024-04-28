@@ -1,5 +1,4 @@
 # Base compose file
-version: "3.8"
 services:
   api:
     build: .
