@@ -36,9 +36,10 @@ export default function OnboardingComponent() {
           <div className="h-0">{isExploding && <ConfettiExplosion />}</div>
           <h3 className="text-2xl font-bold">🎉 Welcome to Tracecat!</h3>
           <p className="text-sm text-muted-foreground">
-            We're an early stage startup so your feedback is incredibly valuable
-            to the direction of the product. You can find us on our Discord
-            channel or Github. We'd love for you to join our community!
+            We&apos;re an early stage startup so your feedback is incredibly
+            valuable to the direction of the product. You can find us on our
+            Discord channel or Github. We&apos;d love for you to join our
+            community!
           </p>
           <Button
             onClick={handleSubmit}
