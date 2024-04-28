@@ -138,7 +138,22 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - nginx-network
+      - internal-network
+
+  postgres_db:
+    image: postgres:16.2-bullseye
+    container_name: postgres_db
+    ports:
+      - "5432:5432"
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER} # Define these variables in your .env file
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - tracecat-storage:/var/lib/postgresql/data # Persist data even if container shuts down
+    networks:
+      - internal-network
 
 networks:
   internal-network:
