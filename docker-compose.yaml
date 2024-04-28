@@ -145,10 +145,10 @@ services:
     restart: always
     shm_size: 128mb
     environment:
-      POSTGRES_USER: ${POSTGRES_USER} # Define these variables in your .env file
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - tracecat-storage:/var/lib/postgresql/data # Persist data even if container shuts down
+      - tracecat-storage:/var/lib/postgresql/data
     networks:
       - internal-network
 
