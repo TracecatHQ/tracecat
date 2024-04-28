@@ -30,10 +30,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      nginx:
-        condition: service_started
     networks:
-      - nginx-network
       - internal-network
 
   runner:
@@ -64,10 +61,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      nginx:
-        condition: service_started
     networks:
-      - nginx-network
       - internal-network
 
   scheduler:
@@ -125,18 +119,7 @@ services:
       - api
       - runner
     networks:
-      - nginx-network
-
-  nginx:
-    image: nginx:mainline-bookworm
-    container_name: nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx:/etc/nginx/conf.d
-    networks:
-      - nginx-network
+      - internal-network
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -159,7 +142,6 @@ services:
       - nginx-network
 
 networks:
-  nginx-network:
   internal-network:
 
 volumes:
