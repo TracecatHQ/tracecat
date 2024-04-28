@@ -7,7 +7,6 @@ services:
       - "8000:8000"
     volumes:
       - ./tracecat:/app/tracecat
-      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
       # Shared
@@ -39,7 +38,6 @@ services:
       - "8001:8000"
     volumes:
       - ./tracecat:/app/tracecat
-      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
       # Shared
@@ -72,7 +70,6 @@ services:
       - "8002:8000"
     volumes:
       - ./tracecat:/app/tracecat
-      - tracecat-storage:/home/apiuser/.tracecat
     environment:
       # Shared
       LOG_LEVEL: ${LOG_LEVEL}

@@ -13,7 +13,8 @@ TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
 TRACECAT__RUNNER_URL = os.environ.get("TRACECAT__RUNNER_URL", "http://runner:8000")
 
 TRACECAT__TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
-TRACECAT__TRIAGE_DIR = Path(".tracecat/triage/")
+TRACECAT__TRIAGE_DIR = Path("~/.tracecat/triage").expanduser().resolve()
+TRACECAT__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-runner",
