@@ -42,7 +42,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const MaybeAnalytics = PHProvider ? PHProvider : React.Fragment
 
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    >
       <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
         <head />
         <MaybeAnalytics>
