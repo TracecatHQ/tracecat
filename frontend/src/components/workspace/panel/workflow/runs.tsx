@@ -48,11 +48,7 @@ export function WorkflowRunsView({
   } = useQuery<WorkflowRun[], Error>({
     queryKey: ["workflow", workflowId, "runs"],
     queryFn: async ({ queryKey }) => {
-      const [_workflow, workflowId, _run] = queryKey as [
-        string?,
-        string?,
-        string?,
-      ]
+      const [, workflowId] = queryKey as [string?, string?, string?]
       if (!workflowId) {
         throw new Error("No workflow ID provided")
       }
@@ -80,11 +76,7 @@ export function WorkflowRunsView({
             {workflowRuns
               ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
               .map((props, index) => (
-                <WorkflowRunItem
-                  className="my-2 w-full"
-                  key={index}
-                  {...props}
-                />
+                <WorkflowRunItem key={index} {...props} />
               ))}
           </Accordion>
         ) : (
@@ -96,14 +88,12 @@ export function WorkflowRunsView({
 }
 
 function WorkflowRunItem({
-  className,
   status,
   id: workflowRunId,
   workflow_id: workflowId,
   created_at,
   updated_at,
-  ...props
-}: React.PropsWithoutRef<WorkflowRun> & React.HTMLAttributes<HTMLDivElement>) {
+}: React.PropsWithoutRef<WorkflowRun>) {
   const [open, setOpen] = useState(false)
   const [actionRuns, setActionRuns] = useState<ActionRun[]>([])
   const handleClick = () => setOpen(!open)

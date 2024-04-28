@@ -48,7 +48,7 @@ export function useIntegrationFormSchema(integrationKey: IntegrationType): {
   const { data: integrationSpec, isLoading } = useQuery({
     queryKey: ["integration_field_config", integrationKey],
     queryFn: async ({ queryKey }) => {
-      const [_, integrationKey] = queryKey as [string, IntegrationType]
+      const [, integrationKey] = queryKey as [string, IntegrationType]
       return await fetchIntegration(integrationKey)
     },
   })

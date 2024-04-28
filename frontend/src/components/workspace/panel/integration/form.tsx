@@ -71,7 +71,7 @@ export function IntegrationForm({
   } = useQuery<Action, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
-      const [_, actionId, workflowId] = queryKey as [string, string, string]
+      const [, actionId, workflowId] = queryKey as [string, string, string]
       return await getActionById(actionId, workflowId)
     },
   })

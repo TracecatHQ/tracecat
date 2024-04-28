@@ -35,6 +35,7 @@ import { DataTablePagination, DataTableToolbar } from "@/components/table"
 import { DataTableToolbarProps } from "./toolbar"
 
 declare module "@tanstack/react-table" {
+  // @ts-ignore
   interface TableMeta<TData extends RowData> {
     isProcessing: boolean
   }

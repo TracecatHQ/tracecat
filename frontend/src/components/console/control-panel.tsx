@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
-import { WorkflowControlsForm } from "@/components/console/console"
+import { type WorkflowControlsForm } from "@/components/console/console"
 import { tileIconMapping } from "@/components/workspace/canvas/action-node"
 import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 

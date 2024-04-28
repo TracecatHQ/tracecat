@@ -194,7 +194,7 @@ export const columns: ColumnDef<Case>[] = [
         <div className="flex space-x-2">
           <span className="max-w-[300px] space-x-1 truncate text-xs text-muted-foreground">
             {caseContextFields.length > 0
-              ? caseContextFields.map(({ key, value }, idx) => (
+              ? caseContextFields.map(({ value }, idx) => (
                   <StatusBadge key={idx}>{value}</StatusBadge>
                 ))
               : "No context tags"}

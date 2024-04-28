@@ -163,7 +163,7 @@ export function NewCredentialsDialog({
                 key={inputKey}
                 control={control}
                 name={typedKey}
-                render={({ field }) => (
+                render={() => (
                   <FormItem>
                     <FormLabel className="text-sm">Keys</FormLabel>
                     <div className="flex flex-col space-y-2">

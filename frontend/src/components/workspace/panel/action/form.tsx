@@ -8,7 +8,7 @@ import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
-import { Action, ActionType } from "@/types/schemas"
+import { Action, type ActionType } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -72,7 +72,7 @@ export function ActionForm({
   } = useQuery<Action, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
-      const [_, actionId, workflowId] = queryKey as [string, string, string]
+      const [, actionId, workflowId] = queryKey as [string, string, string]
       return await getActionById(actionId, workflowId)
     },
   })

@@ -11,9 +11,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import WorkflowSwitcher from "@/components/nav/workflow-switcher"
 
-interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
-
-export default function WorkflowsNavbar(props: NavbarProps) {
+export default function WorkflowsNavbar() {
   const { workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
   if (isLoading) {

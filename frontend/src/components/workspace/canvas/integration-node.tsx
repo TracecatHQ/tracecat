@@ -47,7 +47,7 @@ export default React.memo(function IntegrationNode({
   const id = useNodeId()
   const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
-  const [_, platform, name] = type.split(".")
+  const [, platform, name] = type.split(".")
   const Icon = Integrations[platform as IntegrationPlatform]
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
 
@@ -132,7 +132,7 @@ export default React.memo(function IntegrationNode({
         </div>
       </CardHeader>
 
-      <CardContent className="pb-4 pl-5 pr-5 pt-0">
+      <CardContent className="px-5 pb-4 pt-0">
         <div className="flex space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center">
             <CircleIcon

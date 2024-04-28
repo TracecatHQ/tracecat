@@ -125,7 +125,7 @@ export function parseActionRunId(
   if (!actionRunId.startsWith("ar:")) {
     throw new Error("Invalid action run ID")
   }
-  const [_, actionKey, workflowRunId] = actionRunId.split(":")
+  const [, actionKey, workflowRunId] = actionRunId.split(":")
   switch (field) {
     case "actionId":
       return actionKey.split(".")[0]

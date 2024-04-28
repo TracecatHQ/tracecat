@@ -4,7 +4,6 @@ import { PlusCircle, Trash2Icon } from "lucide-react"
 import {
   ArrayPath,
   FieldPath,
-  FieldPathValue,
   FieldValues,
   PathValue,
   useFieldArray,
@@ -65,7 +64,6 @@ export function processInputs(
 }
 
 type TDefaultValue<T extends FieldValues> = PathValue<T, FieldPath<T>>
-type TValue<T extends FieldValues> = FieldPathValue<T, FieldPath<T>>
 
 export function ActionFormLabel<T extends FieldValues>({
   inputKey,
@@ -239,7 +237,7 @@ export function ActionFormArray<T extends FieldValues>({
       key={inputKey}
       control={control}
       name={typedKey}
-      render={({ field }) => (
+      render={() => (
         <FormItem>
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <div className="flex flex-col space-y-2">
@@ -370,7 +368,7 @@ export function ActionFormFlatKVArray<T extends FieldValues>({
       key={inputKey}
       control={control}
       name={typedKey}
-      render={({ field }) => (
+      render={() => (
         <FormItem>
           <ActionFormLabel inputKey={inputKey} inputOption={inputOption} />
           <div className="flex flex-col space-y-2">

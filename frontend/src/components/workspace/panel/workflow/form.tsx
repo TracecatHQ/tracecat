@@ -39,7 +39,7 @@ const workflowFormSchema = z.object({
   description: z.string(),
 })
 
-type WorkflowForm = z.infer<typeof workflowFormSchema>
+type TWorkflowForm = z.infer<typeof workflowFormSchema>
 
 interface WorkflowFormProps {
   workflow: Workflow
@@ -56,7 +56,7 @@ export function WorkflowForm({
     description: workflowDescription,
   } = workflow
   const queryClient = useQueryClient()
-  const form = useForm<WorkflowForm>({
+  const form = useForm<TWorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
       title: workflowTitle || "",
@@ -66,7 +66,7 @@ export function WorkflowForm({
 
   function useUpdateWorkflow(workflowId: string) {
     const mutation = useMutation({
-      mutationFn: (values: WorkflowForm) => updateWorkflow(workflowId, values),
+      mutationFn: (values: TWorkflowForm) => updateWorkflow(workflowId, values),
       onSuccess: (data) => {
         console.log("Workflow update successful", data)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
@@ -88,7 +88,7 @@ export function WorkflowForm({
   }
 
   const { mutate } = useUpdateWorkflow(workflowId)
-  function onSubmit(values: WorkflowForm) {
+  function onSubmit(values: TWorkflowForm) {
     mutate(values)
   }
 

@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { WorkflowControlsForm } from "@/components/console/console"
+import { type WorkflowControlsForm } from "@/components/console/console"
 import { supportedInputTypes } from "@/components/console/control-panel"
 import { EventFeedItem } from "@/components/console/event-feed-item"
 

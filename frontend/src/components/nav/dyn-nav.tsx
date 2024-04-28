@@ -8,8 +8,7 @@ import { useParams, usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import WorkflowsNav from "@/components/nav/workflows-nav"
 
-interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
-export default function DynamicNavbar(props: NavbarProps) {
+export default function DynamicNavbar() {
   const pathname = usePathname()
   const params = useParams()
   const DynNav = getNavBar(pathname, params)

@@ -68,7 +68,7 @@ const workflowControlsFormSchema = z
       path: ["actionKey"], // Specify the path of the field being validated for targeted error messages.
     }
   )
-type WorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
+type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
 export function WorkflowControlsForm({
   workflow,
@@ -76,7 +76,7 @@ export function WorkflowControlsForm({
   workflow: Workflow
 }): React.JSX.Element {
   const [confirmationIsOpen, setConfirmationIsOpen] = useState(false)
-  const form = useForm<WorkflowControlsForm>({
+  const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: {
       payload: "",
@@ -85,7 +85,7 @@ export function WorkflowControlsForm({
   })
   const [selectedAction, setSelectedAction] = useState<Action | null>(null)
 
-  const onSubmit = (values: WorkflowControlsForm) => {
+  const onSubmit = (values: TWorkflowControlsForm) => {
     // Make the API call to start the workflow
     if (!values.actionKey) {
       console.error("No action key provided")

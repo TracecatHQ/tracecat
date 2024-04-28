@@ -17,7 +17,7 @@ export const useCasePanelContext = () => useContext(CasePanelContext)
 
 const CasePanelContext = createContext({
   panelCase: null as Case | null,
-  setPanelCase: (rule: Case | null) => {},
+  setPanelCase: (selectedCase: Case | null) => {},
   isOpen: false,
   setIsOpen: (isOpen: boolean) => {},
 })

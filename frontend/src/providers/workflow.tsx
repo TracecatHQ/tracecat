@@ -40,7 +40,7 @@ export function WorkflowProvider({ children }: WorkflowProviderProps) {
   } = useQuery<Workflow, Error>({
     queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
-      const [_, workflowId] = queryKey as [string, string?]
+      const [, workflowId] = queryKey as [string, string?]
       if (!workflowId) {
         throw new Error("No workflow ID provided")
       }
