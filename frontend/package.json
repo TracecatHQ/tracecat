@@ -72,6 +72,7 @@
     "react-syntax-highlighter": "^15.5.0",
     "react-use-websocket": "^4.7.0",
     "reactflow": "^11.10.3",
+    "sharp": "^0.33.3",
     "sonner": "^1.4.3",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
