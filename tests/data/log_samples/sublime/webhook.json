@@ -1,0 +1,44 @@
+{
+  "id": "5e02026c-55c1-4cbb-8a18-76eb2f3e06d3",
+  "api_version": "0",
+  "created_at": "2021-06-30T16:17:22.937642Z",
+  "type": "message.flagged",
+  "data": {
+    "message": {
+      "id": "dff3be1d-b348-4dab-bb60-582842909a88",
+      "canonical_id": "767f6519458092af9994a79ae73ca055e1365618",
+      "external_id": "17a5db5ea7fa760d",
+      "message_source_id": "a5843e7d-4ba5-40df-954e-73cb2f1e3e7e",
+      "mailbox": {
+        "id": "f0654b68-2686-491e-8fcb-e4ad61c61ad8",
+        "external_id": "109412126579921477721"
+      }
+    },
+    "flagged_rules": [
+      {
+        "id": "756b841c-4560-49b3-a8c0-dbacb2900aa5",
+        "name": "Brand impersonation: Chase Bank",
+        "severity": "high",
+        "tags": ["brand-impersonation", "suspicious-sender"]
+      },
+      {
+        "id": "67cfc6d8-3cbb-4338-ae8e-fffb0adccd12",
+        "name": "Firebase storage link",
+        "severity": "medium",
+        "tags": ["suspicious-content"]
+      }
+    ],
+    "triggered_actions": [
+      {
+        "id": "6f45c807-a9c7-47a8-8c3e-5391e4f477ca",
+        "name": "Auto-trash",
+        "type": "trash_message"
+      },
+      {
+        "id": "8edd8b97-7b85-40d2-9045-a619ae9b4e52",
+        "name": "Notify SIEM",
+        "type": "webhook"
+      }
+    ]
+  }
+}
