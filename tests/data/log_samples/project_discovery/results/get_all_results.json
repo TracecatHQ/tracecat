@@ -1,0 +1,69 @@
+{
+  "current_page": 123,
+  "result_count": 123,
+  "total_results": 123,
+  "total_pages": 123,
+  "message": "<string>",
+  "data": [
+    {
+      "matcher_status": true,
+      "vuln_id": "<string>",
+      "target": "<string>",
+      "template_url": "<string>",
+      "created_at": "<string>",
+      "updated_at": "<string>",
+      "scan_id": "<string>",
+      "event": [
+        {
+          "curl-command": "<string>",
+          "extracted-results": ["<string>"],
+          "extractor-name": "<string>",
+          "host": "<string>",
+          "info": {
+            "classification": {
+              "cpe": "<string>",
+              "cve-id": ["<string>"],
+              "cvss-metrics": "<string>",
+              "cvss-score": 123,
+              "cwe-id": ["<string>"],
+              "epss-percentile": 123,
+              "epss-score": 123
+            },
+            "metadata": {},
+            "author": ["<string>"],
+            "description": "<string>",
+            "impact": "<string>",
+            "name": "<string>",
+            "tags": ["<string>"],
+            "reference": ["<string>"],
+            "remediation": "<string>",
+            "severity": "<string>"
+          },
+          "ip": "<string>",
+          "matched-at": "<string>",
+          "matched-line": [123],
+          "matcher-name": "<string>",
+          "matcher-status": true,
+          "path": "<string>",
+          "request": "<string>",
+          "response": "<string>",
+          "template-id": "<string>",
+          "template-path": "<string>",
+          "timestamp": "<string>",
+          "type": "<string>"
+        }
+      ],
+      "template_id": "<string>",
+      "template_path": "<string>",
+      "template_encoded": "<string>",
+      "result_type": "<string>",
+      "vuln_status": "<string>",
+      "vuln_hash": "<string>",
+      "labels": ["<string>"]
+    }
+  ],
+  "stats": {
+    "total": 123
+  },
+  "filters": {}
+}
