@@ -6,6 +6,7 @@ import dynamic from "next/dynamic"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { ClerkProvider } from "@clerk/nextjs"
 
+import { authConfig } from "@/config/auth"
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
@@ -40,11 +41,10 @@ if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
 
 export default async function RootLayout({ children }: RootLayoutProps) {
   const MaybeAnalytics = PHProvider ? PHProvider : React.Fragment
+  const MaybeClerk = authConfig.disabled ? React.Fragment : ClerkProvider
 
   return (
-    <ClerkProvider
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-    >
+    <MaybeClerk>
       <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
         <head />
         <MaybeAnalytics>
@@ -62,6 +62,6 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           </body>
         </MaybeAnalytics>
       </html>
-    </ClerkProvider>
+    </MaybeClerk>
   )
 }

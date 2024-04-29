@@ -2,12 +2,12 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useClerk, useUser } from "@clerk/nextjs"
 import { BookText, KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
 
 import { authConfig } from "@/config/auth"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
+import { useClerk, useUser } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
