@@ -92,7 +92,7 @@ export default React.memo(function IntegrationNode({
       <CardHeader className="grid p-4 px-5">
         <div className="flex w-full items-center space-x-4">
           <div className="mr-2 flex size-10 items-center justify-center rounded-full bg-slate-200/50">
-            <Icon className="size-6 shrink-0 rounded-sm" />
+            <Icon className="size-6 shrink-0 rounded-full" />
           </div>
           <div className="flex w-full flex-1 justify-between space-x-12">
             <div className="flex flex-col">
