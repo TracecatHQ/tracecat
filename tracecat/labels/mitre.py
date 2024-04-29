@@ -1,7 +1,6 @@
-import os
-from pathlib import Path
+from tracecat.config import TRACECAT_DIR
 
-MITRE_DIR = Path(os.path.expanduser("~/.tracecat"))
+MITRE_DIR = TRACECAT_DIR / "mitre"
 
 
 def to_lower_snake_case(name: str) -> str:
