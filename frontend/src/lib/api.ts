@@ -1,9 +1,6 @@
-import { redirect } from "next/navigation"
-import { Clerk } from "@clerk/clerk-js"
-import { auth } from "@clerk/nextjs/server"
 import axios, { type InternalAxiosRequestConfig } from "axios"
 
-import { authConfig } from "@/config/auth"
+import { getAuthToken } from "@/lib/auth"
 import { isServer } from "@/lib/utils"
 
 // Determine the base URL based on the execution environment
@@ -17,7 +14,6 @@ if (process.env.NODE_ENV === "development" && isServer()) {
 export const client = axios.create({
   baseURL,
 })
-const __clerk = new Clerk(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!)
 
 client.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const token = await getAuthToken()
@@ -26,31 +22,6 @@ client.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
 })
 
 export type Client = typeof client
-
-/**
- * Gets the auth token, or redirects to the login page
- *
- * @returns The authentication token
- *
- */
-export async function getAuthToken() {
-  if (authConfig.disabled) {
-    console.warn("Auth is disabled, using test token.")
-    return "super-secret-token-32-characters-long"
-  }
-  let token: string | null | undefined
-  if (isServer()) {
-    token = await auth().getToken()
-  } else {
-    await __clerk.load()
-    token = await __clerk.session?.getToken()
-  }
-  if (!token) {
-    console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/")
-  }
-  return token
-}
 
 export async function authFetch(input: RequestInfo, init?: RequestInit) {
   const token = await getAuthToken()
