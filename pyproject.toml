@@ -22,7 +22,6 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "adbc-driver-sqlite",
     "boto3==1.34.69",
     "colorlog",
     "croniter",
