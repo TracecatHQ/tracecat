@@ -1,11 +1,12 @@
 """Native integration to query AWS CloudTrail logs in S3.
 
-Optional secrets: `aws-cloudtrail-s3` secret with keys `
+Optional secrets: `aws-cloudtrail-s3` secret with keys `AWS_ACCOUNT_ID` and `AWS_ORGANIZATION_ID`.
 
 Note: this integration DOES NOT support IAM credential based authentication.
 Secrets are only used to obscure potentially sensitive data (account ID, organization ID).
 """
 
+import os
 from typing import Any, Literal
 
 import dateutil
@@ -43,15 +44,19 @@ AWS_REGION_NAMES = Literal[
 ]
 
 
-@registry.register(description="Query AWS CloudTrail logs in S3")
+@registry.register(
+    description="Query AWS CloudTrail logs in S3", secrets=["aws-cloudtrail-s3"]
+)
 def query_cloudtrail_logs(
     start: str,
     end: str,
     bucket_name: str,
-    account_id: str,
-    organization_id: str,
     query: str,
+    account_id: str | None = None,
+    organization_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    account_id = account_id or os.environ["AWS_ACCOUNT_ID"]
+    organization_id = organization_id or os.environ.get("AWS_ORGANIZATION_ID")
     logs = load_cloudtrail_logs(
         account_id=account_id,
         bucket_name=bucket_name,
