@@ -7,6 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - ./tracecat:/app/tracecat
+      - app-storage:/var/lib/tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
       # Shared
@@ -38,6 +39,7 @@ services:
       - "8001:8000"
     volumes:
       - ./tracecat:/app/tracecat
+      - app-storage:/var/lib/tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
       # Shared
@@ -70,6 +72,7 @@ services:
       - "8002:8000"
     volumes:
       - ./tracecat:/app/tracecat
+      - app-storage:/var/lib/tracecat
     environment:
       # Shared
       LOG_LEVEL: ${LOG_LEVEL}
@@ -127,7 +130,7 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     volumes:
-      - ./.rabbitmq:/var/lib/rabbitmq
+      - mq-storage:/var/lib/rabbitmq
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping", "-q"]
@@ -142,13 +145,13 @@ services:
     container_name: postgres_db
     ports:
       - "5432:5432"
+    volumes:
+      - db-storage:/var/lib/postgresql/data
     restart: always
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - tracecat-storage:/var/lib/postgresql/data
     networks:
       - internal-network
 
@@ -156,4 +159,6 @@ networks:
   internal-network:
 
 volumes:
-  tracecat-storage:
+  app-storage:
+  db-storage:
+  mq-storage:

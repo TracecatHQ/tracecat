@@ -1,11 +1,12 @@
 FROM python:3.12-slim-bookworm
 
+ARG LANCEDB_CONFIG_DIR=/var/lib/tracecat/lancedb
 # Define the environment variables
 ENV API_MODULE=tracecat.api.app:app
 ENV HOST=0.0.0.0
 ENV PORT=8000
-ENV TRACECAT_DIR=/home/apiuser/.tracecat
-ENV LANCEDB_CONFIG_DIR=$TRACECAT_DIR/lancedb
+ENV TRACECAT_DIR=/var/lib/tracecat
+ENV LANCEDB_CONFIG_DIR=/var/lib/tracecat/lancedb
 
 # Expose the application port
 EXPOSE $PORT
