@@ -18,9 +18,9 @@ from tracecat.integrations._registry import registry
 
 PD_BASE_URL = "https://api.projectdiscovery.io/v1"
 # https://docs.projectdiscovery.io/introduction
-PD_SEVERITIES = Literal["info", "low", "medium", "high", "critical"]
-PD_TIME_FILTERS = Literal["last_day", "last_week", "last_month"]
-PD_VULN_STATUSES = Literal["open", "closed" "false_positive", "fixed"]
+PD_SEVERITIES = Literal["info", "low", "medium", "high", "critical", "none"]
+PD_TIME_FILTERS = Literal["last_day", "last_week", "last_month", "none"]
+PD_VULN_STATUSES = Literal["open", "closed" "false_positive", "fixed", "none"]
 
 
 def create_pd_client() -> httpx.Client:
@@ -30,12 +30,12 @@ def create_pd_client() -> httpx.Client:
 
 @registry.register(description="Get all scan results", secrets=["project_discovery"])
 def get_all_scan_results(
+    severity: PD_SEVERITIES,
+    time: PD_TIME_FILTERS,
+    vuln_status: PD_VULN_STATUSES,
     offset: int | None = None,
     limit: int | None = None,
-    severity: PD_SEVERITIES | None = None,
     search: str | None = None,
-    time: PD_TIME_FILTERS | None = None,
-    vuln_status: PD_VULN_STATUSES | None = None,
 ) -> dict[str, Any]:
     """Get all scan results.
 
@@ -48,10 +48,10 @@ def get_all_scan_results(
             params={
                 "offset": offset,
                 "limit": limit,
-                "severity": severity,
+                "severity": severity if severity != "none" else None,
                 "search": search,
-                "time": time,
-                "vuln_status": vuln_status,
+                "time": time if time != "none" else None,
+                "vuln_status": vuln_status if vuln_status != "none" else None,
             },
         )
         response.raise_for_status()

@@ -39,4 +39,5 @@ ActionType = Literal[
     "integrations.virustotal.get_file_report",
     "integrations.virustotal.get_ip_address_report",
     "integrations.virustotal.get_url_report",
+    "integrations.project_discovery.get_all_scan_results",
 ]
