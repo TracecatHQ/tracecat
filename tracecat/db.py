@@ -1,7 +1,6 @@
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 from uuid import uuid4
 
@@ -26,6 +25,7 @@ from tracecat import auth, integrations
 from tracecat.config import (
     TRACECAT__APP_ENV,
     TRACECAT__RUNNER_URL,
+    TRACECAT_DIR,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
 from tracecat.logger import standard_logger
@@ -37,9 +37,7 @@ if TYPE_CHECKING:
 logger = standard_logger("db")
 
 
-STORAGE_PATH = Path(
-    os.environ.get("TRACECAT__STORAGE_PATH", os.path.expanduser("~/.tracecat/storage"))
-)
+STORAGE_PATH = TRACECAT_DIR / "storage"
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
     "Ignore",
