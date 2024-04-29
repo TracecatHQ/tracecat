@@ -34,7 +34,8 @@ const integrationPlatforms = [
   "emailrep",
   "sublime",
   "urlscan",
-  "virustotal"
+  "virustotal",
+  "project_discovery",
 ] as const
 export type IntegrationPlatform = (typeof integrationPlatforms)[number]
 
@@ -69,6 +70,7 @@ const integrationTypes = [
   "integrations.virustotal.get_file_report",
   "integrations.virustotal.get_ip_address_report",
   "integrations.virustotal.get_url_report",
+  "integrations.project_discovery.get_all_scan_results",
 ] as const
 export type IntegrationType = (typeof integrationTypes)[number]
 
