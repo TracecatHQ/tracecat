@@ -65,10 +65,6 @@ export async function authFetch(input: RequestInfo, init?: RequestInit) {
   return await fetch(input, enhancedInit)
 }
 
-export async function streamingResponse(endpoint: string, init?: RequestInit) {
-  return fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, init)
-}
-
 /**
  * Wrapper around fetch to stream data from the server
  * We're using this over EventSource because we need authentication
