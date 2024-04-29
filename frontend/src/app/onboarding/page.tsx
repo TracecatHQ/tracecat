@@ -2,13 +2,17 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useUser } from "@clerk/nextjs"
 import ConfettiExplosion from "react-confetti-explosion"
 
+import { useUser } from "@/lib/auth"
 import { completeOnboarding, newUserFlow } from "@/lib/onboarding"
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
 
+/**
+ * This component only gets rendered in
+ * @returns The onboarding component
+ */
 export default function OnboardingComponent() {
   const [isExploding, setIsExploding] = useState(false)
   const [isLoading, setIdLoading] = useState(false)

@@ -1,5 +1,4 @@
 import React from "react"
-import { useUser } from "@clerk/nextjs"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ChatBubbleIcon } from "@radix-ui/react-icons"
 import { useForm } from "react-hook-form"
@@ -7,6 +6,7 @@ import { z } from "zod"
 
 import { CaseEvent, CasePriorityType, CaseStatusType } from "@/types/schemas"
 import { userDefaults } from "@/config/user"
+import { useUser } from "@/lib/auth"
 import { useCaseEvents } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
