@@ -10,64 +10,69 @@ description: Run Tracecat locally
 
 Install Tracecat locally on your machine.
 
-## Video Tutorial
-
-<iframe
-  width="560"
-  height="315"
-  src="https://www.youtube.com/embed/BrZt3atHsxM?si=DVPcJE_au3bob9Y2"
-  title="YouTube video player"
-  frameborder="0"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-  referrerpolicy="strict-origin-when-cross-origin"
-  allowfullscreen
-></iframe>
-
 ## Prerequisites
 
 ### Required
 
 - [Docker](https://docs.docker.com/get-docker/)
-- [Docker compose](https://docs.docker.com/compose/install/)
+- [Docker Compose](https://docs.docker.com/compose/install/)
 - [ngrok](https://ngrok.com/)
-- [Supabase CLI Tool](https://supabase.com/docs/guides/cli/getting-started)
 
 ### Optional
 
-- [OpenAI API key](https://platform.openai.com/signup)
-- [Resend API Key](https://resend.com/docs/introduction)
+You don't have to set up these services to run Tracecat, but they are required for certain features.
 
-## Start Tracecat
+- [OpenAI API key](https://platform.openai.com/signup) (required for AI actions)
+- [Resend API Key](https://resend.com/docs/introduction) (required for Email actions)
 
-Please install the prerequisite tools beforehand, then run the command below to start Tracecat and all related services.
+## Setup
+
+Please install the prerequisite tools beforehand.
+
+Clone the Tracecat repository and navigate to the project root:
 
 ```bash
 git clone git@github.com:TracecatHQ/tracecat.git
 cd tracecat
-chmod +x services.sh
-bash services.sh start --env prod
 ```
 
-<Note>
-  You can run `bash services.sh start --env prod --tail` to view the logs of all
-  services in real-time.
-</Note>
+### Environment variables
 
-You'll be prompted to enter your public facing Runner URL (you can set one up using ngrok), OpenAI API key, and Resend API key.
-If you use ngrok, the Runner URL should take the form `https://<your-ngrok-domain>.ngrok-free.app`.
-See the section [Export runner via ngrok](#expose-runner-via-ngrok) for more details.
+#### Manual
 
+To manually set up environment variables, copy `.env.example` to create a `.env` file.
+
+```bash
+cp .env.example .env
+```
+
+You will have to replace the environment variables prefixed with `your-.*` with your own values.
+
+#### Using `env.sh` (recommended)
+
+The `env.sh` script runs commands to set up the database encryption key, API service key, and webhook signing secret for you.
+
+Run the following command to create a `.env` file in the root directory:
+
+```bash
+chmod +x env.sh
+bash env.sh
+```
+
+You'll be prompted to enter your public facing Runner URL, OpenAI API key, and Resend API key.
 If you'd rather provide these later, you can skip each prompt step by pressing `Enter`.
-You can update the `.env` file in the root directory then run `bash services.sh start` again to restart the services.
 
-## Expose runner via ngrok
+If you use `ngrok`, the Runner URL should take the form `https://<your-ngrok-domain>.ngrok-free.app`.
+See the section [Expose runner via ngrok](#expose-runner-via-ngrok) for more details.
+
+### Expose runner via ngrok
 
 Go to [ngrok](https://ngrok.com/) and create an account.
 Follow the instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install `ngrok` on your local machine.
 Then, go to [ngrok dashboard](https://dashboard.ngrok.com/cloud-edge/domains) and create a new domain (you get 1 free static domain).
 The domain should be in the format `<some-random-phrase>.ngrok-free.app`.
 
-For example, if your ngrok domain is `your-grnok-domain.ngrok-free.app`, start ngrok by running the following command:
+For example, if your ngrok domain is `your-grnok-domain.ngrok-free.app`, start `ngrok` by running the following command:
 
 ```bash
 ngrok http --domain=your-ngrok-domain.ngrok-free.app 8001
@@ -80,8 +85,8 @@ ngrok http http://localhost:8001
 ```
 
 <Note>
-  Binding ngrok to port 8001 on the host machine forwards the runner server to
-  the internet and enables incoming webhooks.
+  By binding `ngrok` to port 8001 on the host machine, incoming webhook requests
+  are forwarded to the Runner container.
 </Note>
 
 If correctly set up, your .env should contain:
@@ -90,15 +95,19 @@ If correctly set up, your .env should contain:
 TRACECAT__RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
 ```
 
-## Create user
+### Start Tracecat services
 
-Go to the Supabase dashboard at `http://localhost:54323`, navigate to the authentication tab, and create a new user.
+Finally, start Tracecat using `docker compose`:
+
+```bash
+docker compose up
+```
 
 ## Access Tracecat
 
 The Tracecat frontend should now be running on port `3000`.
 To access the frontend, open your browser and navigate to `http://localhost:3000`.
-Sign-in with the user you created in Supabase.
+You do not need to create an account for local usage.
 
 Tracecat's API and runner servers are also accessible via ports `8000` and `8001`, respectively.
 You can view the API docs at `http://localhost:8000/docs` and the runner docs at `http://localhost:8001/docs`.
@@ -115,24 +124,23 @@ You can view the API docs at `http://localhost:8000/docs` and the runner docs at
 To spin down all services, run the following command:
 
 ```bash
-bash services.sh stop --env prod
+docker compose down --remove-orphans
 ```
 
-If you'd like to spin down specific services, you can pass additional options as such:
+## Authentication
+
+So far, we've shown how to run Tracecat locally without authentication and runnning with a default user.
+
+If you want to enable authentication, you can set the `TRACECAT__DISABLE_AUTH` environment variable to `false` or `0` in the `.env` file. This requires you to have a Clerk account and set up the Clerk environment variables in `.env`.
 
 ```bash
-bash services.sh stop --internal # or -i, Stops all Tracecat internal services
-bash services.sh stop --supabase # or -s, Stops Supabase services
+# --- Authentication + Clerk ---
+TRACECAT__DISABLE_AUTH=0
+# Fill these in!
+CLERK_FRONTEND_API_URL=...
+CLERK_SECRET_KEY=...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
 ```
-
-## Restarting services
-
-Running `bash services.sh start` will restart all services if they are already running.
-
-## Runtime environment configuration
-
-Note that we've been passing `--env prod` flag to the `services.sh` script. This is to avoid having to install `npm` and `pnpm` on the host machine.
-If you'd like to make code contributions or run the services in development mode, use `--env dev` instead or don't pass an environment flag (runs as `dev` by default).
 
 ## Troubldshooting
 
