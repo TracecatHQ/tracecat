@@ -30,6 +30,7 @@ export type ActionType = (typeof actionTypes)[number]
 /** All platforms that are supported by the system. */
 const integrationPlatforms = [
   "aws_cloudtrail",
+  "aws_guardduty",
   "datadog",
   "emailrep",
   "sublime",
@@ -49,6 +50,7 @@ export type IntegrationPlatform = (typeof integrationPlatforms)[number]
  */
 const integrationTypes = [
   "integrations.aws_cloudtrail.query_cloudtrail_logs",
+  "integrations.aws_guardduty.query_guardduty_findings",
   "integrations.datadog.list_detection_rules",
   "integrations.datadog.list_security_signals",
   "integrations.datadog.update_security_signal_state",
