@@ -4,7 +4,9 @@ from pathlib import Path
 HTTP_MAX_RETRIES = 10
 LLM_MAX_RETRIES = 3
 
-TRACECAT_DIR = Path(os.environ["TRACECAT_DIR"]).expanduser().resolve()
+TRACECAT_DIR = (
+    Path(os.environ.get("TRACECAT_DIR", "~/.tracecat")).expanduser().resolve()
+)
 TRACECAT__SCHEDULE_INTERVAL_SECONDS = os.environ.get(
     "TRACECAT__SCHEDULE_INTERVAL_SECONDS", 60
 )
