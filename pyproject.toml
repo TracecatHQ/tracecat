@@ -39,7 +39,6 @@ dependencies = [
     "python-jose[cryptography]",
     "python-slugify",
     "sqlmodel",
-    "tantivy",
     "tenacity",
     "uvicorn",
     "aio-pika==9.4.1",
