@@ -9,7 +9,7 @@ Secrets are only used to obscure potentially sensitive data (account ID, organiz
 import os
 from typing import Any, Literal
 
-import dateutil
+import dateutil.parser
 
 from tracecat.etl.aws_cloudtrail import load_cloudtrail_logs
 from tracecat.etl.query_builder import pl_sql_query
