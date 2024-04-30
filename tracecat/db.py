@@ -6,7 +6,6 @@ from uuid import uuid4
 
 import lancedb
 import pyarrow as pa
-import tantivy
 from croniter import croniter
 from pydantic import computed_field, field_validator
 from slugify import slugify
@@ -345,30 +344,6 @@ def create_db_engine() -> Engine:
     return engine
 
 
-def build_events_index():
-    index_path = STORAGE_PATH / "event_index"
-    index_path.mkdir(parents=True, exist_ok=True)
-    event_schema = (
-        tantivy.SchemaBuilder()
-        .add_date_field("published_at", fast=True, stored=True)
-        .add_text_field("action_id", stored=True)
-        .add_text_field("action_run_id", stored=True)
-        .add_text_field("action_title", stored=True)
-        .add_text_field("action_type", stored=True)
-        .add_text_field("workflow_id", stored=True)
-        .add_text_field("workflow_title", stored=True)
-        .add_text_field("workflow_run_id", stored=True)
-        .add_json_field("data", stored=True)
-        .build()
-    )
-    tantivy.Index(event_schema, path=str(index_path))
-
-
-def create_events_index() -> tantivy.Index:
-    index_path = STORAGE_PATH / "event_index"
-    return tantivy.Index.open(str(index_path))
-
-
 def create_vdb_conn() -> lancedb.DBConnection:
     db = lancedb.connect(STORAGE_PATH / "vector.db")
     return db
@@ -409,8 +384,6 @@ def initialize_db() -> Engine:
     # VectorDB
     db = create_vdb_conn()
     db.create_table("cases", schema=CaseSchema, exist_ok=True)
-    # Search
-    build_events_index()
 
     with Session(engine) as session:
         # Add TTPs to context table only if context table is empty

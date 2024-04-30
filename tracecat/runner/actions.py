@@ -38,21 +38,19 @@ import asyncio
 import logging
 import random
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import UTC, datetime
 from enum import StrEnum, auto
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import uuid4
 
 import httpx
-import tantivy
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.contexts import ctx_session_role
-from tracecat.db import create_events_index, create_vdb_conn
+from tracecat.db import create_vdb_conn
 from tracecat.integrations import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.logger import standard_logger
@@ -383,37 +381,6 @@ async def _wait_for_dependencies(
         await asyncio.sleep(random.uniform(0, 0.5))
 
 
-def _index_events(
-    action_id: str,
-    action_run_id: str,
-    action_title: str,
-    action_type: ActionType,
-    workflow_id: str,
-    workflow_title: str,
-    workflow_run_id: str,
-    action_trail: ActionTrail,
-):
-    # Add trail to events store
-    writer = create_events_index().writer()
-    writer.add_document(
-        tantivy.Document(
-            action_id=action_id,
-            action_run_id=action_run_id,
-            action_title=action_title,
-            action_type=action_type,
-            workflow_id=workflow_id,
-            workflow_title=workflow_title,
-            workflow_run_id=workflow_run_id,
-            data={
-                # Explicitly serialize to json using pydantic to handle datetimes
-                action_run_id: trail.model_dump_json(include={"output"})
-                for action_run_id, trail in action_trail.items()
-            },
-            published_at=datetime.now(UTC).replace(tzinfo=None),
-        )
-    )
-
-
 async def start_action_run(
     action_run: ActionRun,
     # Shared data structures
@@ -501,23 +468,6 @@ async def start_action_run(
             action_run_status_store[ar_id] = ActionRunStatus.FAILURE
 
         running_jobs_store.pop(ar_id, None)
-
-    # Add trail to events store
-    # TODO(perf): Run this outside of the async event loop
-    try:
-        await asyncio.to_thread(
-            _index_events,
-            action_id=action_ref.id,
-            action_run_id=ar_id,
-            action_title=action_ref.title,
-            action_type=action_ref.type,
-            workflow_id=workflow_ref.id,
-            workflow_title=workflow_ref.title,
-            workflow_run_id=action_run.workflow_run_id,
-            action_trail=action_trail,
-        )
-    except Exception as e:
-        custom_logger.error("Tantivy indexing failed.", exc_info=e)
 
     await emit_update_action_run_event(
         action_run, status=run_status, error_msg=error_msg, result=result

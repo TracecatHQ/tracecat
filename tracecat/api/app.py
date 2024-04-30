@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import polars as pl
-import tantivy
 from aio_pika import Channel
 from aio_pika.pool import Pool
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -40,7 +39,6 @@ from tracecat.db import (
     Workflow,
     WorkflowRun,
     clone_workflow,
-    create_events_index,
     create_vdb_conn,
     initialize_db,
 )
@@ -984,21 +982,7 @@ def search_events(
 
     Note: currently on supports filter by `workflow_id` and sort by `published_at`.
     """
-    # TODO: Change this to use tantivy filtered query
-    with Session(engine) as session:
-        statement = select(Workflow.owner_id).where(Workflow.id == params.workflow_id)
-        workflow_owner_id = session.exec(statement).one_or_none()
-        if not workflow_owner_id or workflow_owner_id != role.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
-    index = create_events_index()
-    index.reload()
-    query = index.parse_query(params.workflow_id, ["workflow_id"])
-    searcher = index.searcher()
-    searcher.search(
-        query, order_by_field=tantivy.field(params.order_by), limit=params.limit
-    )
+    raise NotImplementedError
 
 
 ### Case Management
