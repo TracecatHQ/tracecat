@@ -216,14 +216,14 @@ export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
 export const secretTypes = ["custom", "token", "oauth2"] as const
 export type SecretType = (typeof secretTypes)[number]
 
-const snakeCaseRegex = /^[a-z]+(_[a-z]+)*$/
+const secretNameRegex = /^[a-z]+([_-][a-z]+)*$/
 export const secretSchema = z.object({
   id: z.string().min(1).optional(),
   type: z.enum(secretTypes),
   name: z
     .string()
     .min(1, "Please enter a secret name.")
-    .regex(snakeCaseRegex, "Secret name must be snake case."),
+    .regex(secretNameRegex, "Secret name must be snake case."),
   description: z.string().max(255).nullish(),
   // Can take different types of secrets
   keys: z.array(keyValueSchema),
