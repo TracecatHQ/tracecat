@@ -10,6 +10,9 @@ description: Run Tracecat locally
 
 Install Tracecat locally on your machine.
 
+_NOTE: The default setup is not intended for production use, but rather for
+development and testing purposes._
+
 ## Prerequisites
 
 ### Required
@@ -17,6 +20,7 @@ Install Tracecat locally on your machine.
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker Compose](https://docs.docker.com/compose/install/)
 - [ngrok](https://ngrok.com/)
+- [pnpm](https://pnpm.io/installation)
 
 ### Optional
 
@@ -35,6 +39,17 @@ Clone the Tracecat repository and navigate to the project root:
 git clone git@github.com:TracecatHQ/tracecat.git
 cd tracecat
 ```
+
+From here, install the frontend dependencies using `pnpm`:
+
+```bash
+cd frontend
+pnpm install
+```
+
+<Note>
+  The frontend Docker container looks for `node_modules` on the host machine.
+</Note>
 
 ### Environment variables
 
