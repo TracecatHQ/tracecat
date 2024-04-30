@@ -112,7 +112,7 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
                 <div
                   className={cn(
                     buttonVariants({ variant: variant, size: "icon" }),
-                    "my-1 h-9 w-9",
+                    "h-9 w-9",
                     variant === "default" &&
                       "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
                     hierarchy === "group" || availability === "comingSoon"
