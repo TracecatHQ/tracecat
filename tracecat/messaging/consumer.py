@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -87,7 +86,6 @@ async def subscribe(
     async def _subscribe():
         logger.info("Preparing to subscribe to events...")
         async with pool.acquire() as channel:
-            await asyncio.sleep(3)
             logger.info("Subscribing to events...")
             async for event in event_consumer(
                 channel=channel,
