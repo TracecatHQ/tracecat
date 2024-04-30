@@ -96,7 +96,7 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
       data-collapsed={isCollapsed}
       className="group flex flex-col gap-4 p-2 data-[collapsed=true]:py-2"
     >
-      <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
+      <nav className="grid px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
         {tiles.map((tile, index) => {
           const {
             type,
@@ -112,7 +112,7 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
                 <div
                   className={cn(
                     buttonVariants({ variant: variant, size: "icon" }),
-                    "h-9 w-9",
+                    "my-1 h-9 w-9",
                     variant === "default" &&
                       "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
                     hierarchy === "group" || availability === "comingSoon"
@@ -155,30 +155,36 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
             >
               <TooltipTrigger asChild>
                 <div
-                  key={index}
                   className={cn(
-                    buttonVariants({ variant: variant, size: "sm" }),
-                    "justify-start space-x-1",
-                    variant === "default" &&
-                      "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                    hierarchy === "groupItem" && "ml-6",
-                    hierarchy === "group" || availability === "comingSoon"
-                      ? "hover:cursor-default hover:bg-transparent"
-                      : "hover:cursor-grab",
-                    availability === "comingSoon" && "opacity-50"
+                    hierarchy === "groupItem" &&
+                      "ml-5 border-l border-zinc-300 pl-1"
                   )}
-                  draggable={
-                    hierarchy !== "group" && availability !== "comingSoon"
-                  }
-                  onDragStart={(event) => onDragStart(event, tile)}
-                  onClick={() => {
-                    if (!availability) {
-                      handleTileClick(type, title)
-                    }
-                  }}
                 >
-                  <TileIcon className="mr-2 h-4 w-4" />
-                  <span>{title}</span>
+                  <div
+                    key={index}
+                    className={cn(
+                      buttonVariants({ variant: variant, size: "sm" }),
+                      "justify-start space-x-1",
+                      variant === "default" &&
+                        "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
+                      hierarchy === "group" || availability === "comingSoon"
+                        ? "hover:cursor-default hover:bg-transparent"
+                        : "hover:cursor-grab",
+                      availability === "comingSoon" && "opacity-50"
+                    )}
+                    draggable={
+                      hierarchy !== "group" && availability !== "comingSoon"
+                    }
+                    onDragStart={(event) => onDragStart(event, tile)}
+                    onClick={() => {
+                      if (!availability) {
+                        handleTileClick(type, title)
+                      }
+                    }}
+                  >
+                    <TileIcon className="mr-2 h-4 w-4" />
+                    <span>{title}</span>
+                  </div>
                 </div>
               </TooltipTrigger>
               {availability && (
