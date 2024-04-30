@@ -7,14 +7,17 @@ import logging
 from collections.abc import Generator
 from functools import partial
 from itertools import chain
+from typing import TYPE_CHECKING
 
 import boto3
 import botocore.session
 import polars as pl
-from mypy_boto3_guardduty.type_defs import GetFindingsResponseTypeDef
 from tqdm.contrib.concurrent import thread_map
 
 from tracecat.logger import standard_logger
+
+if TYPE_CHECKING:
+    from mypy_boto3_guardduty.type_defs import GetFindingsResponseTypeDef
 
 logger = standard_logger("runner.aws_guardduty")
 
