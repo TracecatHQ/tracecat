@@ -8,85 +8,19 @@ Only AWS is currently supported, but we plan to support Azure and GCP in the nea
 
 ## AWS
 
-Tracecat supports deployment to AWS using infrastructure-as-code.
-You can find the AWS CDK stack in the `aws` [directory](https://github.com/TracecatHQ/tracecat/blob/main/aws/stack.py).
+Tracecat supports deployment to AWS via CDK (cloud development kit) stack.
+For security purposes, we require self-hosted Cloud users to request access to the CDK code via founders@tracecat.com email.
 
 Tracecat's AWS deployment includes the following resources:
 - 1 VPC
 - 1 AmazonMQ Broker
 - 2 ECS Fargate Services
 - 1 Application Load Balancer
-- 1 Elastic File System
-- Security Groups
-- Log Groups
-
-<Steps>
-  <Step title="Create AWS secret">
-    Go into AWS secrets manager and create a key-value pair type secret with the following sensitive data:
-    ```
-    rabbitmq-default-pass = your_rabbitmq_password
-    rabbitmq-default-user = your_rabbitmq_user
-    db-encryption-key     = your_fernet_key
-    db-uri                = your_postgres_uri
-    service-key           = ${ openssl rand -hex 32 }
-    signing-secret        = ${ openssl rand -hex 32 }
-    supabase-jwt-secret   = your_supabase_jwt_secret
-
-    # Optional
-    openai-api-key=       = your-openai-api-key
-    resend-api-key=       = your-resend-api-key
-    ```
-    Keep note of the created AWS secret's ARN.
-  </Step>
-  <Step title="Configure domains and TLS certificates">
-    Use Route53 to create a hosted zone for your domain.
-    You will also need to create an ACM certificate for your primary domain
-    and subdomains `api.your-domain.com` and `runner.your-domain.com`.
-  </Step>
-  <Step title="Set environment variables">
-    Set the following environment variables in the session that you will be deploying Tracecat from.
-    These environment variables are used by the AWS CDK stack to configure the deployment.
-    ```
-    TRACECAT__APP_ENV
-    AWS_ECR__REPOSITORY_URI
-    AWS_ECR__IMAGE_TAG
-    AWS_SECRET__ARN
-    AWS_ROUTE53__HOSTED_ZONE_ID
-    AWS_ROUTE53__HOSTED_ZONE_NAME
-    AWS_ACM__CERTIFICATE_ARN
-    AWS_ACM__API_CERTIFICATE_ARN
-    AWS_ACM__RUNNER_CERTIFICATE_ARN
-    ```
-    <Info>You can define `TRACECAT__APP_ENV` as `production`, `staging`, or `development`.</Info>
-
-  </Step>
-  <Step title="Clone GitHub repository">
-    ```bash
-    git clone git@github.com:TracecatHQ/tracecat.git
-    cd tracecat
-    ```
-  </Step>
-  <Step title="Install AWS CDK dependencies">
-
-    <Info>You'll need to install [`npm`](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) for this step.</Info>
-
-    ```bash
-    npm install -g aws-cdk@2.133 && cdk --version
-    pip install --upgrade pip && pip install -r requirements-cdk.txt
-    ```
-  </Step>
-  <Step title="Deploy AWS CDK stack">
-
-    First make sure you are [properly authenticated]() with AWS CLI and have the [appropriate permissions]() to deploy AWS CDK stacks.
-    Run the following commands to deploy Tracecat to AWS:
-
-    ```bash
-    cdk synth --app "python3 aws_cdk_app.py"
-    cdk bootstrap --app cdk.out
-    cdk deploy --app cdk.out --require-approval never
-    ```
-  </Step>
-</Steps>
+- 1 S3 Bucket
+- 1 AmazonMQ Broker
+- 1 Firewall (optional)
+- Multiple Security Groups
+- Multiple Logs Groups
 
 ## Azure
 
