@@ -17,8 +17,8 @@ development and testing purposes._
 
 ### Required
 
-- [Docker](https://docs.docker.com/get-docker/)
-- [Docker Compose](https://docs.docker.com/compose/install/)
+- [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+)
+- [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2)
 - [ngrok](https://ngrok.com/)
 - [pnpm](https://pnpm.io/installation)
 
@@ -110,6 +110,53 @@ If correctly set up, your .env should contain:
 TRACECAT__RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
 ```
 
+### Linux users
+
+If you are using Linux, you may encounter issues around being unable to resolve `host.docker.internal` from within the Docker containers.
+
+To resolve this, you can add the following parameter to each of the services in the `docker-compose.yaml` file, as suggested by this [StackOverflow post](https://stackoverflow.com/a/67158212).
+
+For example:
+
+```yaml
+services:
+  api:
+    build: .
+    container_name: api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./tracecat:/app/tracecat
+      - app-storage:/var/lib/tracecat
+    environment:
+      API_MODULE: "tracecat.api.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Auth
+      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - internal-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+# Do the same for the rest of the services
+# ...
+```
+
 ### Start Tracecat services
 
 Finally, start Tracecat using `docker compose`:
@@ -166,4 +213,4 @@ This allows Docker containers to reference the Docker host machine.
 
 For example, if you have a service `api` running in a container with port mapping `1234:8000` (mapping of port 1234 on the Docker host and 8000 in the container), from inside the Docker network you should be able to reference it using `http://api:8000`.
 
-We are working on a more robust solution to this issue - we appreciate your patience!
+If you're using Linux, please refer to the [Linux users](#linux-users) section. On MacOS and Windows WSL, you shouldn't have this issue. If you do, please refer to the [Docker networking docs](https://docs.docker.com/network/) or reach out to us on [Discord](https://discord.gg/n3GF4qxFU8) for help.
