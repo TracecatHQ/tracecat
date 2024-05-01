@@ -9,23 +9,23 @@
 
 <div align="center">
 
-  ![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge&logo=apache)
-  ![Commit Activity](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github)
-  [![Docs](https://img.shields.io/badge/Docs-available-blue?style=for-the-badge&logoColor=white)](https://docs.tracecat.com)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge&logo=apache)
+![Commit Activity](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github)
+[![Docs](https://img.shields.io/badge/Docs-available-blue?style=for-the-badge&logoColor=white)](https://docs.tracecat.com)
 
 </div>
 
 <div align="center">
 
-  ![Next.js](https://img.shields.io/badge/next.js-%23000000.svg?style=for-the-badge&logo=next.js&logoColor=white)
-  ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
-  [![Pydantic v2](https://img.shields.io/endpoint?style=for-the-badge&url=https://raw.githubusercontent.com/pydantic/pydantic/main/docs/badge/v2.json)](https://docs.pydantic.dev/latest/contributing/#badges)
-  [![Discord](https://img.shields.io/discord/1212548097624903681.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/n3GF4qxFU8)
+![Next.js](https://img.shields.io/badge/next.js-%23000000.svg?style=for-the-badge&logo=next.js&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+[![Pydantic v2](https://img.shields.io/endpoint?style=for-the-badge&url=https://raw.githubusercontent.com/pydantic/pydantic/main/docs/badge/v2.json)](https://docs.pydantic.dev/latest/contributing/#badges)
+[![Discord](https://img.shields.io/discord/1212548097624903681.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/n3GF4qxFU8)
 
 </div>
 
-*Disclaimer: Tracecat is currently in public alpha. If you'd like to use Tracecat in production, please reach out to us on Discord or founders@tracecat.com!*
-*Want to take Tracecat for a spin? Try out our [tutorials](https://docs.tracecat.com/quickstart) with [Tracecat Cloud](https://platform.tracecat.com) or [self-hosted](https://docs.tracecat.com/installation).*
+_Disclaimer: Tracecat is currently in public alpha. If you'd like to use Tracecat in production, please reach out to us on Discord or founders@tracecat.com!_
+_Want to take Tracecat for a spin? Try out our [tutorials](https://docs.tracecat.com/quickstart) with [Tracecat Cloud](https://platform.tracecat.com) or [self-hosted](https://docs.tracecat.com/installation)._
 
 [Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Splunk SOAR with:
 
@@ -42,7 +42,6 @@ The easiest way to get started is to sign-up for [Tracecat Cloud](https://platfo
 We also support [self-hosted](https://docs.tracecat.com/installation) Tracecat.
 
 ![autocomplete_gif](https://github.com/TracecatHQ/tracecat/assets/46541035/52b822a9-fbd5-4f08-a4ec-54e8fd1b8f02)
-
 
 ## Getting started
 
@@ -132,7 +131,7 @@ Here are a few integrations on our roadmap:
 
 Please do not file GitHub issues or post on our public forum for security vulnerabilities, as they are public!
 
-Infisical takes security issues very seriously. If you have any concerns about Tracecat or believe you have uncovered a vulnerability, please get in touch via the e-mail address security@tracecat.com. In the message, try to provide a description of the issue and ideally a way of reproducing it. The security team will get back to you as soon as possible.
+Tracecat takes security issues very seriously. If you have any concerns about Tracecat or believe you have uncovered a vulnerability, please get in touch via the e-mail address security@tracecat.com. In the message, try to provide a description of the issue and ideally a way of reproducing it. The security team will get back to you as soon as possible.
 
 Note that this security address should be used only for undisclosed vulnerabilities. Please report any security problems to us before disclosing it publicly.
 
