@@ -52,7 +52,12 @@ from fastapi.responses import ORJSONResponse
 
 from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
 from tracecat.config import TRACECAT__API_URL, TRACECAT__APP_ENV
-from tracecat.contexts import ctx_mq_channel_pool, ctx_session_role, ctx_workflow
+from tracecat.contexts import (
+    ctx_logger,
+    ctx_mq_channel_pool,
+    ctx_session_role,
+    ctx_workflow,
+)
 from tracecat.logger import standard_logger
 from tracecat.messaging import use_channel_pool
 from tracecat.runner.actions import (
@@ -381,13 +386,14 @@ async def run_workflow(
     """
     # TODO: Move some of these into ContextVars
     workflow_run_id = uuid4().hex
+    run_logger = standard_logger(f"wfr-{workflow_run_id}")
+    ctx_logger.set(run_logger)
     try:
         await emit_create_workflow_run_event(
             workflow_id=workflow_id, workflow_run_id=workflow_run_id
         )
-        run_logger = standard_logger(f"wfr-{workflow_run_id}")
         workflow = await get_workflow(workflow_id)
-        logger.info(f"Set workflow context for user {workflow.owner_id}")
+        run_logger.info(f"Set workflow context for user {workflow.owner_id}")
         ctx_workflow.set(workflow)
 
         # Initial state
@@ -436,7 +442,6 @@ async def run_workflow(
                     running_jobs_store=running_jobs_store,
                     action_result_store=action_result_store,
                     action_run_status_store=action_run_status_store,
-                    custom_logger=run_logger,
                     pending_timeout=120,
                 )
             )
