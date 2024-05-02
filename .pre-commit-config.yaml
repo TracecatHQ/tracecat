@@ -20,3 +20,7 @@ repos:
         args:
         - --fix
     -   id: ruff-format
+-   repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2  # Specify the desired version of Gitleaks
+    hooks:
+        - id: gitleaks
