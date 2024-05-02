@@ -81,7 +81,7 @@ class Resource(SQLModel):
         sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
-            "server_onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
+            "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )
