@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
@@ -15,3 +16,4 @@ ctx_workflow: ContextVar[Workflow] = ContextVar("workflow", default=None)
 ctx_mq_channel_pool: ContextVar[Pool[Channel]] = ContextVar(
     "mq_channel_pool", default=None
 )
+ctx_logger: ContextVar[logging.Logger] = ContextVar("logger", default=None)
