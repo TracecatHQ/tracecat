@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, validator
 from tracecat.logger import standard_logger
 from tracecat.runner.actions import (
     Action,
-    ActionSubclass,
+    ActionVariant,
 )
 from tracecat.types.api import (
     ActionResponse,
@@ -28,7 +28,7 @@ class Workflow(BaseModel):
     title: str
     status: Literal["online", "offline"]
     adj_list: dict[str, list[str]]
-    actions: dict[str, ActionSubclass]
+    actions: dict[str, ActionVariant]
     owner_id: str
 
     @cached_property

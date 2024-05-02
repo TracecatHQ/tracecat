@@ -61,7 +61,7 @@ from tracecat.runner.events import (
 )
 from tracecat.runner.llm import (
     TaskFields,
-    TaskFieldsSubclass,
+    TaskFieldsVariant,
     generate_pydantic_json_response_schema,
     get_system_context,
 )
@@ -280,7 +280,7 @@ class LLMAction(Action):
     message: str
     # Discriminated union with str discriminators
     # https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions-with-str-discriminators
-    task_fields: TaskFieldsSubclass = Field(..., discriminator="type")
+    task_fields: TaskFieldsVariant = Field(..., discriminator="type")
     system_context: str | None = None
     model: ModelType = DEFAULT_MODEL_TYPE
     response_schema: dict[str, Any] | None = None
@@ -347,7 +347,7 @@ ACTION_FACTORY: dict[str, type[Action]] = {
 
 
 ActionTrail = dict[str, ActionRunResult]
-ActionSubclass = (
+ActionVariant = (
     WebhookAction
     | HTTPRequestAction
     | ConditionAction

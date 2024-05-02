@@ -62,7 +62,7 @@ class EnrichTaskFields(TaskFields):
     type: Literal["llm.enrich"] = Field("llm.enrich", frozen=True)
 
 
-TaskFieldsSubclass = (
+TaskFieldsVariant = (
     TranslateTaskFields
     | ExtractTaskFields
     | LabelTaskFields
