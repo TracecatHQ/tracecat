@@ -49,7 +49,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.config import HTTP_MAX_RETRIES
-from tracecat.contexts import ctx_session_role
+from tracecat.contexts import ctx_logger, ctx_session_role
 from tracecat.db import create_vdb_conn
 from tracecat.integrations import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
@@ -82,8 +82,6 @@ from tracecat.types.cases import Case
 if TYPE_CHECKING:
     from tracecat.runner.workflows import Workflow
 
-logger = standard_logger(__name__)
-
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
@@ -94,6 +92,10 @@ ACTION_KEY_PATTERN = r"^[a-zA-Z0-9]+\.[a-z0-9\_]+$"
 
 
 ACTION_RUN_ID_PREFIX = "ar"
+
+
+def _get_logger() -> logging.Logger:
+    return ctx_logger.get() or standard_logger(__name__)
 
 
 def action_key_to_id(action_key: str) -> str:
@@ -391,8 +393,8 @@ async def start_action_run(
     action_run_status_store: dict[str, ActionRunStatus],
     # Dynamic data
     pending_timeout: float | None = None,
-    custom_logger: logging.Logger | None = None,
 ) -> None:
+    logger = _get_logger()
     try:
         await emit_create_action_run_event(action_run)
         ar_id = action_run.id
@@ -400,8 +402,7 @@ async def start_action_run(
         upstream_deps_ar_ids = action_run.upstream_dependencies(
             workflow=workflow_ref, action_key=action_key
         )
-        custom_logger = custom_logger or logger
-        custom_logger.debug(
+        logger.debug(
             f"Action run {ar_id} waiting for dependencies {upstream_deps_ar_ids}."
         )
 
@@ -417,7 +418,7 @@ async def start_action_run(
             upstream_deps_ar_ids, action_result_store
         )
 
-        custom_logger.debug(f"Running action {ar_id!r}. Trail {action_trail.keys()}.")
+        logger.debug(f"Running action {ar_id!r}. Trail {action_trail.keys()}.")
         action_run_status_store[ar_id] = ActionRunStatus.RUNNING
         action_ref = workflow_ref.actions[action_key]
         await emit_update_action_run_event(action_run, status="running")
@@ -432,7 +433,6 @@ async def start_action_run(
         result = await run_action(
             action_run_id=action_run.id,
             workflow_id=workflow_ref.id,
-            custom_logger=custom_logger,
             action_trail=action_trail,
             action_run_kwargs=action_run.run_kwargs,
             **action_ref.model_dump(),
@@ -446,21 +446,19 @@ async def start_action_run(
         # The schema is {<action ID> : <action result>, ...}
         action_trail = action_trail | {ar_id: result}
         action_result_store[ar_id] = action_trail
-        custom_logger.debug(
-            f"Action run {ar_id!r} completed with trail: {action_trail}."
-        )
+        logger.debug(f"Action run {ar_id!r} completed with trail: {action_trail}.")
 
     except TimeoutError as e:
         error_msg = f"Action run {ar_id} timed out waiting for dependencies {upstream_deps_ar_ids}."
-        custom_logger.error(error_msg, exc_info=e)
+        logger.error(error_msg, exc_info=e)
         run_status = "failure"
     except asyncio.CancelledError as e:
         error_msg = f"Action run {ar_id!r} was cancelled."
-        custom_logger.warning(error_msg, exc_info=e)
+        logger.warning(error_msg, exc_info=e)
         run_status = "canceled"
     except Exception as e:
         error_msg = f"Action run {ar_id!r} failed with error: {e}."
-        custom_logger.error(error_msg, exc_info=e)
+        logger.error(error_msg, exc_info=e)
         run_status = "failure"
     finally:
         if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
@@ -475,11 +473,11 @@ async def start_action_run(
 
     # Handle downstream dependencies
     if run_status != "success":
-        custom_logger.warning(f"Action run {ar_id!r} stopping due to failure.")
+        logger.warning(f"Action run {ar_id!r} stopping due to failure.")
         return
-    custom_logger.debug(f"Remaining action runs: {running_jobs_store.keys()}")
+    logger.debug(f"Remaining action runs: {running_jobs_store.keys()}")
     if not result.should_continue:
-        custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
+        logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
         return
     try:
         downstream_deps_ar_ids = action_run.downstream_dependencies(
@@ -496,7 +494,7 @@ async def start_action_run(
                     )
                 )
     except Exception as e:
-        custom_logger.error(
+        logger.error(
             f"Action run {ar_id!r} failed to broadcast results to downstream dependencies.",
             exc_info=e,
         )
@@ -507,15 +505,15 @@ async def run_webhook_action(
     method: str,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a webhook action."""
-    custom_logger.debug("Perform webhook action")
-    custom_logger.debug(f"{url = }")
-    custom_logger.debug(f"{method = }")
+    logger = _get_logger()
+    logger.debug("Perform webhook action")
+    logger.debug(f"{url = }")
+    logger.debug(f"{method = }")
     # The payload provided to the webhook action in the HTTP request
     action_run_kwargs = action_run_kwargs or {}
-    custom_logger.debug(f"{action_run_kwargs = }")
+    logger.debug(f"{action_run_kwargs = }")
     # TODO: Perform whitelist/filter step here using the url and method
     return {
         "output": action_run_kwargs,
@@ -555,14 +553,14 @@ async def run_http_request_action(
     payload: dict[str, str | bytes],
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    custom_logger.debug("Perform HTTP request action")
-    custom_logger.debug(f"{url = }")
-    custom_logger.debug(f"{method = }")
-    custom_logger.debug(f"{headers = }")
-    custom_logger.debug(f"{payload = }")
+    logger = _get_logger()
+    logger.debug("Perform HTTP request action")
+    logger.debug(f"{url = }")
+    logger.debug(f"{method = }")
+    logger.debug(f"{headers = }")
+    logger.debug(f"{payload = }")
 
     try:
         async with httpx.AsyncClient() as client:
@@ -574,9 +572,7 @@ async def run_http_request_action(
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        custom_logger.error(
-            f"HTTP request failed with status {e.response.status_code}."
-        )
+        logger.error(f"HTTP request failed with status {e.response.status_code}.")
         raise
     return parse_http_response_data(response)
 
@@ -586,10 +582,10 @@ async def run_conditional_action(
     condition_rules: dict[str, Any],
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a conditional action."""
-    custom_logger.debug(f"Run conditional rules {condition_rules}.")
+    logger = _get_logger()
+    logger.debug(f"Run conditional rules {condition_rules}.")
     rule = ConditionRuleValidator.validate_python(condition_rules)
     rule_match = rule.evaluate()
     return {
@@ -610,12 +606,12 @@ async def run_llm_action(
     llm_kwargs: dict[str, Any] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    custom_logger.debug("Perform LLM action")
-    custom_logger.debug(f"{message = }")
-    custom_logger.debug(f"{response_schema = }")
+    logger = _get_logger()
+    logger.debug("Perform LLM action")
+    logger.debug(f"{message = }")
+    logger.debug(f"{response_schema = }")
 
     llm_kwargs = llm_kwargs or {}
 
@@ -664,14 +660,14 @@ async def run_send_email_action(
     provider: Literal["resend"] = "resend",
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a send email action."""
-    custom_logger.debug("Perform send email action")
-    custom_logger.debug(f"{sender = }")
-    custom_logger.debug(f"{recipients = }")
-    custom_logger.debug(f"{subject = }")
-    custom_logger.debug(f"{body = }")
+    logger = _get_logger()
+    logger.debug("Perform send email action")
+    logger.debug(f"{sender = }")
+    logger.debug(f"{recipients = }")
+    logger.debug(f"{subject = }")
+    logger.debug(f"{body = }")
 
     if provider == "resend":
         email_provider = ResendMailProvider(
@@ -682,7 +678,7 @@ async def run_send_email_action(
         )
     else:
         msg = "Email provider not recognized"
-        custom_logger.warning(f"{msg}: {provider!r}")
+        logger.warning(f"{msg}: {provider!r}")
         email_response = {
             "status": "error",
             "message": msg,
@@ -698,7 +694,7 @@ async def run_send_email_action(
         await email_provider.send()
     except httpx.HTTPError as exc:
         msg = "Failed to post email to provider"
-        custom_logger.error(msg, exc_info=exc)
+        logger.error(msg, exc_info=exc)
         email_response = {
             "status": "error",
             "message": msg,
@@ -710,7 +706,7 @@ async def run_send_email_action(
         }
     except (EmailBouncedError, EmailNotFoundError) as exc:
         msg = exc.args[0]
-        custom_logger.warning(msg=msg, exc_info=exc)
+        logger.warning(msg=msg, exc_info=exc)
         email_response = {
             "status": "warning",
             "message": msg,
@@ -752,8 +748,8 @@ async def run_open_case_action(
     tags: ListModel[Tag] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, str | dict[str, str] | None]:
+    logger = _get_logger()
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     role = ctx_session_role.get()
@@ -773,11 +769,11 @@ async def run_open_case_action(
         suppression=suppression,
         tags=tags,
     )
-    custom_logger.info(f"Sinking case: {case = }")
+    logger.info(f"Sinking case: {case = }")
     try:
         await asyncio.to_thread(tbl.add, [case.flatten()])
     except Exception as e:
-        custom_logger.error("Failed to add case to LanceDB.", exc_info=e)
+        logger.error("Failed to add case to LanceDB.", exc_info=e)
         raise
     return {"output": case.model_dump(), "output_type": "dict"}
 
@@ -788,12 +784,12 @@ async def run_integration_action(
     params: dict[str, Any] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an integration action."""
-    custom_logger.debug("Perform integration action")
-    custom_logger.debug(f"{qualname = }")
-    custom_logger.debug(f"{params = }")
+    logger = _get_logger()
+    logger.debug("Perform integration action")
+    logger.debug(f"{qualname = }")
+    logger.debug(f"{params = }")
 
     params = params or {}
 
@@ -818,7 +814,6 @@ async def run_action(
     title: str,
     action_trail: dict[str, ActionRunResult],
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
     **action_kwargs: Any,
 ) -> ActionRunResult:
     """Run an action.
@@ -837,20 +832,21 @@ async def run_action(
     - transform: Apply a transformation to the data.
     """
 
-    custom_logger.debug(f"{"*" * 10} Running action {"*" * 10}")
-    custom_logger.debug(f"{key = }")
-    custom_logger.debug(f"{title = }")
-    custom_logger.debug(f"{type = }")
-    custom_logger.debug(f"{action_run_kwargs = }")
-    custom_logger.debug(f"{action_kwargs = }")
-    custom_logger.debug(f"{"*" * 20}")
+    logger = _get_logger()
+    logger.debug(f"{"*" * 10} Running action {"*" * 10}")
+    logger.debug(f"{key = }")
+    logger.debug(f"{title = }")
+    logger.debug(f"{type = }")
+    logger.debug(f"{action_run_kwargs = }")
+    logger.debug(f"{action_kwargs = }")
+    logger.debug(f"{"*" * 20}")
 
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
         result.action_slug: result.output for result in action_trail.values()
     }
-    custom_logger.debug(f"Before template eval: {action_trail_json = }")
+    logger.debug(f"Before template eval: {action_trail_json = }")
     action_kwargs_with_secrets = await evaluate_templated_secrets(
         templated_fields=action_kwargs
     )
@@ -867,19 +863,18 @@ async def run_action(
             action_run_id=action_run_id, workflow_id=workflow_id
         )
 
-    custom_logger.debug(f"{processed_action_kwargs = }")
+    logger.debug(f"{processed_action_kwargs = }")
 
     try:
         # The return value from each action runner call should be more or less what
         # the user can expect to see in the action trail. This makes it very clear
         # what the action is doing and what the output is.
         output = await action_runner(
-            custom_logger=custom_logger,
             action_run_kwargs=action_run_kwargs,
             **processed_action_kwargs,
         )
     except Exception as e:
-        custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
+        logger.error(f"Error running action {title} with key {key}.", exc_info=e)
         raise
 
     # Leave dunder keys inside as a form of execution context
