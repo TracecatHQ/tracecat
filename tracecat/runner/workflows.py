@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, Self
+from typing import Any, Literal, Self
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, validator
@@ -26,6 +26,7 @@ class Workflow(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     id: str = Field(default_factory=lambda: uuid4().hex)
     title: str
+    status: Literal["online", "offline"]
     adj_list: dict[str, list[str]]
     actions: dict[str, ActionSubclass]
     owner_id: str
@@ -113,6 +114,7 @@ class Workflow(BaseModel):
             adj_list=adj_list,
             actions=actions,
             owner_id=response.owner_id,
+            status=response.status,
         )
 
 
