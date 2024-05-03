@@ -42,8 +42,11 @@ We also support [self-hosted](https://docs.tracecat.com/installation) Tracecat.
 > [!NOTE]
 > SOAR [(Security Orchestration, Automation and Response)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) refers to technologies that enable organizations to automatically collect and respond to alerts across different security tooling (e.g. Crowdstrike, Microsoft Defender, SIEM) and data sources (e.g. AWS CloudTrail, Okta system logs).
 
-![SecOps Workflow](https://github.com/TracecatHQ/tracecat/blob/main/img/workflow.png)
-![Case Management](https://github.com/TracecatHQ/tracecat/blob/main/img/cases.gif)
+### Build SecOps Automations
+<img src="https://github.com/TracecatHQ/tracecat/blob/main/img/workflow.png" width="100%" />
+
+### Manage Cases with AI Tagging
+<img src="https://github.com/TracecatHQ/tracecat/blob/main/img/cases.gif" width="100%" />
 
 ## Getting started
 
