@@ -5,10 +5,10 @@ from typing import Annotated, Any
 import polars as pl
 from aio_pika import Channel
 from aio_pika.pool import Pool
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
-from fastapi.responses import StreamingResponse
+from fastapi.responses import ORJSONResponse, StreamingResponse
 from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
@@ -130,6 +130,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Catch-all exception handler to prevent stack traces from leaking
+@app.exception_handler(Exception)
+async def custom_exception_handler(request: Request, exc: Exception):
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "An unexpected error occurred. Please try again later."},
+    )
 
 
 @app.get("/")

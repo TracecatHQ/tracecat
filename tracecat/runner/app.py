@@ -173,6 +173,15 @@ async def valid_workflow(workflow_id: str) -> str:
     return workflow_id
 
 
+# Catch-all exception handler to prevent stack traces from leaking
+@app.exception_handler(Exception)
+async def custom_exception_handler(request: Request, exc: Exception):
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "An unexpected error occurred. Please try again later."},
+    )
+
+
 # Endpoints
 @app.get("/")
 def root() -> dict[str, str]:
