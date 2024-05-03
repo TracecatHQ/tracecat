@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 import aio_pika
 from aio_pika import Channel
@@ -13,15 +14,37 @@ from tracecat.logger import standard_logger
 
 logger = standard_logger(__name__)
 RABBITMQ_URI = os.environ.get("RABBITMQ_URI", "amqp://guest:guest@localhost/")
+RABBITMQ_USER = os.environ.get("RABBITMQ_USER", "guest")
+RABBIMQ_PASS = os.environ.get("RABBITMQ_PASS", "guest")
 RABBITMQ_RUNNER_EVENTS_EXCHANGE = "runner_events"
 
 
 async def get_connection() -> AbstractRobustConnection:
+    """Get a connection to RabbitMQ.
+
+    Priority:
+    1. URI
+    2. Environment variable
+    3. Default
+
+    Raises:
+        ValueError: Support only amqp and amqps schemes
+
+    Returns:
+        AbstractRobustConnection: The connection to RabbitMQ
+    """
+    uri = urlparse(RABBITMQ_URI)
+    if uri.scheme not in ("amqps", "amqp"):
+        raise ValueError(f"Unsupported RabbitMQ URI scheme: {uri.scheme}")
+
     logger.info(f"Connecting to RabbitMQ at {RABBITMQ_URI}")
-    if RABBITMQ_URI.startswith("amqps://"):
-        return await aio_pika.connect_robust(RABBITMQ_URI, ssl=True)
-    else:
-        return await aio_pika.connect_robust(RABBITMQ_URI)
+    return await aio_pika.connect_robust(
+        ssl=uri.scheme == "amqps",
+        login=uri.username or RABBITMQ_USER,
+        password=uri.password or RABBIMQ_PASS,
+        host=uri.hostname,
+        port=uri.port,
+    )
 
 
 @asynccontextmanager
