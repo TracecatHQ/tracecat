@@ -345,7 +345,10 @@ def create_db_engine() -> Engine:
 
 
 def create_vdb_conn() -> lancedb.DBConnection:
-    db = lancedb.connect(STORAGE_PATH / "vector.db")
+    if os.environ.get("LANCEDB__S3_STORAGE_PATH") is None:
+        db = lancedb.connect(STORAGE_PATH / "vector.db")
+    else:
+        db = lancedb.connect(os.environ["LANCEDB__S3_STORAGE_PATH"])
     return db
 
 
