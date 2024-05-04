@@ -51,7 +51,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
 from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
-from tracecat.config import TRACECAT__API_URL, TRACECAT__APP_ENV
+from tracecat.config import NEXT_PUBLIC_APP_URL, TRACECAT__API_URL, TRACECAT__APP_ENV
 from tracecat.contexts import (
     ctx_logger,
     ctx_mq_channel_pool,
@@ -100,7 +100,10 @@ if TRACECAT__APP_ENV == "production":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
     cors_origins_kwargs = {
-        "allow_origins": ["https://platform.tracecat.com", TRACECAT__API_URL]
+        "allow_origins": [
+            NEXT_PUBLIC_APP_URL, 
+            TRACECAT__API_URL
+        ]
     }
 elif TRACECAT__APP_ENV == "staging":
     cors_origins_kwargs = {

@@ -25,7 +25,7 @@ from tracecat.auth import (
     authenticate_user,
     authenticate_user_or_service,
 )
-from tracecat.config import TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
+from tracecat.config import NEXT_PUBLIC_APP_URL, TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
 from tracecat.db import (
     Action,
     ActionRun,
@@ -103,7 +103,10 @@ if TRACECAT__APP_ENV == "production":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
     cors_origins_kwargs = {
-        "allow_origins": ["https://platform.tracecat.com", TRACECAT__RUNNER_URL]
+        "allow_origins": [
+            NEXT_PUBLIC_APP_URL, 
+            TRACECAT__RUNNER_URL
+        ]
     }
 elif TRACECAT__APP_ENV == "staging":
     cors_origins_kwargs = {

@@ -328,7 +328,7 @@ def create_db_engine() -> Engine:
         engine_kwargs = {
             "pool_timeout": 30,
             "pool_recycle": 3600,
-            "connect_args": {"sslmode": "require"},
+            "connect_args": {"sslmode": "allow"},
         }
     elif TRACECAT__APP_ENV == "local":
         # SQLite disk-based database

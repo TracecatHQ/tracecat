@@ -1,96 +1,14 @@
-# Base compose file
+networks:
+  tracecat:
+    name: tracecat
+    driver: overlay
+
+volumes:
+  tracecat-app:
+  tracecat-db:
+  tracecat-mq:
+
 services:
-  api:
-    build: .
-    container_name: api
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      API_MODULE: "tracecat.api.app:app"
-      # Shared
-      LOG_LEVEL: ${LOG_LEVEL}
-      RABBITMQ_URI: ${RABBITMQ_URI}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
-      # Auth
-      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
-      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      # Integrations
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    restart: unless-stopped
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - internal-network
-
-  runner:
-    build: .
-    container_name: runner
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      API_MODULE: "tracecat.runner.app:app"
-      # Shared
-      LOG_LEVEL: ${LOG_LEVEL}
-      RABBITMQ_URI: ${RABBITMQ_URI}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
-      # Integrations
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      RESEND_API_KEY: ${RESEND_API_KEY}
-
-    restart: unless-stopped
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - internal-network
-
-  scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: scheduler
-    ports:
-      - "8002:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      API_MODULE: "tracecat.scheduler.app:app"
-      # Shared
-      LOG_LEVEL: ${LOG_LEVEL}
-      RABBITMQ_URI: ${RABBITMQ_URI}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
-    restart: unless-stopped
-    depends_on:
-      - api
-    networks:
-      - internal-network
-
   frontend:
     build:
       context: ./frontend
@@ -99,7 +17,6 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     container_name: frontend
-    env_file: .env
     ports:
       - "3000:3000"
     volumes:
@@ -122,19 +39,105 @@ services:
       - api
       - runner
     networks:
-      - internal-network
+      - tracecat
+
+  api:
+    build: .
+    container_name: api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./tracecat:/app/tracecat
+      - tracecat-app:/var/lib/tracecat
+    environment:
+      API_MODULE: "tracecat.api.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Auth
+      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tracecat
+
+  runner:
+    build: .
+    container_name: runner
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./tracecat:/app/tracecat
+      - tracecat-app:/var/lib/tracecat
+    environment:
+      API_MODULE: "tracecat.runner.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tracecat
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scheduler
+    volumes:
+      - ./tracecat:/app/tracecat
+      - tracecat-app:/var/lib/tracecat
+    environment:
+      API_MODULE: "tracecat.scheduler.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - tracecat
 
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: rabbitmq
-    ports:
-      - "5672:5672" # RabbitMQ server
-      - "15672:15672" # Management UI
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     volumes:
-      - mq-storage:/var/lib/rabbitmq
+      - tracecat-mq:/var/lib/rabbitmq
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping", "-q"]
@@ -142,27 +145,17 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - internal-network
+      - tracecat
 
   postgres_db:
     image: postgres:16.2-bullseye
     container_name: postgres_db
-    ports:
-      - "5432:5432"
     volumes:
-      - db-storage:/var/lib/postgresql/data
+      - tracecat-db:/var/lib/postgresql/data
     restart: always
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     networks:
-      - internal-network
-
-networks:
-  internal-network:
-
-volumes:
-  app-storage:
-  db-storage:
-  mq-storage:
+      - tracecat

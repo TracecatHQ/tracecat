@@ -8,7 +8,7 @@ let baseURL = process.env.NEXT_PUBLIC_API_URL
 
 // Use different base url for server-side
 if (process.env.NODE_ENV === "development" && isServer()) {
-  baseURL = "http://host.docker.internal:8000"
+  baseURL = process.env.TRACECAT__API_URL
 }
 
 export const client = axios.create({
