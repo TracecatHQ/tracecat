@@ -136,6 +136,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.traefik
 .env.cdk
 .venv
 env/

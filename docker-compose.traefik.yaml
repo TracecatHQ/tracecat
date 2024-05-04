@@ -1,0 +1,282 @@
+networks:
+  traefik:
+    name: traefik
+  tracecat:
+    name: tracecat
+
+volumes:
+  traefik-acme:
+  traefik-redis:
+  tracecat-app:
+  tracecat-db:
+  tracecat-mq:
+
+services:
+  traefik: # Reverse Proxy & Router
+    image: traefik
+    hostname: traefik
+    container_name: traefik
+    env_file: .env
+    restart: unless-stopped
+    command:
+      - --entryPoints.web.address=:80
+      - --entryPoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      # Cloudflare forwardedHeaders
+      - --entrypoints.websecure.forwardedHeaders.trustedIPs=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/12,172.64.0.0/13,131.0.72.0/22
+      # Uncomment below if you want the dashboard
+      - --api=${DASHBOARD}
+      - --log
+      - --log.level=INFO # DEBUG, INFO, WARN, ERROR, FATAL, PANIC
+      - --providers.docker
+      - --providers.docker.watch=true
+      # You should actually really use https://github.com/Tecnativa/docker-socket-proxy tcp://docker_proxy:2375
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.network=traefik
+      # If you want dynamic routing configs 
+      # - --providers.file.directory=/etc/traefik/dynamic-conf/
+      # - --providers.file.watch=true
+      # Assigning SSL certificates through LetsEncrypt - start with staging, then uncomment acme-v02.api*
+      #- --certificatesResolvers.dns-cloudflare.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+      - --certificatesResolvers.dns-cloudflare.acme.caServer=https://acme-v02.api.letsencrypt.org/directory
+      - --certificatesResolvers.dns-cloudflare.acme.email=$CLOUDFLARE_EMAIL
+      - --certificatesResolvers.dns-cloudflare.acme.storage=/acme/acme.json
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.provider=cloudflare
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.delayBeforeCheck=90
+    networks:
+      - traefik
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - traefik-acme:/acme
+      # Dynamic router configuration files
+      # - ${DOCKERDIR}/traefik/dynamic/:/etc/traefik/dynamic-conf/
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CF_API_EMAIL=${CLOUDFLARE_EMAIL}
+      - CF_API_KEY=${CLOUDFLARE_API_KEY}
+    labels:
+      # NOTE: THIS IS ONLY LONG BECAUSE THERE IS NO CONFIG FILE NECESSARY - IT IS ALL CONFIGURED USING LABELS.
+      - traefik.enable=true
+      #### Middleware Rules ####
+      # # Basic Authentication - Used if traefik API enabled. Can be used for tracecat frontend.
+      - traefik.http.middlewares.basic-auth.basicAuth.realm=Traefik Basic Authentication
+      - traefik.http.middlewares.basic-auth.basicAuth.users=${BASIC_AUTH_USER}:${BASIC_AUTH_PASS}
+      # # Rate Limit
+      - traefik.http.middlewares.rate-limit.rateLimit.average=100
+      - traefik.http.middlewares.rate-limit.rateLimit.burst=50
+      # # Secure Headers
+      # - traefik.http.middlewares.security-headers.headers.accesscontrolallowmethods=GET, OPTIONS, PUT
+      # - traefik.http.middlewares.security-headers.headers.accesscontrolmaxage=100
+      - traefik.http.middlewares.security-headers.headers.addvaryheader=true
+      - traefik.http.middlewares.security-headers.headers.hostsproxyheaders=X-Forwarded-Host
+      - traefik.http.middlewares.security-headers.headers.sslredirect=true
+      - traefik.http.middlewares.security-headers.headers.sslproxyheaders.X-Forwarded-Proto=https
+      - traefik.http.middlewares.security-headers.headers.stsseconds=63072000
+      - traefik.http.middlewares.security-headers.headers.stsincludesubdomains=true
+      - traefik.http.middlewares.security-headers.headers.stspreload=true
+      - traefik.http.middlewares.security-headers.headers.forcestsheader=true
+      - traefik.http.middlewares.security-headers.headers.framedeny=true
+      - traefik.http.middlewares.security-headers.headers.contenttypenosniff=true
+      - traefik.http.middlewares.security-headers.headers.browserxssfilter=true
+      - traefik.http.middlewares.security-headers.headers.referrerpolicy=same-origin
+      #### Middleware Chains #####
+      - traefik.http.middlewares.no-auth.chain.middlewares=rate-limit,security-headers
+      # - traefik.http.middlewares.basic-auth.chain.middlewares=rate-limit,security-headers,basic-auth
+      #### Middlewares ####
+      - traefik.http.routers.traefik-rtr.middlewares=auth@docker
+      # Services - API
+      # Uncomment below lines for dashboard
+      - traefik.http.routers.traefik-rtr.service=api@internal
+      # # HTTP Routers
+      - traefik.http.routers.traefik-rtr.entrypoints=websecure
+      - traefik.http.routers.traefik-rtr.rule=Host(`traefik.${ROOT_DOMAIN}`)
+      - traefik.http.routers.traefik-rtr.tls=true
+      # Setting TLS to $DOMAIN#
+      - traefik.http.routers.traefik-rtr.tls.certResolver=dns-cloudflare
+      - traefik.http.routers.traefik-rtr.tls.domains[0].main=$ROOT_DOMAIN
+      - traefik.http.routers.traefik-rtr.tls.domains[0].sans=*.$ROOT_DOMAIN
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    container_name: frontend
+    env_file: .env
+    volumes:
+      - ${DOCKERDIR}/frontend/src:/app/src
+      - ${DOCKERDIR}/frontend/.next:/app/.next
+      - ${DOCKERDIR}/frontend/node_modules:/app/node_modules
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      # Auth
+      NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH} # Prefix with NEXT_PUBLIC_ to expose to client
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL}
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+      - runner
+    networks:
+      - traefik
+      - tracecat
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tracecat.tls=true"
+      - "traefik.http.routers.tracecat.entrypoints=websecure"
+      - "traefik.http.routers.tracecat.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.tracecat.rule=Host(`tracecat.${ROOT_DOMAIN}`)"
+      - "traefik.http.routers.tracecat.service=tracecat"
+      - "traefik.http.services.tracecat.loadbalancer.server.scheme=http"
+      - "traefik.http.services.tracecat.loadbalancer.server.port=3000"
+
+  api:
+    build: .
+    container_name: api
+    volumes:
+      - ${DOCKERDIR}/tracecat:/app/tracecat
+      - tracecat-app:/home/apiuser/.tracecat
+    environment:
+      API_MODULE: "tracecat.api.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Auth
+      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tracecat
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tracecat-api.tls=true"
+      - "traefik.http.routers.tracecat-api.entrypoints=websecure"
+      - "traefik.http.routers.tracecat-api.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.tracecat-api.rule=Host(`tc-api.${ROOT_DOMAIN}`)"
+      - "traefik.http.routers.tracecat-api.service=tracecat-api"
+      - "traefik.http.services.tracecat-api.loadbalancer.server.scheme=http"
+      - "traefik.http.services.tracecat-api.loadbalancer.server.port=8000"
+
+  runner:
+    build: .
+    container_name: runner
+    volumes:
+      - ${DOCKERDIR}/tracecat:/app/tracecat
+      - tracecat-app:/var/lib/tracecat
+    environment:
+      API_MODULE: "tracecat.runner.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tracecat
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tracecat-runner.tls=true"
+      - "traefik.http.routers.tracecat-runner.entrypoints=websecure"
+      - "traefik.http.routers.tracecat-runner.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.tracecat-runner.rule=Host(`tc-runner.${ROOT_DOMAIN}`)"
+      - "traefik.http.routers.tracecat-runner.service=tracecat-runner"
+      - "traefik.http.services.tracecat-runner.loadbalancer.server.scheme=http"
+      - "traefik.http.services.tracecat-runner.loadbalancer.server.port=8000"
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scheduler
+    volumes:
+      - ${DOCKERDIR}/tracecat:/app/tracecat
+      - tracecat-app:/var/lib/tracecat
+    environment:
+      API_MODULE: "tracecat.scheduler.app:app"
+      # Shared
+      LOG_LEVEL: ${LOG_LEVEL}
+      RABBITMQ_URI: ${RABBITMQ_URI}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - tracecat
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - tracecat-mq:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping", "-q"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tracecat
+
+  postgres_db:
+    image: postgres:16.2-bullseye
+    container_name: postgres_db
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - tracecat-db:/var/lib/postgresql/data
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - tracecat
