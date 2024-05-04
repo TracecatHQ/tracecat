@@ -48,6 +48,16 @@ then
     exit
 fi
 
+if ! command -v pnpm &> /dev/null
+then
+    echo -e "${RED}pnpm could not be found. Please install pnpm and try again.${NC}"
+    exit
+fi
+
+echo -e "${YELLOW}Installing/Upgrading node_modules...${NC}"
+cd frontend
+pnpm install
+
 # If .env exists, ask user if they want to overwrite it
 if [ -f .env ]; then
     read -p "A .env file already exists. Do you want to overwrite it? (y/n) " -n 1 -r
