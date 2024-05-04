@@ -1,7 +1,6 @@
 networks:
   tracecat:
     name: tracecat
-    driver: overlay
 
 volumes:
   tracecat-app:
