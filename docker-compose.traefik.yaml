@@ -16,7 +16,6 @@ services:
     image: traefik
     hostname: traefik
     container_name: traefik
-    env_file: .env
     restart: unless-stopped
     command:
       - --entryPoints.web.address=:80
@@ -111,7 +110,6 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     container_name: frontend
-    env_file: .env
     volumes:
       - ${DOCKERDIR}/frontend/src:/app/src
       - ${DOCKERDIR}/frontend/.next:/app/.next
