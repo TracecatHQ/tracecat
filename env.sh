@@ -57,6 +57,7 @@ fi
 echo -e "${YELLOW}Installing/Upgrading node_modules...${NC}"
 cd frontend
 pnpm install
+cd ..
 
 # If .env exists, ask user if they want to overwrite it
 if [ -f .env ]; then
