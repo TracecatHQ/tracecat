@@ -131,8 +131,8 @@ services:
       - "5672:5672" # RabbitMQ server
       - "15672:15672" # Management UI
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
     volumes:
       - mq-storage:/var/lib/rabbitmq
     restart: unless-stopped
