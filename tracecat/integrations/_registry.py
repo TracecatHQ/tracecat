@@ -16,7 +16,7 @@ from tracecat.integrations.utils import (
     get_integration_key,
     get_integration_platform,
 )
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.secrets import batch_get_secrets
 
 if TYPE_CHECKING:

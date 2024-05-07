@@ -20,7 +20,7 @@ from pydantic import BaseModel
 import tracecat.config as cfg
 from tracecat.config import TRACECAT__API_URL, TRACECAT__RUNNER_URL
 from tracecat.contexts import ctx_session_role
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 
@@ -232,7 +232,6 @@ if IS_AUTH_DISABLED:
     _DEFAULT_TRACECAT_USER_ID = "default-tracecat-user"
 
     async def _get_role_from_jwt(token: str | bytes) -> Role:
-        logger.warning(f"User authentication is disabled {token = }")
         role = Role(type="user", user_id=_DEFAULT_TRACECAT_USER_ID)
         ctx_session_role.set(role)
         return role

@@ -16,7 +16,7 @@ from tracecat.auth import AuthenticatedAPIClient
 from tracecat.contexts import ctx_mq_channel_pool, ctx_session_role
 from tracecat.db import ActionRun as ActionRunEvent
 from tracecat.db import WorkflowRun as WorkflowRunEvent
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.messaging import publish
 from tracecat.types.api import RunStatus
 

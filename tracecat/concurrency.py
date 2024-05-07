@@ -6,7 +6,7 @@ import cloudpickle
 
 from tracecat.auth import Role
 from tracecat.contexts import ctx_session_role
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 

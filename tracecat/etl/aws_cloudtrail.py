@@ -20,7 +20,7 @@ from tqdm.contrib.concurrent import thread_map
 
 from tracecat.config import TRACECAT__TRIAGE_DIR
 from tracecat.etl.aws_s3 import list_objects_under_prefix
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger("runner.aws_cloudtrail")
 

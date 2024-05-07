@@ -6,7 +6,7 @@ import orjson
 from aio_pika import Channel, DeliveryMode, ExchangeType, Message
 from aio_pika.pool import Pool
 
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.messaging.common import RABBITMQ_RUNNER_EVENTS_EXCHANGE
 
 logger = standard_logger(__name__)

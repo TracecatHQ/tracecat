@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 
 from tracecat.integrations._registry import registry
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 
