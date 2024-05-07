@@ -53,7 +53,7 @@ from tracecat.contexts import ctx_logger, ctx_session_role
 from tracecat.db import create_vdb_conn
 from tracecat.integrations import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.runner.events import (
     emit_create_action_run_event,
@@ -639,6 +639,7 @@ async def run_llm_action(
                 generate_pydantic_json_response_schema(response_schema),
             )
         )
+        logger.debug(f"{system_context =}")
         json_response: dict[str, Any] = await async_openai_call(
             prompt=message,
             model=model,

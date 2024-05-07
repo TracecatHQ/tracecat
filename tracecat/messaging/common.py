@@ -10,7 +10,7 @@ from aio_pika import Channel
 from aio_pika.abc import AbstractRobustConnection
 from aio_pika.pool import Pool
 
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 RABBITMQ_URI = os.environ.get("RABBITMQ_URI", "amqp://guest:guest@localhost/")

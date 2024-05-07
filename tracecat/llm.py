@@ -10,7 +10,7 @@ from openai.types.chat.chat_completion import ChatCompletion, Choice
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import LLM_MAX_RETRIES
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 

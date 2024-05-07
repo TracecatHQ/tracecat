@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from slugify import slugify
 
 from tracecat.llm import async_openai_call
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.types.cases import Case
 
 logger = standard_logger(__name__)

@@ -13,7 +13,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.messaging.common import RABBITMQ_RUNNER_EVENTS_EXCHANGE
 
 logger = standard_logger(__name__)

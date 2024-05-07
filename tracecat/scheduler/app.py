@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 import httpx
+import loguru
 from croniter import croniter
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,10 +27,10 @@ from tracecat.config import (
     TRACECAT__SCHEDULE_MAX_CONNECTIONS,
 )
 from tracecat.db import WorkflowSchedule, create_db_engine
-from tracecat.logger import standard_logger
+from tracecat.logging import LoggerFactory
 from tracecat.types.schedules import WorkflowScheduleParams
 
-logger = standard_logger("scheduler")
+logger: loguru.Logger
 
 
 engine: Engine
@@ -140,7 +141,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+def create_app(**kwargs) -> FastAPI:
+    global logger
+    app = FastAPI(**kwargs)
+    app.logger = LoggerFactory.make_logger(name="scheduler.server")
+    logger = LoggerFactory.make_logger(name="scheduler")
+    return app
 
 
 if TRACECAT__APP_ENV == "production":
@@ -164,8 +170,7 @@ else:
     }
 
 
-logger.info(f"Setting CORS origins to {cors_origins_kwargs}")
-logger.info(f"{TRACECAT__APP_ENV =}")
+app = create_app(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     **cors_origins_kwargs,
@@ -173,6 +178,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# TODO: Check TRACECAT__APP_ENV to set methods and headers
+logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).info("App started")
 
 
 @app.get("/")

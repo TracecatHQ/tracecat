@@ -27,7 +27,7 @@ from tracecat.config import (
     TRACECAT_DIR,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 if TYPE_CHECKING:

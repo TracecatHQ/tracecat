@@ -14,7 +14,7 @@ import dateutil.parser
 from tracecat.etl.aws_cloudtrail import load_cloudtrail_logs
 from tracecat.etl.query_builder import pl_sql_query
 from tracecat.integrations._registry import registry
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 

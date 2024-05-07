@@ -11,7 +11,7 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from tracecat.auth import AuthenticatedAPIClient
 from tracecat.contexts import ctx_session_role
 from tracecat.db import Secret
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 logger = standard_logger(__name__)
 
