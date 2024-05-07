@@ -29,6 +29,7 @@ dependencies = [
     "fastapi",
     "httpx",
     "lancedb==0.6.3",
+    "loguru==0.7.2",
     "openai",
     "orjson",
     "polars==0.20.21",
