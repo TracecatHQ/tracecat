@@ -22,3 +22,22 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",
     "tracecat-scheduler",
 ]
+
+
+_DEFAULT_LOG_FORMAT = (
+    "<level>{level: <8}</level>"
+    " [<cyan>{time:YYYY-MM-DD HH:mm:ss.SSS}</cyan>]"
+    " [<green>{process}</green>][<magenta>{thread}</magenta>]"
+    " <light-red>{name}</light-red>:<light-red>{function}</light-red>"
+    " - <level>{message}</level> | {extra}"
+)
+
+LOG_CONFIG = {
+    "logger": {
+        "path": "/var/lib/tracecat/logs",
+        "level": "info",
+        "rotation": "20 days",
+        "retention": "1 months",
+        "format": _DEFAULT_LOG_FORMAT,
+    },
+}
