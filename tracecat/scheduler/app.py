@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 import httpx
-import loguru
 from croniter import croniter
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,12 +26,10 @@ from tracecat.config import (
     TRACECAT__SCHEDULE_MAX_CONNECTIONS,
 )
 from tracecat.db import WorkflowSchedule, create_db_engine
-from tracecat.logging import LoggerFactory
+from tracecat.logging import Logger
 from tracecat.types.schedules import WorkflowScheduleParams
 
-logger: loguru.Logger
-
-
+logger = Logger("scheduler")
 engine: Engine
 
 
@@ -144,8 +141,7 @@ async def lifespan(app: FastAPI):
 def create_app(**kwargs) -> FastAPI:
     global logger
     app = FastAPI(**kwargs)
-    app.logger = LoggerFactory.make_logger(name="scheduler.server")
-    logger = LoggerFactory.make_logger(name="scheduler")
+    app.logger = logger
     return app
 
 
@@ -180,7 +176,9 @@ app.add_middleware(
 )
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).info("App started")
+logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).warning(
+    "Scheduler started"
+)
 
 
 @app.get("/")

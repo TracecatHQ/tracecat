@@ -16,10 +16,6 @@ from typing import Any
 import httpx
 
 from tracecat.integrations._registry import registry
-from tracecat.logging import standard_logger
-
-logger = standard_logger(__name__)
-
 
 VT_BASE_URL = "https://www.virustotal.com/api/v3/"
 

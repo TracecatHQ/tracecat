@@ -13,10 +13,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.logging import standard_logger
+from tracecat.logging import Logger
 from tracecat.messaging.common import RABBITMQ_RUNNER_EVENTS_EXCHANGE
 
-logger = standard_logger(__name__)
+logger = Logger("rabbitmq.consumer")
 
 
 @asynccontextmanager
@@ -32,7 +32,9 @@ async def prepare_queue(*, channel: Channel, exchange: str, routing_keys: list[s
         )
 
         # Declaring random queue
-        queue = await channel.declare_queue(durable=True, exclusive=True)
+        queue = await channel.declare_queue(
+            durable=True, exclusive=True, auto_delete=True
+        )
         for routing_key in routing_keys:
             await queue.bind(ex, routing_key=routing_key)
         yield queue

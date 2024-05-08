@@ -20,9 +20,7 @@ from pydantic import BaseModel
 import tracecat.config as cfg
 from tracecat.config import TRACECAT__API_URL, TRACECAT__RUNNER_URL
 from tracecat.contexts import ctx_session_role
-from tracecat.logging import standard_logger
-
-logger = standard_logger(__name__)
+from tracecat.logging import logger
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)

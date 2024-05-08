@@ -10,9 +10,9 @@ from aio_pika import Channel
 from aio_pika.abc import AbstractRobustConnection
 from aio_pika.pool import Pool
 
-from tracecat.logging import standard_logger
+from tracecat.logging import Logger
 
-logger = standard_logger(__name__)
+logger = Logger("rabbitmq.common")
 RABBITMQ_URI = os.environ.get("RABBITMQ_URI", "amqp://guest:guest@localhost/")
 RABBITMQ_USER = os.environ.get("RABBITMQ_USER", "guest")
 RABBIMQ_PASS = os.environ.get("RABBITMQ_PASS", "guest")
@@ -37,7 +37,7 @@ async def get_connection() -> AbstractRobustConnection:
     if uri.scheme not in ("amqps", "amqp"):
         raise ValueError(f"Unsupported RabbitMQ URI scheme: {uri.scheme}")
 
-    logger.info(f"Connecting to RabbitMQ at {RABBITMQ_URI}")
+    logger.info("Connecting to RabbitMQ")
     return await aio_pika.connect_robust(
         ssl=uri.scheme == "amqps",
         login=uri.username or RABBITMQ_USER,
