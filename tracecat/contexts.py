@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 
 ctx_session_role: ContextVar[Role] = ContextVar("session_role", default=None)
+# TODO: Deprecate this contextvar
 ctx_workflow: ContextVar[Workflow] = ContextVar("workflow", default=None)
 ctx_workflow_run: ContextVar[WorkflowRunContext] = ContextVar(
     "workflow_run", default=None
