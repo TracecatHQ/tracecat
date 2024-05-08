@@ -53,12 +53,11 @@ from fastapi.responses import ORJSONResponse
 from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
 from tracecat.config import TRACECAT__API_URL, TRACECAT__APP_ENV
 from tracecat.contexts import (
-    ctx_logger,
     ctx_mq_channel_pool,
     ctx_session_role,
-    ctx_workflow,
+    ctx_workflow_run,
 )
-from tracecat.logging import LoggerFactory, standard_logger
+from tracecat.logging import logger
 from tracecat.messaging import use_channel_pool
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.runner.actions import (
@@ -79,6 +78,7 @@ from tracecat.types.api import (
     StartWorkflowResponse,
     WorkflowResponse,
 )
+from tracecat.types.workflow import WorkflowRunContext
 
 rabbitmq_channel_pool: Pool[Channel]
 
@@ -94,8 +94,7 @@ async def lifespan(app: FastAPI):
 def create_app(**kwargs) -> FastAPI:
     global logger
     app = FastAPI(**kwargs)
-    app.logger = LoggerFactory.make_logger(name="runner.server")
-    logger = LoggerFactory.make_logger(name="runner")
+    app.logger = logger
     return app
 
 
@@ -131,16 +130,15 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).info("App started")
+logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).warning(
+    "Runner started"
+)
 
 
 class RunnerStatus(StrEnum):
     STARTING = auto()
     RUNNING = auto()
     SHUTTING_DOWN = auto()
-
-
-runner_status: RunnerStatus = RunnerStatus.RUNNING
 
 
 # Dynamic data
@@ -157,7 +155,7 @@ async def get_workflow(workflow_id: str) -> Workflow:
             response = await client.get(f"/workflows/{workflow_id}")
             response.raise_for_status()
     except HTTPException as e:
-        logger.error(e.detail)
+        logger.opt(exception=e).error(e.detail)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while fetching the workflow.",
@@ -183,6 +181,8 @@ async def valid_workflow(workflow_id: str) -> str:
 # Catch-all exception handler to prevent stack traces from leaking
 @app.exception_handler(Exception)
 async def custom_exception_handler(request: Request, exc: Exception):
+    role = ctx_session_role.get()
+    logger.opt(exception=exc).bind(role=role).error("An unexpected error occurred.")
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
@@ -296,30 +296,32 @@ async def webhook(
         - Spawn a new process to handle the event.
         - Store the process in a queue.
     """
-    logger.info(f"Received webhook with entrypoint {webhook_metadata.action_key}")
-    logger.debug(f"{payload =}")
+    logger.bind(entrypoint=webhook_metadata.action_key).info("Webhook hit")
+    logger.bind(payload=payload).debug("Webhook payload")
 
     user_id = webhook_metadata.owner_id  # If we are here this should be set
     role = Role(type="service", service_id="tracecat-runner", user_id=user_id)
     ctx_session_role.set(role)
-    logger.info(f"Set session role context for {role}")
-    workflow_id = webhook_metadata.workflow_id
-    workflow_response = await get_workflow(workflow_id)
-    if workflow_response.status == "offline":
-        return StartWorkflowResponse(
-            status="error", message="Workflow offline", id=workflow_id
-        )
+    with logger.contextualize(role=role):
+        logger.info("Triggering workflow from webhook")
+        workflow_id = webhook_metadata.workflow_id
+        workflow_response = await get_workflow(workflow_id)
+        if workflow_response.status == "offline":
+            logger.error("Workflow offline")
+            return StartWorkflowResponse(
+                status="error", message="Workflow offline", id=workflow_id
+            )
 
-    # This data refers to the webhook specific data
-    response = await start_workflow(
-        role=role,
-        workflow_id=workflow_id,
-        start_workflow_params=StartWorkflowParams(
-            entrypoint_key=webhook_metadata.action_key, entrypoint_payload=payload
-        ),
-        background_tasks=background_tasks,
-    )
-    return response
+        # This data refers to the webhook specific data
+        response = await start_workflow(
+            role=role,
+            workflow_id=workflow_id,
+            start_workflow_params=StartWorkflowParams(
+                entrypoint_key=webhook_metadata.action_key, entrypoint_payload=payload
+            ),
+            background_tasks=background_tasks,
+        )
+        return response
 
 
 @app.post("/workflows/{workflow_id}")
@@ -400,81 +402,74 @@ async def run_workflow(
      associate the worker with a specific workflow.
     - The `start_workflow` function can then just directly enqueue the first action.
     """
-    # TODO: Move some of these into ContextVars
-    workflow_run_id = uuid4().hex
-    run_logger = standard_logger(f"wfr-{workflow_run_id}")
-    ctx_logger.set(run_logger)
-    try:
-        await emit_create_workflow_run_event(
-            workflow_id=workflow_id, workflow_run_id=workflow_run_id
-        )
-        workflow = await get_workflow(workflow_id)
-        run_logger.info(f"Set workflow context for user {workflow.owner_id}")
-        ctx_workflow.set(workflow)
+    workflow_run_id = f"wfr_{uuid4().hex}"
+    role = ctx_session_role.get()
+    run_status: RunStatus = "failure"
 
-        # Initial state
-        ready_jobs_queue.put_nowait(
-            ActionRun(
-                workflow_run_id=workflow_run_id,
-                run_kwargs=entrypoint_payload,
-                action_key=entrypoint_key,
+    with logger.contextualize(
+        user_id=role.user_id, workflow_id=workflow_id, wfr_id=workflow_run_id
+    ):
+        run_logger = logger.bind(tag="runner.queue")
+        try:
+            workflow = await get_workflow(workflow_id)
+            run_logger.info("Set workflow context")
+            run_context = WorkflowRunContext(
+                workflow=workflow, workflow_run_id=workflow_run_id, status="pending"
             )
-        )
+            ctx_workflow_run.set(run_context)
+            await emit_create_workflow_run_event()
 
-        run_status: RunStatus = "success"
-
-        await emit_update_workflow_run_event(
-            workflow_id=workflow_id,
-            workflow_run_id=workflow_run_id,
-            status="running",
-        )
-        while (
-            not ready_jobs_queue.empty() or running_jobs_store
-        ) and runner_status == RunnerStatus.RUNNING:
-            try:
-                action_run = await asyncio.wait_for(ready_jobs_queue.get(), timeout=3)
-            except TimeoutError:
-                continue
-            # Defensive: Deduplicate tasks
-            if (
-                action_run.id in running_jobs_store
-                or action_run.id in action_result_store
-            ):
-                run_logger.debug(
-                    f"Action {action_run.id!r} already running or completed. Skipping."
-                )
-                continue
-
-            run_logger.info(
-                f"{workflow.actions[action_run.action_key].__class__.__name__} {action_run.id!r} ready. Running."
-            )
-            action_run_status_store[action_run.id] = ActionRunStatus.PENDING
-            # Schedule a new action run
-            running_jobs_store[action_run.id] = asyncio.create_task(
-                start_action_run(
-                    action_run=action_run,
-                    workflow_ref=workflow,
-                    ready_jobs_queue=ready_jobs_queue,
-                    running_jobs_store=running_jobs_store,
-                    action_result_store=action_result_store,
-                    action_run_status_store=action_run_status_store,
-                    pending_timeout=120,
+            # Initial state
+            ready_jobs_queue.put_nowait(
+                ActionRun(
+                    workflow_run_id=workflow_run_id,
+                    run_kwargs=entrypoint_payload,
+                    action_key=entrypoint_key,
                 )
             )
 
-        run_logger.info("Workflow completed.")
-    except asyncio.CancelledError:
-        run_logger.warning("Workflow was canceled.", exc_info=True)
-        run_status = "canceled"
-    except Exception as e:
-        run_logger.error(f"Workflow failed: {e}", exc_info=True)
-        run_status = "failure"
-    finally:
-        run_logger.info("Shutting down running tasks")
-        for running_task in running_jobs_store.values():
-            running_task.cancel()
+            await emit_update_workflow_run_event(status="running")
+            while not ready_jobs_queue.empty() or running_jobs_store:
+                try:
+                    action_run = await asyncio.wait_for(
+                        ready_jobs_queue.get(), timeout=3
+                    )
+                except TimeoutError:
+                    continue
+                # Defensive: Deduplicate tasks
+                if (
+                    action_run.id in running_jobs_store
+                    or action_run.id in action_result_store
+                ):
+                    run_logger.debug(
+                        f"Action {action_run.id!r} already running or completed. Skipping."
+                    )
+                    continue
 
-    # TODO: Update this to update with status 'failure' if any action fails
-    await emit_update_workflow_run_event(
-        workflow_id=workflow_id, workflow_run_id=workflow_run_id, status=run_status
-    )
+                run_logger.bind(ar_id=action_run.id).info("Creating action run task")
+                action_run_status_store[action_run.id] = ActionRunStatus.PENDING
+                # Schedule a new action run
+                running_jobs_store[action_run.id] = asyncio.create_task(
+                    start_action_run(
+                        action_run=action_run,
+                        ready_jobs_queue=ready_jobs_queue,
+                        running_jobs_store=running_jobs_store,
+                        action_result_store=action_result_store,
+                        action_run_status_store=action_run_status_store,
+                        pending_timeout=120,
+                    )
+                )
+
+            run_status = "success"
+            run_logger.info("Workflow completed.")
+        except asyncio.CancelledError:
+            logger.warning("Workflow was canceled.", exc_info=True)
+            run_status = "canceled"
+        except Exception as e:
+            logger.error(f"Workflow failed: {e}", exc_info=True)
+        finally:
+            logger.info("Shutting down running tasks")
+            for running_task in running_jobs_store.values():
+                running_task.cancel()
+            # TODO: Update this to update with status 'failure' if any action fails
+            await emit_update_workflow_run_event(status=run_status)
