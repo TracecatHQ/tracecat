@@ -150,7 +150,7 @@ def _to_disciminated_union(cons: list[CategoryConstraint]) -> tuple[str, str]:
     Returns:
         tuple[str, str]: The discriminated union type and the supporting types
     """
-    logger.info(f"Creating discriminated union for {cons =}")
+    logger.info("Creating discriminated union", cons=cons)
     supporting_tags = {}
     for tc in cons:
         tag = tc.tag
@@ -245,8 +245,8 @@ async def stream_case_completions(
         output_cls=CaseMissingFieldsResponse,
         field_cons=field_cons,
     )
-    logger.info("🧠 Starting case completions for %d cases...", len(cases))
-    logger.bind(system_context=system_context).debug("System context")
+    logger.info("🧠 Starting case completions for {} cases...", len(cases))
+    logger.debug("System context: {}", system_context=system_context)
 
     async def task(case: Case) -> str:
         prompt = f"""Case JSON Object: ```\n{case.model_dump_json()}\n```"""

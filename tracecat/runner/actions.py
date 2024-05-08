@@ -397,7 +397,7 @@ async def start_action_run(
             await emit_create_action_run_event()
             action_key = action_run.action_key
             upstream_deps_ar_ids = action_run.deps_upstream(workflow=workflow)
-            logger.bind(deps=upstream_deps_ar_ids).debug("Waiting for dependencies")
+            logger.debug("Waiting for dependencies", deps=upstream_deps_ar_ids)
 
             error_msg: str | None = None
             result: ActionRunResult | None = None
@@ -439,19 +439,19 @@ async def start_action_run(
             action_trail = action_trail | {ar_id: result}
             action_result_store[ar_id] = action_trail
             run_status = "success"
-            logger.bind(trail=action_trail).debug("Action run completed")
+            logger.debug("Action run completed", trail=action_trail)
 
         except TimeoutError as e:
             error_msg = "Action run timed out waiting for dependencies"
-            logger.bind(upstream_deps=upstream_deps_ar_ids).error(error_msg, exc_info=e)
+            logger.opt(exception=e).error(error_msg, upstream_deps=upstream_deps_ar_ids)
             run_status = "failure"
         except asyncio.CancelledError as e:
             error_msg = "Action run was cancelled."
-            logger.warning(error_msg, exc_info=e)
+            logger.opt(exception=e).warning(error_msg)
             run_status = "canceled"
         except Exception as e:
             error_msg = f"Action run failed with error: {e}."
-            logger.error(error_msg, exc_info=e)
+            logger.opt(exception=e).error(error_msg)
             run_status = "failure"
         finally:
             if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
@@ -501,11 +501,12 @@ async def run_webhook_action(
 ) -> dict[str, Any]:
     """Run a webhook action."""
     action_run_kwargs = action_run_kwargs or {}
-    logger.bind(
+    logger.debug(
+        "Perform webhook action",
         url=url,
         method=method,
         ar_kwargs=action_run_kwargs,
-    ).debug("Perform webhook action")
+    )
     # TODO: Perform whitelist/filter step here using the url and method
     return {
         "output": action_run_kwargs,
@@ -547,12 +548,13 @@ async def run_http_request_action(
     action_run_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    logger.bind(
+    logger.debug(
+        "Perform HTTP request action",
         url=url,
         method=method,
         headers=headers,
         payload=payload,
-    ).debug("Perform HTTP request action")
+    )
 
     try:
         async with httpx.AsyncClient() as client:
@@ -564,7 +566,7 @@ async def run_http_request_action(
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP request failed with status {e.response.status_code}.")
+        logger.error("HTTP request failed with status {}.", e.response.status_code)
         raise
     return parse_http_response_data(response)
 
@@ -576,7 +578,7 @@ async def run_conditional_action(
     action_run_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a conditional action."""
-    logger.bind(rules=condition_rules).debug("Perform conditional rules action")
+    logger.debug("Perform conditional rules action", rules=condition_rules)
     rule = ConditionRuleValidator.validate_python(condition_rules)
     rule_match = rule.evaluate()
     return {
@@ -599,10 +601,11 @@ async def run_llm_action(
     action_run_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    logger.bind(
+    logger.debug(
+        "Perform LLM action",
         message=message,
         response_schema=response_schema,
-    ).debug("Perform LLM action")
+    )
 
     llm_kwargs = llm_kwargs or {}
 
@@ -629,7 +632,7 @@ async def run_llm_action(
                 generate_pydantic_json_response_schema(response_schema),
             )
         )
-        logger.debug(f"{system_context =}")
+        logger.debug("System context:\n{}", system_context)
         json_response: dict[str, Any] = await async_openai_call(
             prompt=message,
             model=model,
@@ -653,12 +656,13 @@ async def run_send_email_action(
     action_run_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a send email action."""
-    logger.bind(
+    logger.debug(
+        "Perform send email action",
         sender=sender,
         recipients=recipients,
         subject=subject,
         body=body,
-    ).debug("Perform send email action")
+    )
 
     if provider == "resend":
         email_provider = ResendMailProvider(
@@ -669,7 +673,7 @@ async def run_send_email_action(
         )
     else:
         msg = "Email provider not recognized"
-        logger.warning(f"{msg}: {provider!r}")
+        logger.warning("{}: {!r}", msg, provider)
         email_response = {
             "status": "error",
             "message": msg,
@@ -695,9 +699,9 @@ async def run_send_email_action(
             "subject": subject,
             "body": body,
         }
-    except (EmailBouncedError, EmailNotFoundError) as exc:
-        msg = exc.args[0]
-        logger.warning(msg=msg, exc_info=exc)
+    except (EmailBouncedError, EmailNotFoundError) as e:
+        msg = e.args[0]
+        logger.opt(exception=e).warning(msg=msg, error=e)
         email_response = {
             "status": "warning",
             "message": msg,
@@ -759,7 +763,7 @@ async def run_open_case_action(
         suppression=suppression,
         tags=tags,
     )
-    logger.opt(lazy=True).debug("Sinking case {case}", case=lambda: case.model_dump())
+    logger.opt(lazy=True).debug("Sinking case", case=lambda: case.model_dump())
     try:
         await asyncio.to_thread(tbl.add, [case.flatten()])
     except Exception as e:
@@ -776,10 +780,7 @@ async def run_integration_action(
     action_run_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an integration action."""
-    logger.bind(
-        qualname=qualname,
-        params=params,
-    ).debug("Perform integration action")
+    logger.debug("Perform integration action", qualname=qualname, params=params)
 
     params = params or {}
 
@@ -820,13 +821,14 @@ async def run_action(
     - transform: Apply a transformation to the data.
     """
 
-    logger.bind(
+    logger.info(
+        "Running action",
         key=key,
         title=title,
         type=type,
         action_run_kwargs=action_run_kwargs,
         action_kwargs=action_kwargs,
-    ).info("Running action")
+    )
 
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
@@ -849,8 +851,9 @@ async def run_action(
         workflow = ctx_workflow_run.get().workflow
         processed_action_kwargs.update(action_run_id=ar_id, workflow_id=workflow.id)
 
-    logger.bind(processed_action_kwargs=processed_action_kwargs).debug(
-        "Finish processing action kwargs"
+    logger.debug(
+        "Finish processing action kwargs",
+        processed_action_kwargs=processed_action_kwargs,
     )
 
     try:
@@ -862,7 +865,7 @@ async def run_action(
             **processed_action_kwargs,
         )
     except Exception as e:
-        logger.bind(key=key).error("Error running action", exc_info=e)
+        logger.opt(exception=e).error("Error running action", key=key)
         raise
 
     # Leave dunder keys inside as a form of execution context

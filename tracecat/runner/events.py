@@ -61,8 +61,11 @@ async def emit_create_workflow_run_event() -> None:
         routing_keys=[role.user_id],
         payload={"type": "workflow_run", **event.model_dump()},
     )
-    logger.bind(name="events.create_wfr", role=role, workflow_id=workflow_id).debug(
-        "Emitted event"
+    logger.debug(
+        "Emitted event",
+        name="events.create_wfr",
+        role=role,
+        workflow_id=workflow_id,
     )
 
 
@@ -98,13 +101,14 @@ async def emit_update_workflow_run_event(*, status: RunStatus) -> None:
         routing_keys=[role.user_id],
         payload={"type": "workflow_run", **event.model_dump()},
     )
-    logger.bind(
+    logger.debug(
+        "Emitted event",
         name="events.update_wfr",
         role=role,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
         status=status,
-    ).debug("Emitted event")
+    )
 
 
 ## Action Run Events
@@ -140,11 +144,12 @@ async def emit_create_action_run_event() -> None:
         routing_keys=[role.user_id],
         payload={"type": "action_run", **event.model_dump()},
     )
-    logger.bind(
+    logger.debug(
+        "Emitted event",
         name="events.create_ar",
         action_id=action_id,
         role=role,
-    ).debug("Emitted event")
+    )
 
 
 async def emit_update_action_run_event(
@@ -189,10 +194,11 @@ async def emit_update_action_run_event(
         routing_keys=[role.user_id],
         payload={"type": "action_run", **event.model_dump()},
     )
-    logger.bind(
+    logger.debug(
+        "Emitted event",
         name="events.update_ar",
         role=role,
         action_id=action_id,
         action_run_id=action_run.id,
         status=status,
-    ).debug("Emitted event")
+    )

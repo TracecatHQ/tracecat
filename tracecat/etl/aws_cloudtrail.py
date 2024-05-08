@@ -184,7 +184,7 @@ def load_cloudtrail_logs(
     organization_id: str | None = None,
 ) -> pl.LazyFrame:
     logger.info(
-        "🆗 Download AWS CloudTrail logs from: account_id=%r across regions=%s",
+        "🆗 Download AWS CloudTrail logs from: account_id={!r} across regions={!s}",
         account_id,
         regions,
     )

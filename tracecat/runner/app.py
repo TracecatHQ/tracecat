@@ -130,9 +130,7 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).warning(
-    "Runner started"
-)
+logger.warning("Runner started", env=TRACECAT__APP_ENV, origins=cors_origins_kwargs)
 
 
 class RunnerStatus(StrEnum):
@@ -181,8 +179,13 @@ async def valid_workflow(workflow_id: str) -> str:
 # Catch-all exception handler to prevent stack traces from leaking
 @app.exception_handler(Exception)
 async def custom_exception_handler(request: Request, exc: Exception):
-    role = ctx_session_role.get()
-    logger.opt(exception=exc).bind(role=role).error("An unexpected error occurred.")
+    logger.error(
+        "Unexpected error: {!s}",
+        exc,
+        role=ctx_session_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
@@ -210,7 +213,7 @@ async def check_api_health() -> dict[str, str]:
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error checking API health: {e}", exc_info=True)
+            logger.opt(exception=e).error("Error checking API health", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error checking API health",
@@ -296,8 +299,8 @@ async def webhook(
         - Spawn a new process to handle the event.
         - Store the process in a queue.
     """
-    logger.bind(entrypoint=webhook_metadata.action_key).info("Webhook hit")
-    logger.bind(payload=payload).debug("Webhook payload")
+    logger.info("Webhook hit", entrypoint=webhook_metadata.action_key)
+    logger.debug("Webhook payload", payload=payload)
 
     user_id = webhook_metadata.owner_id  # If we are here this should be set
     role = Role(type="service", service_id="tracecat-runner", user_id=user_id)
@@ -442,11 +445,12 @@ async def run_workflow(
                     or action_run.id in action_result_store
                 ):
                     run_logger.debug(
-                        f"Action {action_run.id!r} already running or completed. Skipping."
+                        "Action {} already running or completed. Skipping.",
+                        action_run.id,
                     )
                     continue
 
-                run_logger.bind(ar_id=action_run.id).info("Creating action run task")
+                run_logger.info("Creating action run task", ar_id=action_run.id)
                 action_run_status_store[action_run.id] = ActionRunStatus.PENDING
                 # Schedule a new action run
                 running_jobs_store[action_run.id] = asyncio.create_task(
@@ -462,11 +466,11 @@ async def run_workflow(
 
             run_status = "success"
             run_logger.info("Workflow completed.")
-        except asyncio.CancelledError:
-            logger.warning("Workflow was canceled.", exc_info=True)
+        except asyncio.CancelledError as e:
+            logger.opt(exception=e).warning("Workflow was canceled.", error=e)
             run_status = "canceled"
         except Exception as e:
-            logger.error(f"Workflow failed: {e}", exc_info=True)
+            logger.opt(exception=e).error("Workflow failed", error=e)
         finally:
             logger.info("Shutting down running tasks")
             for running_task in running_jobs_store.values():
