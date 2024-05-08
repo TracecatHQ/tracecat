@@ -27,13 +27,13 @@ from tracecat.config import (
     TRACECAT_DIR,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
-from tracecat.logging import standard_logger
+from tracecat.logging import Logger
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 if TYPE_CHECKING:
     from tracecat.integrations import IntegrationSpec
 
-logger = standard_logger("db")
+logger = Logger("db")
 
 
 STORAGE_PATH = TRACECAT_DIR / "storage"

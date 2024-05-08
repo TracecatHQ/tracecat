@@ -19,10 +19,6 @@ import polars as pl
 import polars.selectors as cs
 
 from tracecat.integrations._registry import registry
-from tracecat.logging import standard_logger
-
-logger = standard_logger(__name__)
-
 
 DD_REGION_TO_URL = {
     "ap1": "https://api.ap1.datadoghq.com",

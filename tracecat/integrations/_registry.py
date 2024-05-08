@@ -16,13 +16,11 @@ from tracecat.integrations.utils import (
     get_integration_key,
     get_integration_platform,
 )
-from tracecat.logging import standard_logger
+from tracecat.logging import logger
 from tracecat.secrets import batch_get_secrets
 
 if TYPE_CHECKING:
     from tracecat.db import Secret
-
-logger = standard_logger(__name__)
 
 
 class Registry:
@@ -80,11 +78,11 @@ class Registry:
                 try:
                     role = kwargs.pop("__role", None)
                     # Get secrets from the secrets API
-                    self._logger = standard_logger(f"{__name__}[PID={os.getpid()}]")
-                    self._logger.info("Executing %r in subprocess", key)
+                    self._logger = logger.bind(pid=os.getpid())
+                    self._logger.bind(key=key).info("Executing in subprocess")
 
                     if secrets:
-                        self._logger.info(f"Pulling secrets: {secrets!r}")
+                        self._logger.bind(secrets=secrets).info("Pull secrets")
                         _secrets = self._get_secrets(role=role, secret_names=secrets)
                         self._set_secrets(_secrets)
 
@@ -116,7 +114,9 @@ class Registry:
     def _get_secrets(self, role: Role, secret_names: list[str]) -> list[Secret]:
         """Retrieve secrets from the secrets API."""
 
-        self._logger.info(f"Getting secrets {secret_names!r}")
+        self._logger.opt(lazy=True).debug(
+            "Getting secrets {secret_names}", secret_names=lambda: secret_names
+        )
         return asyncio.run(batch_get_secrets(role, secret_names))
 
     def _set_secrets(self, secrets: list[Secret]):

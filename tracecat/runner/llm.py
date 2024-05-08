@@ -5,9 +5,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat.logging import standard_logger
+from tracecat.logging import Logger
 
-logger = standard_logger(__name__)
+logger = Logger("llm")
 
 TaskType = Literal[
     "llm.translate",

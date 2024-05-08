@@ -42,7 +42,7 @@ from tracecat.db import (
     create_vdb_conn,
     initialize_db,
 )
-from tracecat.logging import LoggerFactory
+from tracecat.logging import Logger
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
@@ -83,6 +83,7 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 
+logger = Logger("api")
 engine: Engine
 rabbitmq_channel_pool: Pool[Channel]
 
@@ -99,8 +100,7 @@ async def lifespan(app: FastAPI):
 def create_app(**kwargs) -> FastAPI:
     global logger
     app = FastAPI(**kwargs)
-    app.logger = LoggerFactory.make_logger(name="api.server")
-    logger = LoggerFactory.make_logger(name="api")
+    app.logger = logger
     return app
 
 
@@ -136,7 +136,7 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).info("App started")
+logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).warning("App started")
 
 
 # Catch-all exception handler to prevent stack traces from leaking
@@ -1291,7 +1291,6 @@ async def streaming_autofill_case_fields(
     3. Complete the fields
 
     """
-    logger.info(f"Received: {cases = }, {role = }, {fields = }")
     fields_set = set(fields)
 
     if not fields_set:
@@ -1462,7 +1461,6 @@ def get_secret(
 
     Support access for both user and service roles."""
 
-    logger.info(f"Role: {role}")
     with Session(engine) as session:
         # Check if secret exists
         statement = (
