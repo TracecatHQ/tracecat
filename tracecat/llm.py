@@ -66,7 +66,7 @@ async def async_openai_call(  # type: ignore
         {"role": "user", "content": prompt},
     ]
 
-    logger.info("🧠 Calling OpenAI API with model: %s...", model)
+    logger.info("🧠 Calling OpenAI API with {} model...", model)
     response: ChatCompletion = await client.chat.completions.create(  # type: ignore[call-overload]
         model=model,
         response_format={"type": response_format},
@@ -76,7 +76,7 @@ async def async_openai_call(  # type: ignore
         **kwargs,
     )
     # TODO: Should track these metrics
-    logger.bind(usage=response.usage).info("🧠 Usage")
+    logger.info("🧠 Usage", usage=response.usage)
     if stream:
         return response
 

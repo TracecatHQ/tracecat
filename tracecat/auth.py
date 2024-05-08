@@ -270,7 +270,7 @@ else:
             if user_id is None:
                 raise HTTP_EXC("No sub claim in JWT")
         except ExpiredSignatureError as e:
-            logger.error(f"ExpiredSignatureError: {e}")
+            logger.error("Signature expired", error=e)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired",

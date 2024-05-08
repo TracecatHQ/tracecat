@@ -26,6 +26,7 @@ from tracecat.auth import (
     authenticate_user_or_service,
 )
 from tracecat.config import TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
+from tracecat.contexts import ctx_session_role
 from tracecat.db import (
     Action,
     ActionRun,
@@ -136,12 +137,19 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).warning("App started")
+logger.warning("App started", env=TRACECAT__APP_ENV, origins=cors_origins_kwargs)
 
 
 # Catch-all exception handler to prevent stack traces from leaking
 @app.exception_handler(Exception)
 async def custom_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unexpected error: {!s}",
+        exc,
+        role=ctx_session_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
@@ -166,7 +174,7 @@ async def check_runner_health() -> dict[str, str]:
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error checking runner health: {e}", exc_info=True)
+            logger.opt(exception=e).error("Error checking runner health", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error checking runner health",
@@ -506,7 +514,11 @@ async def trigger_workflow_run(
         entrypoint_key=params.action_key,
         entrypoint_payload=params.payload,
     )
-    logger.debug(f"Triggering workflow: {workflow_id = }, {workflow_params = }")
+    logger.debug(
+        "Triggering workflow",
+        workflow_id=workflow_id,
+        workflow_params=workflow_params,
+    )
     async with AuthenticatedRunnerClient(role=service_role) as client:
         response = await client.post(
             f"/workflows/{workflow_id}",
@@ -515,7 +527,7 @@ async def trigger_workflow_run(
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error triggering workflow: {e}", exc_info=True)
+            logger.opt(exception=e).error("Error triggering workflow", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error triggering workflow",
@@ -947,7 +959,7 @@ def authenticate_webhook(
         try:
             webhook = result.one()
         except NoResultFound as e:
-            logger.error("Webhook does not exist: %s", e)
+            logger.opt(exception=e).error("Webhook does not exist", error=e)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
@@ -960,7 +972,7 @@ def authenticate_webhook(
         try:
             action = result.one()
         except Exception as e:
-            logger.error("Action does not exist: %s", e)
+            logger.opt(exception=e).error("Action does not exist", error=e)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e

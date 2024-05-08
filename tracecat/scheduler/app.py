@@ -83,7 +83,9 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
 
                 if should_run:
                     logger.info(
-                        "✅ Run scheduled workflow: id=%s cron=%r", workflow_id, cron
+                        "✅ Run scheduled workflow: id={!s} cron={!r}",
+                        workflow_id,
+                        cron,
                     )
                     response = await start_workflow(
                         user_id=user_id,
@@ -95,7 +97,7 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                         response.raise_for_status()
                     except httpx.HTTPStatusError as e:
                         logger.error(
-                            "Failed to schedule workflo: id=%s cron=%r",
+                            "Failed to schedule workflo: id={!s} cron={!r}",
                             workflow_id,
                             cron,
                             exc_info=e,
@@ -104,7 +106,7 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                         responses.append(response)
                 else:
                     logger.info(
-                        "⏩ Skip scheduled workflow: id=%s cron=%r | Next run: %s",
+                        "⏩ Skip scheduled workflow: id={!s} cron={!r} | Next run: {!s}",
                         workflow_id,
                         cron,
                         next_run,
@@ -115,7 +117,7 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                     response.raise_for_status()
                 except httpx.HTTPStatusError as e:
                     logger.error(
-                        "Failed to schedule workflow: id=%s cron=%r.",
+                        "Failed to schedule workflow: id={!s} cron={!r}",
                         workflow_id,
                         cron,
                         exc_info=e,
@@ -176,9 +178,7 @@ app.add_middleware(
 )
 
 # TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.bind(env=TRACECAT__APP_ENV, origins=cors_origins_kwargs).warning(
-    "Scheduler started"
-)
+logger.warning("Scheduler started", env=TRACECAT__APP_ENV, origins=cors_origins_kwargs)
 
 
 @app.get("/")

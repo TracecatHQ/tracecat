@@ -13,13 +13,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         )
 
         # Log the incoming request with parameters
-        request.app.logger.bind(
+        request.app.logger.debug(
+            "Incoming request",
             method=request.method,
             scheme=request.url.scheme,
             hostname=request.url.hostname,
             path=request.url.path,
             params=request_params,
             body=request_body,
-        ).debug("Request")
+        )
 
         return await call_next(request)
