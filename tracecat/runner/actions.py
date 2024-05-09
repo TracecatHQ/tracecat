@@ -46,7 +46,6 @@ import httpx
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.config import HTTP_MAX_RETRIES
 from tracecat.contexts import ctx_action_run, ctx_session_role, ctx_workflow_run
 from tracecat.db import create_vdb_conn
@@ -785,11 +784,9 @@ async def run_integration_action(
     params = params or {}
 
     func = registry[qualname]
-    bound_func = partial(func, **params)
+    bound_func = partial(func, **params, __role=ctx_session_role.get())
 
-    loop = asyncio.get_running_loop()
-    with CloudpickleProcessPoolExecutor() as pool:
-        result = await loop.run_in_executor(pool, bound_func)
+    result = await asyncio.to_thread(bound_func)
 
     return {
         "output": result,
