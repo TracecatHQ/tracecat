@@ -75,7 +75,7 @@ class Registry:
                 3. Clean up the environment after the function has executed.
                 """
                 secret_objs: list[Secret] = []
-                role: Role = kwargs.pop("__role", None)
+                role: Role = kwargs.pop("__role", Role(type="service"))
                 with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
                     try:
                         # Get secrets from the secrets API
