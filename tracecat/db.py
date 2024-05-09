@@ -23,7 +23,7 @@ from sqlmodel import (
 from tracecat import auth, integrations
 from tracecat.config import (
     TRACECAT__APP_ENV,
-    TRACECAT__RUNNER_URL,
+    TRACECAT__PUBLIC_RUNNER_URL,
     TRACECAT_DIR,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
@@ -319,7 +319,7 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def url(self) -> str:
-        return f"{TRACECAT__RUNNER_URL}/webhook/{self.id}/{self.secret}"
+        return f"{TRACECAT__PUBLIC_RUNNER_URL}/webhook/{self.id}/{self.secret}"
 
 
 def create_db_engine() -> Engine:
