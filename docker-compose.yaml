@@ -87,6 +87,7 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
     restart: unless-stopped
     depends_on:
       - api
