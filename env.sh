@@ -97,7 +97,7 @@ cp .env.example .env
 dotenv_replace "TRACECAT__SERVICE_KEY" "$service_key" "$env_file"
 dotenv_replace "TRACECAT__SIGNING_SECRET" "$signing_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
-dotenv_replace "TRACECAT__RUNNER_URL" "$runner_url" "$env_file"
+dotenv_replace "TRACECAT__PUBLIC_RUNNER_URL" "$runner_url" "$env_file"
 dotenv_replace "OPENAI_API_KEY" "$openai_api_key" "$env_file"
 dotenv_replace "RESEND_API_KEY" "$resend_api_key" "$env_file"
 
