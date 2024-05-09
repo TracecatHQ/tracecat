@@ -12,6 +12,8 @@ _P = ParamSpec("_P")
 
 logger = Logger("executor.cloudpickle")
 
+# TODO: Do something about these functions
+
 
 def _run_serialized_fn(serialized_wrapped_fn: bytes, role: Role, /, *args, **kwargs):
     # NOTE: This is not the raw function - it is still wrapped by the `wrapper` decorator
