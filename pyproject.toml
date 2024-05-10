@@ -26,9 +26,11 @@ dependencies = [
     "colorlog",
     "croniter",
     "cryptography",
+    "diskcache==5.6.3",
     "fastapi",
     "httpx",
     "lancedb==0.6.3",
+    "mmh3==4.1.0",
     "loguru==0.7.2",
     "openai",
     "orjson",
@@ -54,7 +56,14 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
 runner = ["aiosmtplib", "jsonpath_ng", "python-multipart"]
-dev = ["respx", "pytest", "python-dotenv", "pytest-asyncio", "minio"]
+dev = [
+    "respx",
+    "pytest",
+    "python-dotenv",
+    "pytest-asyncio",
+    "minio",
+    "boto3-stubs[cloudtrail,guardduty,s3]",
+]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"

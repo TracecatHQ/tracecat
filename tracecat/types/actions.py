@@ -18,6 +18,7 @@ ActionType = Literal[
     "open_case",
     # Integrations
     "integrations.aws_cloudtrail.query_cloudtrail_logs",
+    "integrations.aws_guardduty.query_guardduty_findings",
     "integrations.datadog.list_detection_rules",
     "integrations.datadog.list_security_signals",
     "integrations.datadog.update_security_signal_state",

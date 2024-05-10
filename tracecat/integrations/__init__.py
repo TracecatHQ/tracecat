@@ -3,6 +3,7 @@
 # Import modules to register integrations
 from tracecat.integrations import (
     aws_cloudtrail,
+    aws_guardduty,
     datadog,
     emailrep,
     project_discovery,
@@ -18,6 +19,7 @@ __all__ = [
     "registry",
     # Integrations
     "aws_cloudtrail",
+    "aws_guardduty",
     "datadog",
     "emailrep",
     "project_discovery",
