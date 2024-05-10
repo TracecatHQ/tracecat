@@ -20,9 +20,9 @@ from tqdm.contrib.concurrent import thread_map
 
 from tracecat.config import TRACECAT__TRIAGE_DIR
 from tracecat.etl.aws_s3 import list_objects_under_prefix
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 
-logger = standard_logger("runner.aws_cloudtrail")
+logger = Logger("runner.aws_cloudtrail")
 
 # Supress botocore info logs
 logging.getLogger("botocore").setLevel(logging.CRITICAL)
@@ -184,7 +184,7 @@ def load_cloudtrail_logs(
     organization_id: str | None = None,
 ) -> pl.LazyFrame:
     logger.info(
-        "🆗 Download AWS CloudTrail logs from: account_id=%r across regions=%s",
+        "🆗 Download AWS CloudTrail logs from: account_id={!r} across regions={!s}",
         account_id,
         regions,
     )

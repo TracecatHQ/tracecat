@@ -13,25 +13,31 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from tracecat.auth import AuthenticatedAPIClient
-from tracecat.contexts import ctx_mq_channel_pool, ctx_session_role
+from tracecat.contexts import (
+    ctx_action_run,
+    ctx_mq_channel_pool,
+    ctx_session_role,
+    ctx_workflow_run,
+)
 from tracecat.db import ActionRun as ActionRunEvent
 from tracecat.db import WorkflowRun as WorkflowRunEvent
-from tracecat.logger import standard_logger
+from tracecat.logging import logger
 from tracecat.messaging import publish
 from tracecat.types.api import RunStatus
 
 if TYPE_CHECKING:
-    from tracecat.runner.actions import ActionRun, ActionRunResult
-logger = standard_logger(__name__)
+    from tracecat.runner.actions import ActionRunResult
 
 ## Workflow Run Events
 
 
-async def emit_create_workflow_run_event(
-    *, workflow_id: str, workflow_run_id: str
-) -> None:
+async def emit_create_workflow_run_event() -> None:
     """Create a workflow run."""
     role = ctx_session_role.get()
+    wfr = ctx_workflow_run.get()
+    workflow_run_id = wfr.workflow_run_id
+    workflow_id = wfr.workflow.id
+
     time_now = datetime.now(UTC)
     event = WorkflowRunEvent(
         id=workflow_run_id,
@@ -55,17 +61,20 @@ async def emit_create_workflow_run_event(
         routing_keys=[role.user_id],
         payload={"type": "workflow_run", **event.model_dump()},
     )
-    logger.info(f"Emitted create workflow run event: {workflow_id=}")
+    logger.debug(
+        "Emitted event",
+        name="events.create_wfr",
+        role=role,
+        workflow_id=workflow_id,
+    )
 
 
-async def emit_update_workflow_run_event(
-    *,
-    workflow_id: str,
-    workflow_run_id: str,
-    status: RunStatus,
-) -> None:
+async def emit_update_workflow_run_event(*, status: RunStatus) -> None:
     """Update a workflow run."""
     role = ctx_session_role.get()
+    wfr = ctx_workflow_run.get()
+    workflow_id = wfr.workflow.id
+    workflow_run_id = wfr.workflow_run_id
 
     time_now = datetime.now(UTC)
     event = WorkflowRunEvent(
@@ -92,14 +101,22 @@ async def emit_update_workflow_run_event(
         routing_keys=[role.user_id],
         payload={"type": "workflow_run", **event.model_dump()},
     )
-    logger.info(f"Emitted update workflow run event: {workflow_run_id=}, {status=}")
+    logger.debug(
+        "Emitted event",
+        name="events.update_wfr",
+        role=role,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        status=status,
+    )
 
 
 ## Action Run Events
 
 
-async def emit_create_action_run_event(action_run: ActionRun) -> None:
+async def emit_create_action_run_event() -> None:
     """Create a workflow run."""
+    action_run = ctx_action_run.get()
     action_id = action_run.action_id
     role = ctx_session_role.get()
 
@@ -127,17 +144,22 @@ async def emit_create_action_run_event(action_run: ActionRun) -> None:
         routing_keys=[role.user_id],
         payload={"type": "action_run", **event.model_dump()},
     )
-    logger.info(f"Emitted create action run event: {action_run.id=}")
+    logger.debug(
+        "Emitted event",
+        name="events.create_ar",
+        action_id=action_id,
+        role=role,
+    )
 
 
 async def emit_update_action_run_event(
-    action_run: ActionRun,
     *,
     status: RunStatus,
     error_msg: str | None = None,
     result: ActionRunResult | None = None,
 ) -> None:
     """Update a workflow run."""
+    action_run = ctx_action_run.get()
     action_id = action_run.action_id
     role = ctx_session_role.get()
 
@@ -172,4 +194,11 @@ async def emit_update_action_run_event(
         routing_keys=[role.user_id],
         payload={"type": "action_run", **event.model_dump()},
     )
-    logger.info(f"Emitted update action run event: {action_run.id=}, {status=}.")
+    logger.debug(
+        "Emitted event",
+        name="events.update_ar",
+        role=role,
+        action_id=action_id,
+        action_run_id=action_run.id,
+        status=status,
+    )

@@ -23,17 +23,17 @@ from sqlmodel import (
 from tracecat import auth, integrations
 from tracecat.config import (
     TRACECAT__APP_ENV,
-    TRACECAT__RUNNER_URL,
+    TRACECAT__PUBLIC_RUNNER_URL,
     TRACECAT_DIR,
 )
 from tracecat.labels.mitre import get_mitre_tactics_techniques
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 if TYPE_CHECKING:
     from tracecat.integrations import IntegrationSpec
 
-logger = standard_logger("db")
+logger = Logger("db")
 
 
 STORAGE_PATH = TRACECAT_DIR / "storage"
@@ -81,7 +81,7 @@ class Resource(SQLModel):
         sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
-            "server_onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
+            "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )
@@ -319,7 +319,7 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def url(self) -> str:
-        return f"{TRACECAT__RUNNER_URL}/webhook/{self.id}/{self.secret}"
+        return f"{TRACECAT__PUBLIC_RUNNER_URL}/webhook/{self.id}/{self.secret}"
 
 
 def create_db_engine() -> Engine:
@@ -345,7 +345,10 @@ def create_db_engine() -> Engine:
 
 
 def create_vdb_conn() -> lancedb.DBConnection:
-    db = lancedb.connect(STORAGE_PATH / "vector.db")
+    if os.environ.get("LANCEDB__S3_STORAGE_PATH") is None:
+        db = lancedb.connect(STORAGE_PATH / "vector.db")
+    else:
+        db = lancedb.connect(os.environ["LANCEDB__S3_STORAGE_PATH"])
     return db
 
 

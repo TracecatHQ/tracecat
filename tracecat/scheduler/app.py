@@ -26,12 +26,10 @@ from tracecat.config import (
     TRACECAT__SCHEDULE_MAX_CONNECTIONS,
 )
 from tracecat.db import WorkflowSchedule, create_db_engine
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 from tracecat.types.schedules import WorkflowScheduleParams
 
-logger = standard_logger("scheduler")
-
-
+logger = Logger("scheduler")
 engine: Engine
 
 
@@ -85,7 +83,9 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
 
                 if should_run:
                     logger.info(
-                        "✅ Run scheduled workflow: id=%s cron=%r", workflow_id, cron
+                        "✅ Run scheduled workflow: id={!s} cron={!r}",
+                        workflow_id,
+                        cron,
                     )
                     response = await start_workflow(
                         user_id=user_id,
@@ -97,7 +97,7 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                         response.raise_for_status()
                     except httpx.HTTPStatusError as e:
                         logger.error(
-                            "Failed to schedule workflo: id=%s cron=%r",
+                            "Failed to schedule workflo: id={!s} cron={!r}",
                             workflow_id,
                             cron,
                             exc_info=e,
@@ -106,7 +106,7 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                         responses.append(response)
                 else:
                     logger.info(
-                        "⏩ Skip scheduled workflow: id=%s cron=%r | Next run: %s",
+                        "⏩ Skip scheduled workflow: id={!s} cron={!r} | Next run: {!s}",
                         workflow_id,
                         cron,
                         next_run,
@@ -117,7 +117,7 @@ async def run_scheduled_workflows(interval_seconds: int | None = None):
                     response.raise_for_status()
                 except httpx.HTTPStatusError as e:
                     logger.error(
-                        "Failed to schedule workflow: id=%s cron=%r.",
+                        "Failed to schedule workflow: id={!s} cron={!r}",
                         workflow_id,
                         cron,
                         exc_info=e,
@@ -140,7 +140,11 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+def create_app(**kwargs) -> FastAPI:
+    global logger
+    app = FastAPI(**kwargs)
+    app.logger = logger
+    return app
 
 
 if TRACECAT__APP_ENV == "production":
@@ -164,8 +168,7 @@ else:
     }
 
 
-logger.info(f"Setting CORS origins to {cors_origins_kwargs}")
-logger.info(f"{TRACECAT__APP_ENV =}")
+app = create_app(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     **cors_origins_kwargs,
@@ -173,6 +176,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# TODO: Check TRACECAT__APP_ENV to set methods and headers
+logger.warning("Scheduler started", env=TRACECAT__APP_ENV, origins=cors_origins_kwargs)
 
 
 @app.get("/")

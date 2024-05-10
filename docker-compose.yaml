@@ -20,6 +20,7 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
       # Auth
       CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
@@ -52,6 +53,7 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
       # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       RESEND_API_KEY: ${RESEND_API_KEY}
@@ -66,7 +68,7 @@ services:
   scheduler:
     build:
       context: .
-      dockerfile: Dockerfile.scheduler
+      dockerfile: Dockerfile
     container_name: scheduler
     ports:
       - "8002:8000"
@@ -74,6 +76,7 @@ services:
       - ./tracecat:/app/tracecat
       - app-storage:/var/lib/tracecat
     environment:
+      API_MODULE: "tracecat.scheduler.app:app"
       # Shared
       LOG_LEVEL: ${LOG_LEVEL}
       RABBITMQ_URI: ${RABBITMQ_URI}
@@ -84,6 +87,7 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
     restart: unless-stopped
     depends_on:
       - api
@@ -130,8 +134,8 @@ services:
       - "5672:5672" # RabbitMQ server
       - "15672:15672" # Management UI
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
     volumes:
       - mq-storage:/var/lib/rabbitmq
     restart: unless-stopped

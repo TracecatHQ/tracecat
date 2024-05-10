@@ -1,5 +1,4 @@
-"""Set up shared environment variables and S3 proxy server (MinIO) for integration tests.
-"""
+"""Set up shared environment variables and S3 proxy server (MinIO) for integration tests."""
 
 import logging
 import os
@@ -7,9 +6,6 @@ from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
-
-from tracecat.db import Secret
-from tracecat.types.secrets import SecretKeyValue
 
 # MinIO settings
 MINIO_CONTAINER_NAME = "minio_test_server"
@@ -31,6 +27,7 @@ def setup_shared_env():
     os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
     os.environ["TRACECAT__API_URL"] = "http://api:8000"
     os.environ["TRACECAT__RUNNER_URL"] = "http://runner:8000"
+    os.environ["TRACECAT__PUBLIC_RUNNER_URL"] = "http://localhost:8001"
     os.environ["TRACECAT__SERVICE_KEY"] = "test-service-key"
 
     # AWS
@@ -55,6 +52,9 @@ def setup_shared_env():
 
 @pytest.fixture(scope="session")
 def create_mock_secret():
+    from tracecat.db import Secret
+    from tracecat.types.secrets import SecretKeyValue
+
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
         keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]
         new_secret = Secret(

@@ -33,18 +33,18 @@ def test_simple_integration():
     @registry.register(
         description="Test description",
     )
-    def add(nums: list[int]) -> int:
+    def add1(nums: list[int]) -> int:
         """Adds integers together."""
         return sum(nums)
 
     input_data = [1, 2]
     # Key format is "integrations.<module_name>.<function_name>"
     # The module name would be 'test_integrations' (current file) in this case
-    expected_key = "integrations.test_integrations.add"
-    assert add(input_data) == 3
-    assert expected_key in registry.integrations
-    assert registry.integrations[expected_key](input_data) == 3
-    assert registry.metadata[expected_key]["description"] == "Test description"
+    expected_qualifier = "integrations.test_integrations.add1"
+    assert add1(input_data) == 3
+    assert expected_qualifier in registry.integrations
+    assert registry.integrations[expected_qualifier](input_data) == 3
+    assert registry.metadata[expected_qualifier]["description"] == "Test description"
 
 
 @pytest.mark.asyncio
@@ -56,21 +56,19 @@ async def test_run_integration_action_no_secrets():
     @registry.register(
         description="Test description",
     )
-    def add(nums: list[int]) -> int:
+    def add2(nums: list[int]) -> int:
         """Adds integers together."""
         return sum(nums)
 
     input_data = [1, 2]
     # Key format is "integrations.<module_name>.<function_name>"
     # The module name would be 'test_integrations' (current file) in this case
-    expected_key = "integrations.test_integrations.add"
+    expected_qualifier = "integrations.test_integrations.add2"
     expected = 3
-
-    # assert add(input_data) == expected
 
     # Rune the integration action
     actual_output = await run_integration_action(
-        qualname=expected_key,
+        qualname=expected_qualifier,
         params={"nums": input_data},
     )
     actual = actual_output["output"]

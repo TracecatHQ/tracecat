@@ -5,9 +5,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 
-logger = standard_logger(__name__)
+logger = Logger("llm")
 
 TaskType = Literal[
     "llm.translate",
@@ -62,7 +62,7 @@ class EnrichTaskFields(TaskFields):
     type: Literal["llm.enrich"] = Field("llm.enrich", frozen=True)
 
 
-TaskFieldsSubclass = (
+TaskFieldsVariant = (
     TranslateTaskFields
     | ExtractTaskFields
     | LabelTaskFields

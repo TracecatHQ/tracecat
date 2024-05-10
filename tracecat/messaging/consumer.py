@@ -13,10 +13,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 from tracecat.messaging.common import RABBITMQ_RUNNER_EVENTS_EXCHANGE
 
-logger = standard_logger(__name__)
+logger = Logger("rabbitmq.consumer")
 
 
 @asynccontextmanager
@@ -32,15 +32,17 @@ async def prepare_queue(*, channel: Channel, exchange: str, routing_keys: list[s
         )
 
         # Declaring random queue
-        queue = await channel.declare_queue(durable=True, exclusive=True)
+        queue = await channel.declare_queue(
+            durable=True, exclusive=True, auto_delete=True
+        )
         for routing_key in routing_keys:
             await queue.bind(ex, routing_key=routing_key)
         yield queue
     except Exception as e:
-        logger.error(f"Error in prepare_exchange: {e}", exc_info=True)
+        logger.opt(exception=e).error("Error in prepare_exchange", exchange=exchange)
     finally:
         # Cleanup
-        logger.info(f"Cleaning up exchange {exchange!r}")
+        logger.info("Cleaning up exchange", exchange=exchange)
         if queue:
             for routing_key in routing_keys:
                 await queue.unbind(ex, routing_key=routing_key)
@@ -99,6 +101,6 @@ async def subscribe(
         async for message in _subscribe():
             yield message
     except Exception as e:
-        logger.error(f"Error in event subscription: {e}", exc_info=True)
+        logger.opt(exception=e).error("Error in event subscription")
     finally:
         logger.info("Closing event subscription")

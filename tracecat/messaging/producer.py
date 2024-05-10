@@ -6,10 +6,10 @@ import orjson
 from aio_pika import Channel, DeliveryMode, ExchangeType, Message
 from aio_pika.pool import Pool
 
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 from tracecat.messaging.common import RABBITMQ_RUNNER_EVENTS_EXCHANGE
 
-logger = standard_logger(__name__)
+logger = Logger("rabbitmq.producer")
 
 
 async def event_producer(
@@ -24,7 +24,7 @@ async def event_producer(
 
     for routing_key in routing_keys:
         await ex.publish(message, routing_key=routing_key)
-        logger.debug(f" [x] {routing_key = } Sent {message.body!r}")
+        logger.debug("Published message", routing_key=routing_key, body=message.body)
 
 
 async def publish(

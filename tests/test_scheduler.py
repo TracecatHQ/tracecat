@@ -25,7 +25,7 @@ from tracecat.auth import (
 )
 from tracecat.config import TRACECAT__RUNNER_URL
 from tracecat.db import TRACECAT__DB_URI, Workflow, WorkflowSchedule
-from tracecat.scheduler import app, engine, start_scheduler
+from tracecat.scheduler.app import app, engine, start_scheduler
 
 TEST_SCHEDULER_INTERVAL_SECONDS = 10
 TEST_WORKFLOW_RUN_TIMEOUT = 40  # seconds

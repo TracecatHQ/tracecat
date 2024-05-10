@@ -5,10 +5,10 @@ from typing import Annotated, Any
 import polars as pl
 from aio_pika import Channel
 from aio_pika.pool import Pool
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
-from fastapi.responses import StreamingResponse
+from fastapi.responses import ORJSONResponse, StreamingResponse
 from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
@@ -26,6 +26,7 @@ from tracecat.auth import (
     authenticate_user_or_service,
 )
 from tracecat.config import TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
+from tracecat.contexts import ctx_session_role
 from tracecat.db import (
     Action,
     ActionRun,
@@ -42,11 +43,12 @@ from tracecat.db import (
     create_vdb_conn,
     initialize_db,
 )
-from tracecat.logger import standard_logger
+from tracecat.logging import Logger
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.messaging import subscribe, use_channel_pool
+from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -82,8 +84,7 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 
-logger = standard_logger("api")
-
+logger = Logger("api")
 engine: Engine
 rabbitmq_channel_pool: Pool[Channel]
 
@@ -97,7 +98,12 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(lifespan=lifespan)
+def create_app(**kwargs) -> FastAPI:
+    global logger
+    app = FastAPI(**kwargs)
+    app.logger = logger
+    return app
+
 
 if TRACECAT__APP_ENV == "production":
     # NOTE: If you are using Tracecat self-hosted
@@ -120,9 +126,7 @@ else:
     }
 
 
-# TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.info(f"Setting CORS origins to {cors_origins_kwargs}")
-logger.info(f"{TRACECAT__APP_ENV =}")
+app = create_app(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     **cors_origins_kwargs,
@@ -130,6 +134,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestLoggingMiddleware)
+
+# TODO: Check TRACECAT__APP_ENV to set methods and headers
+logger.warning("App started", env=TRACECAT__APP_ENV, origins=cors_origins_kwargs)
+
+
+# Catch-all exception handler to prevent stack traces from leaking
+@app.exception_handler(Exception)
+async def custom_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unexpected error: {!s}",
+        exc,
+        role=ctx_session_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "An unexpected error occurred. Please try again later."},
+    )
 
 
 @app.get("/")
@@ -150,7 +174,7 @@ async def check_runner_health() -> dict[str, str]:
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error checking runner health: {e}", exc_info=True)
+            logger.opt(exception=e).error("Error checking runner health", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error checking runner health",
@@ -490,7 +514,11 @@ async def trigger_workflow_run(
         entrypoint_key=params.action_key,
         entrypoint_payload=params.payload,
     )
-    logger.debug(f"Triggering workflow: {workflow_id = }, {workflow_params = }")
+    logger.debug(
+        "Triggering workflow",
+        workflow_id=workflow_id,
+        workflow_params=workflow_params,
+    )
     async with AuthenticatedRunnerClient(role=service_role) as client:
         response = await client.post(
             f"/workflows/{workflow_id}",
@@ -499,7 +527,7 @@ async def trigger_workflow_run(
         try:
             response.raise_for_status()
         except Exception as e:
-            logger.error(f"Error triggering workflow: {e}", exc_info=True)
+            logger.opt(exception=e).error("Error triggering workflow", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error triggering workflow",
@@ -931,7 +959,7 @@ def authenticate_webhook(
         try:
             webhook = result.one()
         except NoResultFound as e:
-            logger.error("Webhook does not exist: %s", e)
+            logger.opt(exception=e).error("Webhook does not exist", error=e)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
@@ -944,7 +972,7 @@ def authenticate_webhook(
         try:
             action = result.one()
         except Exception as e:
-            logger.error("Action does not exist: %s", e)
+            logger.opt(exception=e).error("Action does not exist", error=e)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
@@ -1275,7 +1303,6 @@ async def streaming_autofill_case_fields(
     3. Complete the fields
 
     """
-    logger.info(f"Received: {cases = }, {role = }, {fields = }")
     fields_set = set(fields)
 
     if not fields_set:
@@ -1446,7 +1473,6 @@ def get_secret(
 
     Support access for both user and service roles."""
 
-    logger.info(f"Role: {role}")
     with Session(engine) as session:
         # Check if secret exists
         statement = (

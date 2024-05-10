@@ -8,10 +8,9 @@ from pydantic import BaseModel, Field
 from slugify import slugify
 
 from tracecat.llm import async_openai_call
-from tracecat.logger import standard_logger
+from tracecat.logging import logger
 from tracecat.types.cases import Case
 
-logger = standard_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -151,7 +150,7 @@ def _to_disciminated_union(cons: list[CategoryConstraint]) -> tuple[str, str]:
     Returns:
         tuple[str, str]: The discriminated union type and the supporting types
     """
-    logger.info(f"Creating discriminated union for {cons =}")
+    logger.info("Creating discriminated union", cons=cons)
     supporting_tags = {}
     for tc in cons:
         tag = tc.tag
@@ -246,29 +245,28 @@ async def stream_case_completions(
         output_cls=CaseMissingFieldsResponse,
         field_cons=field_cons,
     )
-    # logger.info(f"🧠 Starting case completions for %d cases... {system_context =}")
-
-    logger.critical(system_context)
-    logger.critical(f"{field_cons =}")
+    logger.info("🧠 Starting case completions for {} cases...", len(cases))
+    logger.debug("System context: {}", system_context=system_context)
 
     async def task(case: Case) -> str:
         prompt = f"""Case JSON Object: ```\n{case.model_dump_json()}\n```"""
-        logger.info(f"🧠 Starting case completion for case {case.id}...")
-        response: dict[str, str] = await async_openai_call(
-            prompt=prompt,
-            model="gpt-4-turbo-preview",
-            system_context=system_context,
-            response_format="json_object",
-            max_tokens=200,
-        )
-        # We might have to perform additional matching / postprocessing here
-        # Depending on what we return.
-        result = CaseCompletionResponse.model_validate(
-            {"id": case.id, "response": response}
-        )
-        # await asyncio.sleep(random.uniform(1, 10))
-        logger.info(f"🧠 Completed case completion for case {case.id}")
-        return result.model_dump_json()
+        with logger.contextualize(case_id=case.id):
+            logger.info("🧠 Starting case completion")
+            response: dict[str, str] = await async_openai_call(
+                prompt=prompt,
+                model="gpt-4-turbo-preview",
+                system_context=system_context,
+                response_format="json_object",
+                max_tokens=200,
+            )
+            # We might have to perform additional matching / postprocessing here
+            # Depending on what we return.
+            result = CaseCompletionResponse.model_validate(
+                {"id": case.id, "response": response}
+            )
+            # await asyncio.sleep(random.uniform(1, 10))
+            logger.info("🧠 Completed case completion")
+            return result.model_dump_json()
 
     tasks = [task(case) for case in cases]
 

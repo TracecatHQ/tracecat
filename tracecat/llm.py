@@ -10,9 +10,7 @@ from openai.types.chat.chat_completion import ChatCompletion, Choice
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import LLM_MAX_RETRIES
-from tracecat.logger import standard_logger
-
-logger = standard_logger(__name__)
+from tracecat.logging import logger
 
 ModelType = Literal[
     "gpt-4-turbo-preview",
@@ -68,7 +66,7 @@ async def async_openai_call(  # type: ignore
         {"role": "user", "content": prompt},
     ]
 
-    logger.info("🧠 Calling OpenAI API with model: %s...", model)
+    logger.info("🧠 Calling OpenAI API with {} model...", model)
     response: ChatCompletion = await client.chat.completions.create(  # type: ignore[call-overload]
         model=model,
         response_format={"type": response_format},
@@ -78,7 +76,7 @@ async def async_openai_call(  # type: ignore
         **kwargs,
     )
     # TODO: Should track these metrics
-    logger.info(f"🧠 {response.usage}")
+    logger.info("🧠 Usage", usage=response.usage)
     if stream:
         return response
 

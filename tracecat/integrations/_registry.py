@@ -16,13 +16,11 @@ from tracecat.integrations.utils import (
     get_integration_key,
     get_integration_platform,
 )
-from tracecat.logger import standard_logger
+from tracecat.logging import logger
 from tracecat.secrets import batch_get_secrets
 
 if TYPE_CHECKING:
     from tracecat.db import Secret
-
-logger = standard_logger(__name__)
 
 
 class Registry:
@@ -61,7 +59,7 @@ class Registry:
         """Decorator factory to register a new integration function with additional parameters."""
 
         def decorator_register(func: FunctionType):
-            logger.info(f"Registering integration {func.__name__}")
+            logger.info("Registering integration", name=func.__name__)
             validate_type_constraints(func)
             platform = get_integration_platform(func)
             key = get_integration_key(func)
@@ -76,25 +74,27 @@ class Registry:
                 2. Inject all secret keys into the execution environment.
                 3. Clean up the environment after the function has executed.
                 """
-                _secrets: list[Secret] = []
-                try:
-                    role = kwargs.pop("__role", None)
-                    # Get secrets from the secrets API
-                    self._logger = standard_logger(f"{__name__}[PID={os.getpid()}]")
-                    self._logger.info("Executing %r in subprocess", key)
+                secret_objs: list[Secret] = []
+                role: Role = kwargs.pop("__role", Role(type="service"))
+                with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
+                    try:
+                        # Get secrets from the secrets API
+                        logger.info("Executing in subprocess", key=key)
 
-                    if secrets:
-                        self._logger.info(f"Pulling secrets: {secrets!r}")
-                        _secrets = self._get_secrets(role=role, secret_names=secrets)
-                        self._set_secrets(_secrets)
+                        if secrets:
+                            logger.info("Pull secrets", secrets=secrets)
+                            secret_objs = self._get_secrets(
+                                role=role, secret_names=secrets
+                            )
+                            self._set_secrets(secret_objs)
 
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    self._logger.error(f"Error running integration '{key}': {e}")
-                    raise
-                finally:
-                    self._logger.info(f"Cleaning up after integration '{key}'.")
-                    self._unset_secrets(_secrets)
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        logger.error("Error running integration {!r}: {!s}", key, e)
+                        raise
+                    finally:
+                        logger.info("Cleaning up after integration {!r}", key)
+                        self._unset_secrets(secret_objs)
 
             if key in self._integrations:
                 raise ValueError(f"Integration '{key}' is already registered.")
@@ -116,19 +116,19 @@ class Registry:
     def _get_secrets(self, role: Role, secret_names: list[str]) -> list[Secret]:
         """Retrieve secrets from the secrets API."""
 
-        self._logger.info(f"Getting secrets {secret_names!r}")
+        logger.debug("Getting secrets {}", secret_names)
         return asyncio.run(batch_get_secrets(role, secret_names))
 
     def _set_secrets(self, secrets: list[Secret]):
         """Set secrets in the environment."""
         for secret in secrets:
-            self._logger.info(f"Setting secret {secret!r}")
+            logger.info("Setting secret {!r}", secret.name)
             for kv in secret.keys:
                 os.environ[kv.key] = kv.value
 
     def _unset_secrets(self, secrets: list[Secret]):
         for secret in secrets:
-            self._logger.info(f"Deleting secret {secret.name!r}")
+            logger.info("Deleting secret {!r}", secret.name)
             for kv in secret.keys:
                 del os.environ[kv.key]
 

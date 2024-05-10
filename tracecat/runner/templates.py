@@ -11,9 +11,7 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from tracecat.auth import AuthenticatedAPIClient
 from tracecat.contexts import ctx_session_role
 from tracecat.db import Secret
-from tracecat.logger import standard_logger
-
-logger = standard_logger(__name__)
+from tracecat.logging import logger
 
 JSONPATH_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
 SECRET_TEMPLATE_PATTERN = re.compile(r"{{\s*SECRETS\.(?P<secret_name>.*?)\s*}}")
@@ -41,18 +39,18 @@ def _evaluate_jsonpath_str(
     """
 
     jsonpath = match.group(regex_group)
-    logger.debug(f"{"*"*10} Evaluating jsonpath {jsonpath} {"*"*10}")
+    logger.debug("Evaluating jsonpath", jsonpath=jsonpath)
     try:
         jsonpath_expr = jsonpath_ng.parse(jsonpath)
     except JsonPathParserError as e:
         raise ValueError(f"Invalid jsonpath {jsonpath!r}.") from e
-    logger.debug(f"{jsonpath_expr = }")
+    logger.debug("Jsonpath expr: {}", jsonpath_expr)
     matches = [found.value for found in jsonpath_expr.find(action_trail)]
     if len(matches) == 1:
-        logger.debug(f"Match found for {jsonpath}: {matches[0]}.")
+        logger.debug("Match found for {}.", jsonpath, match=matches[0])
         return str(matches[0])
     elif len(matches) > 1:
-        logger.debug(f"Multiple matches found for {jsonpath}: {matches}.")
+        logger.debug("Multiple matches found for {}", jsonpath, matches=matches)
         return str(matches)
     else:
         # We know that if this function is called, there was a templated field.
@@ -103,7 +101,7 @@ def evaluate_templated_fields(
     def operator(obj: T) -> str:
         return template_pattern.sub(jsonpath_str_evaluator, obj)
 
-    logger.debug(f"{"*"*10} Evaluating templated fields {"*"*10}")
+    logger.debug("Evaluating templated fields", fields=templated_fields)
     processed_kwargs = _evaluate_templated_dict(templated_fields, operator)
     return processed_kwargs
 
@@ -161,7 +159,6 @@ async def _evaluate_secret_str(
     matches = [
         match.group(regex_group) for match in template_pattern.finditer(templated_str)
     ]
-    logger.debug(f"{"*"*10} Evaluating secrets {"*"*10}")
     tasks = [secret_getter(m) for m in matches]
     secret_values = await asyncio.gather(*tasks)
     replacement_map = dict(zip(matches, secret_values, strict=True))
@@ -220,6 +217,6 @@ async def evaluate_templated_secrets(
 
     operator = partial(_evaluate_secret_str, template_pattern=template_pattern)
 
-    logger.debug(f"{"*"*10} Evaluating templated secrets {"*"*10}")
+    logger.debug("Evaluating templated secrets", fields=templated_fields)
     processed_kwargs = await _async_evaluate_dict(templated_fields, operator)
     return processed_kwargs

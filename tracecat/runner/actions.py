@@ -1,4 +1,4 @@
-"""Actions to be executed as part of a workflow.
+"""Actions to bj executed as part of a workflow.
 
 
 Action
@@ -35,7 +35,6 @@ Note that this is different from the action ID which is a surrogate key.
 from __future__ import annotations
 
 import asyncio
-import logging
 import random
 from collections.abc import Awaitable, Callable, Iterable
 from enum import StrEnum, auto
@@ -47,13 +46,12 @@ import httpx
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.config import HTTP_MAX_RETRIES
-from tracecat.contexts import ctx_session_role
+from tracecat.contexts import ctx_action_run, ctx_session_role, ctx_workflow_run
 from tracecat.db import create_vdb_conn
 from tracecat.integrations import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
-from tracecat.logger import standard_logger
+from tracecat.logging import logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.runner.events import (
     emit_create_action_run_event,
@@ -61,7 +59,7 @@ from tracecat.runner.events import (
 )
 from tracecat.runner.llm import (
     TaskFields,
-    TaskFieldsSubclass,
+    TaskFieldsVariant,
     generate_pydantic_json_response_schema,
     get_system_context,
 )
@@ -81,8 +79,6 @@ from tracecat.types.cases import Case
 
 if TYPE_CHECKING:
     from tracecat.runner.workflows import Workflow
-
-logger = standard_logger(__name__)
 
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
@@ -153,17 +149,17 @@ class ActionRun(BaseModel):
     def action_id(self) -> str:
         return action_key_to_id(self.action_key)
 
-    def downstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
+    def deps_downstream(self, workflow: Workflow) -> list[str]:
         downstream_deps_ar_ids = [
             get_action_run_id(self.workflow_run_id, k)
-            for k in workflow.adj_list[action_key]
+            for k in workflow.adj_list[self.action_key]
         ]
         return downstream_deps_ar_ids
 
-    def upstream_dependencies(self, workflow: Workflow, action_key: str) -> list[str]:
+    def deps_upstream(self, workflow: Workflow) -> list[str]:
         upstream_deps_ar_ids = [
             get_action_run_id(self.workflow_run_id, k)
-            for k in workflow.action_dependencies[action_key]
+            for k in workflow.action_dependencies[self.action_key]
         ]
         return upstream_deps_ar_ids
 
@@ -278,7 +274,7 @@ class LLMAction(Action):
     message: str
     # Discriminated union with str discriminators
     # https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions-with-str-discriminators
-    task_fields: TaskFieldsSubclass = Field(..., discriminator="type")
+    task_fields: TaskFieldsVariant = Field(..., discriminator="type")
     system_context: str | None = None
     model: ModelType = DEFAULT_MODEL_TYPE
     response_schema: dict[str, Any] | None = None
@@ -345,7 +341,7 @@ ACTION_FACTORY: dict[str, type[Action]] = {
 
 
 ActionTrail = dict[str, ActionRunResult]
-ActionSubclass = (
+ActionVariant = (
     WebhookAction
     | HTTPRequestAction
     | ConditionAction
@@ -384,122 +380,116 @@ async def _wait_for_dependencies(
 async def start_action_run(
     action_run: ActionRun,
     # Shared data structures
-    workflow_ref: Workflow,
     ready_jobs_queue: asyncio.Queue[ActionRun],
     running_jobs_store: dict[str, asyncio.Task[None]],
     action_result_store: dict[str, ActionTrail],
     action_run_status_store: dict[str, ActionRunStatus],
     # Dynamic data
     pending_timeout: float | None = None,
-    custom_logger: logging.Logger | None = None,
 ) -> None:
-    try:
-        await emit_create_action_run_event(action_run)
-        ar_id = action_run.id
-        action_key = action_run.action_key
-        upstream_deps_ar_ids = action_run.upstream_dependencies(
-            workflow=workflow_ref, action_key=action_key
+    ctx_action_run.set(action_run)
+    workflow = ctx_workflow_run.get().workflow
+    ar_id = action_run.id
+    run_status: RunStatus = "failure"
+    with logger.contextualize(ar_id=ar_id):
+        try:
+            await emit_create_action_run_event()
+            action_key = action_run.action_key
+            upstream_deps_ar_ids = action_run.deps_upstream(workflow=workflow)
+            logger.debug("Waiting for dependencies", deps=upstream_deps_ar_ids)
+
+            error_msg: str | None = None
+            result: ActionRunResult | None = None
+            await asyncio.wait_for(
+                _wait_for_dependencies(upstream_deps_ar_ids, action_run_status_store),
+                timeout=pending_timeout,
+            )
+
+            action_trail = _get_dependencies_results(
+                upstream_deps_ar_ids, action_result_store
+            )
+
+            logger.opt(lazy=True).debug(
+                "Running action. Trail {trail}", trail=lambda: list(action_trail.keys())
+            )
+            action_run_status_store[ar_id] = ActionRunStatus.RUNNING
+            action_ref = workflow.actions[action_key]
+            await emit_update_action_run_event(status="running")
+
+            # Every single 'run_xxx_action' function should return a dict
+            # This dict always contains a key 'output' with the direct result of the action
+            # The dict may contain additional keys for metadata or other information
+            # Dunder keys should are only used for carrying certain execution context information
+            # - __should_continue__: A boolean that indicates whether the workflow should continue
+            # - output_type: The type of the output
+            # We keep them in the result for debugging purposes, for now
+            result = await run_action(
+                action_trail=action_trail,
+                action_run_kwargs=action_run.run_kwargs,
+                **action_ref.model_dump(),
+            )
+
+            # Mark the action as completed
+            action_run_status_store[action_run.id] = ActionRunStatus.SUCCESS
+
+            # Store the result in the action result store.
+            # Every action has its own result and the trail of actions that led to it.
+            # The schema is {<action ID> : <action result>, ...}
+            action_trail = action_trail | {ar_id: result}
+            action_result_store[ar_id] = action_trail
+            run_status = "success"
+            logger.debug("Action run completed", trail=action_trail)
+
+        except TimeoutError as e:
+            error_msg = "Action run timed out waiting for dependencies"
+            logger.opt(exception=e).error(error_msg, upstream_deps=upstream_deps_ar_ids)
+            run_status = "failure"
+        except asyncio.CancelledError as e:
+            error_msg = "Action run was cancelled."
+            logger.opt(exception=e).warning(error_msg)
+            run_status = "canceled"
+        except Exception as e:
+            error_msg = f"Action run failed with error: {e}."
+            logger.opt(exception=e).error(error_msg)
+            run_status = "failure"
+        finally:
+            if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
+                # Exception was raised before the action was marked as successful
+                action_run_status_store[ar_id] = ActionRunStatus.FAILURE
+
+            running_jobs_store.pop(ar_id, None)
+
+        await emit_update_action_run_event(
+            status=run_status, error_msg=error_msg, result=result
         )
-        custom_logger = custom_logger or logger
-        custom_logger.debug(
-            f"Action run {ar_id} waiting for dependencies {upstream_deps_ar_ids}."
+
+        # Handle downstream dependencies
+        if run_status != "success":
+            logger.warning("Action run stopping due to failure.")
+            return
+        if not result.should_continue:
+            logger.info("Action run received stop signal.")
+            return
+        logger.opt(lazy=True).debug(
+            "Remaining action runs {ars}", ars=lambda: list(running_jobs_store.keys())
         )
-
-        run_status: RunStatus = "success"
-        error_msg: str | None = None
-        result: ActionRunResult | None = None
-        await asyncio.wait_for(
-            _wait_for_dependencies(upstream_deps_ar_ids, action_run_status_store),
-            timeout=pending_timeout,
-        )
-
-        action_trail = _get_dependencies_results(
-            upstream_deps_ar_ids, action_result_store
-        )
-
-        custom_logger.debug(f"Running action {ar_id!r}. Trail {action_trail.keys()}.")
-        action_run_status_store[ar_id] = ActionRunStatus.RUNNING
-        action_ref = workflow_ref.actions[action_key]
-        await emit_update_action_run_event(action_run, status="running")
-
-        # Every single 'run_xxx_action' function should return a dict
-        # This dict always contains a key 'output' with the direct result of the action
-        # The dict may contain additional keys for metadata or other information
-        # Dunder keys should are only used for carrying certain execution context information
-        # - __should_continue__: A boolean that indicates whether the workflow should continue
-        # - output_type: The type of the output
-        # We keep them in the result for debugging purposes, for now
-        result = await run_action(
-            action_run_id=action_run.id,
-            workflow_id=workflow_ref.id,
-            custom_logger=custom_logger,
-            action_trail=action_trail,
-            action_run_kwargs=action_run.run_kwargs,
-            **action_ref.model_dump(),
-        )
-
-        # Mark the action as completed
-        action_run_status_store[action_run.id] = ActionRunStatus.SUCCESS
-
-        # Store the result in the action result store.
-        # Every action has its own result and the trail of actions that led to it.
-        # The schema is {<action ID> : <action result>, ...}
-        action_trail = action_trail | {ar_id: result}
-        action_result_store[ar_id] = action_trail
-        custom_logger.debug(
-            f"Action run {ar_id!r} completed with trail: {action_trail}."
-        )
-
-    except TimeoutError as e:
-        error_msg = f"Action run {ar_id} timed out waiting for dependencies {upstream_deps_ar_ids}."
-        custom_logger.error(error_msg, exc_info=e)
-        run_status = "failure"
-    except asyncio.CancelledError as e:
-        error_msg = f"Action run {ar_id!r} was cancelled."
-        custom_logger.warning(error_msg, exc_info=e)
-        run_status = "canceled"
-    except Exception as e:
-        error_msg = f"Action run {ar_id!r} failed with error: {e}."
-        custom_logger.error(error_msg, exc_info=e)
-        run_status = "failure"
-    finally:
-        if action_run_status_store[ar_id] != ActionRunStatus.SUCCESS:
-            # Exception was raised before the action was marked as successful
-            action_run_status_store[ar_id] = ActionRunStatus.FAILURE
-
-        running_jobs_store.pop(ar_id, None)
-
-    await emit_update_action_run_event(
-        action_run, status=run_status, error_msg=error_msg, result=result
-    )
-
-    # Handle downstream dependencies
-    if run_status != "success":
-        custom_logger.warning(f"Action run {ar_id!r} stopping due to failure.")
-        return
-    custom_logger.debug(f"Remaining action runs: {running_jobs_store.keys()}")
-    if not result.should_continue:
-        custom_logger.info(f"Action run {ar_id!r} stopping due to stop signal.")
-        return
-    try:
-        downstream_deps_ar_ids = action_run.downstream_dependencies(
-            workflow=workflow_ref, action_key=action_key
-        )
-        # Broadcast the results to the next actions and enqueue them
-        for next_ar_id in downstream_deps_ar_ids:
-            if next_ar_id not in action_run_status_store:
-                action_run_status_store[next_ar_id] = ActionRunStatus.QUEUED
-                ready_jobs_queue.put_nowait(
-                    ActionRun(
-                        workflow_run_id=action_run.workflow_run_id,
-                        action_key=parse_action_run_id(next_ar_id, "action_key"),
+        try:
+            downstream_deps_ar_ids = action_run.deps_downstream(workflow=workflow)
+            # Broadcast the results to the next actions and enqueue them
+            for next_ar_id in downstream_deps_ar_ids:
+                if next_ar_id not in action_run_status_store:
+                    action_run_status_store[next_ar_id] = ActionRunStatus.QUEUED
+                    ready_jobs_queue.put_nowait(
+                        ActionRun(
+                            workflow_run_id=action_run.workflow_run_id,
+                            action_key=parse_action_run_id(next_ar_id, "action_key"),
+                        )
                     )
-                )
-    except Exception as e:
-        custom_logger.error(
-            f"Action run {ar_id!r} failed to broadcast results to downstream dependencies.",
-            exc_info=e,
-        )
+        except Exception as e:
+            logger.error(
+                "Action run failed to broadcast results to downstream dependencies.",
+                exc_info=e,
+            )
 
 
 async def run_webhook_action(
@@ -507,15 +497,15 @@ async def run_webhook_action(
     method: str,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a webhook action."""
-    custom_logger.debug("Perform webhook action")
-    custom_logger.debug(f"{url = }")
-    custom_logger.debug(f"{method = }")
-    # The payload provided to the webhook action in the HTTP request
     action_run_kwargs = action_run_kwargs or {}
-    custom_logger.debug(f"{action_run_kwargs = }")
+    logger.debug(
+        "Perform webhook action",
+        url=url,
+        method=method,
+        ar_kwargs=action_run_kwargs,
+    )
     # TODO: Perform whitelist/filter step here using the url and method
     return {
         "output": action_run_kwargs,
@@ -555,14 +545,15 @@ async def run_http_request_action(
     payload: dict[str, str | bytes],
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an HTTP request action."""
-    custom_logger.debug("Perform HTTP request action")
-    custom_logger.debug(f"{url = }")
-    custom_logger.debug(f"{method = }")
-    custom_logger.debug(f"{headers = }")
-    custom_logger.debug(f"{payload = }")
+    logger.debug(
+        "Perform HTTP request action",
+        url=url,
+        method=method,
+        headers=headers,
+        payload=payload,
+    )
 
     try:
         async with httpx.AsyncClient() as client:
@@ -574,9 +565,7 @@ async def run_http_request_action(
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        custom_logger.error(
-            f"HTTP request failed with status {e.response.status_code}."
-        )
+        logger.error("HTTP request failed with status {}.", e.response.status_code)
         raise
     return parse_http_response_data(response)
 
@@ -586,10 +575,9 @@ async def run_conditional_action(
     condition_rules: dict[str, Any],
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a conditional action."""
-    custom_logger.debug(f"Run conditional rules {condition_rules}.")
+    logger.debug("Perform conditional rules action", rules=condition_rules)
     rule = ConditionRuleValidator.validate_python(condition_rules)
     rule_match = rule.evaluate()
     return {
@@ -610,18 +598,18 @@ async def run_llm_action(
     llm_kwargs: dict[str, Any] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an LLM action."""
-    custom_logger.debug("Perform LLM action")
-    custom_logger.debug(f"{message = }")
-    custom_logger.debug(f"{response_schema = }")
+    logger.debug(
+        "Perform LLM action",
+        message=message,
+        response_schema=response_schema,
+    )
 
     llm_kwargs = llm_kwargs or {}
 
     # TODO(perf): Avoid re-creating the task fields object if possible
     validated_task_fields = TaskFields.from_dict(task_fields)
-    logger.debug(f"{type(validated_task_fields) = }")
 
     if response_schema is None:
         system_context = get_system_context(
@@ -643,6 +631,7 @@ async def run_llm_action(
                 generate_pydantic_json_response_schema(response_schema),
             )
         )
+        logger.debug("System context:\n{}", system_context)
         json_response: dict[str, Any] = await async_openai_call(
             prompt=message,
             model=model,
@@ -664,14 +653,15 @@ async def run_send_email_action(
     provider: Literal["resend"] = "resend",
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run a send email action."""
-    custom_logger.debug("Perform send email action")
-    custom_logger.debug(f"{sender = }")
-    custom_logger.debug(f"{recipients = }")
-    custom_logger.debug(f"{subject = }")
-    custom_logger.debug(f"{body = }")
+    logger.debug(
+        "Perform send email action",
+        sender=sender,
+        recipients=recipients,
+        subject=subject,
+        body=body,
+    )
 
     if provider == "resend":
         email_provider = ResendMailProvider(
@@ -682,7 +672,7 @@ async def run_send_email_action(
         )
     else:
         msg = "Email provider not recognized"
-        custom_logger.warning(f"{msg}: {provider!r}")
+        logger.warning("{}: {!r}", msg, provider)
         email_response = {
             "status": "error",
             "message": msg,
@@ -698,7 +688,7 @@ async def run_send_email_action(
         await email_provider.send()
     except httpx.HTTPError as exc:
         msg = "Failed to post email to provider"
-        custom_logger.error(msg, exc_info=exc)
+        logger.opt(exception=exc).error(msg, exc_info=exc)
         email_response = {
             "status": "error",
             "message": msg,
@@ -708,9 +698,9 @@ async def run_send_email_action(
             "subject": subject,
             "body": body,
         }
-    except (EmailBouncedError, EmailNotFoundError) as exc:
-        msg = exc.args[0]
-        custom_logger.warning(msg=msg, exc_info=exc)
+    except (EmailBouncedError, EmailNotFoundError) as e:
+        msg = e.args[0]
+        logger.opt(exception=e).warning(msg=msg, error=e)
         email_response = {
             "status": "warning",
             "message": msg,
@@ -752,7 +742,6 @@ async def run_open_case_action(
     tags: ListModel[Tag] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, str | dict[str, str] | None]:
     db = create_vdb_conn()
     tbl = db.open_table("cases")
@@ -773,11 +762,11 @@ async def run_open_case_action(
         suppression=suppression,
         tags=tags,
     )
-    custom_logger.info(f"Sinking case: {case = }")
+    logger.opt(lazy=True).debug("Sinking case", case=lambda: case.model_dump())
     try:
         await asyncio.to_thread(tbl.add, [case.flatten()])
     except Exception as e:
-        custom_logger.error("Failed to add case to LanceDB.", exc_info=e)
+        logger.error("Failed to add case to LanceDB.", exc_info=e)
         raise
     return {"output": case.model_dump(), "output_type": "dict"}
 
@@ -788,21 +777,16 @@ async def run_integration_action(
     params: dict[str, Any] | None = None,
     # Common
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
 ) -> dict[str, Any]:
     """Run an integration action."""
-    custom_logger.debug("Perform integration action")
-    custom_logger.debug(f"{qualname = }")
-    custom_logger.debug(f"{params = }")
+    logger.debug("Perform integration action", qualname=qualname, params=params)
 
     params = params or {}
 
     func = registry[qualname]
-    bound_func = partial(func, **params)
+    bound_func = partial(func, **params, __role=ctx_session_role.get())
 
-    loop = asyncio.get_running_loop()
-    with CloudpickleProcessPoolExecutor() as pool:
-        result = await loop.run_in_executor(pool, bound_func)
+    result = await asyncio.to_thread(bound_func)
 
     return {
         "output": result,
@@ -812,13 +796,10 @@ async def run_integration_action(
 
 async def run_action(
     type: ActionType,
-    action_run_id: str,
-    workflow_id: str,
     key: str,
     title: str,
     action_trail: dict[str, ActionRunResult],
     action_run_kwargs: dict[str, Any] | None = None,
-    custom_logger: logging.Logger = logger,
     **action_kwargs: Any,
 ) -> ActionRunResult:
     """Run an action.
@@ -837,20 +818,20 @@ async def run_action(
     - transform: Apply a transformation to the data.
     """
 
-    custom_logger.debug(f"{"*" * 10} Running action {"*" * 10}")
-    custom_logger.debug(f"{key = }")
-    custom_logger.debug(f"{title = }")
-    custom_logger.debug(f"{type = }")
-    custom_logger.debug(f"{action_run_kwargs = }")
-    custom_logger.debug(f"{action_kwargs = }")
-    custom_logger.debug(f"{"*" * 20}")
+    logger.info(
+        "Running action",
+        key=key,
+        title=title,
+        type=type,
+        action_run_kwargs=action_run_kwargs,
+        action_kwargs=action_kwargs,
+    )
 
     action_runner = _ACTION_RUNNER_FACTORY[type]
 
     action_trail_json = {
         result.action_slug: result.output for result in action_trail.values()
     }
-    custom_logger.debug(f"Before template eval: {action_trail_json = }")
     action_kwargs_with_secrets = await evaluate_templated_secrets(
         templated_fields=action_kwargs
     )
@@ -863,23 +844,25 @@ async def run_action(
         processed_action_kwargs.update(action_trail=action_trail)
 
     elif type == "open_case":
-        processed_action_kwargs.update(
-            action_run_id=action_run_id, workflow_id=workflow_id
-        )
+        ar_id = ctx_action_run.get().id
+        workflow = ctx_workflow_run.get().workflow
+        processed_action_kwargs.update(action_run_id=ar_id, workflow_id=workflow.id)
 
-    custom_logger.debug(f"{processed_action_kwargs = }")
+    logger.debug(
+        "Finish processing action kwargs",
+        processed_action_kwargs=processed_action_kwargs,
+    )
 
     try:
         # The return value from each action runner call should be more or less what
         # the user can expect to see in the action trail. This makes it very clear
         # what the action is doing and what the output is.
         output = await action_runner(
-            custom_logger=custom_logger,
             action_run_kwargs=action_run_kwargs,
             **processed_action_kwargs,
         )
     except Exception as e:
-        custom_logger.error(f"Error running action {title} with key {key}.", exc_info=e)
+        logger.opt(exception=e).error("Error running action", key=key)
         raise
 
     # Leave dunder keys inside as a form of execution context
