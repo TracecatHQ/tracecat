@@ -43,6 +43,7 @@ dependencies = [
     "python-slugify",
     "sqlmodel",
     "tenacity",
+    "temporalio==1.6.0",
     "uvicorn",
     "aio-pika==9.4.1",
     "cloudpickle==3.0.0",
