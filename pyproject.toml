@@ -56,13 +56,14 @@ Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
-runner = ["aiosmtplib", "jsonpath_ng", "python-multipart"]
+runner = ["jsonpath_ng", "python-multipart"]
 dev = [
     "respx",
     "pytest",
     "python-dotenv",
     "pytest-asyncio",
     "minio",
+    "mypy",
     "boto3-stubs[cloudtrail,guardduty,s3]",
 ]
 

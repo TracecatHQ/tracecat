@@ -1,28 +1,51 @@
+import asyncio
+
 from temporalio import activity
 
 
 class DSLActivities:
-    @activity.defn
-    async def activity1(self, arg: str) -> str:
-        activity.logger.info(f"Executing activity1 with arg: {arg}")
-        return f"[result from activity1: {arg}]"
+    def __init__(self):
+        raise RuntimeError("This class should not be instantiated")
 
-    @activity.defn
-    async def activity2(self, arg: str) -> str:
-        activity.logger.info(f"Executing activity2 with arg: {arg}")
-        return f"[result from activity2: {arg}]"
+    def __new__(cls):
+        raise RuntimeError("This class should not be instantiated")
 
+    @staticmethod
     @activity.defn
-    async def activity3(self, arg1: str, arg2: str) -> str:
-        activity.logger.info(f"Executing activity3 with args: {arg1} and {arg2}")
-        return f"[result from activity3: {arg1} {arg2}]"
+    async def activity1(arg: int) -> int:
+        activity.logger.info(f"Executing activity1 with arg: {arg=}")
+        return arg
 
+    @staticmethod
     @activity.defn
-    async def activity4(self, arg: str) -> str:
-        activity.logger.info(f"Executing activity4 with arg: {arg}")
-        return f"[result from activity4: {arg}]"
+    async def activity2(arg: int) -> int:
+        activity.logger.info(f"Executing activity2 with arg: {arg=}")
+        return arg * 2
 
+    @staticmethod
     @activity.defn
-    async def activity5(self, arg1: str, arg2: str) -> str:
-        activity.logger.info(f"Executing activity5 with args: {arg1} and {arg2}")
-        return f"[result from activity5: {arg1} {arg2}]"
+    async def activity3(arg: int) -> int:
+        activity.logger.info(f"Executing activity3 with args: {arg=}")
+        activity.logger.info("********** WAITING FOR 3 SECONDS **********")
+        await asyncio.sleep(3)
+        return arg * 2
+
+    @staticmethod
+    @activity.defn
+    async def activity4(arg: int) -> int:
+        activity.logger.info(f"Executing activity4 with arg: {arg=}")
+        return arg * 2
+
+    @staticmethod
+    @activity.defn
+    async def activity5(arg: int) -> int:
+        activity.logger.info(f"Executing activity5 with args: {arg=}")
+        activity.logger.info("********** WAITING FOR 5 SECONDS **********")
+        await asyncio.sleep(5)
+        return arg * 2
+
+    @staticmethod
+    @activity.defn
+    async def activity6(arg1: int, arg2: int) -> int:
+        activity.logger.info(f"Executing activity6 with args: {arg1=}, {arg2=}")
+        return arg1 + arg2

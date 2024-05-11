@@ -54,16 +54,16 @@ async def main():
     )
 
     # Run a worker for the activities and workflow
-    activities = DSLActivities()
     async with Worker(
         client,
         task_queue="dsl-task-queue",
         activities=[
-            activities.activity1,
-            activities.activity2,
-            activities.activity3,
-            activities.activity4,
-            activities.activity5,
+            DSLActivities.activity1,
+            DSLActivities.activity2,
+            DSLActivities.activity3,
+            DSLActivities.activity4,
+            DSLActivities.activity5,
+            DSLActivities.activity6,
         ],
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
