@@ -49,3 +49,13 @@ class DSLActivities:
     async def activity6(arg1: int, arg2: int) -> int:
         activity.logger.info(f"Executing activity6 with args: {arg1=}, {arg2=}")
         return arg1 + arg2
+
+
+dsl_activities = [
+    DSLActivities.activity1,
+    DSLActivities.activity2,
+    DSLActivities.activity3,
+    DSLActivities.activity4,
+    DSLActivities.activity5,
+    DSLActivities.activity6,
+]

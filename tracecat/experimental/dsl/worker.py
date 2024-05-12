@@ -10,7 +10,7 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat.experimental.dsl.activities import DSLActivities
+from tracecat.experimental.dsl.activities import dsl_activities
 from tracecat.experimental.dsl.workflow import DSLWorkflow
 
 # We always want to pass through external modules to the sandbox that we know
@@ -57,14 +57,7 @@ async def main():
     async with Worker(
         client,
         task_queue="dsl-task-queue",
-        activities=[
-            DSLActivities.activity1,
-            DSLActivities.activity2,
-            DSLActivities.activity3,
-            DSLActivities.activity4,
-            DSLActivities.activity5,
-            DSLActivities.activity6,
-        ],
+        activities=dsl_activities,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
