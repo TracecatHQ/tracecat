@@ -16,7 +16,7 @@ from tracecat.experimental.dsl.workflow import DSLWorkflow
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
 with workflow.unsafe.imports_passed_through():
-    from tracecat.experimental.pydantic_converter.converter import (
+    from tracecat.experimental.dsl._converter import (
         pydantic_data_converter,
     )
 

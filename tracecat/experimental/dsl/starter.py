@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import sys
 import uuid
@@ -6,10 +7,8 @@ import uuid
 import yaml
 from temporalio.client import Client
 
+from tracecat.experimental.dsl._converter import pydantic_data_converter
 from tracecat.experimental.dsl.workflow import DSLInput, DSLWorkflow
-from tracecat.experimental.pydantic_converter.converter import (
-    pydantic_data_converter,
-)
 
 
 async def main(dsl_yaml: str) -> None:
@@ -30,10 +29,7 @@ async def main(dsl_yaml: str) -> None:
         id=f"dsl-workflow-id-{uuid.uuid4()}",
         task_queue="dsl-task-queue",
     )
-    logging.info(
-        "Final variables:\n    "
-        + "\n    ".join((f"{k}: {v}" for k, v in result.items()))
-    )
+    logging.info(f"Workflow result:\n{json.dumps(result, indent=2)}")
 
 
 if __name__ == "__main__":
