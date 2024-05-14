@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 from temporalio import activity
 
-from tracecat.experimental.udf import my_function
+from tracecat.experimental.actions.example import my_function
 
 
 class ActionInputs(BaseModel):
