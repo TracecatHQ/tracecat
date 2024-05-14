@@ -1,15 +1,9 @@
-import asyncio
+import functools
 import inspect
 import os
 from collections.abc import Callable
 from types import GenericAlias
-from typing import (
-    Any,
-    ParamSpec,
-    Self,
-    TypedDict,
-    TypeVar,
-)
+from typing import Any, ParamSpec, Self, TypedDict, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -21,45 +15,50 @@ from pydantic import (
 from slugify import slugify
 from typing_extensions import Doc
 
-from tracecat.auth import AuthenticatedAPIClient, Role
-from tracecat.db import Secret
+from tracecat.auth import Role
+from tracecat.experimental.actions._sandbox import AuthSandbox
 from tracecat.logging import logger
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 FunctionType = Callable[_P, _R]
+DEFAULT_NAMESPACE = "core"
 
 
-class Schema(TypedDict):
+class _Schema(TypedDict):
     args: dict[str, Any]
-    rtype: dict[str, Any]
+    rtype: dict[str, Any] | None
 
 
 class RegisteredUDF(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     fn: FunctionType
     description: str
-    namespace: str | None = None
+    namespace: str
     version: str | None = None
     secrets: list[str] | None = None
     args_cls: type[BaseModel]
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: type | GenericAlias | None = None
-    rtype_adapter: TypeAdapter | BaseModel | None = None
+    rtype_adapter: TypeAdapter | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def schema(self) -> Schema:
-        return Schema(
+    @property
+    def is_async(self) -> bool:
+        return inspect.iscoroutinefunction(self.fn)
+
+    def construct_schema(self) -> _Schema:
+        return _Schema(
             args=self.args_cls.model_json_schema(),
-            rtype=self.rtype_adapter.json_schema(),
+            rtype=None if not self.rtype_adapter else self.rtype_adapter.json_schema(),
         )
 
 
 class _Registry:
     """Singleton class to store and manage all registered udfs."""
 
-    _instance: Self = None
+    _instance: Self | None = None
     _udf_registry: dict[str, RegisteredUDF]
 
     def __new__(cls):
@@ -78,15 +77,15 @@ class _Registry:
         """Retrieve a registered udf."""
         return self._udf_registry[name]
 
-    def get_schemas(self) -> dict[str, Schema]:
-        return {key: udf.schema() for key, udf in self._udf_registry.items()}
+    def get_schemas(self) -> dict[str, _Schema]:
+        return {key: udf.construct_schema() for key, udf in self._udf_registry.items()}
 
     def register(
         self,
         *,
         description: str,
         secrets: list[str] | None = None,
-        namespace: str | None = None,
+        namespace: str = DEFAULT_NAMESPACE,
         version: str | None = None,
         **register_kwargs,
     ):
@@ -109,26 +108,46 @@ class _Registry:
             key = f"{namespace}.{fn.__name__}"
             logger.info("Registering udf", key=key)
 
-            def wrapped_fn(*args, **kwargs):
-                """Wrapper function for the udf.
+            wrapped_fn: FunctionType
 
-                Responsibilities
-                ----------------
-                Before invoking the function:
-                1. Grab all the secrets from the secrets API.
-                2. Inject all secret keys into the execution environment.
-                3. Clean up the environment after the function has executed.
-                """
+            def _validate_args(*args, **kwargs):
                 if len(args) > 0:
                     raise ValueError("UDF must be called with keyword arguments.")
 
                 # Validate the input arguments, fail early if the input is invalid
                 self[key].args_cls.model_validate(kwargs, strict=True)
 
-                role: Role = kwargs.pop("__role", Role(type="service"))
-                with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
-                    with _AuthSandbox(role=role, secrets=secrets):
-                        return fn(**kwargs)
+            if inspect.iscoroutinefunction(fn):
+
+                @functools.wraps(fn)
+                async def wrapped_fn(*args, **kwargs) -> Any:
+                    """Wrapper function for the udf.
+
+                    Responsibilities
+                    ----------------
+                    Before invoking the function:
+                    1. Grab all the secrets from the secrets API.
+                    2. Inject all secret keys into the execution environment.
+                    3. Clean up the environment after the function has executed.
+                    """
+                    _validate_args(*args, **kwargs)
+
+                    role: Role = kwargs.pop("__role", Role(type="service"))
+                    with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
+                        async with AuthSandbox(role=role, secrets=secrets):
+                            return await fn(**kwargs)
+            else:
+
+                @functools.wraps(fn)
+                def wrapped_fn(*args, **kwargs) -> Any:
+                    """Sync version of the wrapper function for the udf."""
+
+                    _validate_args(*args, **kwargs)
+
+                    role: Role = kwargs.pop("__role", Role(type="service"))
+                    with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
+                        with AuthSandbox(role=role, secrets=secrets):
+                            return fn(**kwargs)
 
             if key in self:
                 raise ValueError(f"UDF {key!r} is already registered.")
@@ -159,15 +178,14 @@ class _Registry:
         return decorator_register
 
 
-def udf_slug(func: Callable, namespace: str | None = None) -> str:
-    namespace = namespace or func.__module__
+def udf_slug(func: Callable, namespace: str) -> str:
     clean_ns = slugify(namespace, separator="_")
     return f"{clean_ns}__{func.__name__}"
 
 
 def _generate_model_from_function(
-    func: Callable[_P, _R], namespace: str | None = None
-) -> tuple[type[BaseModel], type[BaseModel] | None]:
+    func: Callable[_P, _R], namespace: str
+) -> tuple[type[BaseModel], type | GenericAlias | None, TypeAdapter | None]:
     # Get the signature of the function
     sig = inspect.signature(func)
     # Create a dictionary to hold field definitions
@@ -178,7 +196,7 @@ def _generate_model_from_function(
         default = ... if param.default is param.empty else param.default
         fields[name] = (field_type, default)
     # Dynamically create and return the Pydantic model class
-    input_model = create_model(f"{udf_slug(func, namespace)}_model", **fields)
+    input_model = create_model(f"{udf_slug(func, namespace)}_model", **fields)  # type: ignore
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
@@ -196,62 +214,6 @@ def _get_signature_docs(fn: FunctionType) -> dict[str, str]:
                 if isinstance(meta, Doc):
                     param_docs[name] = meta.documentation
     return param_docs
-
-
-class _AuthSandbox:
-    _role: Role
-    _secret_names: list[str]
-    _secret_objs: list[Secret]
-
-    def __init__(self, role: Role, secrets: list[str]):
-        self._role = role
-        self._secret_names = secrets
-        self._secret_objs = []
-
-    def __enter__(self) -> Self:
-        if self._secret_names:
-            logger.info("Setting secrets in the environment")
-            # self.secret_objs = self._get_secrets()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self._unset_secrets()
-        if exc_type is not None:
-            logger.error("An error occurred", exc_info=(exc_type, exc_value, traceback))
-
-    def _get_secrets(self) -> list[Secret]:
-        """Retrieve secrets from the secrets API."""
-
-        logger.debug("Getting secrets {}", self._secret_names)
-        return asyncio.run(self._batch_get_secrets())
-
-    def _set_secrets(self):
-        """Set secrets in the environment."""
-        for secret in self.secrets:
-            logger.info("Setting secret {!r}", secret.name)
-            for kv in secret.keys:
-                os.environ[kv.key] = kv.value
-
-    def _unset_secrets(self):
-        for secret in self._secret_objs:
-            logger.info("Deleting secret {!r}", secret.name)
-            for kv in secret.keys:
-                del os.environ[kv.key]
-
-    async def _batch_get_secrets(self) -> list[Secret]:
-        """Retrieve secrets from the secrets API."""
-        async with AuthenticatedAPIClient(role=self._role) as client:
-            # NOTE(perf): This is not really batched - room for improvement
-            secret_responses = await asyncio.gather(
-                *[
-                    client.get(f"/secrets/{secret_name}")
-                    for secret_name in self._secret_names
-                ]
-            )
-            return [
-                Secret.model_validate_json(secret_bytes.content)
-                for secret_bytes in secret_responses
-            ]
 
 
 registry = _Registry()

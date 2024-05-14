@@ -1,3 +1,5 @@
+"""Example module with annotated functions for testing the registry."""
+
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
@@ -5,7 +7,7 @@ from typing import Annotated, Any, TypedDict
 
 from typing_extensions import Doc
 
-from tracecat.experimental.registry import registry
+from tracecat.experimental.actions._registry import registry
 
 
 class Stats(TypedDict):
@@ -17,7 +19,7 @@ class Stats(TypedDict):
 
 @registry.register(
     description="This is a test function",
-    namespace="test",
+    namespace="example",
     version="0.1.0",
     secrets=["test_secret"],
 )
@@ -44,14 +46,18 @@ def my_function(
     """
     # Function implementation goes here
     print(f"Name: {name}, Age: {age}, Is member: {is_member}")
-    return {"strength": 10, "dexterity": 20, "intelligence": 30, "vitality": 40}
+    return {
+        "strength": 9999999,
+        "dexterity": 9999999,
+        "intelligence": 9999999,
+        "vitality": 400000000000,
+    }
 
 
 @registry.register(
     description="This is another test function",
-    namespace="test",
+    namespace="example",
     version="0.1.0",
-    secrets=["test_secret", "test_secret2"],
 )
 def another_function(
     age: Annotated[int, Doc("Persons age in years")] = 30,
