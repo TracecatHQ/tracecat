@@ -10,8 +10,7 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat.experimental.dsl.activities import dsl_activities
-from tracecat.experimental.dsl.workflow import DSLWorkflow
+from tracecat.experimental.dsl.workflow import DSLWorkflow, dsl_activities
 
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
