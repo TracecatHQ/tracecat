@@ -18,7 +18,7 @@ from tqdm.contrib.concurrent import thread_map
 
 from tracecat.config import TRACECAT__TRIAGE_DIR
 from tracecat.contexts import ctx_session_role
-from tracecat.logger import standard_logger
+from tracecat.logging import standard_logger
 
 if TYPE_CHECKING:
     from mypy_boto3_guardduty.type_defs import GetFindingsResponseTypeDef
