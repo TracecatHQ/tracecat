@@ -50,7 +50,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-Homepage = "https://github.com/TracecatHQ/tracecat"
+Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
