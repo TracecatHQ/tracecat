@@ -10,8 +10,8 @@ requires-python = ">=3.12"
 license = "AGPL-3.0"
 authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: Apache Software License",
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Intended Audience :: Developers",
