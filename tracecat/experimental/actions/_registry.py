@@ -1,10 +1,12 @@
 import functools
 import inspect
 import os
+import re
 from collections.abc import Callable
 from types import GenericAlias
 from typing import Any, ParamSpec, Self, TypedDict, TypeVar
 
+from loguru import logger
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -12,12 +14,10 @@ from pydantic import (
     TypeAdapter,
     create_model,
 )
-from slugify import slugify
 from typing_extensions import Doc
 
 from tracecat.auth import Role
 from tracecat.experimental.actions._sandbox import AuthSandbox
-from tracecat.logging import logger
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -40,7 +40,7 @@ class RegisteredUDF(BaseModel):
     secrets: list[str] | None = None
     args_cls: type[BaseModel]
     args_docs: dict[str, str] = Field(default_factory=dict)
-    rtype_cls: type | GenericAlias | None = None
+    rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -178,9 +178,17 @@ class _Registry:
         return decorator_register
 
 
-def udf_slug(func: Callable, namespace: str) -> str:
-    clean_ns = slugify(namespace, separator="_")
-    return f"{clean_ns}__{func.__name__}"
+def udf_slug_camelcase(func: Callable, namespace: str) -> str:
+    # Use slugify to preprocess the string
+    slugified_string = re.sub(r"[^a-zA-Z0-9]+", " ", namespace)
+    slugified_name = re.sub(r"[^a-zA-Z0-9]+", " ", func.__name__)
+    # Split the slugified string into words
+    words = slugified_string.split() + slugified_name.split()
+    if not words:
+        return ""
+    # Capitalize the first letter of each word except the first word
+    # Join the words together without spaces
+    return "".join(word.capitalize() for word in words)
 
 
 def _generate_model_from_function(
@@ -192,11 +200,18 @@ def _generate_model_from_function(
     fields = {}
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
-        field_type = param.annotation
+        field_type: type = param.annotation
         default = ... if param.default is param.empty else param.default
-        fields[name] = (field_type, default)
+        field_info_kwargs = {}
+        if metadata := getattr(field_type, "__metadata__", None):
+            logger.info(f"Found metadata for {name}: {metadata}")
+            for meta in metadata:
+                if isinstance(meta, Doc):
+                    field_info_kwargs["description"] = meta.documentation
+        field_info = Field(default=default, **field_info_kwargs)
+        fields[name] = (field_type, field_info)
     # Dynamically create and return the Pydantic model class
-    input_model = create_model(f"{udf_slug(func, namespace)}_model", **fields)  # type: ignore
+    input_model = create_model(udf_slug_camelcase(func, namespace), **fields)  # type: ignore
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
