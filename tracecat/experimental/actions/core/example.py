@@ -19,7 +19,7 @@ class Stats(TypedDict):
 
 @registry.register(
     description="This is a test function",
-    namespace="example",
+    namespace="core.example",
     version="0.1.0",
     secrets=["test_secret"],
 )
@@ -56,7 +56,7 @@ def my_function(
 
 @registry.register(
     description="This is another test function",
-    namespace="example",
+    namespace="core.example",
     version="0.1.0",
 )
 def another_function(

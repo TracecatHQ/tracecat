@@ -1,18 +1,17 @@
-"""Core Tracecat actions."""
+"""UDF Definitions of core Tracecat actions."""
 
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
-import logging
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
+from loguru import logger
 from typing_extensions import Doc
 
+from tracecat.db import CaseContext
 from tracecat.experimental.actions._registry import registry
-
-logger = logging.getLogger(__name__)
-
+from tracecat.types.api import Suppression, Tag
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 
@@ -26,14 +25,12 @@ class HTTPResponse(TypedDict):
 @registry.register(
     namespace="core",
     version="0.1.0",
-    description="This is a test function",
+    description="Perform a HTTP request to a given URL.",
 )
 async def http_request(
     url: Annotated[str, Doc("The destination URL address")],
-    headers: Annotated[dict[str, str] | None, Doc("HTTP request headers")] = None,
-    payload: Annotated[
-        dict[str, str | bytes] | None, Doc("HTTP request payload")
-    ] = None,
+    headers: Annotated[dict[str, str], Doc("HTTP request headers")] = None,
+    payload: Annotated[dict[str, Any], Doc("HTTP request payload")] = None,
     method: Annotated[RequestMethods, Doc("HTTP reqest method")] = "GET",
 ) -> HTTPResponse:
     try:
@@ -63,6 +60,28 @@ async def http_request(
             headers=dict(response.headers.items()),
             data=response.text,
         )
+
+
+@registry.register(
+    namespace="core",
+    version="0.1.0",
+    description="Open a new case in the case management system.",
+)
+def open_case(
+    # Action Inputs
+    case_title: str,
+    payload: dict[str, Any],
+    malice: Literal["malicious", "benign"],
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"],
+    priority: Literal["low", "medium", "high", "critical"],
+    action: Literal[
+        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+    ],
+    context: list[CaseContext] | None = None,
+    suppression: list[Suppression] | None = None,
+    tags: list[Tag] | None = None,
+) -> Any:
+    return NotImplemented
 
 
 if __name__ == "__main__":
