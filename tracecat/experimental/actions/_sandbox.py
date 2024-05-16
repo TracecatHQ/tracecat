@@ -4,9 +4,10 @@ import asyncio
 import os
 from typing import TYPE_CHECKING, Self
 
+from loguru import logger
+
 from tracecat.auth import AuthenticatedAPIClient
 from tracecat.db import Secret
-from tracecat.logging import logger
 
 if TYPE_CHECKING:
     from tracecat.auth import Role
