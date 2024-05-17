@@ -65,35 +65,6 @@ services:
     networks:
       - internal-network
 
-  scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: scheduler
-    ports:
-      - "8002:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      API_MODULE: "tracecat.scheduler.app:app"
-      # Shared
-      LOG_LEVEL: ${LOG_LEVEL}
-      RABBITMQ_URI: ${RABBITMQ_URI}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-    restart: unless-stopped
-    depends_on:
-      - api
-    networks:
-      - internal-network
-
   frontend:
     build:
       context: ./frontend

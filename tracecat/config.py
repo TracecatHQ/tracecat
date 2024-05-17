@@ -25,5 +25,4 @@ TRACECAT__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-runner",
     "tracecat-api",
-    "tracecat-scheduler",
 ]

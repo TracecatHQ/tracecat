@@ -12,7 +12,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  SCHEDULER_IMAGE_NAME: ${{ github.repository }}-scheduler
 
 permissions:
   contents: read
