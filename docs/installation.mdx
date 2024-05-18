@@ -32,8 +32,14 @@ development and testing purposes._
 
 - [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop)
 - [ngrok](https://ngrok.com/)
 - [pnpm](https://pnpm.io/installation) (with Node v20+)
+
+<Warning>
+  This setup has only been tested on MacOS, Linux (Ubuntu 20.04), and Windows WSL (Ubuntu 20.04).
+  All with Docker Desktop and Docker Compose V2 installed.
+</Warning>
 
 ### Optional
 
@@ -219,7 +225,7 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
 
 Finally, you will need to add custom claims to your sessions - follow the steps in [this Clerk blog post](https://clerk.com/blog/add-onboarding-flow-for-your-application-with-clerk#add-custom-claims-to-your-session-token).
 
-## Troubldshooting
+## Troubleshooting
 
 ### Docker networking
 
