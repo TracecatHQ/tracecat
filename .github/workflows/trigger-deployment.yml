@@ -1,53 +1,54 @@
-name: Trigger Tracecat deployment
+name: Trigger Tracecat Deployment
 
 on:
   push:
-    branches: main
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      build-env:
-        type: choice
-        description: Build environment
-        required: true
-        options:
-          - production
-          - staging
-      ref:
-        description: "Branch, commit sha, or tag to deploy"
-        required: true
+    branches: [main, release]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   trigger-deployment:
     runs-on: ubuntu-latest
     steps:
-      - name: Set Environment
-        id: set-env
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "BUILD_ENV=${{ github.event.inputs.build-env }}" >> $GITHUB_ENV
-            echo "DEPLOY_REF=${{ github.event.inputs.ref }}" >> $GITHUB_ENV
-          else
-            echo "BUILD_ENV=$( [[ '${{ github.ref }}' == 'refs/heads/main' ]] && echo 'staging' || echo 'production' )" >> $GITHUB_ENV
-            echo "DEPLOY_REF=${{ github.sha }}" >> $GITHUB_ENV
-          fi
-
-      - name: Trigger
+      - name: Trigger Deployment
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const environment = process.env.BUILD_ENV;
-            const ref = process.env.DEPLOY_REF;
+            const github = require('@actions/github');
+            const context = github.context;
+
+            let env, ref;
+
+            if (context.ref === 'refs/heads/release') {
+              env = "production";
+              // Fetch the latest release tag
+              const releases = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+
+              if (releases.data.length > 0) {
+                ref = releases.data[0].tag_name;
+              } else {
+                throw new Error('No releases found');
+              }
+            } else if (context.ref === 'refs/heads/main') {
+              env = "staging";
+              ref = context.sha;
+            } else {
+              throw new Error('Unhandled branch context');
+            }
 
             // Send a repository_dispatch event to trigger the Deploy to AWS workflow
-            github.rest.repos.createDispatchEvent({
+            await github.rest.repos.createDispatchEvent({
               owner: 'TracecatHQ',
               repo: 'tracecat-deployment',
               event_type: 'deploy',
               client_payload: {
-                'build-env': environment,
+                'build-env': env,
                 'ref': ref
               }
             });
