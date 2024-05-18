@@ -1,4 +1,5 @@
-# Base compose file
+version: '3.8'
+
 services:
   api:
     build: .
@@ -10,7 +11,6 @@ services:
       - app-storage:/var/lib/tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
-      # Shared
       LOG_LEVEL: ${LOG_LEVEL}
       RABBITMQ_URI: ${RABBITMQ_URI}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
@@ -21,17 +21,13 @@ services:
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
       TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      # Auth
       CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     restart: unless-stopped
     depends_on:
       rabbitmq:
         condition: service_healthy
-    networks:
-      - internal-network
 
   runner:
     build: .
@@ -43,7 +39,6 @@ services:
       - app-storage:/var/lib/tracecat
     environment:
       API_MODULE: "tracecat.runner.app:app"
-      # Shared
       LOG_LEVEL: ${LOG_LEVEL}
       RABBITMQ_URI: ${RABBITMQ_URI}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
@@ -54,16 +49,12 @@ services:
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
       TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       RESEND_API_KEY: ${RESEND_API_KEY}
-
     restart: unless-stopped
     depends_on:
       rabbitmq:
         condition: service_healthy
-    networks:
-      - internal-network
 
   frontend:
     build:
@@ -85,8 +76,7 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-      # Auth
-      NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH} # Prefix with NEXT_PUBLIC_ to expose to client
+      NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL}
@@ -95,15 +85,13 @@ services:
     depends_on:
       - api
       - runner
-    networks:
-      - internal-network
 
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: rabbitmq
     ports:
-      - "5672:5672" # RabbitMQ server
-      - "15672:15672" # Management UI
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASS: ${RABBITMQ_PASS}
@@ -115,8 +103,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - internal-network
 
   postgres_db:
     image: postgres:16.2-bullseye
@@ -130,11 +116,18 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    networks:
-      - internal-network
 
-networks:
-  internal-network:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - runner
+      - frontend
 
 volumes:
   app-storage:
