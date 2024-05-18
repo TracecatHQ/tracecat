@@ -16,8 +16,8 @@ export default function Navbar(props: NavbarProps) {
         <Link href="/workflows">
           <Icons.logo className="h-5 w-5" />
         </Link>
-        <DynamicNavbar />
         <div className="flex flex-1 items-center justify-end space-x-6">
+          <DynamicNavbar />
           <CommunityNav />
           <UserNav />
         </div>

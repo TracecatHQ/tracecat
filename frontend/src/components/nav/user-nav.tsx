@@ -91,12 +91,15 @@ export default function UserNav() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
 
-        <Link href={siteConfig.links.discord} className="mt-1 w-full">
-          <Button className="w-full items-center text-xs">
-            <Icons.discord className="mr-2 h-4 w-4 fill-white" />
-            Join our Discord
-          </Button>
-        </Link>
+        <DropdownMenuGroup>
+          <Link href={siteConfig.links.discord} className="mt-1 w-full">
+            <Button className="w-full items-center text-xs">
+              <Icons.discord className="mr-2 h-4 w-4 fill-white" />
+              Join our Discord
+            </Button>
+          </Link>
+        </DropdownMenuGroup>
+
       </DropdownMenuContent>
     </DropdownMenu>
   )

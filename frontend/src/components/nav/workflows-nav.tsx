@@ -4,7 +4,7 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { BellRingIcon, SquareTerminal, WorkflowIcon } from "lucide-react"
+import { BellRingIcon, RadioIcon, WorkflowIcon } from "lucide-react"
 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -22,7 +22,7 @@ export default function WorkflowsNavbar() {
       <div className="flex w-full items-center space-x-8">
         <WorkflowSwitcher />
         <TabSwitcher workflowId={workflowId} />
-        <div className="flex flex-1 items-center justify-end space-x-2">
+        <div className="flex flex-1 items-center justify-end space-x-3">
           <Switch
             id="enable-workflow"
             checked={isOnline}
@@ -30,10 +30,11 @@ export default function WorkflowsNavbar() {
             className="data-[state=checked]:bg-green-500"
           />
           <Label
-            className="w-30 text-xs text-muted-foreground"
+            className="flex text-xs text-muted-foreground"
             htmlFor="enable-workflow"
           >
-            {isOnline ? "Pause" : "Publish"}
+            <RadioIcon className="mr-2 h-4 w-4" />
+            <span>Publish workflow</span>
           </Label>
         </div>
       </div>
