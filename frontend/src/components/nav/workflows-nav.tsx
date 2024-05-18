@@ -50,7 +50,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
       : "workflow"
   return (
     <Tabs value={leafRoute}>
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger className="w-full py-0" value="workflow" asChild>
           <Link
             href={`/workflows/${workflowId}`}
@@ -77,7 +77,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
             </kbd>
           </Link>
         </TabsTrigger>
-        <TabsTrigger className="w-full py-0" value="console" asChild>
+        {/* <TabsTrigger className="w-full py-0" value="console" asChild>
           <Link
             href={`/workflows/${workflowId}/console`}
             className="h-full w-full"
@@ -89,7 +89,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
               <span>Alt+L</span>
             </kbd>
           </Link>
-        </TabsTrigger>
+        </TabsTrigger> */}
       </TabsList>
     </Tabs>
   )
