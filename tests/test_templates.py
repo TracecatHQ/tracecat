@@ -139,7 +139,6 @@ async def test_evaluate_templated_secret():
             secret.keys = secret_keys  # Encrypt the secret
 
             # Mock hitting get secrets endpoint
-            print(secret)
             respx.get(f"{base_secrets_url}/{secret_name}").mock(
                 return_value=Response(
                     200,
