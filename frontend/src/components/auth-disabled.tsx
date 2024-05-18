@@ -27,8 +27,7 @@ export function AuthDisabled() {
       <h1 className="text-lg font-bold">Proceed to Tracecat Cloud</h1>
       <p className="max-w-[30vw] text-center text-sm text-muted-foreground">
         Authentication is disabled. You can activate this by setting the
-        TRACECAT__DISABLE_AUTH environment variable and linking your Clerk
-        account.
+        environment variable `TRACECAT__DISABLE_AUTH=0" and linking your Clerk account.
       </p>
       <Button className="text-xs" onClick={handleClick} disabled={isLoading}>
         {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}

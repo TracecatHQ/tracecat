@@ -32,6 +32,11 @@ services:
         condition: service_healthy
     networks:
       - internal-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || psql ${TRACECAT__DB_URI} -c 'SELECT 1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   runner:
     build: .
@@ -97,6 +102,11 @@ services:
       - runner
     networks:
       - internal-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f ${NEXT_PUBLIC_API_URL}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   rabbitmq:
     image: rabbitmq:3.13-management
