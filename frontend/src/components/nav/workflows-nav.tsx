@@ -4,7 +4,7 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { BellRingIcon, RadioIcon, WorkflowIcon } from "lucide-react"
+import { ShieldAlertIcon, RadioIcon, WorkflowIcon } from "lucide-react"
 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -52,30 +52,24 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
   return (
     <Tabs value={leafRoute}>
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger className="w-full py-0" value="workflow" asChild>
+        <TabsTrigger className="w-full py-0 px-4" value="workflow" asChild>
           <Link
             href={`/workflows/${workflowId}`}
-            className="h-full w-full"
+            className="h-full w-full text-xs"
             passHref
           >
             <WorkflowIcon className="mr-2 h-4 w-4" />
             <span>Workflow</span>
-            <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span>Alt+F</span>
-            </kbd>
           </Link>
         </TabsTrigger>
-        <TabsTrigger className="w-full py-0" value="cases" asChild>
+        <TabsTrigger className="w-full py-0 px-4" value="cases" asChild>
           <Link
             href={`/workflows/${workflowId}/cases`}
-            className="h-full w-full"
+            className="h-full w-full text-xs"
             passHref
           >
-            <BellRingIcon className="mr-2 h-4 w-4" />
+            <ShieldAlertIcon className="mr-2 h-4 w-4" />
             <span>Cases</span>
-            <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span>Alt+C</span>
-            </kbd>
           </Link>
         </TabsTrigger>
         {/* <TabsTrigger className="w-full py-0" value="console" asChild>
@@ -86,9 +80,6 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
           >
             <SquareTerminal className="mr-2 h-4 w-4" />
             <span>Console</span>
-            <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span>Alt+L</span>
-            </kbd>
           </Link>
         </TabsTrigger> */}
       </TabsList>
