@@ -70,7 +70,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
         <TabsTrigger className="w-full py-0 px-4" value="workflow" asChild>
           <Link
             href={`/workflows/${workflowId}`}
-            className="h-full w-full text-sm"
+            className="size-full text-sm"
             passHref
           >
             <WorkflowIcon className="mr-2 h-4 w-4" />
@@ -80,7 +80,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
         <TabsTrigger className="w-full py-0 px-4" value="cases" asChild>
           <Link
             href={`/workflows/${workflowId}/cases`}
-            className="h-full w-full text-sm"
+            className="size-full text-sm"
             passHref
           >
             <ShieldAlertIcon className="mr-2 h-4 w-4" />
@@ -90,7 +90,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
         {/* <TabsTrigger className="w-full py-0" value="console" asChild>
           <Link
             href={`/workflows/${workflowId}/console`}
-            className="h-full w-full"
+            className="size-full"
             passHref
           >
             <SquareTerminal className="mr-2 h-4 w-4" />

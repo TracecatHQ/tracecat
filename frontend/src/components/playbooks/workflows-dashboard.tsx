@@ -9,7 +9,7 @@ import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
 
 export async function WorkflowsDashboard() {
   return (
-    <div className="h-full w-full overflow-auto">
+    <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[800px] flex-col space-y-12 pt-32 p-16">
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">

@@ -19,7 +19,7 @@ export function WorkspacePanel() {
   const { workflow, workflowId, isOnline } = useWorkflowMetadata()
 
   return (
-    <div className="h-full w-full overflow-auto">
+    <div className="size-full overflow-auto">
       {selectedNode ? (
         getNodeForm(selectedNode, workflowId)
       ) : workflow ? (

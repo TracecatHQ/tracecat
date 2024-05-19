@@ -46,7 +46,7 @@ export function Console() {
   return (
     <FormProvider {...methods}>
       <form className="h-full overflow-auto">
-        <main className="grid h-full w-full flex-1 items-center gap-4 overflow-auto p-4 md:grid-cols-2 lg:grid-cols-6">
+        <main className="grid size-full flex-1 items-center gap-4 overflow-auto p-4 md:grid-cols-2 lg:grid-cols-6">
           <ConsolePanel className="col-span-2" />
           <ConsoleFeed className="col-span-4" />
         </main>

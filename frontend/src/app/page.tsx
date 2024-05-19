@@ -53,7 +53,7 @@ export default async function HomePage() {
               <Image
                 src={TracecatIcon}
                 alt="Tracecat"
-                className="mx-auto h-16 w-16"
+                className="mx-auto size-16"
               />
               <h1 className="text-2xl font-semibold">Tracecat Cloud</h1>
               <p className="text-md text-muted-foreground">Public Alpha v2.0</p>
