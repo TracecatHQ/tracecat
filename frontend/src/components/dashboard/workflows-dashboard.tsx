@@ -18,7 +18,7 @@ export async function WorkflowsDashboard() {
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-bold tracking-tight">Workflows</h2>
             <p className="text-md text-muted-foreground">
-              Welcome back! Here&apos;s a list of your workflows.
+              Your workflows dashboard.
             </p>
           </div>
           <NewWorkflowDialog>
@@ -54,7 +54,7 @@ export async function WorkflowsDashboard() {
 export async function WorkflowList() {
   const workflows = await fetchAllWorkflows()
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col space-y-4">
       {workflows.length === 0 ? (
         <span className="my-4 text-center text-sm text-muted-foreground">
           No workflows created.

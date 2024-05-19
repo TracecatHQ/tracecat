@@ -56,7 +56,7 @@ export async function WorkflowsDashboard() {
 export async function WorkflowList() {
   const workflows = await fetchAllPlaybooks()
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col space-y-4">
       {workflows.length === 0 ? (
         <div className="flex flex-col items-center w-full space-y-12">
           <div className="flex items-center space-x-4 w-full justify-center">
