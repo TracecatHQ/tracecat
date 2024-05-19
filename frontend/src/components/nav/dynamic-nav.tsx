@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
-import WorkflowsNav from "@/components/nav/workflows-nav"
+import WorkflowsNav from "@/components/nav/workflow-nav"
 
 export default function DynamicNavbar() {
   const pathname = usePathname()

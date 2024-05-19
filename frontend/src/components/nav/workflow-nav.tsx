@@ -4,15 +4,16 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { ShieldAlertIcon, RadioIcon, WorkflowIcon } from "lucide-react"
+import { Slash, ShieldAlertIcon, RadioIcon, WorkflowIcon } from "lucide-react"
 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import WorkflowSwitcher from "@/components/nav/workflow-switcher"
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 
-export default function WorkflowsNavbar() {
-  const { workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
+
+export default function WorkflowNavbar() {
+  const { workflow, workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
   if (isLoading) {
     return null
@@ -20,21 +21,35 @@ export default function WorkflowsNavbar() {
   return (
     workflowId && (
       <div className="flex w-full items-center space-x-8">
-        <WorkflowSwitcher />
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/workflows">Workflows</BreadcrumbLink>
+            </BreadcrumbItem>
+            {workflow && (
+              <>
+                <BreadcrumbSeparator>
+                  <Slash />
+                </BreadcrumbSeparator>
+                <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
+              </>
+            )}
+          </BreadcrumbList>
+        </Breadcrumb>
         <TabSwitcher workflowId={workflowId} />
         <div className="flex flex-1 items-center justify-end space-x-3">
           <Switch
             id="enable-workflow"
             checked={isOnline}
             onCheckedChange={setIsOnline}
-            className="data-[state=checked]:bg-green-500"
+            className="data-[state=checked]:bg-lime-400"
           />
           <Label
             className="flex text-xs text-muted-foreground"
             htmlFor="enable-workflow"
           >
             <RadioIcon className="mr-2 h-4 w-4" />
-            <span>Publish workflow</span>
+            <span>Enable workflow</span>
           </Label>
         </div>
       </div>
