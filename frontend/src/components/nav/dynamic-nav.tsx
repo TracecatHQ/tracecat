@@ -6,6 +6,7 @@ import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
+import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
 import WorkflowNav from "@/components/nav/workflow-nav"
 
 export default function DynamicNavbar() {
@@ -26,24 +27,36 @@ function getNavBar(pathname: string, params: Params) {
 function DashboardNav() {
   const pathname = usePathname()
   return (
-    <nav className="flex items-center space-x-4 lg:space-x-6">
+    <nav className="flex space-x-4 lg:space-x-6">
       <Link
         href="/workflows"
         className={cn(
-          "text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.startsWith("/workflows") && "text-primary"
         )}
       >
-        Workflows
+        <WorkflowIcon className="mr-2 h-4 w-4" />
+        <span>Workflows</span>
       </Link>
       <Link
-        href="/library"
+        href="/playbooks"
         className={cn(
-          "text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.startsWith("/integrations") && "text-primary"
         )}
       >
-        Library
+        <LibraryIcon className="mr-2 h-4 w-4" />
+        <span>Playbooks</span>
+      </Link>
+      <Link
+        href="/integrations"
+        className={cn(
+          "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          pathname.startsWith("/integrations") && "text-primary"
+        )}
+      >
+        <BlocksIcon className="mr-2 h-4 w-4" />
+        <span>Integrations</span>
       </Link>
     </nav>
   )
