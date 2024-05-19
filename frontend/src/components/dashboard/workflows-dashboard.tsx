@@ -27,7 +27,7 @@ export async function WorkflowsDashboard() {
                 role="combobox"
                 className="space-x-2"
               >
-                <ConeIcon className="h-4 w-4 text-lime-600" />
+                <ConeIcon className="h-4 w-4 text-emerald-600" />
                 <span>Find playbook</span>
               </Button>
             </Link>

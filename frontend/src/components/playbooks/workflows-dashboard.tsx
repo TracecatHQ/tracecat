@@ -31,7 +31,7 @@ export async function WorkflowsDashboard() {
               href="https://calendly.com/meet-tracecat/super-quick-intro"
               className="flex items-center space-x-2"
             >
-              <InfoIcon className="h-4 w-4 text-lime-600" />
+              <InfoIcon className="h-4 w-4 text-emerald-600" />
               <span>Book demo</span>
             </Link>
           </Button>
