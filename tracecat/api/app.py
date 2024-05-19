@@ -1,4 +1,3 @@
-import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,7 +17,7 @@ from tracecat.api.completions import (
     FieldCons,
     stream_case_completions,
 )
-from tracecat.api.routers import runner, test
+from tracecat.api.routers import test, triggers
 from tracecat.auth import (
     Role,
     authenticate_service,
@@ -117,7 +116,7 @@ else:
 
 
 app = create_app(lifespan=lifespan)
-app.include_router(runner.router)
+app.include_router(triggers.router)
 app.include_router(test.router)
 app.add_middleware(
     CORSMiddleware,
@@ -212,7 +211,7 @@ def create_workflow(
 
 @app.get("/workflows/{workflow_id}")
 def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
@@ -235,33 +234,10 @@ def get_workflow(
         results = session.exec(statement)
         actions = results.all()
 
-        object = None
-        if workflow.object is not None:
-            # Process react flow object into adjacency list
-            object = json.loads(workflow.object)
-
     actions_responses = {
-        action.id: ActionResponse(
-            id=action.id,
-            type=action.type,
-            title=action.title,
-            description=action.description,
-            status=action.status,
-            inputs=json.loads(action.inputs) if action.inputs else None,
-            key=action.key,
-        )
-        for action in actions
+        action.id: ActionResponse(**action.model_dump()) for action in actions
     }
-    workflow_response = WorkflowResponse(
-        id=workflow.id,
-        title=workflow.title,
-        description=workflow.description,
-        status=workflow.status,
-        actions=actions_responses,
-        object=object,
-        owner_id=workflow.owner_id,
-    )
-    return workflow_response
+    return WorkflowResponse(**workflow.model_dump(), actions=actions_responses)
 
 
 @app.post("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -271,10 +247,6 @@ def update_workflow(
     params: UpdateWorkflowParams,
 ) -> None:
     """Update Workflow."""
-    logger.info(
-        "Updating workflow", workflow_id=workflow_id, params=params.model_dump()
-    )
-
     with Session(engine) as session:
         statement = select(Workflow).where(
             Workflow.owner_id == role.user_id,
@@ -584,7 +556,7 @@ def get_action(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        inputs: dict[str, Any] = json.loads(action.inputs) if action.inputs else {}
+        inputs: dict[str, Any] = action.inputs or {}
         # Precompute webhook response
         # Alias webhook.id as path
         if action.type.lower() == "webhook":
@@ -643,7 +615,7 @@ def update_action(
         title=action.title,
         description=action.description,
         status=action.status,
-        inputs=json.loads(action.inputs) if action.inputs else None,
+        inputs=action.inputs,
         key=action.key,
     )
 
