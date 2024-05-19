@@ -15,7 +15,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbS
 export default function WorkflowNav() {
   const { workflow, workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
-  if (isLoading) {
+  if (!workflow || isLoading) {
     return null
   }
   return (
