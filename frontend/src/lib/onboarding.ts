@@ -4,7 +4,6 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"
-import { createWorkflow } from "@/lib/flow"
 
 /**
  * Initialize user settings in the database
@@ -19,11 +18,6 @@ export async function newUserFlow(): Promise<void> {
       throw new Error("Unexpected response status")
     }
     console.log("New user created")
-    await createWorkflow(
-      "My first workflow",
-      "Welcome to Tracecat. This is your first workflow!"
-    )
-    console.log("Created first workflow for new user")
   } catch (e) {
     if (e instanceof AxiosError) {
       if (e.response?.status !== 409) {

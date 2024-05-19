@@ -79,7 +79,7 @@ export function ConsolePanel({
         className
       )}
     >
-      <Card className="flex h-full w-full flex-col space-y-4 rounded-lg border p-4 shadow-sm">
+      <Card className="flex size-full flex-col space-y-4 rounded-lg border p-4 shadow-sm">
         <div className="space-y-3">
           <div className="flex justify-between">
             <legend className="-ml-1 px-1 text-sm font-semibold">

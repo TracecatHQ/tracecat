@@ -5,6 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 
+import { PawPrintIcon } from "lucide-react"
 import { newUserFlow } from "@/lib/onboarding"
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
@@ -22,17 +23,18 @@ export function AuthDisabled() {
     router.push("/workflows")
   }
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center space-y-4">
-      <Image src={TracecatIcon} alt="Tracecat" className="mx-auto h-16 w-16" />
-      <h1 className="text-lg font-bold">Proceed to workflows</h1>
+    <div className="flex size-full flex-col items-center justify-center space-y-8">
+      <Image src={TracecatIcon} alt="Tracecat" className="mx-auto size-16" />
       <p className="max-w-[30vw] text-center text-sm text-muted-foreground">
-        Authentication is disabled. You can activate this by setting the
-        environment variable `TRACECAT__DISABLE_AUTH=0" and linking your Clerk account.
+        Thank you for installing Tracecat.
+        Please note that auth is disabled in self-hosted.
+        Instructions for enabling auth can be found in the docs.
       </p>
       <Button className="text-xs" onClick={handleClick} disabled={isLoading}>
         {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
-        Continue to dashboard
+        <PawPrintIcon className="mr-2 h-4 w-4" />
+        Continue to workflows
       </Button>
-    </div>
+    </div >
   )
 }

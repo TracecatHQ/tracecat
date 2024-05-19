@@ -4,37 +4,52 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { BellRingIcon, RadioIcon, WorkflowIcon } from "lucide-react"
+import { Slash, ShieldAlertIcon, RadioIcon, WorkflowIcon } from "lucide-react"
 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import WorkflowSwitcher from "@/components/nav/workflow-switcher"
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 
-export default function WorkflowsNavbar() {
-  const { workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
-  if (isLoading) {
+export default function WorkflowNav() {
+  const { workflow, workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
+
+  if (!workflow || isLoading) {
     return null
   }
   return (
     workflowId && (
       <div className="flex w-full items-center space-x-8">
-        <WorkflowSwitcher />
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/workflows">Workflows</BreadcrumbLink>
+            </BreadcrumbItem>
+            {workflow && (
+              <>
+                <BreadcrumbSeparator>
+                  <Slash />
+                </BreadcrumbSeparator>
+                <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
+              </>
+            )}
+          </BreadcrumbList>
+        </Breadcrumb>
         <TabSwitcher workflowId={workflowId} />
         <div className="flex flex-1 items-center justify-end space-x-3">
           <Switch
             id="enable-workflow"
             checked={isOnline}
             onCheckedChange={setIsOnline}
-            className="data-[state=checked]:bg-green-500"
+            className="data-[state=checked]:bg-lime-400"
           />
           <Label
             className="flex text-xs text-muted-foreground"
             htmlFor="enable-workflow"
           >
             <RadioIcon className="mr-2 h-4 w-4" />
-            <span>Publish workflow</span>
+            <span>Enable workflow</span>
           </Label>
         </div>
       </div>
@@ -52,43 +67,34 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
   return (
     <Tabs value={leafRoute}>
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger className="w-full py-0" value="workflow" asChild>
+        <TabsTrigger className="w-full py-0 px-4" value="workflow" asChild>
           <Link
             href={`/workflows/${workflowId}`}
-            className="h-full w-full"
+            className="size-full text-sm"
             passHref
           >
             <WorkflowIcon className="mr-2 h-4 w-4" />
             <span>Workflow</span>
-            <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span>Alt+F</span>
-            </kbd>
           </Link>
         </TabsTrigger>
-        <TabsTrigger className="w-full py-0" value="cases" asChild>
+        <TabsTrigger className="w-full py-0 px-4" value="cases" asChild>
           <Link
             href={`/workflows/${workflowId}/cases`}
-            className="h-full w-full"
+            className="size-full text-sm"
             passHref
           >
-            <BellRingIcon className="mr-2 h-4 w-4" />
+            <ShieldAlertIcon className="mr-2 h-4 w-4" />
             <span>Cases</span>
-            <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span>Alt+C</span>
-            </kbd>
           </Link>
         </TabsTrigger>
         {/* <TabsTrigger className="w-full py-0" value="console" asChild>
           <Link
             href={`/workflows/${workflowId}/console`}
-            className="h-full w-full"
+            className="size-full"
             passHref
           >
             <SquareTerminal className="mr-2 h-4 w-4" />
             <span>Console</span>
-            <kbd className="ml-4 flex items-center justify-center gap-1 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span>Alt+L</span>
-            </kbd>
           </Link>
         </TabsTrigger> */}
       </TabsList>

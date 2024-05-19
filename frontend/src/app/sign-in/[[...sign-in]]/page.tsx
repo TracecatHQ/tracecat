@@ -8,7 +8,7 @@ export default function Page() {
     return <AuthDisabled />
   }
   return (
-    <div className="flex h-full w-full items-center justify-center">
+    <div className="flex size-full items-center justify-center">
       <SignIn
         // NOTE: Don't force redirect here as when a session expires, the user
         // should be redirected to the page they were on before relogging.

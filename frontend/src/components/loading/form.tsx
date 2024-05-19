@@ -11,7 +11,7 @@ export function SkeletonFormLoading({
   className?: string
 }) {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center space-x-2 space-y-2 p-4">
+    <div className="flex size-full flex-col items-center justify-center space-x-2 space-y-2 p-4">
       {Array.from({ length: numPanels }, (_, index) => (
         <Skeleton
           key={index}
@@ -24,7 +24,7 @@ export function SkeletonFormLoading({
 
 export function FormLoading() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center space-x-2 space-y-2 p-4">
+    <div className="flex size-full flex-col items-center justify-center space-x-2 space-y-2 p-4">
       <Loader2 className="mx-auto animate-spin text-gray-500" />
     </div>
   )

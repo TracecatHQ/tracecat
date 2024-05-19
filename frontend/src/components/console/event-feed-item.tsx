@@ -204,7 +204,7 @@ function EventFeedItemResultOrError({
           {JSON.stringify(result.output, null, 2)}
         </SyntaxHighlighter>
       ) : (
-        <pre className="h-full w-full overflow-auto text-wrap rounded-md bg-[#292c33] p-2">
+        <pre className="size-full overflow-auto text-wrap rounded-md bg-[#292c33] p-2">
           <code className="max-w-full overflow-auto rounded-md text-xs text-red-400/80">
             {error_msg}
           </code>

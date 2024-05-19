@@ -8,7 +8,7 @@ export default function Page() {
     return <AuthDisabled />
   }
   return (
-    <div className="flex h-full w-full items-center justify-center">
+    <div className="flex size-full items-center justify-center">
       <SignUp
         path="/sign-up"
         signInUrl="/sign-in"

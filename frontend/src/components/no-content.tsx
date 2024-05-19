@@ -10,7 +10,7 @@ export default function NoContent({
   return (
     <span
       className={cn(
-        "flex h-full w-full items-center justify-center text-center text-xs text-muted-foreground",
+        "flex size-full items-center justify-center text-center text-xs text-muted-foreground",
         className
       )}
     >

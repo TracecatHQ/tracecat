@@ -8,6 +8,7 @@ import TracecatIcon from "public/icon.png"
 
 import { auth } from "@/lib/auth"
 import { cn } from "@/lib/utils"
+import { LogInIcon } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
 import PrivacyPolicy from "@/components/privacy-policy"
@@ -30,35 +31,29 @@ export default async function HomePage() {
             "absolute right-4 top-4 md:right-8 md:top-8"
           )}
         >
-          <Link href="/sign-in">Sign In</Link>
+          <Link href="/sign-in" className="flex flex-column">
+            <LogInIcon className="mr-3 size-5" />
+            <span>Sign In</span>
+          </Link>
         </div>
         <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
           <div className="absolute inset-0 bg-zinc-900" />
-          <div className="relative z-20 flex items-center text-lg font-semibold tracking-wider">
-            <Icons.logo className="mr-1 size-5" />
-            Tracecat
-          </div>
-          <div className="relative z-20 mt-auto">
-            <blockquote className="space-y-2">
-              <p className="text-md italic">
-                &ldquo;Make something people want.&rdquo;
-              </p>
-              {/* <footer className="text-sm">Paul Graham</footer> */}
-            </blockquote>
+          <div className="relative z-20 flex items-center text-xl font-semibold tracking-wider">
+            <Icons.logo className="mr-4 size-6" />
+            <h1>Tracecat</h1>
           </div>
         </div>
         <div className="lg:p-8">
-          <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-            <div className="flex flex-col space-y-4 text-center">
-              <Image
-                src={TracecatIcon}
-                alt="Tracecat"
-                className="mx-auto h-16 w-16"
-              />
-              <h1 className="text-2xl font-semibold">Tracecat Cloud</h1>
-              <p className="text-md text-muted-foreground">Public Alpha v2.0</p>
-            </div>
-
+          <div className="mx-auto flex w-full flex-col justify-center text-center space-y-8 sm:w-[350px]">
+            <Image
+              src={TracecatIcon}
+              alt="Tracecat"
+              className="mx-auto size-16"
+            />
+            <h2 className="text-md text-muted-foreground">
+              The modern security automation platform
+              designed to reduce noise.
+            </h2>
             <PrivacyPolicy />
           </div>
         </div>

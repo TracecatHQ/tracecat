@@ -13,7 +13,7 @@ export default function Dashboard() {
   return (
     <TooltipProvider>
       <div className="flex-1 overflow-auto">
-        <div className="grid h-full max-h-full w-full pl-[53px]">
+        <div className="grid h-full max-size-full pl-[53px]">
           <SideNav />
           <Console />
         </div>

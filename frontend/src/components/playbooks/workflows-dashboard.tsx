@@ -1,12 +1,11 @@
-import { Suspense } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Suspense } from "react"
+import { InfoIcon } from "lucide-react"
+import Link from "next/link"
 
-import Link from "next/link";
-import { ConeIcon } from "lucide-react";
-import { fetchAllWorkflows } from "@/lib/flow";
-import { Button } from "@/components/ui/button";
-import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item";
-import CreateWorkflowButton from "@/components/dashboard/create-workflow-button";
+import { fetchAllPlaybooks } from "@/lib/flow"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
 
 export async function WorkflowsDashboard() {
   return (
@@ -14,24 +13,28 @@ export async function WorkflowsDashboard() {
       <div className="container flex h-full max-w-[800px] flex-col space-y-12 pt-32 p-16">
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-bold tracking-tight">Workflows</h2>
+            <h2 className="text-2xl font-bold tracking-tight">
+              Playbooks
+            </h2>
             <p className="text-md text-muted-foreground">
-              Your workflows dashboard.
+              Automate SecOps with production-ready playbooks.
             </p>
           </div>
-          <div className="ml-auto space-x-2">
-            <CreateWorkflowButton />
-            <Link href="/playbooks">
-              <Button
-                variant="outline"
-                role="combobox"
-                className="space-x-2"
-              >
-                <ConeIcon className="h-4 w-4 text-emerald-600" />
-                <span>Find playbook</span>
-              </Button>
+          <Button
+            variant="outline"
+            role="combobox"
+            className="ml-auto"
+          >
+            <Link
+              key="book-a-demo"
+              target="_blank"
+              href="https://calendly.com/meet-tracecat/super-quick-intro"
+              className="flex items-center space-x-2"
+            >
+              <InfoIcon className="h-4 w-4 text-emerald-600" />
+              <span>Book demo</span>
             </Link>
-          </div>
+          </Button>
         </div>
         <Suspense
           fallback={
@@ -47,11 +50,11 @@ export async function WorkflowsDashboard() {
         </Suspense>
       </div>
     </div>
-  );
+  )
 }
 
 export async function WorkflowList() {
-  const workflows = await fetchAllWorkflows()
+  const workflows = await fetchAllPlaybooks()
   return (
     <div className="flex flex-col space-y-4">
       {workflows.length === 0 ? (
@@ -72,10 +75,11 @@ export async function WorkflowList() {
           </div>
           <div className="text-center space-y-4">
             <p className="text-sm">
-              Welcome to Tracecat 👋
+              No playbooks installed 😿
             </p>
             <p className="text-center text-xs text-muted-foreground max-w-lg">
-              The modern security automation platform designed to reduce noise.
+              Official playbooks are available for verified users only.
+              Please request access by booking a demo or sign-up for Tracecat Cloud.
             </p>
           </div>
         </div>

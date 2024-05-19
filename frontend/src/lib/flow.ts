@@ -52,7 +52,7 @@ export async function fetchWorkflow(workflowId: string): Promise<Workflow> {
 
 export async function createWorkflow(
   title: string,
-  description: string = ""
+  description: string
 ): Promise<WorkflowMetadata> {
   const response = await client.post<WorkflowMetadata>(
     "/workflows",
@@ -233,35 +233,35 @@ export async function fetchWorkflowRun(
 
 /**
  *
- * To add a workflow from the library,
+ * To copy a playbook into workflows,
  *
  * @param maybeToken
  * @param workflowId
  * @returns
  */
-export async function addLibraryWorkflow(workflowId: string) {
+export async function copyPlaybook(workflowId: string) {
   try {
     const response = await client.post(`/workflows/${workflowId}/copy`)
     return response.data
   } catch (error) {
-    console.error("Error adding integration:", error)
+    console.error("Error copying playbook:", error)
     throw error
   }
 }
 
 /**
  *
- * View all library workflows,
+ * View all playbooks.
  *
  * @param maybeToken
  * @returns
  */
-export async function fetchLibraryWorkflows(): Promise<WorkflowMetadata[]> {
+export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
   try {
     const response = await client.get("/workflows?library=true")
     return response.data
   } catch (error) {
-    console.error("Error adding integration:", error)
+    console.error("Error fetching playbooks:", error)
     throw error
   }
 }

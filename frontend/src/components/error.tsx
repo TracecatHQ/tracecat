@@ -22,8 +22,8 @@ export default function Error({ error }: { error: ErrorProps | AxiosError }) {
     console.error("log error", error)
   }, [error])
   return (
-    <main className="container flex h-full w-full max-w-[400px] flex-col items-center justify-center space-y-4">
-      <Image src={TracecatIcon} alt="Tracecat" className="mb-8 h-16 w-16" />
+    <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
+      <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
       <h1 className="text-2xl font-medium">{headline}</h1>
       {action}
       <AlertNotification level={level} message={message} />
