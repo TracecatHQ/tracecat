@@ -113,7 +113,7 @@ class UpdateWorkflowParams(BaseModel):
     title: str | None = None
     description: str | None = None
     status: str | None = None
-    object: str | None = None
+    object: dict[str, Any] | None = None
 
 
 class CreateActionParams(BaseModel):
@@ -126,7 +126,7 @@ class UpdateActionParams(BaseModel):
     title: str | None = None
     description: str | None = None
     status: str | None = None
-    inputs: str | None = None
+    inputs: dict[str, Any] | None = None
 
 
 class CreateWebhookParams(BaseModel):
