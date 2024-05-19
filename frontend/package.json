@@ -51,6 +51,7 @@
     "@tanstack/react-table": "^8.17.3",
     "@vercel/edge-config": "^1.1.0",
     "axios": "^1.6.8",
+    "ajv": "^8.13.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^0.2.1",
