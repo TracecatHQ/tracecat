@@ -23,12 +23,12 @@ export function AuthDisabled() {
     router.push("/workflows")
   }
   return (
-    <div className="flex size-full flex-col items-center justify-center space-y-6">
+    <div className="flex size-full flex-col items-center justify-center space-y-8">
       <Image src={TracecatIcon} alt="Tracecat" className="mx-auto size-16" />
       <p className="max-w-[30vw] text-center text-sm text-muted-foreground">
         Thank you for installing Tracecat.
         Please note that auth is disabled in self-hosted.
-        Instructions for enabling auth can be found in Tracecat docs.
+        Instructions for enabling auth can be found in the docs.
       </p>
       <Button className="text-xs" onClick={handleClick} disabled={isLoading}>
         {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
