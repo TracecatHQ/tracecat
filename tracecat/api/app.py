@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import polars as pl
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
@@ -115,7 +115,7 @@ else:
     }
 
 
-app = create_app(lifespan=lifespan)
+app = create_app(lifespan=lifespan, default_response_class=ORJSONResponse)
 app.include_router(triggers.router)
 app.include_router(test.router)
 app.add_middleware(
@@ -1523,32 +1523,41 @@ def search_secrets(
 
 
 @app.get("/udfs")
-def list_udf(
-    role: Annotated[Role, Depends(authenticate_user)], limit: int | None = None
+def list_udfs(
+    role: Annotated[Role, Depends(authenticate_user)],
+    limit: int | None = None,
+    namespace: str = Query(None),
 ) -> list[UDFSpec]:
     """List all UDF specs for a user."""
     with Session(engine) as session:
-        statement = select(UDFSpec).where(UDFSpec.owner_id == role.user_id)
-        if limit is not None:
+        statement = select(UDFSpec).where(
+            or_(
+                UDFSpec.owner_id == "tracecat",
+                UDFSpec.owner_id == role.user_id,
+            )
+        )
+        if namespace:
+            statement = statement.where(UDFSpec.namespace == namespace)
+        if limit:
             statement = statement.limit(limit)
         result = session.exec(statement)
         udfs = result.all()
         return udfs
 
 
-@app.get("/udfs/{udf_key}")
+@app.get("/udfs/{key}")
 def get_udf(
     role: Annotated[Role, Depends(authenticate_user)],
-    udf_key: str,
+    key: str,
+    namespace: str = Query(None),
 ) -> UDFSpec:
     """Get an UDF spec by its path."""
-    _, platform, name = udf_key.split(".")
     with Session(engine) as session:
         statement = select(UDFSpec).where(
-            UDFSpec.owner_id == role.user_id,
-            UDFSpec.platform == platform,
-            UDFSpec.name == name,
+            UDFSpec.owner_id == role.user_id, UDFSpec.key == key
         )
+        if namespace:
+            statement = statement.where(UDFSpec.namespace == namespace)
         result = session.exec(statement)
         udf = result.one_or_none()
         if udf is None:

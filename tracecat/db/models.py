@@ -169,7 +169,7 @@ class UDFSpec(Resource, table=True):
             namespace=udf.namespace,
             version=udf.version,
             json_schema=udf.construct_schema(),
-            metadata=udf.metadata,
+            meta=udf.metadata,
         )
 
 
