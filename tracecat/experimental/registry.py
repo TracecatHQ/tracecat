@@ -26,6 +26,7 @@ class UDFSchema(TypedDict):
 class RegisteredUDF(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     fn: FunctionType
+    key: str
     description: str
     namespace: str
     version: str | None = None
@@ -45,6 +46,11 @@ class RegisteredUDF(BaseModel):
             args=self.args_cls.model_json_schema(),
             rtype=None if not self.rtype_adapter else self.rtype_adapter.json_schema(),
             secrets=self.secrets,
+            version=self.version,
+            description=self.description,
+            namespace=self.namespace,
+            key=self.key,
+            metadata=self.metadata,
         )
 
 
@@ -176,6 +182,7 @@ class _Registry:
             args_docs = _get_signature_docs(fn)
             self._udf_registry[key] = RegisteredUDF(
                 fn=wrapped_fn,
+                key=key,
                 namespace=namespace,
                 version=version,
                 description=description,
