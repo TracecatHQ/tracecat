@@ -1,42 +1,18 @@
-import json
-import os
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 from uuid import uuid4
 
-import lancedb
 import pyarrow as pa
 from croniter import croniter
 from pydantic import computed_field, field_validator
 from slugify import slugify
-from sqlalchemy import JSON, TIMESTAMP, Column, Engine, ForeignKey, String, text
-from sqlmodel import (
-    Field,
-    Relationship,
-    Session,
-    SQLModel,
-    create_engine,
-    delete,
-    select,
-)
+from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
+from sqlmodel import Field, Relationship, SQLModel
 
-from tracecat import auth, integrations
-from tracecat.config import (
-    TRACECAT__APP_ENV,
-    TRACECAT__PUBLIC_RUNNER_URL,
-    TRACECAT_DIR,
-)
-from tracecat.labels.mitre import get_mitre_tactics_techniques
-from tracecat.logging import Logger
+from tracecat import auth, config
+from tracecat.experimental.registry import RegisteredUDF
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
-if TYPE_CHECKING:
-    from tracecat.integrations import IntegrationSpec
-
-logger = Logger("db")
-
-
-STORAGE_PATH = TRACECAT_DIR / "storage"
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
     "Ignore",
@@ -45,8 +21,6 @@ DEFAULT_CASE_ACTIONS = [
     "Quarantined",
     "Sinkholed",
 ]
-STORAGE_PATH.mkdir(parents=True, exist_ok=True)
-TRACECAT__DB_URI = os.environ["TRACECAT__DB_URI"]
 
 
 class User(SQLModel, table=True):
@@ -167,34 +141,36 @@ class CaseEvent(Resource, table=True):
     data: dict[str, str | None] | None = Field(sa_column=Column(JSON))
 
 
-class Integration(Resource, table=True):
-    """Integration spec.
+class UDFSpec(Resource, table=True):
+    """UDF spec.
 
     Used in:
-    1. Frontend integrations library
+    1. Frontend action library
     2. Frontend integration action form
     """
 
     id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
-    name: str  # Human readable name
-    description: str  # Possibly redundant
-    docstring: str
-    parameters: str  # JSON-serialized String of form schema
-    platform: str  # e.g. AWS, Google Workspace, Crowdstrike
-    icon_url: str | None = None
+    description: str
+    namespace: str
+    key: str
+    version: str | None = None
+    json_schema: dict[str, Any] | None = Field(sa_column=Column(JSON))
+    # Can put the icon url in the metadata
+    meta: dict[str, Any] | None = Field(sa_column=Column(JSON))
 
-    @classmethod
-    def from_spec(cls, spec: "IntegrationSpec") -> Self:
-        return cls(
-            **spec.model_dump(exclude={"parameters"}),
-            parameters=json.dumps([p.model_dump() for p in spec.parameters]),
-            owner_id="tracecat",
+    @staticmethod
+    def from_registry_udf(
+        key: str, udf: RegisteredUDF, owner_id: str = "tracecat"
+    ) -> Self:
+        return UDFSpec(
+            owner_id=owner_id,
+            key=key,
+            description=udf.description,
+            namespace=udf.namespace,
+            version=udf.version,
+            json_schema=udf.construct_schema(),
+            metadata=udf.metadata,
         )
-
-    @computed_field
-    @property
-    def key(self) -> str:
-        return f"integrations.{self.platform}.{self.name}"
 
 
 class Workflow(Resource, table=True):
@@ -319,37 +295,7 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def url(self) -> str:
-        return f"{TRACECAT__PUBLIC_RUNNER_URL}/webhook/{self.id}/{self.secret}"
-
-
-def create_db_engine() -> Engine:
-    if TRACECAT__APP_ENV == "production":
-        # Postgres
-        engine_kwargs = {
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "connect_args": {"sslmode": "require"},
-        }
-    elif TRACECAT__APP_ENV == "local":
-        # SQLite disk-based database
-        engine_kwargs = {"connect_args": {"check_same_thread": False}}
-    else:
-        # Postgres as default
-        engine_kwargs = {
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "connect_args": {"sslmode": "disable"},
-        }
-    engine = create_engine(TRACECAT__DB_URI, **engine_kwargs)
-    return engine
-
-
-def create_vdb_conn() -> lancedb.DBConnection:
-    if os.environ.get("LANCEDB__S3_STORAGE_PATH") is None:
-        db = lancedb.connect(STORAGE_PATH / "vector.db")
-    else:
-        db = lancedb.connect(os.environ["LANCEDB__S3_STORAGE_PATH"])
-    return db
+        return f"{config.TRACECAT__PUBLIC_RUNNER_URL}/webhook/{self.id}/{self.secret}"
 
 
 CaseSchema = pa.schema(
@@ -377,112 +323,3 @@ CaseSchema = pa.schema(
         # pa.field("_context_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
     ]
 )
-
-
-def initialize_db() -> Engine:
-    # Relational table
-    engine = create_db_engine()
-    SQLModel.metadata.create_all(engine)
-
-    # VectorDB
-    db = create_vdb_conn()
-    db.create_table("cases", schema=CaseSchema, exist_ok=True)
-
-    with Session(engine) as session:
-        # Add TTPs to context table only if context table is empty
-        case_contexts_count = session.exec(select(CaseContext)).all()
-        if len(case_contexts_count) == 0:
-            mitre_labels = get_mitre_tactics_techniques()
-            mitre_contexts = [
-                CaseContext(owner_id="tracecat", tag="mitre", value=label)
-                for label in mitre_labels
-            ]
-            session.add_all(mitre_contexts)
-            session.commit()
-
-        case_actions_count = session.exec(select(CaseAction)).all()
-        if len(case_actions_count) == 0:
-            default_actions = [
-                CaseAction(owner_id="tracecat", tag="case_action", value=case_action)
-                for case_action in DEFAULT_CASE_ACTIONS
-            ]
-            session.add_all(default_actions)
-            session.commit()
-        # We might be ok just overwriting the integrations table?
-        # Add integrations to integrations table regardless of whether it's empty
-        session.exec(delete(Integration))
-        session.add_all(
-            Integration.from_spec(spec)
-            for spec in integrations.registry.get_registered_integration_specs()
-        )
-        session.commit()
-    return engine
-
-
-def clone_workflow(
-    workflow: Workflow,
-    session: Session,
-    new_owner_id: str,
-) -> Workflow:
-    """
-    Clones a Resource, including its relationships (up to a certain depth).
-
-    :param model_instance: The SQLModel instance to clone.
-    :param session: The SQLModel session.
-    :param _depth: Current depth level, used to limit recursive depth.
-    :return: The cloned instance.
-    """
-
-    # Create a new instance of the same model without the primary key
-    cloned_workflow = Workflow(
-        **workflow.model_dump(
-            exclude={"id", "created_at", "updated_at", "owner_id", "object", "status"}
-        ),
-        owner_id=new_owner_id,
-        status="offline",
-    )
-
-    # Iterate over relationships and clone them
-    action_replacements = {}
-    for action in workflow.actions:
-        # Special treatment for webhook actions:
-        # Need to update the action.path
-
-        cloned_action = Action(
-            owner_id=new_owner_id,
-            workflow_id=cloned_workflow.id,
-            **action.model_dump(
-                exclude={"id", "created_at", "updated_at", "owner_id", "workflow_id"}
-            ),
-        )
-
-        action_inputs: dict[str, str] = json.loads(cloned_action.inputs)
-        if action.type == "webhook":
-            cloned_webhook = Webhook(
-                owner_id=new_owner_id,
-                action_id=cloned_action.id,
-                workflow_id=cloned_workflow.id,
-            )
-            # Update the action inputs to point to the new webhook path
-            action_inputs.update(path=cloned_webhook.id, secret=cloned_webhook.secret)
-
-            # Assert that there's a new computed secret
-            session.add(cloned_webhook)
-        cloned_action.inputs = json.dumps(action_inputs)
-        action_replacements[action.id] = (cloned_action.id, action_inputs)
-        session.add(cloned_action)
-
-    # For each action in the workflow, update the workflow object
-    graph = json.loads(workflow.object)
-    for edge in graph["edges"]:
-        edge["source"] = action_replacements[edge["source"]][0]
-        edge["target"] = action_replacements[edge["target"]][0]
-        edge["id"] = f"{edge['source']}-{edge['target']}"
-    for node in graph["nodes"]:
-        new_id, new_inputs = action_replacements[node["id"]]
-        node["id"] = new_id
-        node["data"].update(id=new_id, inputs=new_inputs, selected=False)
-    cloned_workflow.object = json.dumps(graph)
-
-    session.add(cloned_workflow)
-    return cloned_workflow

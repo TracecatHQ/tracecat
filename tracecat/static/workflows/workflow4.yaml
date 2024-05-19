@@ -10,7 +10,7 @@
 # 3) activity6, takes result3 and result5 as input, and put result as result6.
 
 variables:
-  another_url: "http://other.com/another"
+  another_url: "http://api:8000"
   value: 1
 
 root:
@@ -20,17 +20,17 @@ root:
     - ref: initial_http_request
       action: core.http_request
       args:
-        url: http://localhost:8000/items/1
+        url: http://api:8000/test/items/1
         method: GET
 
     - parallel:
         - ref: calling_example_1
-          action: example.my_function
+          action: core.example.my_function
           args:
             age: 20
             is_member: true
         - ref: calling_example_2
-          action: example.another_function
+          action: core.example.another_function
           args:
             name: "asssssssssss"
             age: 3000000

@@ -5,20 +5,22 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import orjson
+from loguru import logger
 from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import LLM_MAX_RETRIES
-from tracecat.logging import logger
 
 ModelType = Literal[
+    "gpt-4o",
+    "gpt-4-turbo",
     "gpt-4-turbo-preview",
     "gpt-4-0125-preview",
     "gpt-4-vision-preview",
     "gpt-3.5-turbo-0125",
 ]
-DEFAULT_MODEL_TYPE: ModelType = "gpt-4-turbo-preview"
+DEFAULT_MODEL_TYPE: ModelType = "gpt-4o"
 DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
 
 

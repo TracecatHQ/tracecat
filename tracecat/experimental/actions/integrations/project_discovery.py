@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 import httpx
 
-from tracecat.experimental.actions._registry import registry
+from tracecat.experimental.registry import registry
 
 PD_BASE_URL = "https://api.projectdiscovery.io/v1"
 # https://docs.projectdiscovery.io/introduction

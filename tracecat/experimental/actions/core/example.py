@@ -5,9 +5,10 @@
 
 from typing import Annotated, Any, TypedDict
 
+from pydantic import Field
 from typing_extensions import Doc
 
-from tracecat.experimental.actions._registry import registry
+from tracecat.experimental.registry import registry
 
 
 class Stats(TypedDict):
@@ -17,15 +18,20 @@ class Stats(TypedDict):
     vitality: int
 
 
+CONST = "test_"
+
+
 @registry.register(
     description="This is a test function",
     namespace="core.example",
     version="0.1.0",
-    secrets=["test_secret"],
 )
 def my_function(
-    age: Annotated[int, Doc("Persons age in years")] = 30,
-    name: Annotated[str, Doc("Name of the person")] = "John Doe",
+    age: Annotated[int, Field(30, description="Persons age in years")],
+    name: Annotated[
+        dict,
+        Field(description="Name of the person"),
+    ] = None,
     is_member: bool = False,
 ) -> Stats:
     """My function

@@ -11,7 +11,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel, ConfigDict, Field
 
-    from tracecat.experimental.actions import registry
+    from tracecat.experimental.registry import registry
     from tracecat.experimental.templates.eval import eval_templated_object
 
 

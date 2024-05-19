@@ -4,14 +4,14 @@ import sys
 import uuid
 
 import yaml
+from loguru import logger
 from temporalio.client import Client
 
 from tracecat.experimental.dsl._converter import pydantic_data_converter
 from tracecat.experimental.dsl.workflow import DSLInput, DSLWorkflow
-from tracecat.logging import logger
 
 
-async def main(dsl_yaml: str) -> None:
+async def dispatch_wofklow(dsl_yaml: str) -> None:
     # Convert the YAML to our dataclass structure. We use PyYAML + dacite to do
     # this but it can be done any number of ways.
     dsl_dict = yaml.safe_load(dsl_yaml)
@@ -19,7 +19,7 @@ async def main(dsl_yaml: str) -> None:
 
     # Connect client
     client = await Client.connect(
-        "localhost:7233", data_converter=pydantic_data_converter
+        "http://host.docker.internal:7233", data_converter=pydantic_data_converter
     )
 
     # Run workflow
@@ -42,4 +42,4 @@ if __name__ == "__main__":
         dsl_yaml = yaml_file.read()
 
     # Run
-    asyncio.run(main(dsl_yaml))
+    asyncio.run(dispatch_wofklow(dsl_yaml))

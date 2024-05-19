@@ -4,11 +4,11 @@ import asyncio
 import inspect
 from typing import Annotated, Literal, TypeVar
 
+from loguru import logger
 from pydantic import BaseModel, Field
 from slugify import slugify
 
 from tracecat.llm import async_openai_call
-from tracecat.logging import logger
 from tracecat.types.cases import Case
 
 T = TypeVar("T", bound=BaseModel)

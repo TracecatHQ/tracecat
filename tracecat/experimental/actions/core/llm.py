@@ -1,16 +1,20 @@
-from __future__ import annotations
+"""Core LLM actions."""
+# XXX(WARNING): Do not import __future__ annotations from typing
+# This will cause class types to be resolved as strings
 
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Self, TypedDict
 
 from pydantic import BaseModel, Field
+
+from tracecat.experimental.registry import registry
+from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 
 TaskType = Literal[
     "llm.translate",
     "llm.extract",
     "llm.summarize",
     "llm.label",
-    "llm.enrich",
     "llm.question_answering",
     "llm.choice",
 ]
@@ -19,8 +23,8 @@ TaskType = Literal[
 class TaskFields(BaseModel):
     type: TaskType
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TaskFields:
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> Self:
         task_type = data.pop("type")
         task_field_cls = TASK_FIELDS_FACTORY[task_type]
         return task_field_cls(**data)
@@ -54,17 +58,12 @@ class ChoiceTaskFields(TaskFields):
     choices: list[str]
 
 
-class EnrichTaskFields(TaskFields):
-    type: Literal["llm.enrich"] = Field("llm.enrich", frozen=True)
-
-
 TaskFieldsVariant = (
     TranslateTaskFields
     | ExtractTaskFields
     | LabelTaskFields
     | SummarizeTaskFields
     | ChoiceTaskFields
-    | EnrichTaskFields
 )
 TASK_FIELDS_FACTORY: dict[TaskType, type[TaskFields]] = {
     "llm.translate": TranslateTaskFields,
@@ -72,11 +71,10 @@ TASK_FIELDS_FACTORY: dict[TaskType, type[TaskFields]] = {
     "llm.label": LabelTaskFields,
     "llm.summarize": SummarizeTaskFields,
     "llm.choice": ChoiceTaskFields,
-    "llm.enrich": EnrichTaskFields,
 }
 
 
-def action_trail_instructions(action_trail: dict[str, Any]) -> str:
+def _event_context_instructions(action_trail: dict[str, Any]) -> str:
     return (
         "Additional Instructions:"
         "\nYou have also been provided with the following JSON object of the previous task execution results,"
@@ -155,13 +153,6 @@ def _choice_system_context(choices: list[str]) -> str:
     )
 
 
-def _enrich_system_context() -> str:
-    return (
-        "You are an expert at enriching data. You will be provided with a body of text (e.g. paragraph, articles),"
-        " and your task is to enrich it."
-    )
-
-
 _LLM_SYSTEM_CONTEXT_FACTORY: dict[TaskType, Callable[..., str]] = {
     "llm.translate": _translate_system_context,
     "llm.extract": _extract_system_context,
@@ -169,19 +160,18 @@ _LLM_SYSTEM_CONTEXT_FACTORY: dict[TaskType, Callable[..., str]] = {
     "llm.summarize": _summary_system_context,
     "llm.question_answering": _question_answering_system_context,
     "llm.choice": _choice_system_context,
-    "llm.enrich": _enrich_system_context,
 }
 
 
-def get_system_context(task_fields: TaskFields, action_trail: dict[str, Any]) -> str:
+def _get_system_context(task_fields: TaskFields, event_context: dict[str, Any]) -> str:
     context = _LLM_SYSTEM_CONTEXT_FACTORY[task_fields.type](
         **task_fields.model_dump(exclude={"type"})
     )
-    formatted_add_instrs = action_trail_instructions(action_trail)
+    formatted_add_instrs = _event_context_instructions(event_context)
     return "\n".join((context, formatted_add_instrs))
 
 
-def generate_pydantic_json_response_schema(response_schema: dict[str, Any]) -> str:
+def _generate_pydantic_json_response_schema(response_schema: dict[str, Any]) -> str:
     return (
         "\nCreate a `JSONDataResponse` according to the following pydantic model:"
         "\n```"
@@ -189,3 +179,81 @@ def generate_pydantic_json_response_schema(response_schema: dict[str, Any]) -> s
         f"\n{"\n".join(f"\t{k}: {v}" for k, v in response_schema.items())}"
         "\n```"
     )
+
+
+class LLMResponse(TypedDict):
+    data: str | dict[str, Any]
+
+
+@registry.register(
+    namespace="core",
+    version="0.1.0",
+    description="Perform a LLM action",
+)
+async def call_llm(
+    task_fields: Annotated[
+        dict[str, Any],
+        Field(description="Task fields"),
+    ],
+    message: Annotated[
+        str,
+        Field(description="Message to be sent"),
+    ],
+    system_context: Annotated[
+        str,
+        Field(description="Action to be taken"),
+    ] = None,
+    model: Annotated[
+        ModelType,
+        Field(description="Model to be used"),
+    ] = DEFAULT_MODEL_TYPE,
+    response_schema: Annotated[
+        dict[str, Any],
+        Field(description="Response schema"),
+    ] = None,
+    llm_kwargs: Annotated[
+        dict[str, Any],
+        Field(description="LLM kwargs"),
+    ] = None,
+    event_context: Annotated[
+        dict[str, Any],
+        Field(description="Event context"),
+    ] = None,
+) -> LLMResponse:
+    llm_kwargs = llm_kwargs or {}
+    event_context = event_context or {}
+
+    # TODO(perf): Avoid re-creating the task fields object if possible
+    validated_task_fields = TaskFields.from_dict(task_fields)
+
+    if response_schema is None:
+        system_context = _get_system_context(
+            validated_task_fields,
+            event_context=event_context,
+        )
+        text_response: str = await async_openai_call(
+            prompt=message,
+            model=model,
+            system_context=system_context,
+            response_format="text",
+            **llm_kwargs,
+        )
+        return LLMResponse(data=text_response)
+    else:
+        system_context = "\n".join(
+            (
+                _get_system_context(validated_task_fields, event_context=event_context),
+                _generate_pydantic_json_response_schema(response_schema),
+            )
+        )
+        json_response: dict[str, Any] = await async_openai_call(
+            prompt=message,
+            model=model,
+            system_context=system_context,
+            response_format="json_object",
+            **llm_kwargs,
+        )
+        if "JSONDataResponse" in json_response:
+            inner_dict: dict[str, str] = json_response["JSONDataResponse"]
+            return LLMResponse(data=inner_dict)
+        return LLMResponse(data=json_response)

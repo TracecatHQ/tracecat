@@ -1,6 +1,5 @@
 import asyncio
 import dataclasses
-import logging
 
 from temporalio import workflow
 from temporalio.client import Client
@@ -10,14 +9,15 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat.experimental.dsl.workflow import DSLWorkflow, dsl_activities
+from tracecat.logging import logger
 
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
 with workflow.unsafe.imports_passed_through():
-    from tracecat.experimental.dsl._converter import (
-        pydantic_data_converter,
-    )
+    from tracecat import config
+    from tracecat.experimental.dsl._converter import pydantic_data_converter
+    from tracecat.experimental.dsl.workflow import DSLWorkflow, dsl_activities
+    from tracecat.experimental.registry import registry
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to
@@ -48,8 +48,11 @@ interrupt_event = asyncio.Event()
 
 async def main():
     # Connect client
+    logger.info("Connecting to Temporal")
+
+    registry.init()
     client = await Client.connect(
-        "localhost:7233", data_converter=pydantic_data_converter
+        config.TEMPORAL__CLUSTER_URL, data_converter=pydantic_data_converter
     )
 
     # Run a worker for the activities and workflow
@@ -61,13 +64,12 @@ async def main():
         workflow_runner=new_sandbox_runner(),
     ):
         # Wait until interrupted
-        logging.info("Worker started, ctrl+c to exit")
+        logger.info("Worker started, ctrl+c to exit")
         await interrupt_event.wait()
-        logging.info("Shutting down")
+        logger.info("Shutting down")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(main())

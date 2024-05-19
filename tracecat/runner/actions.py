@@ -43,15 +43,15 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import uuid4
 
 import httpx
+from loguru import logger
 from pydantic import BaseModel, Field, validator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat.config import HTTP_MAX_RETRIES
-from tracecat.contexts import ctx_action_run, ctx_session_role, ctx_workflow_run
-from tracecat.db import create_vdb_conn
-from tracecat.integrations import registry
+from tracecat.contexts import ctx_action_run, ctx_role, ctx_workflow_run
+from tracecat.db.models import create_vdb_conn
+from tracecat.experimental.registry import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
-from tracecat.logging import logger
 from tracecat.runner.condition import ConditionRuleValidator, ConditionRuleVariant
 from tracecat.runner.events import (
     emit_create_action_run_event,
@@ -745,7 +745,7 @@ async def run_open_case_action(
 ) -> dict[str, str | dict[str, str] | None]:
     db = create_vdb_conn()
     tbl = db.open_table("cases")
-    role = ctx_session_role.get()
+    role = ctx_role.get()
     if role.user_id is None:
         raise ValueError(f"User ID not found in session context: {role}.")
     case = Case(
@@ -784,7 +784,7 @@ async def run_integration_action(
     params = params or {}
 
     func = registry[qualname]
-    bound_func = partial(func, **params, __role=ctx_session_role.get())
+    bound_func = partial(func, **params, __role=ctx_role.get())
 
     result = await asyncio.to_thread(bound_func)
 
