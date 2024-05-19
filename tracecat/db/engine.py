@@ -24,6 +24,7 @@ from tracecat.db.models import (
 )
 from tracecat.experimental.registry import registry
 from tracecat.labels.mitre import get_mitre_tactics_techniques
+from tracecat.logging import logger
 
 STORAGE_PATH = config.TRACECAT_DIR / "storage"
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
@@ -79,6 +80,7 @@ def initialize_db() -> Engine:
             ]
             session.add_all(mitre_contexts)
             session.commit()
+            logger.info("Added default MITRE labels to case context table.")
 
         case_actions_count = session.exec(select(CaseAction)).all()
         if len(case_actions_count) == 0:
@@ -88,10 +90,14 @@ def initialize_db() -> Engine:
             ]
             session.add_all(default_actions)
             session.commit()
+            logger.info("Added default case actions to case action table.")
         # We might be ok just overwriting the integrations table?
         # Add integrations to integrations table regardless of whether it's empty
         session.exec(delete(UDFSpec))
-        session.add_all(UDFSpec.from_registry_udf(key, udf) for key, udf in registry)
+        registry.init()
+        udfs = [UDFSpec.from_registry_udf(key, udf) for key, udf in registry]
+        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
+        session.add_all(udfs)
         session.commit()
     return engine
 
