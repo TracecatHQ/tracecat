@@ -42,7 +42,7 @@ function DashboardNav() {
         href="/playbooks"
         className={cn(
           "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.startsWith("/integrations") && "text-primary"
+          pathname.startsWith("/playbooks") && "text-primary"
         )}
       >
         <LibraryIcon className="mr-2 h-4 w-4" />

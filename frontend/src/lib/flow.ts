@@ -233,13 +233,13 @@ export async function fetchWorkflowRun(
 
 /**
  *
- * To add a workflow from the library,
+ * To add a workflow from Playbooks,
  *
  * @param maybeToken
  * @param workflowId
  * @returns
  */
-export async function addLibraryWorkflow(workflowId: string) {
+export async function addPlaybook(workflowId: string) {
   try {
     const response = await client.post(`/workflows/${workflowId}/copy`)
     return response.data
@@ -251,12 +251,12 @@ export async function addLibraryWorkflow(workflowId: string) {
 
 /**
  *
- * View all library workflows,
+ * View all playbooks.
  *
  * @param maybeToken
  * @returns
  */
-export async function fetchLibraryWorkflows(): Promise<WorkflowMetadata[]> {
+export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
   try {
     const response = await client.get("/workflows?library=true")
     return response.data

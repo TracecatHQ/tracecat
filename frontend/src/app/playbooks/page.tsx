@@ -1,18 +1,7 @@
 import React from "react"
-import { type Metadata } from "next"
 
-import { Library } from "@/components/playbooks/workflow-catalog"
-import Navbar from "@/components/nav/navbar"
+import { WorkflowsDashboard } from "@/components/playbooks/workflows-dashboard"
 
-export const metadata: Metadata = {
-    title: "Library",
-    description: "Pre-built workflows and templates ready to deploy.",
-}
 export default async function Page() {
-    return (
-        <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-            <Navbar />
-            <Library />
-        </div>
-    )
+    return <WorkflowsDashboard />
 }

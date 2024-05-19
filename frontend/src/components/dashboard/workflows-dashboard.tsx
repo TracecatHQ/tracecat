@@ -13,9 +13,9 @@ import {
 export async function WorkflowsDashboard() {
   return (
     <div className="h-full w-full overflow-auto">
-      <div className="container flex h-full max-w-[800px] flex-col  space-y-4 p-16">
-        <div className="flex w-full pt-16">
-          <div className="items-start space-y-2 text-left">
+      <div className="container flex h-full max-w-[800px] flex-col space-y-12 pt-32 p-16">
+        <div className="flex w-full">
+          <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-bold tracking-tight">Workflows</h2>
             <p className="text-md text-muted-foreground">
               Welcome back! Here&apos;s a list of your workflows.
@@ -28,8 +28,8 @@ export async function WorkflowsDashboard() {
                 role="combobox"
                 className="ml-auto space-x-2"
               >
-                <PlusCircle className="mr-2 h-4 w-4" />
-                New
+                <PlusCircle className="h-4 w-4" />
+                <span>New workflow</span>
               </Button>
             </NewWorkflowDialogTrigger>
           </NewWorkflowDialog>
@@ -54,7 +54,7 @@ export async function WorkflowsDashboard() {
 export async function WorkflowList() {
   const workflows = await fetchAllWorkflows()
   return (
-    <div className="flex flex-col gap-2 pt-4">
+    <div className="flex flex-col">
       {workflows.length === 0 ? (
         <span className="my-4 text-center text-sm text-muted-foreground">
           No workflows created.
