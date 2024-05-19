@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
-import WorkflowsNav from "@/components/nav/workflow-nav"
+import WorkflowNav from "@/components/nav/workflow-nav"
 
 export default function DynamicNavbar() {
   const pathname = usePathname()
@@ -18,7 +18,7 @@ export default function DynamicNavbar() {
 
 function getNavBar(pathname: string, params: Params) {
   if (pathname.startsWith("/workflows") && params.workflowId) {
-    return WorkflowsNav
+    return WorkflowNav
   }
   return DashboardNav
 }

@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 
 
-export default function WorkflowNavbar() {
+export default function WorkflowNav() {
   const { workflow, workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
 
   if (isLoading) {

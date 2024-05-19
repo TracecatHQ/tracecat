@@ -91,7 +91,7 @@ export function Workspace({
               className={cn(
                 "flex h-full flex-col p-2",
                 isCollapsed &&
-                  "min-w-[50px] transition-all duration-300 ease-in-out"
+                "min-w-14 transition-all duration-300 ease-in-out"
               )}
             >
               <CatalogTabs isCollapsed={isCollapsed} />
