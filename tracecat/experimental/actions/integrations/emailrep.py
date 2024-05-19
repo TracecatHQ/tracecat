@@ -9,7 +9,7 @@ import os
 
 import httpx
 
-from tracecat.experimental.actions._registry import registry
+from tracecat.experimental.registry import registry
 
 EMAILREP_BASE_URL = "https://emailrep.io"
 

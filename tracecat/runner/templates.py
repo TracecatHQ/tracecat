@@ -7,11 +7,11 @@ from typing import Any, TypeVar
 import httpx
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
+from loguru import logger
 
 from tracecat.auth import AuthenticatedAPIClient
-from tracecat.contexts import ctx_session_role
-from tracecat.db import Secret
-from tracecat.logging import logger
+from tracecat.contexts import ctx_role
+from tracecat.db.models import Secret
 
 JSONPATH_TEMPLATE_PATTERN = re.compile(r"{{\s*(?P<jsonpath>.*?)\s*}}")
 SECRET_TEMPLATE_PATTERN = re.compile(r"{{\s*SECRETS\.(?P<secret_name>.*?)\s*}}")
@@ -117,7 +117,7 @@ async def _load_secret(secret_name_with_key: str) -> str:
     try:
         # NOTE(perf): We can frontload these requests before starting
         # the workflow, then look up the encrypted secrets in a local cache.
-        role = ctx_session_role.get()
+        role = ctx_role.get()
 
         secret_name, key_name = secret_name_with_key.split(".")
         async with AuthenticatedAPIClient(role=role) as client:

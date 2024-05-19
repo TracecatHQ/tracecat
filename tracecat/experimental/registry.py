@@ -1,34 +1,26 @@
+from __future__ import annotations
+
 import functools
 import inspect
 import os
 import re
 from collections.abc import Callable
-from types import GenericAlias
-from typing import Any, ParamSpec, Self, TypedDict, TypeVar
+from types import FunctionType, GenericAlias
+from typing import Any, Self, TypedDict
 
 from loguru import logger
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    TypeAdapter,
-    create_model,
-)
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from typing_extensions import Doc
 
-from tracecat.auth import Role
-from tracecat.experimental.actions._sandbox import AuthSandbox
+from tracecat.auth import AuthSandbox, Role
 
-_P = ParamSpec("_P")
-_R = TypeVar("_R")
-
-FunctionType = Callable[_P, _R]
 DEFAULT_NAMESPACE = "core"
 
 
-class _Schema(TypedDict):
+class UDFSchema(TypedDict):
     args: dict[str, Any]
     rtype: dict[str, Any] | None
+    secrets: list[str] | None
 
 
 class RegisteredUDF(BaseModel):
@@ -48,10 +40,11 @@ class RegisteredUDF(BaseModel):
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.fn)
 
-    def construct_schema(self) -> _Schema:
-        return _Schema(
+    def construct_schema(self) -> UDFSchema:
+        return UDFSchema(
             args=self.args_cls.model_json_schema(),
             rtype=None if not self.rtype_adapter else self.rtype_adapter.json_schema(),
+            secrets=self.secrets,
         )
 
 
@@ -60,6 +53,7 @@ class _Registry:
 
     _instance: Self | None = None
     _udf_registry: dict[str, RegisteredUDF]
+    _done_init: bool = False
 
     def __new__(cls):
         if cls._instance is None:
@@ -73,12 +67,33 @@ class _Registry:
     def __getitem__(self, name: str) -> RegisteredUDF:
         return self.get(name)
 
+    def __iter__(self):
+        return iter(self._udf_registry.items())
+
+    @property
+    def store(self) -> dict[str, RegisteredUDF]:
+        return self._udf_registry
+
+    @property
+    def keys(self) -> list[str]:
+        return list(self._udf_registry.keys())
+
     def get(self, name: str) -> RegisteredUDF:
         """Retrieve a registered udf."""
         return self._udf_registry[name]
 
-    def get_schemas(self) -> dict[str, _Schema]:
+    def get_schemas(self) -> dict[str, UDFSchema]:
         return {key: udf.construct_schema() for key, udf in self._udf_registry.items()}
+
+    def init(self):
+        """Initialize the registry."""
+        logger.warning("Initializing registry")
+        if not _Registry._done_init:
+            from tracecat.experimental import actions  # noqa: F401
+
+            # Load default workflows
+
+            _Registry._done_init = True
 
     def register(
         self,
@@ -157,6 +172,7 @@ class _Registry:
             args_cls, rtype_cls, rtype_adapter = _generate_model_from_function(
                 fn, namespace=namespace
             )
+            # TODO: Remove this
             args_docs = _get_signature_docs(fn)
             self._udf_registry[key] = RegisteredUDF(
                 fn=wrapped_fn,
@@ -178,21 +194,23 @@ class _Registry:
         return decorator_register
 
 
-def udf_slug_camelcase(func: Callable, namespace: str) -> str:
+registry = _Registry()
+
+
+def _udf_slug_camelcase(func: Callable, namespace: str) -> str:
     # Use slugify to preprocess the string
     slugified_string = re.sub(r"[^a-zA-Z0-9]+", " ", namespace)
     slugified_name = re.sub(r"[^a-zA-Z0-9]+", " ", func.__name__)
     # Split the slugified string into words
     words = slugified_string.split() + slugified_name.split()
-    if not words:
-        return ""
+
     # Capitalize the first letter of each word except the first word
     # Join the words together without spaces
     return "".join(word.capitalize() for word in words)
 
 
 def _generate_model_from_function(
-    func: Callable[_P, _R], namespace: str
+    func: FunctionType, namespace: str
 ) -> tuple[type[BaseModel], type | GenericAlias | None, TypeAdapter | None]:
     # Get the signature of the function
     sig = inspect.signature(func)
@@ -201,17 +219,18 @@ def _generate_model_from_function(
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
         field_type: type = param.annotation
-        default = ... if param.default is param.empty else param.default
         field_info_kwargs = {}
         if metadata := getattr(field_type, "__metadata__", None):
-            logger.info(f"Found metadata for {name}: {metadata}")
             for meta in metadata:
-                if isinstance(meta, Doc):
-                    field_info_kwargs["description"] = meta.documentation
+                match meta:
+                    case Doc(documentation=doc):
+                        field_info_kwargs["description"] = doc
+
+        default = ... if param.default is param.empty else param.default
         field_info = Field(default=default, **field_info_kwargs)
         fields[name] = (field_type, field_info)
     # Dynamically create and return the Pydantic model class
-    input_model = create_model(udf_slug_camelcase(func, namespace), **fields)  # type: ignore
+    input_model = create_model(_udf_slug_camelcase(func, namespace), **fields)  # type: ignore
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
@@ -229,6 +248,3 @@ def _get_signature_docs(fn: FunctionType) -> dict[str, str]:
                 if isinstance(meta, Doc):
                     param_docs[name] = meta.documentation
     return param_docs
-
-
-registry = _Registry()

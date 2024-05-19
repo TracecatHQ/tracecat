@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from tracecat.db import ActionRun, WorkflowRun
+from tracecat.db.models import ActionRun, WorkflowRun
 from tracecat.types.actions import ActionType
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue

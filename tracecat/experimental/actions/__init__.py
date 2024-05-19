@@ -5,7 +5,14 @@ WARNING!!!
 Do not add `from __future__ import annotations` to any action module. This will cause class types to be resolved as strings."""
 
 # Bring all actions into the namespace to be registered
-from tracecat.experimental.actions.core import core, example  # noqa: I001
+from tracecat.experimental.actions.core import (
+    cases,
+    condition,
+    email,
+    example,
+    http,
+    llm,
+)
 from tracecat.experimental.actions.integrations import (
     aws_cloudtrail,
     datadog,
@@ -17,12 +24,14 @@ from tracecat.experimental.actions.integrations import (
     virustotal,
 )
 
-from tracecat.experimental.actions._registry import registry
-
 __all__ = [
-    "registry",
-    "core",
+    # Core
     "example",
+    "http",
+    "email",
+    "llm",
+    "condition",
+    "cases",
     # Integrations
     "example_integration",
     "datadog",

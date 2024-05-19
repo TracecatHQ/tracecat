@@ -1,10 +1,9 @@
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 import polars as pl
-from aio_pika import Channel
-from aio_pika.pool import Pool
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
@@ -13,41 +12,39 @@ from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
+from tracecat import config
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
     stream_case_completions,
 )
+from tracecat.api.routers import runner, test
 from tracecat.auth import (
-    AuthenticatedRunnerClient,
     Role,
     authenticate_service,
     authenticate_user,
     authenticate_user_or_service,
 )
-from tracecat.config import TRACECAT__APP_ENV, TRACECAT__RUNNER_URL
-from tracecat.contexts import ctx_session_role
-from tracecat.db import (
+from tracecat.contexts import ctx_role
+from tracecat.db.engine import clone_workflow, create_vdb_conn, initialize_db
+from tracecat.db.models import (
     Action,
     ActionRun,
     CaseAction,
     CaseContext,
     CaseEvent,
-    Integration,
     Secret,
+    UDFSpec,
     User,
     Webhook,
     Workflow,
     WorkflowRun,
-    clone_workflow,
-    create_vdb_conn,
-    initialize_db,
 )
-from tracecat.logging import Logger
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.messaging import subscribe, use_channel_pool
+from tracecat.experimental.dsl.dispatcher import dispatch_wofklow
+from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.types.api import (
     ActionMetadataResponse,
@@ -84,18 +81,14 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 
-logger = Logger("api")
 engine: Engine
-rabbitmq_channel_pool: Pool[Channel]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, rabbitmq_channel_pool
+    global engine
     engine = initialize_db()
-    async with use_channel_pool() as pool:
-        rabbitmq_channel_pool = pool
-        yield
+    yield
 
 
 def create_app(**kwargs) -> FastAPI:
@@ -105,28 +98,27 @@ def create_app(**kwargs) -> FastAPI:
     return app
 
 
-if TRACECAT__APP_ENV == "production":
+if config.TRACECAT__APP_ENV == "production":
     # NOTE: If you are using Tracecat self-hosted
     # please replace with your own domain
     cors_origins_kwargs = {
-        "allow_origins": ["https://platform.tracecat.com", TRACECAT__RUNNER_URL]
+        "allow_origins": ["https://platform.tracecat.com", config.TRACECAT__RUNNER_URL]
     }
-elif TRACECAT__APP_ENV == "staging":
+elif config.TRACECAT__APP_ENV == "staging":
     cors_origins_kwargs = {
-        # "allow_origins": [TRACECAT__RUNNER_URL],
+        # "allow_origins": [config.TRACECAT__RUNNER_URL],
         # "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
         "allow_origins": "*"
     }
 else:
     cors_origins_kwargs = {
-        "allow_origins": [
-            "http://localhost:3000",
-            "http://localhost:8000",
-        ],
+        "allow_origins": "*",
     }
 
 
 app = create_app(lifespan=lifespan)
+app.include_router(runner.router)
+app.include_router(test.router)
 app.add_middleware(
     CORSMiddleware,
     **cors_origins_kwargs,
@@ -136,8 +128,8 @@ app.add_middleware(
 )
 app.add_middleware(RequestLoggingMiddleware)
 
-# TODO: Check TRACECAT__APP_ENV to set methods and headers
-logger.warning("App started", env=TRACECAT__APP_ENV, origins=cors_origins_kwargs)
+# TODO: Check config.TRACECAT__APP_ENV to set methods and headers
+logger.warning("App started", env=config.TRACECAT__APP_ENV, origins=cors_origins_kwargs)
 
 
 # Catch-all exception handler to prevent stack traces from leaking
@@ -146,7 +138,7 @@ async def custom_exception_handler(request: Request, exc: Exception):
     logger.error(
         "Unexpected error: {!s}",
         exc,
-        role=ctx_session_role.get(),
+        role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
     )
@@ -164,38 +156,6 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
-
-
-@app.get("/health/runner")
-async def check_runner_health() -> dict[str, str]:
-    service_role = Role(type="service", user_id="internal", service_id="tracecat-api")
-    async with AuthenticatedRunnerClient(role=service_role) as client:
-        response = await client.get("/health")
-        try:
-            response.raise_for_status()
-        except Exception as e:
-            logger.opt(exception=e).error("Error checking runner health", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error checking runner health",
-            ) from e
-        else:
-            return {"message": "Runner is healthy"}
-
-
-@app.get("/events/subscribe")
-async def events_subscription(
-    role: Annotated[Role, Depends(authenticate_user)],
-):
-    """Subscribe to events for a user.
-
-    Each user will have their own rabbitmq queue."""
-    global rabbitmq_channel_pool
-
-    return StreamingResponse(
-        subscribe(pool=rabbitmq_channel_pool, routing_keys=[role.user_id]),
-        media_type="application/x-ndjson",
-    )
 
 
 ### Workflows
@@ -252,7 +212,7 @@ def create_workflow(
 
 @app.get("/workflows/{workflow_id}")
 def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
@@ -311,6 +271,9 @@ def update_workflow(
     params: UpdateWorkflowParams,
 ) -> None:
     """Update Workflow."""
+    logger.info(
+        "Updating workflow", workflow_id=workflow_id, params=params.model_dump()
+    )
 
     with Session(engine) as session:
         statement = select(Workflow).where(
@@ -509,7 +472,6 @@ async def trigger_workflow_run(
 ) -> StartWorkflowResponse:
     """Trigger a Workflow Run."""
     # Create service role
-    service_role = Role(type="service", user_id=role.user_id, service_id="tracecat-api")
     workflow_params = StartWorkflowParams(
         entrypoint_key=params.action_key,
         entrypoint_payload=params.payload,
@@ -519,21 +481,20 @@ async def trigger_workflow_run(
         workflow_id=workflow_id,
         workflow_params=workflow_params,
     )
-    async with AuthenticatedRunnerClient(role=service_role) as client:
-        response = await client.post(
-            f"/workflows/{workflow_id}",
-            json=workflow_params.model_dump(),
-        )
-        try:
-            response.raise_for_status()
-        except Exception as e:
-            logger.opt(exception=e).error("Error triggering workflow", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error triggering workflow",
-            ) from e
+    try:
+        ctx_role.get()
+    except LookupError:
+        # If not previously set by a webhook, set the role here
+        ctx_role.set(role)
 
-    return response.json()
+    path = "workflow4"
+    with Path(f"/app/tracecat/static/workflows/{path}.yaml").resolve().open() as f:
+        dsl_yaml = f.read()
+    await dispatch_wofklow(dsl_yaml)
+
+    return StartWorkflowResponse(
+        status="ok", message="Workflow started.", id=workflow_id
+    )
 
 
 ### Actions
@@ -1589,36 +1550,59 @@ def search_secrets(
         return secrets
 
 
-@app.get("/integrations")
-def list_integrations(
+@app.get("/udfs")
+def list_udf(
     role: Annotated[Role, Depends(authenticate_user)], limit: int | None = None
-) -> list[Integration]:
-    """List all integrations for a user."""
+) -> list[UDFSpec]:
+    """List all UDF specs for a user."""
     with Session(engine) as session:
-        statement = select(Integration)
+        statement = select(UDFSpec).where(UDFSpec.owner_id == role.user_id)
         if limit is not None:
             statement = statement.limit(limit)
         result = session.exec(statement)
-        integrations = result.all()
-        return integrations
+        udfs = result.all()
+        return udfs
 
 
-@app.get("/integrations/{integration_key}")
-def get_integration(
+@app.get("/udfs/{udf_key}")
+def get_udf(
     role: Annotated[Role, Depends(authenticate_user)],
-    integration_key: str,
-) -> Integration:
-    """Get an integration by its path."""
-    _, platform, name = integration_key.split(".")
+    udf_key: str,
+) -> UDFSpec:
+    """Get an UDF spec by its path."""
+    _, platform, name = udf_key.split(".")
     with Session(engine) as session:
-        statement = select(Integration).where(
-            Integration.platform == platform,
-            Integration.name == name,
+        statement = select(UDFSpec).where(
+            UDFSpec.owner_id == role.user_id,
+            UDFSpec.platform == platform,
+            UDFSpec.name == name,
         )
         result = session.exec(statement)
-        integration = result.one_or_none()
-        if integration is None:
+        udf = result.one_or_none()
+        if udf is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
             )
-        return integration
+        return udf
+
+
+@app.post("/udfs/{udf_key}")
+def create_udf(
+    role: Annotated[Role, Depends(authenticate_user)],
+    udf_key: str,
+) -> UDFSpec:
+    """Get an UDF spec by its path."""
+    _, platform, name = udf_key.split(".")
+    with Session(engine) as session:
+        statement = select(UDFSpec).where(
+            UDFSpec.owner_id == role.user_id,
+            UDFSpec.platform == platform,
+            UDFSpec.name == name,
+        )
+        result = session.exec(statement)
+        udf = result.one_or_none()
+        if udf is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
+            )
+        return udf

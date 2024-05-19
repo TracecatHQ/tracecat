@@ -12,16 +12,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from tracecat.auth import AuthenticatedAPIClient
 from tracecat.contexts import (
     ctx_action_run,
     ctx_mq_channel_pool,
-    ctx_session_role,
+    ctx_role,
     ctx_workflow_run,
 )
-from tracecat.db import ActionRun as ActionRunEvent
-from tracecat.db import WorkflowRun as WorkflowRunEvent
-from tracecat.logging import logger
+from tracecat.db.models import ActionRun as ActionRunEvent
+from tracecat.db.models import WorkflowRun as WorkflowRunEvent
 from tracecat.messaging import publish
 from tracecat.types.api import RunStatus
 
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 
 async def emit_create_workflow_run_event() -> None:
     """Create a workflow run."""
-    role = ctx_session_role.get()
+    role = ctx_role.get()
     wfr = ctx_workflow_run.get()
     workflow_run_id = wfr.workflow_run_id
     workflow_id = wfr.workflow.id
@@ -71,7 +72,7 @@ async def emit_create_workflow_run_event() -> None:
 
 async def emit_update_workflow_run_event(*, status: RunStatus) -> None:
     """Update a workflow run."""
-    role = ctx_session_role.get()
+    role = ctx_role.get()
     wfr = ctx_workflow_run.get()
     workflow_id = wfr.workflow.id
     workflow_run_id = wfr.workflow_run_id
@@ -118,7 +119,7 @@ async def emit_create_action_run_event() -> None:
     """Create a workflow run."""
     action_run = ctx_action_run.get()
     action_id = action_run.action_id
-    role = ctx_session_role.get()
+    role = ctx_role.get()
 
     time_now = datetime.now(UTC)
     event = ActionRunEvent(
@@ -161,7 +162,7 @@ async def emit_update_action_run_event(
     """Update a workflow run."""
     action_run = ctx_action_run.get()
     action_id = action_run.action_id
-    role = ctx_session_role.get()
+    role = ctx_role.get()
 
     time_now = datetime.now(UTC)
     event = ActionRunEvent(

@@ -49,15 +49,15 @@ from fastapi import (
 from fastapi.datastructures import FormData
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+from loguru import logger
 
 from tracecat.auth import AuthenticatedAPIClient, Role, authenticate_service
 from tracecat.config import TRACECAT__API_URL, TRACECAT__APP_ENV
 from tracecat.contexts import (
     ctx_mq_channel_pool,
-    ctx_session_role,
+    ctx_role,
     ctx_workflow_run,
 )
-from tracecat.logging import logger
 from tracecat.messaging import use_channel_pool
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.runner.actions import (
@@ -148,7 +148,7 @@ running_jobs_store: dict[str, asyncio.Task[None]] = {}
 
 async def get_workflow(workflow_id: str) -> Workflow:
     try:
-        role = ctx_session_role.get()
+        role = ctx_role.get()
         async with AuthenticatedAPIClient(role=role) as client:
             response = await client.get(f"/workflows/{workflow_id}")
             response.raise_for_status()
@@ -182,7 +182,7 @@ async def custom_exception_handler(request: Request, exc: Exception):
     logger.error(
         "Unexpected error: {!s}",
         exc,
-        role=ctx_session_role.get(),
+        role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
     )
@@ -304,7 +304,7 @@ async def webhook(
 
     user_id = webhook_metadata.owner_id  # If we are here this should be set
     role = Role(type="service", service_id="tracecat-runner", user_id=user_id)
-    ctx_session_role.set(role)
+    ctx_role.set(role)
     with logger.contextualize(role=role):
         logger.info("Triggering workflow from webhook")
         workflow_id = webhook_metadata.workflow_id
@@ -352,10 +352,10 @@ async def start_workflow(
         The action inputs to pass into the entrypoint action.
     """
     try:
-        ctx_session_role.get()
+        ctx_role.get()
     except LookupError:
         # If not previously set by a webhook, set the role here
-        ctx_session_role.set(role)
+        ctx_role.set(role)
 
     ctx_mq_channel_pool.set(rabbitmq_channel_pool)
 
@@ -406,7 +406,7 @@ async def run_workflow(
     - The `start_workflow` function can then just directly enqueue the first action.
     """
     workflow_run_id = f"wfr_{uuid4().hex}"
-    role = ctx_session_role.get()
+    role = ctx_role.get()
     run_status: RunStatus = "failure"
 
     with logger.contextualize(

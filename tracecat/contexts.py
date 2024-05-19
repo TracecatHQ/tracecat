@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from tracecat.types.workflow import WorkflowRunContext
 
 
-ctx_session_role: ContextVar[Role] = ContextVar("session_role", default=None)
+ctx_role: ContextVar[Role] = ContextVar("role", default=None)
 # TODO: Deprecate this contextvar
 ctx_workflow: ContextVar[Workflow] = ContextVar("workflow", default=None)
 ctx_workflow_run: ContextVar[WorkflowRunContext] = ContextVar(

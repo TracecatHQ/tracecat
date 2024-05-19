@@ -18,7 +18,7 @@ import orjson
 import polars as pl
 import polars.selectors as cs
 
-from tracecat.experimental.actions._registry import registry
+from tracecat.experimental.registry import registry
 
 DD_REGION_TO_URL = {
     "ap1": "https://api.ap1.datadoghq.com",

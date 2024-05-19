@@ -16,19 +16,17 @@ import boto3
 import botocore.session
 import orjson
 import polars as pl
+from loguru import logger
 from tqdm.contrib.concurrent import thread_map
 
-from tracecat.config import TRACECAT__TRIAGE_DIR
+from tracecat import config
 from tracecat.etl.aws_s3 import list_objects_under_prefix
-from tracecat.logging import Logger
-
-logger = Logger("runner.aws_cloudtrail")
 
 # Supress botocore info logs
 logging.getLogger("botocore").setLevel(logging.CRITICAL)
 
 
-AWS_CLOUDTRAIL__TRIAGE_DIR = TRACECAT__TRIAGE_DIR / "aws_cloudtrail"
+AWS_CLOUDTRAIL__TRIAGE_DIR = config.TRACECAT__TRIAGE_DIR / "aws_cloudtrail"
 AWS_CLOUDTRAIL__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 # NOTE: account_id = organization_id / account_id if organization_id is present
