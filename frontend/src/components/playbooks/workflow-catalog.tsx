@@ -2,7 +2,7 @@ import React, { Suspense } from "react"
 
 import { fetchLibraryWorkflows } from "@/lib/flow"
 import { Skeleton } from "@/components/ui/skeleton"
-import { LibraryTile } from "@/components/library/workflow-tile"
+import { LibraryTile } from "@/components/playbooks/workflow-tile"
 
 export async function Library() {
   const catalogItems = await fetchLibraryWorkflows()
@@ -13,7 +13,7 @@ export async function Library() {
         <div className="items-start space-y-8 pt-16 text-left">
           <div className="flex flex-col space-y-2">
             <h2 className="text-2xl font-bold tracking-tight">
-              Workflow Library
+              Playbooks
             </h2>
             <p className="text-md text-muted-foreground">
               Pre-built workflows ready to deploy.
