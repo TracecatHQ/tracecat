@@ -1,9 +1,12 @@
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import Link from "next/link";
+import { ConeIcon } from "lucide-react";
 import { fetchAllWorkflows } from "@/lib/flow";
+import { Button } from "@/components/ui/button";
 import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item";
-import CreateWorkflowButton from "@/components/dashboard/create-workflow-button"; // Ensure the correct path
+import CreateWorkflowButton from "@/components/dashboard/create-workflow-button";
 
 export async function WorkflowsDashboard() {
   return (
@@ -16,7 +19,19 @@ export async function WorkflowsDashboard() {
               Your workflows dashboard.
             </p>
           </div>
-          <CreateWorkflowButton />
+          <div className="ml-auto space-x-2">
+            <CreateWorkflowButton />
+            <Link href="/playbooks">
+              <Button
+                variant="outline"
+                role="combobox"
+                className="space-x-2"
+              >
+                <ConeIcon className="h-4 w-4 text-lime-600" />
+                <span>Find playbook</span>
+              </Button>
+            </Link>
+          </div>
         </div>
         <Suspense
           fallback={
@@ -40,9 +55,30 @@ export async function WorkflowList() {
   return (
     <div className="flex flex-col space-y-4">
       {workflows.length === 0 ? (
-        <span className="my-4 text-center text-sm text-muted-foreground">
-          No workflows created.
-        </span>
+        <div className="flex flex-col items-center w-full space-y-12">
+          <div className="flex items-center space-x-4 w-full justify-center">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-[250px]" />
+              <Skeleton className="h-4 w-[200px]" />
+            </div>
+          </div>
+          <div className="flex items-center space-x-4 w-full justify-center">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-[250px]" />
+              <Skeleton className="h-4 w-[200px]" />
+            </div>
+          </div>
+          <div className="text-center space-y-4">
+            <p className="text-sm">
+              Welcome to Tracecat 👋
+            </p>
+            <p className="text-center text-xs text-muted-foreground max-w-lg">
+              The modern security automation platform designed to reduce noise.
+            </p>
+          </div>
+        </div>
       ) : (
         <>
           {workflows.map((wf, idx) => (

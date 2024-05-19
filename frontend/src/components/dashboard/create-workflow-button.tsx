@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation";
-import { PlusCircle } from "lucide-react";
+import { PlusCircleIcon } from "lucide-react";
 
 import { createWorkflow } from "@/lib/flow";
 import { Button } from "@/components/ui/button";
@@ -44,10 +44,10 @@ const CreateWorkflowButton: React.FC = () => {
         <Button
             variant="outline"
             role="combobox"
-            className="ml-auto space-x-2"
+            className="space-x-2"
             onClick={handleCreateWorkflow}
         >
-            <PlusCircle className="h-4 w-4" />
+            <PlusCircleIcon className="h-4 w-4" />
             <span>New workflow</span>
         </Button>
     );

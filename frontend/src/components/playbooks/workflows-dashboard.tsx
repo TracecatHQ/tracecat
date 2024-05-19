@@ -1,5 +1,5 @@
 import { Suspense } from "react"
-import { Info } from "lucide-react"
+import { InfoIcon } from "lucide-react"
 import Link from "next/link"
 
 import { fetchAllPlaybooks } from "@/lib/flow"
@@ -17,7 +17,7 @@ export async function WorkflowsDashboard() {
               Playbooks
             </h2>
             <p className="text-md text-muted-foreground">
-              Pre-built SecOps playbooks ready to deploy.
+              Automate SecOps with production-ready playbooks.
             </p>
           </div>
           <Button
@@ -31,8 +31,8 @@ export async function WorkflowsDashboard() {
               href="https://calendly.com/meet-tracecat/super-quick-intro"
               className="flex items-center space-x-2"
             >
-              <Info className="h-4 w-4" />
-              <span>Book a demo</span>
+              <InfoIcon className="h-4 w-4 text-lime-600" />
+              <span>Book demo</span>
             </Link>
           </Button>
         </div>
@@ -75,11 +75,11 @@ export async function WorkflowList() {
           </div>
           <div className="text-center space-y-4">
             <p className="text-sm">
-              No playbooks installed 😔
+              No playbooks installed 😿
             </p>
             <p className="text-center text-xs text-muted-foreground max-w-lg">
-              Production-ready playbooks are only available for verified users.
-              Please sign-up for Tracecat Cloud or request access by booking a demo.
+              Official playbooks are available for verified users only.
+              Please request access by booking a demo or sign-up for Tracecat Cloud.
             </p>
           </div>
         </div>
