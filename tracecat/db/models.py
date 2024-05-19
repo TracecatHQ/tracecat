@@ -178,7 +178,8 @@ class Workflow(Resource, table=True):
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
-    object: str | None = None  # JSON-serialized String of react flow object
+    # React flow graph object
+    object: dict[str, Any] | None = Field(sa_column=Column(JSON))
     icon_url: str | None = None
     # Owner
     owner_id: str = Field(
@@ -236,7 +237,7 @@ class Action(Resource, table=True):
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
-    inputs: str | None = None  # JSON-serialized String of inputs
+    inputs: dict[str, Any] | None = Field(sa_column=Column(JSON))
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
