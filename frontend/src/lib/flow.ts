@@ -25,9 +25,9 @@ export async function updateDndFlow(
     const objectContent = reactFlowInstance
       ? reactFlowInstance.toObject()
       : null
-    const updateFlowObjectParams = JSON.stringify({
-      object: JSON.stringify(objectContent),
-    })
+    const updateFlowObjectParams = {
+      object: objectContent,
+    }
 
     await client.post(`/workflows/${workflowId}`, updateFlowObjectParams, {
       headers: {
@@ -117,11 +117,10 @@ export async function updateAction(
   actionProps: ActionProps
 ): Promise<Action> {
   const { title, description, ...inputs } = actionProps
-  const inputsJson = JSON.stringify(inputs)
   const updateActionParams = {
     title,
     description,
-    inputs: inputsJson,
+    inputs,
   }
 
   const response = await client.post<Action>(
