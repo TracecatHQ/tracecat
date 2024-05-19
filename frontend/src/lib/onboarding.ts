@@ -4,7 +4,6 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"
-import { createWorkflow } from "@/lib/flow"
 
 /**
  * Initialize user settings in the database

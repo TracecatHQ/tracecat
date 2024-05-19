@@ -1,14 +1,9 @@
-import { Suspense } from "react"
-import { PlusCircle } from "lucide-react"
+import { Suspense } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
-import { fetchAllWorkflows } from "@/lib/flow"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
-import {
-  NewWorkflowDialog,
-  NewWorkflowDialogTrigger,
-} from "@/components/new-workflow-dialog"
+import { fetchAllWorkflows } from "@/lib/flow";
+import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item";
+import CreateWorkflowButton from "@/components/dashboard/create-workflow-button"; // Ensure the correct path
 
 export async function WorkflowsDashboard() {
   return (
@@ -21,18 +16,7 @@ export async function WorkflowsDashboard() {
               Your workflows dashboard.
             </p>
           </div>
-          <NewWorkflowDialog>
-            <NewWorkflowDialogTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                className="ml-auto space-x-2"
-              >
-                <PlusCircle className="h-4 w-4" />
-                <span>New workflow</span>
-              </Button>
-            </NewWorkflowDialogTrigger>
-          </NewWorkflowDialog>
+          <CreateWorkflowButton />
         </div>
         <Suspense
           fallback={
@@ -48,7 +32,7 @@ export async function WorkflowsDashboard() {
         </Suspense>
       </div>
     </div>
-  )
+  );
 }
 
 export async function WorkflowList() {
