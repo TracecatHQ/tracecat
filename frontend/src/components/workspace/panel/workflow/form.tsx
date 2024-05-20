@@ -111,9 +111,9 @@ export function WorkflowForm({
         <Separator />
         <Accordion type="single" defaultValue="workflow-settings" collapsible>
           <AccordionItem value="workflow-settings">
-            <AccordionTrigger className="px-4 text-xs">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
-                <Settings2Icon className="mr-2 size-4" />
+                <Settings2Icon className="mr-3 size-4" />
                 <span>Workflow</span>
               </div>
             </AccordionTrigger>

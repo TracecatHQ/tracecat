@@ -58,9 +58,9 @@ export function WorkflowRunsView({
   return (
     <Accordion type="single" collapsible>
       <AccordionItem value="item-1">
-        <AccordionTrigger className="px-4 text-xs">
+        <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
           <div className="flex items-center">
-            <HistoryIcon className="mr-2 size-4" />
+            <HistoryIcon className="mr-3 size-4" />
             <span>Past Runs</span>
           </div>
         </AccordionTrigger>
