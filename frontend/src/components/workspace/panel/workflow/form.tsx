@@ -6,15 +6,19 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import "@radix-ui/react-dialog"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CircleIcon, Save } from "lucide-react"
+import { SaveIcon, Settings2Icon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
 import { updateWorkflow } from "@/lib/flow"
-import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import {
   Form,
   FormControl,
@@ -43,12 +47,10 @@ type TWorkflowForm = z.infer<typeof workflowFormSchema>
 
 interface WorkflowFormProps {
   workflow: Workflow
-  isOnline: boolean
 }
 
 export function WorkflowForm({
   workflow,
-  isOnline,
 }: WorkflowFormProps): React.JSX.Element {
   const {
     id: workflowId,
@@ -94,83 +96,68 @@ export function WorkflowForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={form.handleSubmit(onSubmit)}>
         <div className="space-y-4">
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <h4 className="text-sm font-medium">Workflow Status</h4>
-              <WorkflowSettings workflow={workflow} />
-            </div>
-            <div className="flex justify-between">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "px-4 py-1 capitalize",
-                  isOnline ? "bg-green-600/10" : "bg-gray-100"
-                )}
-              >
-                <CircleIcon
-                  className={cn(
-                    "mr-2 h-3 w-3",
-                    isOnline
-                      ? "fill-green-600 text-green-600"
-                      : "fill-gray-400 text-gray-400"
-                  )}
-                />
-                <span
-                  className={cn(isOnline ? "text-green-600" : "text-gray-600")}
-                >
-                  {isOnline ? "online" : "offline"}
-                </span>
-              </Badge>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="submit" size="icon">
-                    <Save className="h-4 w-4" />
-                    <span className="sr-only">Save</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Save</TooltipContent>
-              </Tooltip>
-            </div>
+          <div className="flex flex-1 justify-end space-x-2 px-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="submit" size="icon">
+                  <SaveIcon className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save</TooltipContent>
+            </Tooltip>
+            <WorkflowSettings workflow={workflow} />
           </div>
           <Separator />
-          <div className="space-y-4">
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs">Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      className="text-xs"
-                      placeholder="Add workflow name..."
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs">Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      className="min-h-[100px] text-xs"
-                      placeholder="Describe your workflow..."
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+          <Accordion type="single" defaultValue="workflow-settings" collapsible>
+            <AccordionItem value="workflow-settings">
+              <AccordionTrigger className="px-4">
+                <div className="flex items-center">
+                  <Settings2Icon className="mr-2 size-4" />
+                  <span>Workflow</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-3 px-4 mb-3">
+                  <FormField
+                    control={form.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            className="text-xs"
+                            placeholder="Name your workflow..."
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Description</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            className="text-xs"
+                            placeholder="Describe your workflow..."
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
       </form>
     </Form>

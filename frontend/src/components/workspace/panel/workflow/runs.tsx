@@ -8,7 +8,7 @@ import "@radix-ui/react-dialog"
 import { UpdateIcon } from "@radix-ui/react-icons"
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useQuery } from "@tanstack/react-query"
-import { CircleCheck, CircleX, Loader, Loader2 } from "lucide-react"
+import { CircleCheck, CircleX, Loader, Loader2, HistoryIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
@@ -56,8 +56,11 @@ export function WorkflowRunsView({
     },
   })
   return (
-    <div className="space-y-3">
-      <h1 className="text-xs font-medium">Past Runs</h1>
+    <div className="space-y-4 px-4">
+      <h3 className="flex text-sm items-center">
+        <HistoryIcon className="mr-2 size-4" />
+        <span>Past Runs</span>
+      </h3>
       <ScrollArea
         className={cn(
           "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
