@@ -11,6 +11,7 @@ import { ActionForm } from "@/components/workspace/panel/action/form"
 import { IntegrationForm } from "@/components/workspace/panel/integration/form"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
+import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -24,6 +25,7 @@ export function WorkspacePanel() {
       ) : workflow ? (
         <div className="space-y-6 py-4">
           <WorkflowForm workflow={workflow} />
+          <WorkflowControlsForm workflow={workflow} />
           <WorkflowRunsView workflowId={workflow.id} />
         </div>
       ) : (
