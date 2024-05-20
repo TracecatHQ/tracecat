@@ -56,37 +56,44 @@ export function WorkflowRunsView({
     },
   })
   return (
-    <div className="space-y-4 px-4">
-      <h3 className="flex text-sm items-center">
-        <HistoryIcon className="mr-2 size-4" />
-        <span>Past Runs</span>
-      </h3>
-      <ScrollArea
-        className={cn(
-          "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
-          className
-        )}
-      >
-        {isLoading ? (
-          <CenteredSpinner />
-        ) : error ? (
-          <AlertNotification
-            level="error"
-            message="Error loading workflow runs"
-          />
-        ) : workflowRuns && workflowRuns.length > 0 ? (
-          <Accordion type="single" collapsible className="w-full">
-            {workflowRuns
-              ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
-              .map((props, index) => (
-                <WorkflowRunItem key={index} {...props} />
-              ))}
-          </Accordion>
-        ) : (
-          <NoContent className="my-8" message="No runs available" />
-        )}
-      </ScrollArea>
-    </div>
+    <Accordion type="single" collapsible>
+      <AccordionItem value="item-1">
+        <AccordionTrigger className="px-4 text-xs">
+          <div className="flex items-center">
+            <HistoryIcon className="mr-2 size-4" />
+            <span>Past Runs</span>
+          </div>
+        </AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-4 px-4 my-2">
+            <ScrollArea
+              className={cn(
+                "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
+                className
+              )}
+            >
+              {isLoading ? (
+                <CenteredSpinner />
+              ) : error ? (
+                <AlertNotification
+                  level="error"
+                  message="Error loading workflow runs"
+                />
+              ) : workflowRuns && workflowRuns.length > 0 ? (
+                <Accordion type="single" collapsible className="w-full">
+                  {workflowRuns
+                    ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+                    .map((props, index) => (
+                      <WorkflowRunItem key={index} {...props} />
+                    ))}
+                </Accordion>
+              ) : (
+                <NoContent className="my-8" message="No runs available" />
+              )}
+            </ScrollArea>
+          </div>    </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   )
 }
 

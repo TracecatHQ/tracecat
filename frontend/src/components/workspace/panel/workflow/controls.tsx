@@ -5,7 +5,7 @@ import * as React from "react"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 
-import { PlayIcon } from "lucide-react"
+import { PlayIcon, ZapIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
@@ -15,6 +15,12 @@ import { Action, Workflow } from "@/types/schemas"
 import { stringToJSONSchema } from "@/types/validators"
 import { triggerWorkflow } from "@/lib/flow"
 import { getActionKey } from "@/lib/utils"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -25,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import {
   Form,
   FormControl,
@@ -101,44 +108,56 @@ export function WorkflowControlsForm({
   }, [selectedAction])
 
   return (
-    <div className="px-4">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="payload"
-            render={({ field }) => (
-              <FormItem>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <FormLabel className="text-xs decoration-dotted underline underline-offset-2">Trigger Parameters</FormLabel>
-                  </TooltipTrigger>
-                  <TooltipContent>JSON input to send to the selected webhook and trigger the workflow.</TooltipContent>
-                </Tooltip>
-                <FormControl>
-                  <Textarea
-                    className="text-xs"
-                    placeholder='{"webhookParam1": "value1"}'
-                    {...field}
-                  />
-                </FormControl>
-                <div className="flex w-full items-center space-x-2">
-                  <EntrypointSelector setSelectedAction={setSelectedAction} />
-                  <Button
-                    type="submit"
-                    className="flex items-center text-xs"
-                  >
-                    <PlayIcon className="mr-2 size-3" />
-                    <span>Run</span>
-                  </Button>
-                </div>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </form>
-      </Form>
-    </div>
+    <Accordion type="single" defaultValue="workflow-triggers" collapsible>
+      <AccordionItem value="workflow-triggers">
+        <AccordionTrigger className="px-4 text-xs">
+          <div className="flex items-center">
+            <ZapIcon className="mr-2 size-4" />
+            <span>Run Workflow</span>
+          </div>
+        </AccordionTrigger>
+        <AccordionContent>
+          <div className="px-4 my-4">
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)}>
+                <FormField
+                  control={form.control}
+                  name="payload"
+                  render={({ field }) => (
+                    <FormItem>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <FormLabel className="text-xs decoration-dotted underline underline-offset-2">Trigger Parameters</FormLabel>
+                        </TooltipTrigger>
+                        <TooltipContent>JSON input to send to the selected webhook and trigger the workflow.</TooltipContent>
+                      </Tooltip>
+                      <FormControl>
+                        <Textarea
+                          className="text-xs"
+                          placeholder='{"webhookParam1": "value1"}'
+                          {...field}
+                        />
+                      </FormControl>
+                      <div className="flex w-full items-center space-x-2 pt-2">
+                        <EntrypointSelector setSelectedAction={setSelectedAction} />
+                        <Button
+                          type="submit"
+                          className="flex items-center text-xs"
+                        >
+                          <PlayIcon className="mr-2 size-3" />
+                          <span>Run</span>
+                        </Button>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </form>
+            </Form>
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   )
 }
 
@@ -164,7 +183,7 @@ export default function EntrypointSelector({
     <Select>
       <SelectTrigger>
         <SelectValue
-          placeholder="Select webhook..."
+          placeholder="Select webhook"
           className="text-xs text-muted-foreground"
         />
       </SelectTrigger>

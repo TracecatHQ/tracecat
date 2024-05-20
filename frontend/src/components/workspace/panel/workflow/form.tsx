@@ -97,69 +97,67 @@ export function WorkflowForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="space-y-4">
-          <div className="flex flex-1 justify-end space-x-2 px-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button type="submit" size="icon">
-                  <SaveIcon className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Save</TooltipContent>
-            </Tooltip>
-            <WorkflowSettings workflow={workflow} />
-          </div>
-          <Separator />
-          <Accordion type="single" defaultValue="workflow-settings" collapsible>
-            <AccordionItem value="workflow-settings">
-              <AccordionTrigger className="px-4">
-                <div className="flex items-center">
-                  <Settings2Icon className="mr-2 size-4" />
-                  <span>Workflow</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="space-y-3 px-4 mb-3">
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            className="text-xs"
-                            placeholder="Name your workflow..."
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Description</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            className="text-xs"
-                            placeholder="Describe your workflow..."
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+        <div className="flex flex-1 justify-end space-x-2 px-4 mb-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="submit" size="icon">
+                <SaveIcon className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Save</TooltipContent>
+          </Tooltip>
+          <WorkflowSettings workflow={workflow} />
         </div>
-      </form>
-    </Form>
+        <Separator />
+        <Accordion type="single" defaultValue="workflow-settings" collapsible>
+          <AccordionItem value="workflow-settings">
+            <AccordionTrigger className="px-4 text-xs">
+              <div className="flex items-center">
+                <Settings2Icon className="mr-2 size-4" />
+                <span>Workflow</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-2 px-4 my-4">
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          className="text-xs"
+                          placeholder="Name your workflow..."
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Description</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          className="text-xs"
+                          placeholder="Describe your workflow..."
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </form >
+    </Form >
   )
 }
