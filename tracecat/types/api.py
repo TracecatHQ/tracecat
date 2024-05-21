@@ -7,7 +7,6 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from tracecat.db.models import ActionRun, WorkflowRun
-from tracecat.types.actions import ActionType
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
 
@@ -20,7 +19,7 @@ RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 
 class ActionResponse(BaseModel):
     id: str
-    type: ActionType
+    type: str
     title: str
     description: str
     status: str
@@ -41,7 +40,7 @@ class WorkflowResponse(BaseModel):
 class ActionMetadataResponse(BaseModel):
     id: str
     workflow_id: str
-    type: ActionType
+    type: str
     title: str
     description: str
     status: str

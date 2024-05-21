@@ -110,11 +110,10 @@ export async function getActionById(
   }
 }
 
-type ActionProps = (BaseActionForm & Record<string, any>) | Record<string, any>
 // Form submission
 export async function updateAction(
   actionId: string,
-  actionProps: ActionProps
+  actionProps: Record<string, any>
 ): Promise<Action> {
   const { title, description, ...inputs } = actionProps
   const updateActionParams = {
