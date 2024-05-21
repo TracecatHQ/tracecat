@@ -109,7 +109,7 @@ export function WorkflowForm({
           <WorkflowSettings workflow={workflow} />
         </div>
         <Separator />
-        <Accordion type="single" defaultValue="workflow-settings" collapsible>
+        <Accordion type="single" collapsible>
           <AccordionItem value="workflow-settings">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
