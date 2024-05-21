@@ -32,12 +32,11 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 interface NewCredentialsDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
-  > {}
+  > { }
 
 export function NewCredentialsDialog({
   children,
@@ -204,7 +203,6 @@ export function NewCredentialsDialog({
                             <Button
                               type="button"
                               variant="ghost"
-                              className={DELETE_BUTTON_STYLE}
                               onClick={() => remove(index)}
                               disabled={fields.length === 1}
                             >
