@@ -12,13 +12,13 @@ import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
 import { updateWorkflow } from "@/lib/flow"
-import { Button } from "@/components/ui/button"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Button } from "@/components/ui/button"
 import {
   Form,
   FormControl,
@@ -118,7 +118,7 @@ export function WorkflowForm({
               </div>
             </AccordionTrigger>
             <AccordionContent>
-              <div className="space-y-2 px-4 my-4">
+              <div className="my-4 space-y-2 px-4">
                 <FormField
                   control={form.control}
                   name="title"
@@ -157,7 +157,7 @@ export function WorkflowForm({
             </AccordionContent>
           </AccordionItem>
         </Accordion>
-      </form >
-    </Form >
+      </form>
+    </Form>
   )
 }

@@ -2,15 +2,21 @@ import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { SaveIcon, Sparkles } from "lucide-react"
+import { LayoutListIcon, SaveIcon, SettingsIcon, Sparkles } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Action, type ActionType } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 import {
   FormControl,
   FormField,
@@ -29,7 +35,12 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
-import { ActionNodeType, getTileColor, typeToNodeSubtitle, tileIconMapping } from "@/components/workspace/canvas/action-node"
+import {
+  ActionNodeType,
+  getTileColor,
+  tileIconMapping,
+  typeToNodeSubtitle,
+} from "@/components/workspace/canvas/action-node"
 import {
   baseActionSchema,
   getSubActionSchema,
@@ -115,7 +126,7 @@ export function ActionForm({
   const type = action?.type ?? "webhook"
   const title = action?.title ?? ""
   const description = action?.description ?? ""
-  const subtitle = typeToNodeSubtitle[type as keyof typeof typeToNodeSubtitle];
+  const subtitle = typeToNodeSubtitle[type as keyof typeof typeToNodeSubtitle]
   const tileIcon = tileIconMapping[actionType] ?? Sparkles
 
   const methods = useForm<Schema>({
@@ -174,137 +185,12 @@ export function ActionForm({
   })
 
   return (
-    //       <div id="WRAPPER" className="max-w-full space-y-4 p-4">
-    //         <Separator />
-    //         <div className="mb-4 space-y-4">
-    //           <FormField
-    //             control={methods.control}
-    //             name="title"
-    //             render={({ field }) => (
-    //               <FormItem>
-    //                 <FormLabel className="text-xs">Title</FormLabel>
-    //                 <FormControl>
-    //                   <Input
-    //                     {...field}
-    //                     className="text-xs"
-    //                     placeholder="Add action title..."
-    //                     value={methods.watch("title", "")}
-    //                   />
-    //                 </FormControl>
-    //                 <FormMessage />
-    //               </FormItem>
-    //             )}
-    //           />
-    //           <FormField
-    //             control={methods.control}
-    //             name="description"
-    //             render={({ field }) => (
-    //               <FormItem>
-    //                 <FormLabel className="text-xs">Description</FormLabel>
-    //                 <FormControl>
-    //                   <Textarea
-    //                     {...field}
-    //                     className="text-xs"
-    //                     placeholder="Describe your action..."
-    //                   />
-    //                 </FormControl>
-    //                 <FormMessage />
-    //               </FormItem>
-    //             )}
-    //           />
-    //           <Separator />
-    //           <div className="space-y-4">
-    //             <div className="space-y-4 capitalize">
-    //               {Object.entries(fieldConfig).map(
-    //                 ([inputKey, inputOption]) => {
-    //                   const common = {
-    //                     inputKey,
-    //                     inputOption,
-    //                   }
-    //                   switch (inputOption.type) {
-    //                     case "select":
-    //                       return (
-    //                         <ActionFormSelect<Schema>
-    //                           key={inputKey}
-    //                           defaultValue={action?.inputs?.[inputKey]}
-    //                           {...common}
-    //                         />
-    //                       )
-    //                     case "textarea":
-    //                       return (
-    //                         <ActionFormTextarea<Schema>
-    //                           key={inputKey}
-    //                           {...common}
-    //                         />
-    //                       )
-    //                     case "json":
-    //                       return (
-    //                         <ActionFormJSON<Schema>
-    //                           key={inputKey}
-    //                           {...common}
-    //                         />
-    //                       )
-    //                     case "array":
-    //                       return (
-    //                         <ActionFormArray<Schema>
-    //                           key={inputKey}
-    //                           {...common}
-    //                         />
-    //                       )
-    //                     case "flat-kv":
-    //                       return (
-    //                         <ActionFormFlatKVArray<Schema>
-    //                           key={inputKey}
-    //                           keyName="tag"
-    //                           valueName="value"
-    //                           {...common}
-    //                         />
-    //                       )
-    //                     default:
-    //                       return (
-    //                         <ActionFormInputs<Schema>
-    //                           key={inputKey}
-    //                           {...common}
-    //                         />
-    //                       )
-    //                   }
-    //                 }
-    //               )}
-    //             </div>
-    //             <CollapsibleSection
-    //               node="JSON View"
-    //               showToggleText={false}
-    //               className="text-md truncate text-start font-medium"
-    //               size="lg"
-    //               iconSize="md"
-    //             >
-    //               <SyntaxHighlighter
-    //                 language="json"
-    //                 style={atomOneDark}
-    //                 wrapLines
-    //                 customStyle={{
-    //                   width: "100%",
-    //                   maxWidth: "100%",
-    //                   overflowX: "auto",
-    //                 }}
-    //                 codeTagProps={{
-    //                   className:
-    //                     "text-xs text-background rounded-lg max-w-full overflow-auto",
-    //                 }}
-    //                 {...{
-    //                   className:
-    //                     "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
-    //                 }}
-    //               >
-    //                 {JSON.stringify(methods.watch(), null, 2)}
-    //               </SyntaxHighlighter>
-    //             </CollapsibleSection>
-    //           </div>
-    //         </div>
-    //       </div>
     <div className="size-full overflow-auto">
       <FormProvider {...methods}>
-        <form onSubmit={onSubmit} className="flex flex-col max-w-full overflow-auto">
+        <form
+          onSubmit={onSubmit}
+          className="flex max-w-full flex-col overflow-auto"
+        >
           <div className="grid grid-cols-3">
             <div className="col-span-2 overflow-hidden">
               <h3 className="p-4 px-4">
@@ -344,7 +230,124 @@ export function ActionForm({
             </div>
           </div>
           <Separator />
-
+          {/* Metadata */}
+          <Accordion type="single" collapsible>
+            <AccordionItem value="action-settings">
+              <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                <div className="flex items-center">
+                  <SettingsIcon className="mr-3 size-4" />
+                  <span>General</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="my-4 space-y-2 px-4">
+                  <FormField
+                    control={methods.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            className="text-xs"
+                            placeholder="Name your workflow..."
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={methods.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Description</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            className="text-xs"
+                            placeholder="Describe your workflow..."
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="action-inputs">
+              <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                <div className="flex items-center">
+                  <LayoutListIcon className="mr-3 size-4" />
+                  <span>Inputs</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="my-4 space-y-2 px-4">
+                  <div className="space-y-4 capitalize">
+                    {Object.entries(fieldConfig).map(
+                      ([inputKey, inputOption]) => {
+                        const common = {
+                          inputKey,
+                          inputOption,
+                        }
+                        switch (inputOption.type) {
+                          case "select":
+                            return (
+                              <ActionFormSelect<Schema>
+                                key={inputKey}
+                                defaultValue={action?.inputs?.[inputKey]}
+                                {...common}
+                              />
+                            )
+                          case "textarea":
+                            return (
+                              <ActionFormTextarea<Schema>
+                                key={inputKey}
+                                {...common}
+                              />
+                            )
+                          case "json":
+                            return (
+                              <ActionFormJSON<Schema>
+                                key={inputKey}
+                                {...common}
+                              />
+                            )
+                          case "array":
+                            return (
+                              <ActionFormArray<Schema>
+                                key={inputKey}
+                                {...common}
+                              />
+                            )
+                          case "flat-kv":
+                            return (
+                              <ActionFormFlatKVArray<Schema>
+                                key={inputKey}
+                                keyName="tag"
+                                valueName="value"
+                                {...common}
+                              />
+                            )
+                          default:
+                            return (
+                              <ActionFormInputs<Schema>
+                                key={inputKey}
+                                {...common}
+                              />
+                            )
+                        }
+                      }
+                    )}
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
           {/* <SyntaxHighlighter
             language="json"
             style={atomOneLight}
@@ -367,6 +370,6 @@ export function ActionForm({
           </SyntaxHighlighter> */}
         </form>
       </FormProvider>
-    </div >
+    </div>
   )
 }

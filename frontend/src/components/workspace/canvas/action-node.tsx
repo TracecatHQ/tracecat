@@ -7,7 +7,6 @@ import {
   CheckSquare,
   ChevronDownIcon,
   CircleCheckBigIcon,
-  LayoutListIcon,
   Container,
   Copy,
   Delete,
@@ -16,6 +15,7 @@ import {
   GitCompareArrows,
   Globe,
   Languages,
+  LayoutListIcon,
   LucideIcon,
   Mail,
   Regex,
@@ -228,11 +228,11 @@ export default React.memo(function ActionNode({
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
-              <CircleCheckBigIcon className="text-emerald-500 size-4" />
+              <CircleCheckBigIcon className="size-4 text-emerald-500" />
             ) : (
-              <LayoutListIcon className="text-gray-400 size-4" />
+              <LayoutListIcon className="size-4 text-gray-400" />
             )}
-            <span className="capitalize text-xs">{isConfiguredMessage}</span>
+            <span className="text-xs capitalize">{isConfiguredMessage}</span>
           </div>
           <div className="flex items-center justify-end">
             <BellDotIcon className="mr-2 h-3 w-3" />
