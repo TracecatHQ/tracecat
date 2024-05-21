@@ -4,10 +4,7 @@ import clerkMiddleware from "@/middleware/clerk"
 import { authConfig } from "@/config/auth"
 
 const middleware = authConfig.disabled
-  ? () => {
-      console.warn("Auth is disabled, skipping middleware")
-      return NextResponse.next()
-    }
+  ? () => NextResponse.next()
   : clerkMiddleware
 
 export default middleware
