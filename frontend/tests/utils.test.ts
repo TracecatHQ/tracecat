@@ -3,10 +3,8 @@ import {
   getSlugFromActionKey,
   groupBy,
   isServer,
-  nsTree,
   parseActionRunId,
   slugify,
-  traverseNsTree,
   undoSlugify,
   undoSlugifyNamespaced,
 } from "@/lib/utils"
@@ -106,40 +104,5 @@ describe("isServer", () => {
   it("should return true if the code is running on the server", () => {
     const result = isServer()
     expect(result).toBe(true)
-  })
-})
-
-describe("constructNamespaceTree", () => {
-  it("Simple", () => {
-    const namespaces = [
-      "namespace1",
-      "namespace1.namespace2",
-      "namespace1.namespace3",
-    ]
-    const tree = nsTree(namespaces)
-    expect(tree).toEqual({
-      namespace1: {
-        namespace2: {},
-        namespace3: {},
-      },
-    })
-  })
-
-  it("More complex", () => {
-    const namespaces = ["a", "b.c", "b.c.d", "b.c.e", "a.f", "b.g"]
-    const tree = nsTree(namespaces)
-    expect(tree).toEqual({
-      a: {
-        f: {},
-      },
-      b: {
-        c: {
-          d: {},
-          e: {},
-        },
-        g: {},
-      },
-    })
-    expect(traverseNsTree(tree)).toEqual(["a.f", "b.c.d", "b.c.e", "b.g"])
   })
 })
