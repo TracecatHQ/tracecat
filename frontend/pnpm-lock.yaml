@@ -104,11 +104,14 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0(typescript@5.4.5)
       ajv:
-        specifier: ^8.13.0
+        specifier: 8.13.0
         version: 8.13.0
       ajv-errors:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0(ajv@8.13.0)
+      ajv-formats:
+        specifier: 2.1.1
+        version: 2.1.1(ajv@8.13.0)
       axios:
         specifier: ^1.6.8
         version: 1.6.8
@@ -133,6 +136,9 @@ importers:
       install:
         specifier: ^0.13.0
         version: 0.13.0
+      json-schema-to-zod:
+        specifier: ^2.1.0
+        version: 2.1.0
       lucide-react:
         specifier: ^0.359.0
         version: 0.359.0(react@18.3.1)
@@ -2837,6 +2843,17 @@ packages:
     peerDependencies:
       ajv: ^8.0.1
 
+  ajv-formats@2.1.1:
+    resolution:
+      {
+        integrity: sha512-Wx0Kx52hxE7C18hkMEggYlEifqWZtYaRgouJor+WMdPnQyEK13vgEWyVNup7SoeeoLMsr4kf5h6dOW11I15MUA==,
+      }
+    peerDependencies:
+      ajv: ^8.0.0
+    peerDependenciesMeta:
+      ajv:
+        optional: true
+
   ajv@6.12.6:
     resolution:
       {
@@ -5442,6 +5459,13 @@ packages:
         integrity: sha512-xyFwyhro/JEof6Ghe2iz2NcXoj2sloNsWr/XsERDK/oiPCfaNhl5ONfp+jQdAZRQQ0IJWNzH9zIZF7li91kh2w==,
       }
 
+  json-schema-to-zod@2.1.0:
+    resolution:
+      {
+        integrity: sha512-7ishNgYY+AbIKeeHcp5xCOdJbdVwSfDx/4V2ktc16LUusCJJbz2fEKdWUmAxhKIiYzhZ9Fp4E8OsAoM/h9cOLA==,
+      }
+    hasBin: true
+
   json-schema-traverse@0.4.1:
     resolution:
       {
@@ -5667,6 +5691,14 @@ packages:
         integrity: sha512-ovJXBXkKGfq+CwmKTjluEqFi3p4h8xvkxGQQAQan22YCgef4KZ1mKGjzfGh6PL6AW5Csw0QiQPNuQyH+6Xk3hA==,
       }
     engines: { node: ">=18.0.0" }
+
+  little-state-machine@4.8.0:
+    resolution:
+      {
+        integrity: sha512-xfi5+iDxTLhu0hbnNubUs+qoQQqxhtEZeObP5ELjUlHnl74bbasY7mOonsGQrAouyrbag3ebNLSse5xX1T7buQ==,
+      }
+    peerDependencies:
+      react: ^16.8.0 || ^17 || ^18
 
   locate-path@5.0.0:
     resolution:
@@ -7017,6 +7049,14 @@ packages:
       react: ^16.14.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.14.0 || ^17.0.0 || ^18.0.0
 
+  react-simple-animate@3.5.2:
+    resolution:
+      {
+        integrity: sha512-xLE65euP920QMTOmv5haPlml+hmOPDkbIr5WeF7ADIXWBYt5kW/vwpNfWg8EKMab8aeDxIZ6QjffVh8v2dUyhg==,
+      }
+    peerDependencies:
+      react-dom: ^16.8.0 || ^17 || ^18
+
   react-spinners@0.13.8:
     resolution:
       {
@@ -8070,6 +8110,15 @@ packages:
       }
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
+
+  use-deep-compare-effect@1.8.1:
+    resolution:
+      {
+        integrity: sha512-kbeNVZ9Zkc0RFGpfMN3MNfaKNvcLNyxOAAd9O4CBZ+kCBXXscn9s/4I+8ytUER4RDpEYs5+O6Rs4PqiZ+rHr5Q==,
+      }
+    engines: { node: ">=10", npm: ">=6" }
+    peerDependencies:
+      react: ">=16.13"
 
   use-isomorphic-layout-effect@1.1.2:
     resolution:
@@ -10323,6 +10372,10 @@ snapshots:
     dependencies:
       ajv: 8.13.0
 
+  ajv-formats@2.1.1(ajv@8.13.0):
+    optionalDependencies:
+      ajv: 8.13.0
+
   ajv@6.12.6:
     dependencies:
       fast-deep-equal: 3.1.3
@@ -12235,6 +12288,8 @@ snapshots:
 
   json-parse-even-better-errors@2.3.1: {}
 
+  json-schema-to-zod@2.1.0: {}
+
   json-schema-traverse@0.4.1: {}
 
   json-schema-traverse@1.0.0: {}
@@ -12406,6 +12461,10 @@ snapshots:
       log-update: 6.0.0
       rfdc: 1.3.1
       wrap-ansi: 9.0.0
+
+  little-state-machine@4.8.0(react@18.2.0):
+    dependencies:
+      react: 18.2.0
 
   locate-path@5.0.0:
     dependencies:
