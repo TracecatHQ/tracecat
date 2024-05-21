@@ -97,7 +97,7 @@ export function WorkflowForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="flex flex-1 justify-end space-x-2 px-4 mb-4">
+        <div className="flex flex-1 justify-end space-x-2 p-4">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button type="submit" size="icon">

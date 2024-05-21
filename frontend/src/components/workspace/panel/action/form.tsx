@@ -2,17 +2,15 @@ import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CircleIcon, Save } from "lucide-react"
+import { SaveIcon, Sparkles } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
-import SyntaxHighlighter from "react-syntax-highlighter"
-import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
 import { Action, type ActionType } from "@/types/schemas"
 import { getActionById, updateAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   FormControl,
   FormField,
@@ -29,10 +27,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { CollapsibleSection } from "@/components/collapsible-section"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
-import { ActionNodeType } from "@/components/workspace/canvas/action-node"
+import { ActionNodeType, getTileColor, typeToNodeSubtitle, tileIconMapping } from "@/components/workspace/canvas/action-node"
 import {
   baseActionSchema,
   getSubActionSchema,
@@ -114,11 +111,18 @@ export function ActionForm({
     },
   })
   // Set the initial form values
+  // TODO: More robust handling of undefined values
+  const type = action?.type ?? "webhook"
+  const title = action?.title ?? ""
+  const description = action?.description ?? ""
+  const subtitle = typeToNodeSubtitle[type as keyof typeof typeToNodeSubtitle];
+  const tileIcon = tileIconMapping[actionType] ?? Sparkles
+
   const methods = useForm<Schema>({
     resolver: zodResolver(schema),
     values: {
-      title: action?.title ?? "",
-      description: action?.description ?? "",
+      title: title,
+      description: description,
       ...(action?.inputs ? processInputs(action.inputs) : {}), // Unpack the inputs object
     },
   })
@@ -169,199 +173,200 @@ export function ActionForm({
     mutate(values)
   })
 
-  const status = "online"
   return (
-    <div className="flex flex-col overflow-auto" id="INSIDE SCROLL">
+    //       <div id="WRAPPER" className="max-w-full space-y-4 p-4">
+    //         <Separator />
+    //         <div className="mb-4 space-y-4">
+    //           <FormField
+    //             control={methods.control}
+    //             name="title"
+    //             render={({ field }) => (
+    //               <FormItem>
+    //                 <FormLabel className="text-xs">Title</FormLabel>
+    //                 <FormControl>
+    //                   <Input
+    //                     {...field}
+    //                     className="text-xs"
+    //                     placeholder="Add action title..."
+    //                     value={methods.watch("title", "")}
+    //                   />
+    //                 </FormControl>
+    //                 <FormMessage />
+    //               </FormItem>
+    //             )}
+    //           />
+    //           <FormField
+    //             control={methods.control}
+    //             name="description"
+    //             render={({ field }) => (
+    //               <FormItem>
+    //                 <FormLabel className="text-xs">Description</FormLabel>
+    //                 <FormControl>
+    //                   <Textarea
+    //                     {...field}
+    //                     className="text-xs"
+    //                     placeholder="Describe your action..."
+    //                   />
+    //                 </FormControl>
+    //                 <FormMessage />
+    //               </FormItem>
+    //             )}
+    //           />
+    //           <Separator />
+    //           <div className="space-y-4">
+    //             <div className="space-y-4 capitalize">
+    //               {Object.entries(fieldConfig).map(
+    //                 ([inputKey, inputOption]) => {
+    //                   const common = {
+    //                     inputKey,
+    //                     inputOption,
+    //                   }
+    //                   switch (inputOption.type) {
+    //                     case "select":
+    //                       return (
+    //                         <ActionFormSelect<Schema>
+    //                           key={inputKey}
+    //                           defaultValue={action?.inputs?.[inputKey]}
+    //                           {...common}
+    //                         />
+    //                       )
+    //                     case "textarea":
+    //                       return (
+    //                         <ActionFormTextarea<Schema>
+    //                           key={inputKey}
+    //                           {...common}
+    //                         />
+    //                       )
+    //                     case "json":
+    //                       return (
+    //                         <ActionFormJSON<Schema>
+    //                           key={inputKey}
+    //                           {...common}
+    //                         />
+    //                       )
+    //                     case "array":
+    //                       return (
+    //                         <ActionFormArray<Schema>
+    //                           key={inputKey}
+    //                           {...common}
+    //                         />
+    //                       )
+    //                     case "flat-kv":
+    //                       return (
+    //                         <ActionFormFlatKVArray<Schema>
+    //                           key={inputKey}
+    //                           keyName="tag"
+    //                           valueName="value"
+    //                           {...common}
+    //                         />
+    //                       )
+    //                     default:
+    //                       return (
+    //                         <ActionFormInputs<Schema>
+    //                           key={inputKey}
+    //                           {...common}
+    //                         />
+    //                       )
+    //                   }
+    //                 }
+    //               )}
+    //             </div>
+    //             <CollapsibleSection
+    //               node="JSON View"
+    //               showToggleText={false}
+    //               className="text-md truncate text-start font-medium"
+    //               size="lg"
+    //               iconSize="md"
+    //             >
+    //               <SyntaxHighlighter
+    //                 language="json"
+    //                 style={atomOneDark}
+    //                 wrapLines
+    //                 customStyle={{
+    //                   width: "100%",
+    //                   maxWidth: "100%",
+    //                   overflowX: "auto",
+    //                 }}
+    //                 codeTagProps={{
+    //                   className:
+    //                     "text-xs text-background rounded-lg max-w-full overflow-auto",
+    //                 }}
+    //                 {...{
+    //                   className:
+    //                     "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
+    //                 }}
+    //               >
+    //                 {JSON.stringify(methods.watch(), null, 2)}
+    //               </SyntaxHighlighter>
+    //             </CollapsibleSection>
+    //           </div>
+    //         </div>
+    //       </div>
+    <div className="size-full overflow-auto">
       <FormProvider {...methods}>
-        <form onSubmit={onSubmit} className="flex max-w-full overflow-auto">
-          <div id="WRAPPER" className="max-w-full space-y-4 p-4">
-            <div className="flex w-full flex-col space-y-3 overflow-hidden">
-              <h4 className="text-sm font-medium">Action Status</h4>
-              <div className="flex justify-between">
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "px-4 py-1",
-                    status === "online" ? "bg-green-100" : "bg-gray-100"
-                  )}
-                >
-                  <CircleIcon
-                    className={cn(
-                      "mr-2 h-3 w-3",
-                      status === "online"
-                        ? "fill-green-600 text-green-600"
-                        : "fill-gray-400 text-gray-400"
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "capitalize text-muted-foreground",
-                      status === "online" ? "text-green-600" : "text-gray-600"
-                    )}
-                  >
-                    {status}
-                  </span>
-                </Badge>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button type="submit" size="icon">
-                      <Save className="h-4 w-4" />
-                      <span className="sr-only">Save</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Save</TooltipContent>
-                </Tooltip>
-              </div>
+        <form onSubmit={onSubmit} className="flex flex-col max-w-full overflow-auto">
+          <div className="grid grid-cols-3">
+            <div className="col-span-2 overflow-hidden">
+              <h3 className="p-4 px-4">
+                <div className="flex w-full items-center space-x-4">
+                  <Avatar>
+                    <AvatarFallback className={cn(getTileColor(type))}>
+                      {React.createElement(tileIcon, { className: "h-5 w-5" })}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex w-full flex-1 justify-between space-x-12">
+                    <div className="flex flex-col">
+                      <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
+                        <div className="flex w-full">
+                          {title}
+                          {type.startsWith("llm.") && (
+                            <Sparkles className="ml-2 h-3 w-3 fill-yellow-500 text-yellow-500" />
+                          )}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {description || subtitle}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </h3>
             </div>
-
-            <Separator />
-            <div className="mb-4 space-y-4">
-              <FormField
-                control={methods.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Title</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        className="text-xs"
-                        placeholder="Add action title..."
-                        value={methods.watch("title", "")}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={methods.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Description</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        className="text-xs"
-                        placeholder="Describe your action..."
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Separator />
-              <div className="space-y-4">
-                <h4 className="text-m font-medium">Action Inputs</h4>
-                <div className="inline-block space-y-2 text-xs text-muted-foreground">
-                  <p>
-                    Define the inputs for this action here. You may use
-                    templated JSONPath expressions in any type of field other
-                    than list fields.
-                  </p>
-                  <p>For example, this expression:</p>
-                  <pre>
-                    <code>{"{{ $.my_action.output.some_data }}"}</code>
-                  </pre>
-                  <p>
-                    points to the output data field `some_data` from an action
-                    called `My Action`, with slug `my_action`. Select &apos;Copy
-                    JSONPath&apos; from the action tile dropdown to copy the
-                    slug. Note that the `output` field is a default field that
-                    is available for all actions.
-                  </p>
-                </div>
-                <div className="space-y-4 capitalize">
-                  {Object.entries(fieldConfig).map(
-                    ([inputKey, inputOption]) => {
-                      const common = {
-                        inputKey,
-                        inputOption,
-                      }
-                      switch (inputOption.type) {
-                        case "select":
-                          return (
-                            <ActionFormSelect<Schema>
-                              key={inputKey}
-                              defaultValue={action?.inputs?.[inputKey]}
-                              {...common}
-                            />
-                          )
-                        case "textarea":
-                          return (
-                            <ActionFormTextarea<Schema>
-                              key={inputKey}
-                              {...common}
-                            />
-                          )
-                        case "json":
-                          return (
-                            <ActionFormJSON<Schema>
-                              key={inputKey}
-                              {...common}
-                            />
-                          )
-                        case "array":
-                          return (
-                            <ActionFormArray<Schema>
-                              key={inputKey}
-                              {...common}
-                            />
-                          )
-                        case "flat-kv":
-                          return (
-                            <ActionFormFlatKVArray<Schema>
-                              key={inputKey}
-                              keyName="tag"
-                              valueName="value"
-                              {...common}
-                            />
-                          )
-                        default:
-                          return (
-                            <ActionFormInputs<Schema>
-                              key={inputKey}
-                              {...common}
-                            />
-                          )
-                      }
-                    }
-                  )}
-                </div>
-                <CollapsibleSection
-                  node="JSON View"
-                  showToggleText={false}
-                  className="text-md truncate text-start font-medium"
-                  size="lg"
-                  iconSize="md"
-                >
-                  <SyntaxHighlighter
-                    language="json"
-                    style={atomOneDark}
-                    wrapLines
-                    customStyle={{
-                      width: "100%",
-                      maxWidth: "100%",
-                      overflowX: "auto",
-                    }}
-                    codeTagProps={{
-                      className:
-                        "text-xs text-background rounded-lg max-w-full overflow-auto",
-                    }}
-                    {...{
-                      className:
-                        "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
-                    }}
-                  >
-                    {JSON.stringify(methods.watch(), null, 2)}
-                  </SyntaxHighlighter>
-                </CollapsibleSection>
-              </div>
+            <div className="flex justify-end space-x-2 p-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="submit" size="icon">
+                    <SaveIcon className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Save</TooltipContent>
+              </Tooltip>
             </div>
           </div>
+          <Separator />
+
+          {/* <SyntaxHighlighter
+            language="json"
+            style={atomOneLight}
+            wrapLines
+            customStyle={{
+              width: "100%",
+              maxWidth: "100%",
+              overflowX: "auto",
+            }}
+            codeTagProps={{
+              className:
+                "text-xs text-background rounded-lg max-w-full overflow-auto",
+            }}
+            {...{
+              className:
+                "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
+            }}
+          >
+            {JSON.stringify(methods.watch(), null, 2)}
+          </SyntaxHighlighter> */}
         </form>
       </FormProvider>
-    </div>
+    </div >
   )
 }

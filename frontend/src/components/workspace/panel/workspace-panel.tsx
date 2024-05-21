@@ -23,7 +23,7 @@ export function WorkspacePanel() {
       {selectedNode ? (
         getNodeForm(selectedNode, workflowId)
       ) : workflow ? (
-        <div className="py-4">
+        <div>
           <WorkflowForm workflow={workflow} />
           <WorkflowControlsForm workflow={workflow} />
           <WorkflowRunsView workflowId={workflow.id} />
