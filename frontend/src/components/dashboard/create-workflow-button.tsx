@@ -22,7 +22,7 @@ const CreateWorkflowButton: React.FC = () => {
                 second: '2-digit',
                 hour12: false,
             });
-            const title = "New workflow created";
+            const title = `${formattedDate}`;
             const description = `New workflow created ${formattedDate}.`;
 
             const response = await createWorkflow(title, description);
