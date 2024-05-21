@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import * as React from "react"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -74,8 +74,9 @@ export function WorkflowControlsForm({
   })
   const [selectedAction, setSelectedAction] = useState<Action | null>(null)
 
-  const onSubmit = async (values: TWorkflowControlsForm) => {
+  const handleSubmit = useCallback(async () => {
     // Make the API call to start the workflow
+    const values = { ...form.getValues(), actionKey: selectedAction ? getActionKey(selectedAction) : undefined }
     if (!values.actionKey) {
       console.error("No action key provided")
       toast({
@@ -98,14 +99,8 @@ export function WorkflowControlsForm({
         description: "Please check the run logs for more information",
       })
     }
-  }
+  }, [selectedAction, form, setSelectedAction])
 
-  useEffect(() => {
-    if (selectedAction) {
-      console.log("Selected action", selectedAction)
-      form.setValue("actionKey", getActionKey(selectedAction))
-    }
-  }, [selectedAction])
 
   return (
     <Accordion type="single" defaultValue="workflow-triggers" collapsible>
@@ -119,7 +114,7 @@ export function WorkflowControlsForm({
         <AccordionContent>
           <div className="px-4 my-4">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)}>
+              <form>
                 <FormField
                   control={form.control}
                   name="payload"
@@ -138,20 +133,22 @@ export function WorkflowControlsForm({
                           {...field}
                         />
                       </FormControl>
-                      <div className="flex w-full items-center space-x-2 pt-2">
-                        <EntrypointSelector setSelectedAction={setSelectedAction} />
-                        <Button
-                          type="submit"
-                          className="flex items-center text-xs"
-                        >
-                          <PlayIcon className="mr-2 size-3" />
-                          <span>Run</span>
-                        </Button>
-                      </div>
+
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                <div className="flex w-full items-center space-x-2 pt-2">
+                  <EntrypointSelector setSelectedAction={setSelectedAction} />
+                  <Button
+                    type="button"
+                    onClick={handleSubmit}
+                    className="flex items-center text-xs"
+                  >
+                    <PlayIcon className="mr-2 size-3" />
+                    <span>Run</span>
+                  </Button>
+                </div>
               </form>
             </Form>
           </div>
