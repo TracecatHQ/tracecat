@@ -230,7 +230,7 @@ export default React.memo(function ActionNode({
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
-              <CircleCheckBigIcon className="text-lime-400 size-4" />
+              <CircleCheckBigIcon className="text-emerald-500 size-4" />
             ) : (
               <LayoutListIcon className="text-gray-400 size-4" />
             )}
