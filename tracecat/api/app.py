@@ -1554,7 +1554,11 @@ def get_udf(
     """Get an UDF spec by its path."""
     with Session(engine) as session:
         statement = select(UDFSpec).where(
-            UDFSpec.owner_id == role.user_id, UDFSpec.key == key
+            or_(
+                UDFSpec.owner_id == "tracecat",
+                UDFSpec.owner_id == role.user_id,
+            ),
+            UDFSpec.key == key,
         )
         if namespace:
             statement = statement.where(UDFSpec.namespace == namespace)
