@@ -77,14 +77,14 @@ const integrationTypes = [
 export type IntegrationType = (typeof integrationTypes)[number]
 
 /** Workflow Schemas */
-export type NodeType = ActionType | IntegrationType
+export type NodeType = string
 
 const actionStatusSchema = z.enum(["online", "offline"])
 export type ActionStatus = z.infer<typeof actionStatusSchema>
 
 export const actionSchema = z.object({
   id: z.string(),
-  type: z.enum(actionTypes).or(z.enum(integrationTypes)),
+  type: z.string(),
   title: z.string(),
   description: z.string(),
   status: actionStatusSchema,
@@ -123,7 +123,7 @@ export const workflowMetadataSchema = z.object({
   icon_url: z.string().url().nullable(),
 })
 export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
-const strAsDate = z.string().transform((x) => new Date(x))
+export const strAsDate = z.string().transform((x) => new Date(x))
 
 const runStatusSchema = z.enum([
   "pending",
