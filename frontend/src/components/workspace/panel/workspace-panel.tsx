@@ -3,12 +3,13 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { Node } from "reactflow"
 
-import { ActionType, IntegrationType } from "@/types/schemas"
 import { FormLoading } from "@/components/loading/form"
 import { ActionNodeData } from "@/components/workspace/canvas/action-node"
 import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
+import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
 import { ActionForm } from "@/components/workspace/panel/action/form"
 import { IntegrationForm } from "@/components/workspace/panel/integration/form"
+import { UDFForm } from "@/components/workspace/panel/udf-form"
 import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
@@ -19,8 +20,8 @@ export function WorkspacePanel() {
   const { workflow, workflowId, isOnline } = useWorkflowMetadata()
 
   return (
-    <div className="size-full overflow-auto">
-      {selectedNode ? (
+    <div className="h-full w-full overflow-auto">
+      {selectedNode && !!workflowId ? (
         getNodeForm(selectedNode, workflowId)
       ) : workflow ? (
         <div>
@@ -35,26 +36,33 @@ export function WorkspacePanel() {
   )
 }
 
-function getNodeForm<T extends ActionNodeData | IntegrationNodeData>(
-  selectedNode: Node<T>,
-  workflowId: string | null
-) {
+function getNodeForm<
+  T extends ActionNodeData | IntegrationNodeData | UDFNodeData,
+>(selectedNode: Node<T>, workflowId: string) {
+  const common = {
+    actionId: selectedNode.id,
+    workflowId,
+  }
   switch (selectedNode.type) {
     case "action":
-      return (
-        <ActionForm
-          workflowId={workflowId}
-          actionId={selectedNode.id}
-          actionType={selectedNode.data.type as ActionType} // Type narrowing
-        />
-      )
+      const actionNode = selectedNode as Node<ActionNodeData>
+      return <ActionForm actionType={actionNode.data.type} {...common} />
 
     case "integrations":
+      const integrationNode = selectedNode as Node<IntegrationNodeData>
       return (
         <IntegrationForm
-          workflowId={workflowId}
-          actionId={selectedNode.id}
-          integrationType={selectedNode.data.type as IntegrationType} // Type narrowing
+          integrationType={integrationNode.data.type}
+          {...common}
+        />
+      )
+    case "udf":
+      const udfNode = selectedNode as Node<UDFNodeData>
+      return (
+        <UDFForm
+          type={udfNode.data.type}
+          namespace={udfNode.data.namespace}
+          {...common}
         />
       )
     default:

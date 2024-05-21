@@ -9,6 +9,7 @@ import {
   useFormContext,
 } from "react-hook-form"
 
+import { Action } from "@/types/schemas"
 import { copyToClipboard, undoSlugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,6 +35,18 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ActionFieldOption } from "@/components/workspace/panel/action/schemas"
+
+export function populateForm(action?: Action): {
+  title: string
+  description: string
+  [key: string]: any
+} {
+  return {
+    title: action?.title ?? "",
+    description: action?.description ?? "",
+    ...(action?.inputs ? processInputs(action.inputs) : {}), // Unpack the inputs object
+  }
+}
 
 export function processInputs(
   inputs: Record<string, any>
