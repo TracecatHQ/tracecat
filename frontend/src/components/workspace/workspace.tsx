@@ -21,6 +21,7 @@ import { WorkflowCanvas } from "@/components/workspace/canvas/canvas"
 import { ActionCatalog } from "@/components/workspace/catalog/action-catalog"
 import { actionTiles } from "@/components/workspace/catalog/action-tiles-schema"
 import IntegrationsCatalog from "@/components/workspace/catalog/integrations-catalog"
+import UDFCatalog from "@/components/workspace/catalog/udfs-catalog"
 import { WorkspacePanel } from "@/components/workspace/panel/workspace-panel"
 
 interface WorkspaceProps {
@@ -133,7 +134,7 @@ export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
     >
       {!isCollapsed && (
         <>
-          <TabsList className="grid w-full grid-cols-2 bg-transparent hover:cursor-pointer">
+          <TabsList className="grid w-full grid-cols-3 bg-transparent hover:cursor-pointer">
             <TabsTrigger
               value="actions"
               className="text-xs data-[state=active]:shadow-none"
@@ -148,6 +149,13 @@ export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
             >
               <span>Integrations</span>
             </TabsTrigger>
+            <TabsTrigger
+              value="udfs"
+              className="text-xs data-[state=active]:shadow-none"
+              asChild
+            >
+              <span>UDFs</span>
+            </TabsTrigger>
           </TabsList>
           <Separator />
         </>
@@ -157,6 +165,9 @@ export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
       </TabsContent>
       <TabsContent value="integrations">
         <IntegrationsCatalog />
+      </TabsContent>
+      <TabsContent value="udfs">
+        <UDFCatalog />
       </TabsContent>
     </Tabs>
   )

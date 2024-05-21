@@ -30,10 +30,12 @@ import ActionNode, {
   ActionNodeType,
 } from "@/components/workspace/canvas/action-node"
 import IntegrationNode from "@/components/workspace/canvas/integration-node"
+import udfNode from "@/components/workspace/canvas/udf-node"
 
 const nodeTypes = {
   action: ActionNode,
   integrations: IntegrationNode,
+  udf: udfNode,
 }
 
 const defaultEdgeOptions = {

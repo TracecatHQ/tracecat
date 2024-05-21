@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { toNestErrors } from "@hookform/resolvers"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Ajv, { DefinedError, JSONSchemaType } from "ajv"
+import AjvErrors from "ajv-errors"
+import AjvFormats from "ajv-formats"
+import { appendErrors, FieldError, FieldValues } from "react-hook-form"
 import { z } from "zod"
 
 import {
+  Action,
   CaseEvent,
   Integration,
   IntegrationType,
@@ -15,8 +22,10 @@ import {
   fetchCaseEvents,
   updateCase,
 } from "@/lib/cases"
+import { getActionById, updateAction } from "@/lib/flow"
 import { fetchIntegration, parseSpec } from "@/lib/integrations"
 import { toast } from "@/components/ui/use-toast"
+import { ActionNodeType } from "@/components/workspace/canvas/action-node"
 import {
   ActionFieldConfig,
   baseActionSchema,
@@ -144,3 +153,145 @@ export function useCaseEvents(workflowId: string, caseId: string) {
     mutateCaseEventsAsync: mutateAsync,
   }
 }
+
+export function usePanelAction<T extends Record<string, any>>(
+  actionId: string,
+  workflowId: string
+) {
+  const queryClient = useQueryClient()
+  const { setNodes } = useWorkflowBuilder()
+  const {
+    data: action,
+    isLoading,
+    error,
+  } = useQuery<Action, Error>({
+    queryKey: ["selected_action", actionId, workflowId],
+    queryFn: async ({ queryKey }) => {
+      const [, actionId, workflowId] = queryKey as [string, string, string]
+      return await getActionById(actionId, workflowId)
+    },
+  })
+  const { mutateAsync } = useMutation({
+    mutationFn: (values: T) => updateAction(actionId, values),
+    onSuccess: (data: Action) => {
+      setNodes((nds: ActionNodeType[]) =>
+        nds.map((node: ActionNodeType) => {
+          if (node.id === actionId) {
+            const { title } = data
+            node.data = {
+              ...node.data, // Overwrite the existing node data
+              title,
+              isConfigured: data.inputs !== null,
+            }
+          }
+          return node
+        })
+      )
+      console.log("Action update successful", data)
+      toast({
+        title: "Saved action",
+        description: "Your action has been updated successfully.",
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["selected_action", actionId, workflowId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workflow", workflowId],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update action:", error)
+      toast({
+        title: "Failed to save action",
+        description: "Could not update your action. Please try again.",
+      })
+    },
+  })
+  return {
+    action,
+    isLoading,
+    error,
+    mutateAsync,
+    queryClient,
+    queryKeys: {
+      selectedAction: ["selected_action", actionId, workflowId],
+      workflow: ["workflow", workflowId],
+    },
+  }
+}
+
+const parseErrorSchema = (
+  ajvErrors: DefinedError[],
+  validateAllFieldCriteria: boolean
+) => {
+  // Ajv will return empty instancePath when require error
+  ajvErrors.forEach((error) => {
+    if (error.keyword === "required") {
+      error.instancePath += "/" + error.params.missingProperty
+    }
+  })
+
+  return ajvErrors.reduce<Record<string, FieldError>>((previous, error) => {
+    // `/deepObject/data` -> `deepObject.data`
+    const path = error.instancePath?.substring(1).replace(/\//g, ".") as string
+
+    if (!previous[path]) {
+      previous[path] = {
+        message: error.message,
+        type: error.keyword,
+      }
+    }
+
+    if (validateAllFieldCriteria) {
+      const types = previous[path].types
+      const messages = types && types[error.keyword]
+
+      previous[path] = appendErrors(
+        path,
+        validateAllFieldCriteria,
+        previous,
+        error.keyword,
+        messages
+          ? ([] as string[]).concat(messages as string[], error.message || "")
+          : error.message
+      ) as FieldError
+    }
+
+    return previous
+  }, {})
+}
+
+export const useCustomAJVResolver = (schema: JSONSchemaType<any>) =>
+  useCallback(
+    async (
+      values: FieldValues,
+      _: any,
+      options: any
+    ): Promise<{ values: FieldValues; errors: any }> => {
+      const ajv = new Ajv({
+        allErrors: true,
+        strict: false,
+        $data: true,
+      })
+      AjvFormats(ajv)
+      AjvErrors(ajv)
+      const validate = ajv.compile(schema)
+
+      const valid = validate(values)
+      return valid
+        ? { values, errors: {} }
+        : {
+            values: {},
+            errors: toNestErrors(
+              parseErrorSchema(
+                validate.errors as DefinedError[],
+                !options.shouldUseNativeValidation &&
+                  options.criteriaMode === "all"
+              ),
+              options
+            ),
+          }
+    },
+
+    [schema]
+  )
