@@ -42,7 +42,7 @@ export default function WorkflowNav() {
             id="enable-workflow"
             checked={isOnline}
             onCheckedChange={setIsOnline}
-            className="data-[state=checked]:bg-lime-400"
+            className="data-[state=checked]:bg-emerald-500"
           />
           <Label
             className="flex text-xs text-muted-foreground"

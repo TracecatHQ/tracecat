@@ -5,7 +5,6 @@ import { PlusCircleIcon } from "lucide-react";
 
 import { createWorkflow } from "@/lib/flow";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/components/ui/use-toast";
 
 const CreateWorkflowButton: React.FC = () => {
     const router = useRouter();
@@ -27,11 +26,6 @@ const CreateWorkflowButton: React.FC = () => {
             const description = `New workflow created ${formattedDate}.`;
 
             const response = await createWorkflow(title, description);
-
-            toast({
-                title: title,
-                description: description,
-            });
 
             // Redirect to the new workflow's page
             router.push(`/workflows/${response.id}`);

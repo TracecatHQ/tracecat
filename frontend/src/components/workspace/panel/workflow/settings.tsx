@@ -1,8 +1,8 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { HamburgerMenuIcon } from "@radix-ui/react-icons"
 
+import { SettingsIcon, Trash2Icon } from "lucide-react"
 import { Workflow } from "@/types/schemas"
 import { deleteWorkflow } from "@/lib/flow"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { Separator } from "@/components/ui/separator"
 
 export function WorkflowSettings({ workflow }: { workflow: Workflow }) {
   const router = useRouter()
@@ -32,57 +33,51 @@ export function WorkflowSettings({ workflow }: { workflow: Workflow }) {
     router.push("/workflows")
     toast({
       title: "Workflow deleted",
-      description: `The workflow "${workflow.title}" has been deleted.`,
+      description: `Successfully deleted "${workflow.title}".`,
     })
     router.refresh()
   }
   return (
-    <div>
-      <Dialog>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="flex h-8 w-8 p-0 data-[state=open]:bg-muted"
-            >
-              <HamburgerMenuIcon className="h-4 w-4" />
-              <span className="sr-only">Open menu</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[160px]">
-            <DropdownMenuItem disabled>Make a copy</DropdownMenuItem>
-            <DropdownMenuItem disabled>Favorite</DropdownMenuItem>
-            <DialogTrigger asChild>
-              <DropdownMenuItem className="text-red-600">
-                Delete
-              </DropdownMenuItem>
-            </DialogTrigger>
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <Dialog>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="icon"
+          >
+            <SettingsIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-4">
+          <DialogTrigger asChild>
+            <DropdownMenuItem className="text-red-600 text-sm">
+              <Trash2Icon className="size-4 mr-2" />
+              <span>Delete</span>
+            </DropdownMenuItem>
+          </DialogTrigger>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-        <DialogContent>
-          <DialogHeader className="space-y-4">
-            <DialogTitle>
-              Are you sure you want to delete this workflow?
-            </DialogTitle>
-            <DialogDescription className="flex items-center text-sm text-foreground">
-              You are about to delete the workflow
-              <b className="ml-1">{workflow.title}</b>. Proceed?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button
-                className="ml-auto space-x-2 border-0 font-bold text-white"
-                variant="destructive"
-                onClick={handleDeleteWorkflow}
-              >
-                Delete Workflow
-              </Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete workflow</DialogTitle>
+          <DialogClose />
+        </DialogHeader>
+        <Separator />
+        <DialogDescription>
+          Are you sure you want to permanently delete this workflow?
+        </DialogDescription>
+        <DialogFooter>
+          <Button variant="outline">Cancel</Button>
+          <Button
+            onClick={handleDeleteWorkflow}
+            variant="destructive"
+            className="mr-2"
+          >
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

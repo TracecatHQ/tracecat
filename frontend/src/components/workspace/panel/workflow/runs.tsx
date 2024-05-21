@@ -8,7 +8,7 @@ import "@radix-ui/react-dialog"
 import { UpdateIcon } from "@radix-ui/react-icons"
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useQuery } from "@tanstack/react-query"
-import { CircleCheck, CircleX, Loader, Loader2 } from "lucide-react"
+import { CircleCheck, CircleX, Loader, Loader2, HistoryIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
@@ -56,34 +56,44 @@ export function WorkflowRunsView({
     },
   })
   return (
-    <div className="space-y-3">
-      <h1 className="text-xs font-medium">Past Runs</h1>
-      <ScrollArea
-        className={cn(
-          "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
-          className
-        )}
-      >
-        {isLoading ? (
-          <CenteredSpinner />
-        ) : error ? (
-          <AlertNotification
-            level="error"
-            message="Error loading workflow runs"
-          />
-        ) : workflowRuns && workflowRuns.length > 0 ? (
-          <Accordion type="single" collapsible className="w-full">
-            {workflowRuns
-              ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
-              .map((props, index) => (
-                <WorkflowRunItem key={index} {...props} />
-              ))}
-          </Accordion>
-        ) : (
-          <NoContent className="my-8" message="No runs available" />
-        )}
-      </ScrollArea>
-    </div>
+    <Accordion type="single" collapsible>
+      <AccordionItem value="item-1">
+        <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+          <div className="flex items-center">
+            <HistoryIcon className="mr-3 size-4" />
+            <span>Past Runs</span>
+          </div>
+        </AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-4 px-4 my-2">
+            <ScrollArea
+              className={cn(
+                "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
+                className
+              )}
+            >
+              {isLoading ? (
+                <CenteredSpinner />
+              ) : error ? (
+                <AlertNotification
+                  level="error"
+                  message="Error loading workflow runs"
+                />
+              ) : workflowRuns && workflowRuns.length > 0 ? (
+                <Accordion type="single" collapsible className="w-full">
+                  {workflowRuns
+                    ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+                    .map((props, index) => (
+                      <WorkflowRunItem key={index} {...props} />
+                    ))}
+                </Accordion>
+              ) : (
+                <NoContent className="my-8" message="No runs available" />
+              )}
+            </ScrollArea>
+          </div>    </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   )
 }
 

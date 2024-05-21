@@ -6,7 +6,8 @@ import {
   BookText,
   CheckSquare,
   ChevronDownIcon,
-  CircleIcon,
+  CircleCheckBigIcon,
+  LayoutListIcon,
   Container,
   Copy,
   Delete,
@@ -44,6 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
 
@@ -172,8 +174,8 @@ export default React.memo(function ActionNode({
   }, [id, toast])
 
   return (
-    <Card className={cn(selected && "shadow-xl drop-shadow-xl")}>
-      <CardHeader className="grid p-4 px-5">
+    <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
+      <CardHeader className="grid p-4 px-4">
         <div className="flex w-full items-center space-x-4">
           <Avatar>
             <AvatarImage className="bg-red-600" src="" alt={avatarImageAlt} />
@@ -183,7 +185,7 @@ export default React.memo(function ActionNode({
           </Avatar>
           <div className="flex w-full flex-1 justify-between space-x-12">
             <div className="flex flex-col">
-              <CardTitle className="flex w-full items-center justify-between text-sm font-medium leading-none">
+              <CardTitle className="flex w-full items-center justify-between text-xs font-medium leading-none">
                 <div className="flex w-full">
                   {title}
                   {type.startsWith("llm.") && (
@@ -191,7 +193,7 @@ export default React.memo(function ActionNode({
                   )}
                 </div>
               </CardTitle>
-              <CardDescription className="mt-1 text-sm text-muted-foreground">
+              <CardDescription className="mt-2 text-xs text-muted-foreground">
                 {typeToNodeSubtitle[type]}
               </CardDescription>
             </div>
@@ -223,22 +225,19 @@ export default React.memo(function ActionNode({
           </div>
         </div>
       </CardHeader>
-
-      <CardContent className="px-5 pb-4 pt-0">
-        <div className="flex space-x-4 text-xs text-muted-foreground">
-          <div className="flex items-center">
-            <CircleIcon
-              className={cn(
-                "mr-1 h-3 w-3",
-                isConfigured
-                  ? "fill-green-600 text-green-600"
-                  : "fill-gray-400 text-gray-400"
-              )}
-            />
-            <span className="capitalize">{isConfiguredMessage}</span>
+      <Separator />
+      <CardContent className="p-4 py-3">
+        <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
+          <div className="flex items-center space-x-2">
+            {isConfigured ? (
+              <CircleCheckBigIcon className="text-emerald-500 size-4" />
+            ) : (
+              <LayoutListIcon className="text-gray-400 size-4" />
+            )}
+            <span className="capitalize text-xs">{isConfiguredMessage}</span>
           </div>
-          <div className="flex items-center">
-            <BellDotIcon className="mr-1 h-3 w-3" />
+          <div className="flex items-center justify-end">
+            <BellDotIcon className="mr-2 h-3 w-3" />
             <span>{numberOfEvents}</span>
           </div>
         </div>

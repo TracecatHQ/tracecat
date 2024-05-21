@@ -29,8 +29,8 @@ export function StatusBadge({ status, children, className }: StatusBadgeProps) {
         defaultStatusColor,
         "items-center gap-1",
         status &&
-          status in statusColors &&
-          statusColors[status as keyof typeof statusColors],
+        status in statusColors &&
+        statusColors[status as keyof typeof statusColors],
         className
       )}
     >
@@ -59,7 +59,7 @@ export function ComingSoonBadge({ className }: { className?: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "border-2 border-emerald-500 bg-emerald-200  text-xs text-emerald-700",
+        "text-xs bg-white py-3",
         className
       )}
     >

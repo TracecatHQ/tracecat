@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ActionFieldOption } from "@/components/workspace/panel/action/schemas"
-import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 export function processInputs(
   inputs: Record<string, any>
@@ -267,7 +266,6 @@ export function ActionFormArray<T extends FieldValues>({
                     type="button"
                     variant="outline"
                     size="icon"
-                    className={DELETE_BUTTON_STYLE}
                     onClick={() => remove(index)}
                   >
                     <Trash2Icon className="size-4" />
@@ -408,7 +406,6 @@ export function ActionFormFlatKVArray<T extends FieldValues>({
                   <Button
                     type="button"
                     variant="ghost"
-                    className={DELETE_BUTTON_STYLE}
                     onClick={() => remove(index)}
                     // If this field is optional, enable the delete button
                     disabled={!inputOption.optional && fields.length === 1}
