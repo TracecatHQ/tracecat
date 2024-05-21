@@ -406,7 +406,6 @@ export function ActionFormFlatKVArray<T extends FieldValues>({
                   <Button
                     type="button"
                     variant="ghost"
-                    className={DELETE_BUTTON_STYLE}
                     onClick={() => remove(index)}
                     // If this field is optional, enable the delete button
                     disabled={!inputOption.optional && fields.length === 1}
