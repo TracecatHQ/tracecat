@@ -237,7 +237,7 @@ class Action(Resource, table=True):
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
-    inputs: dict[str, Any] | None = Field(sa_column=Column(JSON))
+    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )

@@ -3,26 +3,28 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { Node } from "reactflow"
 
+import { usePanelAction } from "@/lib/hooks"
 import { FormLoading } from "@/components/loading/form"
 import { ActionNodeData } from "@/components/workspace/canvas/action-node"
 import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
-import { ActionForm } from "@/components/workspace/panel/action/form"
-import { IntegrationForm } from "@/components/workspace/panel/integration/form"
 import { UDFForm } from "@/components/workspace/panel/udf-form"
 import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
 
 export function WorkspacePanel() {
+  // Ensure workflow exists
   const { selectedNodeId, getNode } = useWorkflowBuilder()
+  const { workflow, isOnline } = useWorkflowMetadata()
   const selectedNode = getNode(selectedNodeId ?? "")
-  const { workflow, workflowId, isOnline } = useWorkflowMetadata()
 
   return (
     <div className="h-full w-full overflow-auto">
-      {selectedNode && !!workflowId ? (
-        getNodeForm(selectedNode, workflowId)
+      {!workflow ? (
+        <FormLoading />
+      ) : selectedNode ? (
+        <WrappedUDFForm selectedNode={selectedNode} workflowId={workflow.id} />
       ) : workflow ? (
         <div>
           <WorkflowForm workflow={workflow} />
@@ -36,36 +38,23 @@ export function WorkspacePanel() {
   )
 }
 
-function getNodeForm<
-  T extends ActionNodeData | IntegrationNodeData | UDFNodeData,
->(selectedNode: Node<T>, workflowId: string) {
-  const common = {
-    actionId: selectedNode.id,
-    workflowId,
-  }
-  switch (selectedNode.type) {
-    case "action":
-      const actionNode = selectedNode as Node<ActionNodeData>
-      return <ActionForm actionType={actionNode.data.type} {...common} />
+function WrappedUDFForm({
+  selectedNode,
+  workflowId,
+}: {
+  selectedNode: Node<ActionNodeData | IntegrationNodeData | UDFNodeData>
+  workflowId: string
+}) {
+  const panelAction = usePanelAction(selectedNode.id, workflowId)
+  const nodeData = selectedNode.data as UDFNodeData
 
-    case "integrations":
-      const integrationNode = selectedNode as Node<IntegrationNodeData>
-      return (
-        <IntegrationForm
-          integrationType={integrationNode.data.type}
-          {...common}
-        />
-      )
-    case "udf":
-      const udfNode = selectedNode as Node<UDFNodeData>
-      return (
-        <UDFForm
-          type={udfNode.data.type}
-          namespace={udfNode.data.namespace}
-          {...common}
-        />
-      )
-    default:
-      return null
-  }
+  return (
+    <UDFForm
+      panelAction={panelAction}
+      type={nodeData.type}
+      namespace={nodeData.namespace}
+      actionId={selectedNode.id}
+      workflowId={workflowId}
+    />
+  )
 }

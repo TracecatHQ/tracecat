@@ -571,7 +571,7 @@ def get_action(
         title=action.title,
         description=action.description,
         status=action.status,
-        inputs=None if len(inputs) == 0 else inputs,
+        inputs=inputs,
         key=action.key,
     )
 

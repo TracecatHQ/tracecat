@@ -23,7 +23,7 @@ class ActionResponse(BaseModel):
     title: str
     description: str
     status: str
-    inputs: dict[str, Any] | None
+    inputs: dict[str, Any]
     key: str  # Computed field
 
 
