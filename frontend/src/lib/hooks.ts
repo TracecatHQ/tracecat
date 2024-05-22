@@ -6,15 +6,8 @@ import Ajv, { DefinedError, JSONSchemaType } from "ajv"
 import AjvErrors from "ajv-errors"
 import AjvFormats from "ajv-formats"
 import { appendErrors, FieldError, FieldValues } from "react-hook-form"
-import { z } from "zod"
 
-import {
-  Action,
-  CaseEvent,
-  Integration,
-  IntegrationType,
-  type Case,
-} from "@/types/schemas"
+import { Action, CaseEvent, type Case } from "@/types/schemas"
 import {
   CaseEventParams,
   createCaseEvent,
@@ -23,13 +16,8 @@ import {
   updateCase,
 } from "@/lib/cases"
 import { getActionById, updateAction } from "@/lib/flow"
-import { fetchIntegration, parseSpec } from "@/lib/integrations"
 import { toast } from "@/components/ui/use-toast"
 import { ActionNodeType } from "@/components/workspace/canvas/action-node"
-import {
-  ActionFieldConfig,
-  baseActionSchema,
-} from "@/components/workspace/panel/action/schemas"
 
 export function useLocalStorage<T>(
   key: string,
@@ -46,32 +34,6 @@ export function useLocalStorage<T>(
     localStorage.setItem(key, JSON.stringify(value))
   }, [key, value])
   return [value, setValue]
-}
-
-export function useIntegrationFormSchema(integrationKey: IntegrationType): {
-  isLoading: boolean
-  fieldSchema: z.ZodObject<Record<string, any>>
-  fieldConfig: ActionFieldConfig
-  integrationSpec?: Integration
-} {
-  const { data: integrationSpec, isLoading } = useQuery({
-    queryKey: ["integration_field_config", integrationKey],
-    queryFn: async ({ queryKey }) => {
-      const [, integrationKey] = queryKey as [string, IntegrationType]
-      return await fetchIntegration(integrationKey)
-    },
-  })
-  // Parse the schema and config
-  if (!integrationSpec) {
-    return {
-      fieldSchema: baseActionSchema,
-      fieldConfig: {},
-      isLoading,
-    }
-  }
-  const { fieldSchema, fieldConfig } = parseSpec(integrationSpec.parameters)
-
-  return { fieldSchema, fieldConfig, isLoading, integrationSpec }
 }
 
 export function usePanelCase(workflowId: string, caseId: string) {

@@ -47,12 +47,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
-import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
 
-export type ActionNodeType = Node<
-  ActionNodeData | IntegrationNodeData | UDFNodeData
->
+export type ActionNodeType = Node<ActionNodeData | UDFNodeData>
 export interface ActionNodeData {
   type: ActionType
   title: string

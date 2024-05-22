@@ -26,56 +26,6 @@ const actionTypes = [
   "llm.summarize",
 ] as const
 export type ActionType = (typeof actionTypes)[number]
-
-/** All platforms that are supported by the system. */
-const integrationPlatforms = [
-  "aws_cloudtrail",
-  "aws_guardduty",
-  "datadog",
-  "emailrep",
-  "sublime",
-  "urlscan",
-  "virustotal",
-  "project_discovery",
-] as const
-export type IntegrationPlatform = (typeof integrationPlatforms)[number]
-
-/**
- * Integration types are prefixed with the platform name.
- * This is to ensure that integrations from different platforms do not clash.
- *
- * Format: integrations.<platform>.<optional_namespaces>.<function>
- *
- * Not sure how to generate this dynamically - currently needs to be manually updated.
- */
-const integrationTypes = [
-  "integrations.aws_cloudtrail.query_cloudtrail_logs",
-  "integrations.aws_guardduty.query_guardduty_findings",
-  "integrations.datadog.list_detection_rules",
-  "integrations.datadog.list_security_signals",
-  "integrations.datadog.update_security_signal_state",
-  "integrations.emailrep.check_email_reputation",
-  "integrations.sublime.explode_binary",
-  "integrations.sublime.hunt_messages",
-  "integrations.sublime.classify_messages",
-  "integrations.sublime.dismiss_messages",
-  "integrations.sublime.quarantine_messages",
-  "integrations.sublime.trash_messages",
-  "integrations.sublime.create_message",
-  "integrations.sublime.analyze_message",
-  "integrations.sublime.score_message",
-  "integrations.sublime.restore_message",
-  "integrations.sublime.trash_message",
-  "integrations.sublime.list_user_reports",
-  "integrations.urlscan.analyze_url",
-  "integrations.virustotal.get_domain_report",
-  "integrations.virustotal.get_file_report",
-  "integrations.virustotal.get_ip_address_report",
-  "integrations.virustotal.get_url_report",
-  "integrations.project_discovery.get_all_scan_results",
-] as const
-export type IntegrationType = (typeof integrationTypes)[number]
-
 /** Workflow Schemas */
 export type NodeType = string
 
@@ -232,18 +182,6 @@ export const secretSchema = z.object({
 })
 
 export type Secret = z.infer<typeof secretSchema>
-
-export const integrationSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
-  docstring: z.string(),
-  parameters: stringToJSONSchema,
-  platform: z.enum(integrationPlatforms),
-  icon_url: z.string().url().nullable(),
-})
-
-export type Integration = z.infer<typeof integrationSchema>
 
 export const caseEventTypes = [
   "status_changed",
