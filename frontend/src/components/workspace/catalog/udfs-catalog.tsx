@@ -61,7 +61,11 @@ export default function UDFCatalog() {
             {Object.entries(groupBy(udfs, "namespace")).map(
               ([namespace, udfs], index) => {
                 return (
-                  <AccordionItem key={index} value={namespace}>
+                  <AccordionItem
+                    key={index}
+                    value={namespace}
+                    className="border-b-0"
+                  >
                     <AccordionTrigger>
                       <div className="mr-2 flex max-h-12 w-full items-center justify-start gap-4">
                         {getIcon(namespace, { className: "size-5" })}
