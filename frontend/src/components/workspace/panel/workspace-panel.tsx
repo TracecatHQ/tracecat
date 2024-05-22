@@ -6,7 +6,6 @@ import { Node } from "reactflow"
 import { usePanelAction } from "@/lib/hooks"
 import { FormLoading } from "@/components/loading/form"
 import { ActionNodeData } from "@/components/workspace/canvas/action-node"
-import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
 import { UDFForm } from "@/components/workspace/panel/udf-form"
 import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
@@ -42,7 +41,7 @@ function WrappedUDFForm({
   selectedNode,
   workflowId,
 }: {
-  selectedNode: Node<ActionNodeData | IntegrationNodeData | UDFNodeData>
+  selectedNode: Node<ActionNodeData | UDFNodeData>
   workflowId: string
 }) {
   const panelAction = usePanelAction(selectedNode.id, workflowId)

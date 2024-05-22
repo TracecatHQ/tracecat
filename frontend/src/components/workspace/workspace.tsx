@@ -134,7 +134,7 @@ export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
     >
       {!isCollapsed && (
         <>
-          <TabsList className="grid w-full grid-cols-3 bg-transparent hover:cursor-pointer">
+          <TabsList className="grid w-full grid-cols-2 bg-transparent hover:cursor-pointer">
             <TabsTrigger
               value="actions"
               className="text-xs data-[state=active]:shadow-none"
@@ -142,13 +142,7 @@ export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
             >
               <span>Actions</span>
             </TabsTrigger>
-            <TabsTrigger
-              value="integrations"
-              className="text-xs data-[state=active]:shadow-none"
-              asChild
-            >
-              <span>Integrations</span>
-            </TabsTrigger>
+
             <TabsTrigger
               value="udfs"
               className="text-xs data-[state=active]:shadow-none"
@@ -162,9 +156,6 @@ export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
       )}
       <TabsContent value="actions">
         <ActionCatalog isCollapsed={isCollapsed} tiles={actionTiles} />
-      </TabsContent>
-      <TabsContent value="integrations">
-        <IntegrationsCatalog />
       </TabsContent>
       <TabsContent value="udfs">
         <UDFCatalog />
