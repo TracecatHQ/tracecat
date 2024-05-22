@@ -7,7 +7,6 @@ import {
   CheckSquare,
   ChevronDownIcon,
   CircleCheckBigIcon,
-  LayoutListIcon,
   Container,
   Copy,
   Delete,
@@ -16,6 +15,7 @@ import {
   GitCompareArrows,
   Globe,
   Languages,
+  LayoutListIcon,
   LucideIcon,
   Mail,
   Regex,
@@ -30,7 +30,7 @@ import { Handle, NodeProps, Position, useNodeId, type Node } from "reactflow"
 
 import { type ActionType } from "@/types/schemas"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -107,7 +107,7 @@ export function getTileColor(
   return defaultColor
 }
 
-const typeToNodeSubtitle: Record<ActionType, string> = {
+export const typeToNodeSubtitle: Record<ActionType, string> = {
   webhook: "Webhook",
   http_request: "HTTP Request",
   data_transform: "Data Transform",
@@ -135,7 +135,6 @@ export default React.memo(function ActionNode({
   const tileIcon = tileIconMapping[type] ?? Sparkles
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   const { toast } = useToast()
-  const avatarImageAlt = `${type}-${title}`
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)
@@ -175,10 +174,9 @@ export default React.memo(function ActionNode({
 
   return (
     <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
-      <CardHeader className="grid p-4 px-4">
+      <CardHeader className="p-4 px-4">
         <div className="flex w-full items-center space-x-4">
           <Avatar>
-            <AvatarImage className="bg-red-600" src="" alt={avatarImageAlt} />
             <AvatarFallback className={cn(getTileColor(type))}>
               {React.createElement(tileIcon, { className: "h-5 w-5" })}
             </AvatarFallback>
@@ -230,11 +228,11 @@ export default React.memo(function ActionNode({
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
-              <CircleCheckBigIcon className="text-emerald-500 size-4" />
+              <CircleCheckBigIcon className="size-4 text-emerald-500" />
             ) : (
-              <LayoutListIcon className="text-gray-400 size-4" />
+              <LayoutListIcon className="size-4 text-gray-400" />
             )}
-            <span className="capitalize text-xs">{isConfiguredMessage}</span>
+            <span className="text-xs capitalize">{isConfiguredMessage}</span>
           </div>
           <div className="flex items-center justify-end">
             <BellDotIcon className="mr-2 h-3 w-3" />

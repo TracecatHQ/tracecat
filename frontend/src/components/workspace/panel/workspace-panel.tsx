@@ -9,9 +9,9 @@ import { ActionNodeData } from "@/components/workspace/canvas/action-node"
 import { IntegrationNodeData } from "@/components/workspace/canvas/integration-node"
 import { ActionForm } from "@/components/workspace/panel/action/form"
 import { IntegrationForm } from "@/components/workspace/panel/integration/form"
+import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
-import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -23,7 +23,7 @@ export function WorkspacePanel() {
       {selectedNode ? (
         getNodeForm(selectedNode, workflowId)
       ) : workflow ? (
-        <div className="py-4">
+        <div>
           <WorkflowForm workflow={workflow} />
           <WorkflowControlsForm workflow={workflow} />
           <WorkflowRunsView workflowId={workflow.id} />

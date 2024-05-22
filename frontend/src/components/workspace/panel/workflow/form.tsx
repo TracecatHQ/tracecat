@@ -12,13 +12,13 @@ import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
 import { updateWorkflow } from "@/lib/flow"
-import { Button } from "@/components/ui/button"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Button } from "@/components/ui/button"
 import {
   Form,
   FormControl,
@@ -97,7 +97,7 @@ export function WorkflowForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="flex flex-1 justify-end space-x-2 px-4 mb-4">
+        <div className="flex flex-1 justify-end space-x-2 p-4">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button type="submit" size="icon">
@@ -109,7 +109,7 @@ export function WorkflowForm({
           <WorkflowSettings workflow={workflow} />
         </div>
         <Separator />
-        <Accordion type="single" defaultValue="workflow-settings" collapsible>
+        <Accordion type="single" collapsible>
           <AccordionItem value="workflow-settings">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
@@ -118,7 +118,7 @@ export function WorkflowForm({
               </div>
             </AccordionTrigger>
             <AccordionContent>
-              <div className="space-y-2 px-4 my-4">
+              <div className="my-4 space-y-2 px-4">
                 <FormField
                   control={form.control}
                   name="title"
@@ -157,7 +157,7 @@ export function WorkflowForm({
             </AccordionContent>
           </AccordionItem>
         </Accordion>
-      </form >
-    </Form >
+      </form>
+    </Form>
   )
 }

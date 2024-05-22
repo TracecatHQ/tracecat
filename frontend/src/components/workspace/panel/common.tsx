@@ -1,6 +1,5 @@
 import React from "react"
-import { CopyIcon } from "@radix-ui/react-icons"
-import { PlusCircle, Trash2Icon } from "lucide-react"
+import { CopyIcon, PlusCircle, Trash2Icon } from "lucide-react"
 import {
   ArrayPath,
   FieldPath,
@@ -173,7 +172,7 @@ export function ActionFormSelect<T extends FieldValues>({
               </SelectTrigger>
               <SelectContent>
                 {inputOption.options?.map((option: string) => (
-                  <SelectItem key={option} value={option}>
+                  <SelectItem key={option} className="text-xs" value={option}>
                     {option}
                   </SelectItem>
                 ))}

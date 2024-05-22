@@ -103,8 +103,8 @@ export function WorkflowControlsForm({
 
 
   return (
-    <Accordion type="single" defaultValue="workflow-triggers" collapsible>
-      <AccordionItem value="workflow-triggers">
+    <Accordion type="single" collapsible>
+      <AccordionItem value="workflow-trigger">
         <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
           <div className="flex items-center">
             <ZapIcon className="mr-3 size-4" />
