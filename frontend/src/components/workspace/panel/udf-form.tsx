@@ -18,7 +18,7 @@ import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { Action } from "@/types/schemas"
-import { useCustomAJVResolver, usePanelAction } from "@/lib/hooks"
+import { PanelAction, useCustomAJVResolver } from "@/lib/hooks"
 import { FieldConfig, useUDFFormSchema } from "@/lib/udf"
 import { cn, copyToClipboard, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -56,11 +56,17 @@ import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 ///////////////////////////
 
 export function UDFForm({
+  panelAction: {
+    action,
+    isLoading: actionLoading,
+    mutateAsync,
+    queryClient,
+    queryKeys,
+  },
   type: key,
   namespace,
-  actionId,
-  workflowId,
 }: {
+  panelAction: PanelAction<any>
   type: string
   namespace: string
   actionId: string
@@ -74,19 +80,11 @@ export function UDFForm({
     isLoading: schemaLoading,
   } = useUDFFormSchema(key)
 
-  // 2. Load any existing data
-  const {
-    action,
-    isLoading: actionLoading,
-    mutateAsync,
-    queryClient,
-    queryKeys,
-  } = usePanelAction(actionId, workflowId)
   const resolver = useCustomAJVResolver(formSchema!)
 
   const methods = useForm({
     resolver,
-    values: populateForm(action),
+    values: action ? populateFormDefaults(action) : undefined,
   })
 
   if (schemaLoading || actionLoading) {
@@ -110,10 +108,10 @@ export function UDFForm({
     )
   }
 
-  const onSubmit = methods.handleSubmit(async (values: FieldValues) => {
+  const onSubmit = async (values: FieldValues) => {
     console.log("Submitting UDF form", values)
     await mutateAsync(values)
-  })
+  }
 
   const status = "online"
   type Schema = {
@@ -123,7 +121,10 @@ export function UDFForm({
     <div className="flex flex-col overflow-auto">
       <DevTool control={methods.control} placement="top-left" />
       <FormProvider {...methods}>
-        <form onSubmit={onSubmit} className="flex max-w-full overflow-auto">
+        <form
+          onSubmit={methods.handleSubmit(onSubmit)}
+          className="flex max-w-full overflow-auto"
+        >
           <div className="w-full space-y-4 p-4">
             <div className="flex w-full flex-col space-y-3 overflow-hidden">
               <h4 className="text-sm font-medium">Action Status</h4>
@@ -279,6 +280,16 @@ export function UDFForm({
                     />
                   ))}
                 </div>
+                <Separator />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => console.log("Add item")} // TODO: Implement this
+                  className="w-full space-x-2 text-xs"
+                >
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Optional Field
+                </Button>
                 <CollapsibleSection
                   node="JSON View"
                   showToggleText={false}
@@ -443,7 +454,7 @@ export function UDFFormSelect<T extends FieldValues>({
 
   const typedKey = inputKey as FieldPath<T>
   const typedDefault = defaultValue as PathValue<T, FieldPath<T>>
-  const parser = getParser(fieldConfig)
+  const parser = getDataTypeParser(fieldConfig)
   return (
     <FormField
       key={inputKey}
@@ -599,14 +610,14 @@ export function UDFFormInputs<T extends FieldValues>({
   fieldConfig,
   defaultValue,
 }: UDFFormFieldProps<T>) {
-  const { control, watch } = useFormContext<T>()
+  const { control } = useFormContext<T>()
   if (fieldConfig.kind !== "input") {
     throw new Error(
       `UDFFormInputs received invalid input type ${fieldConfig.kind}`
     )
   }
   const typedKey = inputKey as FieldPath<T>
-  const parser = getParser(fieldConfig)
+  const parser = getDataTypeParser(fieldConfig)
   return (
     <FormField
       key={inputKey}
@@ -618,7 +629,6 @@ export function UDFFormInputs<T extends FieldValues>({
           <FormControl>
             <Input
               {...field}
-              value={watch(typedKey, defaultValue)}
               defaultValue={defaultValue as PathValue<T, FieldPath<T>>}
               className="text-xs"
               placeholder={fieldConfig.placeholder ?? "Input text here..."}
@@ -739,7 +749,7 @@ export function UDFFormFlatKVArray<T extends FieldValues>({
 }
 
 ///////////////////////////
-// Methods
+// Utility Functions
 ///////////////////////////
 
 /**
@@ -748,7 +758,7 @@ export function UDFFormFlatKVArray<T extends FieldValues>({
  * @param fieldConfig
  * @returns
  */
-function getParser(fieldConfig: FieldConfig): (value: string) => any {
+function getDataTypeParser(fieldConfig: FieldConfig): (value: string) => any {
   switch (fieldConfig.dtype) {
     case "number":
       return (value: string) => parseFloat(value)
@@ -761,19 +771,37 @@ function getParser(fieldConfig: FieldConfig): (value: string) => any {
   }
 }
 
-export function populateForm(action?: Action): {
+/**
+ *  Given an action, populate the form with the default values.
+ *
+ * Order of precedence:
+ * 1. If the action already has values, use them.
+ * 2. If the action has no values, use the schema defaults.
+ * 3.
+ * @param action
+ * @returns
+ */
+export function populateFormDefaults(action: Action): {
   title: string
   description: string
   [key: string]: any
 } {
+  const { inputs, title, description } = action
   return {
-    title: action?.title ?? "",
-    description: action?.description ?? "",
-    ...(action?.inputs ? processInputs(action.inputs) : {}), // Unpack the inputs object
+    title,
+    description,
+    ...(inputs ? stringifyFormInputs(inputs) : {}), // Unpack the inputs object
   }
 }
 
-export function processInputs(
+/**
+ * Given a set of inputs, process them into a form-friendly format.
+ * It converts objects into strings and keeps other values as is.
+ *
+ * @param inputs
+ * @returns Stringified inputs for the form
+ */
+export function stringifyFormInputs(
   inputs: Record<string, any>
 ): Record<string, any> {
   return Object.entries(inputs).reduce(

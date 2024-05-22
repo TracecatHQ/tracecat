@@ -88,7 +88,7 @@ export const actionSchema = z.object({
   title: z.string(),
   description: z.string(),
   status: actionStatusSchema,
-  inputs: z.record(z.any()).nullable(),
+  inputs: z.record(z.any()),
 })
 
 export type Action = z.infer<typeof actionSchema>
