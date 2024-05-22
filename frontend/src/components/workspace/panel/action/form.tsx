@@ -2,8 +2,17 @@ import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { LayoutListIcon, SaveIcon, SettingsIcon, Sparkles } from "lucide-react"
+import {
+  BracesIcon,
+  LayoutListIcon,
+  SaveIcon,
+  SettingsIcon,
+  Sparkles,
+  ViewIcon,
+} from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
+import SyntaxHighlighter from "react-syntax-highlighter"
+import { atomOneLight } from "react-syntax-highlighter/dist/cjs/styles/hljs"
 import { z } from "zod"
 
 import { Action, type ActionType } from "@/types/schemas"
@@ -15,7 +24,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
@@ -26,6 +35,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -231,7 +241,7 @@ export function ActionForm({
           </div>
           <Separator />
           {/* Metadata */}
-          <Accordion type="single" collapsible>
+          <Accordion type="single" defaultValue="action-inputs" collapsible>
             <AccordionItem value="action-settings">
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                 <div className="flex items-center">
@@ -286,88 +296,106 @@ export function ActionForm({
                 </div>
               </AccordionTrigger>
               <AccordionContent>
-                <div className="my-4 space-y-2 px-4">
-                  <div className="space-y-4 capitalize">
-                    {Object.entries(fieldConfig).map(
-                      ([inputKey, inputOption]) => {
-                        const common = {
-                          inputKey,
-                          inputOption,
-                        }
-                        switch (inputOption.type) {
-                          case "select":
-                            return (
-                              <ActionFormSelect<Schema>
-                                key={inputKey}
-                                defaultValue={action?.inputs?.[inputKey]}
-                                {...common}
-                              />
-                            )
-                          case "textarea":
-                            return (
-                              <ActionFormTextarea<Schema>
-                                key={inputKey}
-                                {...common}
-                              />
-                            )
-                          case "json":
-                            return (
-                              <ActionFormJSON<Schema>
-                                key={inputKey}
-                                {...common}
-                              />
-                            )
-                          case "array":
-                            return (
-                              <ActionFormArray<Schema>
-                                key={inputKey}
-                                {...common}
-                              />
-                            )
-                          case "flat-kv":
-                            return (
-                              <ActionFormFlatKVArray<Schema>
-                                key={inputKey}
-                                keyName="tag"
-                                valueName="value"
-                                {...common}
-                              />
-                            )
-                          default:
-                            return (
-                              <ActionFormInputs<Schema>
-                                key={inputKey}
-                                {...common}
-                              />
-                            )
-                        }
-                      }
-                    )}
-                  </div>
+                <div className="px-4">
+                  <Tabs defaultValue="gui">
+                    <div className="flex flex-1 justify-end">
+                      <TabsList className="mb-4">
+                        <TabsTrigger className="text-xs" value="gui">
+                          <ViewIcon className="mr-2 size-3.5" />
+                          <span>View</span>
+                        </TabsTrigger>
+                        <TabsTrigger className="text-xs" value="json">
+                          <BracesIcon className="mr-2 size-3.5" />
+                          <span>JSON</span>
+                        </TabsTrigger>
+                      </TabsList>
+                    </div>
+                    <TabsContent value="gui">
+                      <div className="space-y-4">
+                        {Object.entries(fieldConfig).map(
+                          ([inputKey, inputOption]) => {
+                            const common = {
+                              inputKey,
+                              inputOption,
+                            }
+                            switch (inputOption.type) {
+                              case "select":
+                                return (
+                                  <ActionFormSelect<Schema>
+                                    key={inputKey}
+                                    defaultValue={action?.inputs?.[inputKey]}
+                                    {...common}
+                                  />
+                                )
+                              case "textarea":
+                                return (
+                                  <ActionFormTextarea<Schema>
+                                    key={inputKey}
+                                    {...common}
+                                  />
+                                )
+                              case "json":
+                                return (
+                                  <ActionFormJSON<Schema>
+                                    key={inputKey}
+                                    {...common}
+                                  />
+                                )
+                              case "array":
+                                return (
+                                  <ActionFormArray<Schema>
+                                    key={inputKey}
+                                    {...common}
+                                  />
+                                )
+                              case "flat-kv":
+                                return (
+                                  <ActionFormFlatKVArray<Schema>
+                                    key={inputKey}
+                                    keyName="tag"
+                                    valueName="value"
+                                    {...common}
+                                  />
+                                )
+                              default:
+                                return (
+                                  <ActionFormInputs<Schema>
+                                    key={inputKey}
+                                    {...common}
+                                  />
+                                )
+                            }
+                          }
+                        )}
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="json">
+                      <SyntaxHighlighter
+                        language="json"
+                        style={atomOneLight}
+                        wrapLines
+                        customStyle={{
+                          width: "100%",
+                          maxWidth: "100%",
+                          overflowX: "auto",
+                        }}
+                        codeTagProps={{
+                          className:
+                            "text-xs text-background rounded-lg max-w-full overflow-auto",
+                        }}
+                        {...{
+                          className:
+                            "rounded-lg p-4 overflow-auto max-w-full w-full",
+                        }}
+                      >
+                        {JSON.stringify(methods.watch(), null, 2)}
+                      </SyntaxHighlighter>
+                    </TabsContent>
+                  </Tabs>
                 </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
-          {/* <SyntaxHighlighter
-            language="json"
-            style={atomOneLight}
-            wrapLines
-            customStyle={{
-              width: "100%",
-              maxWidth: "100%",
-              overflowX: "auto",
-            }}
-            codeTagProps={{
-              className:
-                "text-xs text-background rounded-lg max-w-full overflow-auto",
-            }}
-            {...{
-              className:
-                "rounded-lg p-4 overflow-auto max-w-full w-full no-scrollbar",
-            }}
-          >
-            {JSON.stringify(methods.watch(), null, 2)}
-          </SyntaxHighlighter> */}
         </form>
       </FormProvider>
     </div>
