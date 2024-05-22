@@ -222,9 +222,10 @@ export function generateFormConfig(schema: JSONSchemaType<any>): FormConfig {
     const propertyObj = rawObj as JSONSchemaType<any>
     const options = getFieldOptions(propertyObj)
 
+    const isOptional = schema.required?.includes(key) ? false : true
     formConfig[key] = {
       ...(options || ({} as FieldConfig)),
-      optional: schema.required?.includes(key) ? false : true,
+      optional: isOptional,
       default: propertyObj?.default ?? undefined,
     }
   })
@@ -242,13 +243,18 @@ export function getFieldOptions(propertyObj: JSONSchemaType<any>): FieldConfig {
     if (propertyObj?.anyOf) return getAnyOfFieldOptions(propertyObj)
     throw new Error("Could not find matching object property.")
   }
+  const placeholder = getPlaceholder(propertyObj)
   switch (propertyObj.type as JSONType) {
     case "string":
-      return handleStringField(propertyObj)
+      return handleStringField(propertyObj, placeholder)
     case "number":
-      return { kind: "input", placeholder: "Number type.", dtype: "number" }
+      return {
+        kind: "input",
+        placeholder,
+        dtype: "number",
+      }
     case "integer":
-      return { kind: "input", placeholder: "Integer type.", dtype: "integer" }
+      return { kind: "input", placeholder, dtype: "integer" }
     case "object":
       return {
         kind: "flatkv",
@@ -257,7 +263,7 @@ export function getFieldOptions(propertyObj: JSONSchemaType<any>): FieldConfig {
         dtype: "object",
       }
     case "array":
-      return { kind: "array", placeholder: "Array type.", dtype: "array" }
+      return { kind: "array", placeholder, dtype: "array" }
     case "boolean":
       return {
         kind: "select",
@@ -270,8 +276,15 @@ export function getFieldOptions(propertyObj: JSONSchemaType<any>): FieldConfig {
       throw new Error("Could not match obj.type")
   }
 }
+function getPlaceholder(propertyObj: JSONSchemaType<any>): string {
+  return propertyObj.description
+    ? `${propertyObj.description} (${propertyObj.type})`
+    : `${propertyObj.type} field.`
+}
+
 export function handleStringField(
-  propertyObj: JSONSchemaType<any>
+  propertyObj: JSONSchemaType<any>,
+  placeholder: string
 ): FieldConfig {
   if (propertyObj?.enum) {
     // If we have an enum, we treat it as a select field
@@ -286,7 +299,7 @@ export function handleStringField(
     return { kind: "datetime", inputType: "datetime-local", dtype: "string" }
   } else {
     // Otherwise, we treat it as a string input field
-    return { kind: "input", placeholder: "Text input here...", dtype: "string" }
+    return { kind: "input", placeholder, dtype: "string" }
   }
 }
 
