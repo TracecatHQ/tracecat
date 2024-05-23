@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 
+from loguru import logger
 from temporalio import workflow
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -8,8 +9,6 @@ from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
 )
-
-from tracecat.logging import logger
 
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
@@ -46,7 +45,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-async def main():
+async def main() -> None:
     # Connect client
     logger.info("Connecting to Temporal")
 

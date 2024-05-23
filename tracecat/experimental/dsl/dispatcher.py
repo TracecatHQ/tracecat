@@ -3,29 +3,26 @@ import json
 import sys
 import uuid
 
-import yaml
-from loguru import logger
 from temporalio.client import Client
 
+from tracecat import config
 from tracecat.experimental.dsl._converter import pydantic_data_converter
 from tracecat.experimental.dsl.workflow import DSLInput, DSLWorkflow
+from tracecat.logging import standard_logger
+
+logger = standard_logger("tracecat.experimental.dsl.dispatcher")
 
 
-async def dispatch_wofklow(dsl_yaml: str) -> None:
-    # Convert the YAML to our dataclass structure. We use PyYAML + dacite to do
-    # this but it can be done any number of ways.
-    dsl_dict = yaml.safe_load(dsl_yaml)
-    dsl_input = DSLInput.model_validate(dsl_dict)
-
+async def dispatch_wofklow(dsl: DSLInput) -> None:
     # Connect client
     client = await Client.connect(
-        "http://host.docker.internal:7233", data_converter=pydantic_data_converter
+        config.TEMPORAL__CLUSTER_URL, data_converter=pydantic_data_converter
     )
 
     # Run workflow
     result = await client.execute_workflow(
         DSLWorkflow.run,
-        dsl_input,
+        dsl,
         id=f"dsl-workflow-id-{uuid.uuid4()}",
         task_queue="dsl-task-queue",
     )
@@ -38,8 +35,7 @@ if __name__ == "__main__":
     # functions.
     if len(sys.argv) != 2:
         raise RuntimeError("Expected single argument for YAML file")
-    with open(sys.argv[1]) as yaml_file:
-        dsl_yaml = yaml_file.read()
+    path = sys.argv[1]
 
     # Run
-    asyncio.run(dispatch_wofklow(dsl_yaml))
+    asyncio.run(dispatch_wofklow(DSLInput.from_yaml(path)))
