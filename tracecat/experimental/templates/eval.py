@@ -1,7 +1,7 @@
 import re
 from collections.abc import Callable
 from functools import partial
-from typing import Any, TypeVar
+from typing import Any, TypedDict, TypeVar
 
 from tracecat.experimental.templates import patterns
 from tracecat.experimental.templates.future import TemplatedFuture
@@ -10,7 +10,7 @@ T = TypeVar("T", str, list[Any], dict[str, Any])
 
 
 OperatorType = Callable[[re.Match[str]], str]
-OperandType = dict[str, Any]
+OperandType = dict[str, Any] | TypedDict("OperandType", {})
 
 
 def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:

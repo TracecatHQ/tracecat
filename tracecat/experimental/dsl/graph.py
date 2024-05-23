@@ -1,80 +1,88 @@
+from __future__ import annotations
+
 from collections import defaultdict
-from collections.abc import Iterable
 from functools import cached_property
-from graphlib import TopologicalSorter
-from typing import Any
+from typing import Any, Self
 
 from pydantic import BaseModel, Field
+from slugify import slugify
 
-from tracecat.experimental.dsl.workflow import (
-    ActivityStatement,
-    DSLInput,
-    ParallelStatement,
-    SequentialStatement,
-    Statement,
-)
+from tracecat.experimental.dsl.workflow import DSLInput
 from tracecat.types.api import WorkflowResponse
 
 
-def parse_react_flow_graph_as_ir(response: WorkflowResponse) -> DSLInput:
-    """Convert a workflow React Flow graph object (WF-RFGO) into a workflow IR (WF-IR).
-
-    Parameters
-    ----------
-    response : WorkflowResponse
-        The RF workflow response object.
-
-    Output
-    ------
-    WF-IR as WF-JSON (interchangeable with WF-YAML)
-
-    Implementation
-    --------------
-    1. Need to figure out which nodes are the roots. Assume there's only 1 root for now.
-    2. Treat each node initially as a
+def _to_slug(text: str) -> str:
+    return slugify(text, separator="_")
 
 
-    """
-    g = RFGraph(response.object)
-    dsl_input = parse_dag_to_blocks(g)
-    return dsl_input
+def react_flow_graph_to_json(graph: RFGraph) -> dict[str, Any]:
+    return react_flow_graph_to_dsl(graph).model_dump()
 
 
-def topological_sort(adj_list: dict[str, set[str]]) -> Iterable[str]:
-    def invert_adj_list(adj_list):
-        # Convert the adjacency list to a dependency list
-        dep_list = defaultdict(set)
-        for node, neighbors in adj_list.items():
-            for neighbor in neighbors:
-                dep_list[neighbor].add(node)
-        # Ensure all nodes are in the dependency list, even if they have no dependencies
-        for node in adj_list:
-            if node not in dep_list:
-                dep_list[node] = set()
-        return dep_list
+# NOTE: This function should be called alongside the actual get_workflow call
+def react_flow_graph_to_dsl(graph: RFGraph, **kwargs: Any) -> DSLInput:
+    """Convert a workflow React Flow graph object (WF-RFGO) into a workflow DSL (WF-IR)."""
 
-    dep_list = invert_adj_list(adj_list)
-    topological_sorter = TopologicalSorter(dep_list)
-
-    return topological_sorter.static_order()
+    actions = []
+    for node in graph.nodes:
+        dependencies = sorted(
+            graph.node_map[nid].ref for nid in graph.dep_list[node.id]
+        )
+        action = {
+            "ref": node.ref,
+            "action": node.data.type,
+            "args": node.data.args,
+            "depends_on": dependencies,
+        }
+        actions.append(action)
+    dsl_input = {
+        "entrypoint": graph.entrypoint,
+        "actions": actions,
+        **kwargs,
+    }
+    return DSLInput.model_validate(dsl_input)
 
 
 class RFNodeData(BaseModel):
+    """React Flow Graph Node Data."""
+
     type: str
+    """Namespaced action type."""
+
     title: str
+    """Action title. Used to generate the action ref."""
+
     args: dict[str, Any] = Field(default_factory=dict)
+    """Action arguments."""
 
 
 class RFNode(BaseModel):
+    """React Flow Graph Node."""
+
     id: str
+    """RF Graph Node ID. Different from action ref."""
+
     type: str
+    """Namespaced action type."""
+
     data: RFNodeData
+
+    @property
+    def ref(self) -> str:
+        return _to_slug(self.data.title)
 
 
 class RFEdge(BaseModel):
+    """React Flow Graph Edge."""
+
     id: str
+    """RF Graph Edge ID. Not used in this context."""
+
     source: str
+    """Source node ID."""
+
     target: str
+    """Target node ID."""
 
 
 class RFGraphObject(BaseModel):
@@ -85,90 +93,63 @@ class RFGraphObject(BaseModel):
 class RFGraph:
     """React Flow Graph Object."""
 
-    # Graph object
     _raw: RFGraphObject
 
-    # Override the default constructor
     def __init__(self, react_flow_obj: dict[str, Any], /):
         self._raw = RFGraphObject(**react_flow_obj)
 
-    @cached_property
-    def nodes(self) -> dict[str, RFNode]:
-        nodes = {node.id: node for node in self._raw.nodes}
-        return nodes
+    @property
+    def nodes(self) -> list[RFNode]:
+        return self._raw.nodes
 
     @property
     def edges(self) -> list[RFEdge]:
         return self._raw.edges
 
     @cached_property
-    def adj(self) -> dict[str, list[str]]:
-        adj_list = {node.id: [] for node in self._raw.nodes}
+    def node_map(self) -> dict[str, RFNode]:
+        return {node.id: node for node in self._raw.nodes}
+
+    @cached_property
+    def adj_list(self) -> dict[str, list[str]]:
+        adj_list: dict[str, list[str]] = {node.id: [] for node in self._raw.nodes}
         for edge in self.edges:
             adj_list[edge.source].append(edge.target)
         return adj_list
 
     @cached_property
+    def dep_list(self) -> dict[str, set[str]]:
+        dep_list = defaultdict(set)
+        for edge in self.edges:
+            dep_list[edge.target].add(edge.source)
+        return dep_list
+
+    @cached_property
     def indegree(self) -> dict[str, int]:
-        indegree = defaultdict(int)
+        indegree: dict[str, int] = defaultdict(int)
         for edge in self.edges:
             indegree[edge.target] += 1
         return indegree
 
-    @cached_property
+    @property
+    def entrypoint(self) -> str:
+        entrypoints = [
+            node.id for node in self._raw.nodes if self.indegree[node.id] == 0
+        ]
+        if len(entrypoints) != 1:
+            raise ValueError(
+                f"Expected 1 entrypoint, got {len(entrypoints)}: {entrypoints!r}"
+            )
+        return entrypoints[0]
+
+    @classmethod
+    def from_response(cls, response: WorkflowResponse) -> Self:
+        if not response.object:
+            raise ValueError("Empty response object")
+        return cls(response.object)
+
     def topsort_order(self) -> list[str]:
-        return topological_sort(self.adj)
+        from graphlib import TopologicalSorter
 
-
-def parse_dag_to_blocks(g: RFGraph) -> DSLInput:
-    visited = set()
-
-    def visit(node_id: str, *, seq: list[Statement]) -> None:
-        if node_id in visited:
-            return
-        # Process current node
-        visited.add(node_id)
-        node = g.nodes[node_id]
-        curr = ActivityStatement(
-            ref=node_id, action=node.data.type, args=node.data.args
-        )
-        seq.append(curr)
-
-        # Process child nodes
-        children = g.adj[node_id]
-        if len(children) == 0:
-            # Leaf node: we're done here
-            return
-        elif len(children) == 1:
-            # Find the whole sequential block. Either:
-            # 1. Iterate through the children until we find a join/fork
-            # 2. Recurse on the child and flatten the nested sequential blocks
-
-            # Need to get a list of child statements and place it in a sequential block
-            child_id = children[0]
-            # perform indegree check to see if the child is a join node.
-            if g.indegree[child_id] > 1:
-                # Next node is a join node
-                # Break recursion here, and continue using topsort order
-                return
-            # Visit the next node, with the current sequential block
-            visit(child_id, seq=seq)
-
-        else:
-            # Parallel node
-            # Create new sequences
-            branches = []
-            for child_id in children:
-                child_seq = []
-                visit(child_id, seq=child_seq)
-                branches.append(SequentialStatement(sequence=child_seq))
-            seq.append(ParallelStatement(parallel=branches))
-
-    root_seq: list[Statement] = []
-    for node in g.topsort_order:
-        visit(node, seq=root_seq)
-
-    root_stmt = SequentialStatement(sequence=root_seq)
-    variables = {}
-
-    return DSLInput(root=root_stmt, variables=variables)
+        ts = TopologicalSorter(self.dep_list)
+        return list(ts.static_order())
