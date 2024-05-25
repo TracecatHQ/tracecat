@@ -91,7 +91,7 @@ class _Registry:
     def get_schemas(self) -> dict[str, UDFSchema]:
         return {key: udf.construct_schema() for key, udf in self._udf_registry.items()}
 
-    def init(self):
+    def init(self) -> None:
         """Initialize the registry."""
         logger.warning("Initializing registry")
         if not _Registry._done_init:

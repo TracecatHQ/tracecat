@@ -2,6 +2,7 @@ import json
 import os
 
 import lancedb
+from loguru import logger
 from sqlalchemy import Engine
 from sqlmodel import (
     Session,
@@ -24,10 +25,11 @@ from tracecat.db.models import (
 )
 from tracecat.experimental.registry import registry
 from tracecat.labels.mitre import get_mitre_tactics_techniques
-from tracecat.logging import logger
 
 STORAGE_PATH = config.TRACECAT_DIR / "storage"
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
+
+_engine: Engine = None
 
 
 def create_db_engine() -> Engine:
@@ -100,6 +102,13 @@ def initialize_db() -> Engine:
         session.add_all(udfs)
         session.commit()
     return engine
+
+
+def get_engine() -> Engine:
+    global _engine
+    if _engine is None:
+        _engine = initialize_db()
+    return _engine
 
 
 def clone_workflow(

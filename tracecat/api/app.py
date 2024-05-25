@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
+from loguru import logger
 from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
@@ -25,7 +26,7 @@ from tracecat.auth import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import clone_workflow, create_vdb_conn, initialize_db
+from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
 from tracecat.db.models import (
     Action,
     ActionRun,
@@ -43,7 +44,6 @@ from tracecat.db.models import (
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.experimental.dsl.dispatcher import dispatch_wofklow
-from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.types.api import (
     ActionMetadataResponse,
@@ -86,7 +86,7 @@ engine: Engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    engine = initialize_db()
+    engine = get_engine()
     yield
 
 
@@ -1301,7 +1301,7 @@ def create_user(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="User already exists"
             )
-        user = User(id=role.user_id)
+        user = User(owner_id="tracecat", id=role.user_id)
 
         session.add(user)
         session.commit()
