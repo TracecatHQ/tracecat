@@ -23,26 +23,19 @@ DEFAULT_CASE_ACTIONS = [
 ]
 
 
-class User(SQLModel, table=True):
-    # The id is also the JWT 'sub' claim
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
-    tier: str = "free"  # "free" or "premium"
-    settings: str | None = None  # JSON-serialized String of settings
-    owned_workflows: list["Workflow"] = Relationship(
-        back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
-    case_actions: list["CaseAction"] = Relationship(back_populates="user")
-    case_contexts: list["CaseContext"] = Relationship(back_populates="user")
-    secrets: list["Secret"] = Relationship(
-        back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
+def gen_id(prefix: str):
+    separator = "-"
+
+    def wrapper():
+        return prefix + separator + uuid4().hex
+
+    return wrapper
 
 
 class Resource(SQLModel):
     """Base class for all resources in the system."""
 
+    surrogate_id: int | None = Field(default=None, primary_key=True)
     owner_id: str
     created_at: datetime = Field(
         sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
@@ -61,6 +54,25 @@ class Resource(SQLModel):
     )
 
 
+class User(Resource, table=True):
+    # The id is also the JWT 'sub' claim
+    id: str = Field(
+        default_factory=gen_id("user"), nullable=False, unique=True, index=True
+    )
+    tier: str = "free"  # "free" or "premium"
+    settings: str | None = None  # JSON-serialized String of settings
+    owned_workflows: list["Workflow"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    case_actions: list["CaseAction"] = Relationship(back_populates="user")
+    case_contexts: list["CaseContext"] = Relationship(back_populates="user")
+    secrets: list["Secret"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+
+
 class Secret(Resource, table=True):
     """Secret model.
 
@@ -68,7 +80,9 @@ class Secret(Resource, table=True):
     e.g.
     """
 
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("secret"), nullable=False, unique=True, index=True
+    )
     type: str  # "custom", "token", "oauth2"
     name: str = Field(..., max_length=255, index=True, nullable=False)
     description: str | None = Field(default=None, max_length=255)
@@ -101,15 +115,10 @@ class Secret(Resource, table=True):
         self.encrypted_keys = auth.encrypt_object(kv)
 
 
-class Editor(SQLModel, table=True):
-    user_id: str | None = Field(default=None, foreign_key="user.id", primary_key=True)
-    workflow_id: str | None = Field(
-        default=None, foreign_key="workflow.id", primary_key=True
-    )
-
-
 class CaseAction(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("case-act"), nullable=False, unique=True, index=True
+    )
     tag: str
     value: str
     user_id: str | None = Field(foreign_key="user.id")
@@ -117,7 +126,9 @@ class CaseAction(Resource, table=True):
 
 
 class CaseContext(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("case-ctx"), nullable=False, unique=True, index=True
+    )
     tag: str
     value: str
     user_id: str | None = Field(foreign_key="user.id")
@@ -125,7 +136,9 @@ class CaseContext(Resource, table=True):
 
 
 class CaseEvent(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("case-evt"), nullable=False, unique=True, index=True
+    )
     type: str  # The CaseEvent type
     workflow_id: str | None = Field(foreign_key="workflow.id")
     case_id: str
@@ -149,7 +162,9 @@ class UDFSpec(Resource, table=True):
     2. Frontend integration action form
     """
 
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("udf"), nullable=False, unique=True, index=True
+    )
     description: str
     namespace: str
     key: str
@@ -173,8 +188,18 @@ class UDFSpec(Resource, table=True):
         )
 
 
+class DSL(Resource, table=True):
+    id: str = Field(
+        default_factory=gen_id("dsl"), nullable=False, unique=True, index=True
+    )
+    spec: dict[str, Any] | None = Field(sa_column=Column(JSON))
+    version: int
+
+
 class Workflow(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("wf"), nullable=False, unique=True, index=True
+    )
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
@@ -208,7 +233,9 @@ class Workflow(Resource, table=True):
 
 
 class WorkflowRun(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("wf-run"), nullable=False, unique=True, index=True
+    )
     status: str = "pending"  # "online" or "offline"
     workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="runs")
@@ -216,7 +243,12 @@ class WorkflowRun(Resource, table=True):
 
 
 class WorkflowSchedule(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("workflow_schedule"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     cron: str
     entrypoint_key: str
     entrypoint_payload: str  # JSON-serialized String of payload
@@ -232,7 +264,9 @@ class WorkflowSchedule(Resource, table=True):
 
 
 class Action(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("act"), nullable=False, unique=True, index=True
+    )
     type: str
     title: str
     description: str
@@ -251,9 +285,15 @@ class Action(Resource, table=True):
         slug = slugify(self.title, separator="_")
         return f"{self.id}.{slug}"
 
+    @property
+    def ref(self) -> str:
+        return slugify(self.title, separator="_")
+
 
 class ActionRun(Resource, table=True):
-    id: str | None = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    id: str = Field(
+        default_factory=gen_id("act-run"), nullable=False, unique=True, index=True
+    )
     status: str = "pending"  # "online" or "offline"
     # TODO: This allows action/action_id to be None, which may be undesirable.
     # Need to figure out how to handle this better.
@@ -266,19 +306,8 @@ class ActionRun(Resource, table=True):
 
 
 class Webhook(Resource, table=True):
-    """Webhook is a URL that can be called to trigger a workflow.
-
-    Notes
-    -----
-    - We need this because we need a way to trigger a workflow from an external source.
-    - External sources only have access to the path
-    """
-
-    id: str | None = Field(
-        default_factory=lambda: uuid4().hex,
-        primary_key=True,
-        description="Webhook path",
-        alias="path",
+    id: str = Field(
+        default_factory=gen_id("wh"), nullable=False, unique=True, index=True
     )
     action_id: str | None = Field(
         sa_column=Column(String, ForeignKey("action.id", ondelete="CASCADE"))
