@@ -5,18 +5,18 @@ from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Self, TypedDict
 
 import yaml
-from pydantic import validator
+from pydantic import model_validator
 from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
+    from loguru import logger
     from pydantic import BaseModel, ConfigDict, Field
 
-    from loguru import logger
     from tracecat.experimental.registry import registry
     from tracecat.experimental.templates.eval import eval_templated_object
 
@@ -63,17 +63,20 @@ class DSLInput(BaseModel):
         return DSLInput.model_validate(dsl_dict)
 
     def to_yaml(self, path: str | Path) -> None:
-        with Path(path).open("w") as f:
+        with Path(path).expanduser().resolve().open("w") as f:
             yaml.dump(self.model_dump(), f)
 
-    @validator("actions", pre=True)
-    def validate_actions(cls, v: list[dict[str, Any]]) -> list[ActionStatement]:
-        if not v:
-            return []
+    def dump_yaml(self) -> str:
+        return yaml.dump(self.model_dump())
+
+    @model_validator(mode="after")
+    def validate_actions(self) -> Self:
+        if not self.actions:
+            raise ValueError("At least one action must be defined")
         # Ensure all task.ref are unique
-        if len({action["ref"] for action in v}) != len(v):
+        if len({action.ref for action in self.actions}) != len(self.actions):
             raise ValueError("All task.ref must be unique")
-        return [ActionStatement.model_validate(task) for task in v]
+        return self
 
 
 class ActionStatement(BaseModel):
