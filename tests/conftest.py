@@ -24,6 +24,9 @@ logging.basicConfig(level="INFO")
 
 @pytest.fixture(autouse=True, scope="session")
 def setup_shared_env():
+    os.environ[
+        "TRACECAT__DB_URI"
+    ] = "postgresql+psycopg://postgres:postgres@postgres:5432/postgres"
     os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
     os.environ["TRACECAT__API_URL"] = "http://api:8000"
     os.environ["TRACECAT__RUNNER_URL"] = "http://runner:8000"
@@ -48,11 +51,13 @@ def setup_shared_env():
         del os.environ["MINIO_ACCESS_KEY"]
         del os.environ["MINIO_SECRET_KEY"]
         del os.environ["MINIO_ENDPOINT"]
+        del os.environ["AWS_CLOUDTRAIL__BUCKET_NAME"]
+        del os.environ["TRACECAT__DB_URI"]
 
 
 @pytest.fixture(scope="session")
 def create_mock_secret():
-    from tracecat.db import Secret
+    from tracecat.db.models import Secret
     from tracecat.types.secrets import SecretKeyValue
 
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:

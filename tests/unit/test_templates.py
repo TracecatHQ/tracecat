@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from tracecat.config import TRACECAT__API_URL
-from tracecat.db import Secret
+from tracecat.db.models import Secret
 from tracecat.runner.app import app
 from tracecat.runner.templates import (
     JSONPATH_TEMPLATE_PATTERN,
@@ -26,7 +26,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def setup_templates_env():
     from tracecat.contexts import ctx_workflow
-    from tracecat.runner.workflows import Workflow
+    from tracecat.runner.dispatcher import Workflow
 
     os.environ["TEST_API_KEY_1"] = "1234567890"
     os.environ["test_api_key_2"] = "asdfghjkl"

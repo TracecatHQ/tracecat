@@ -14,7 +14,7 @@ from tracecat.auth import (
     encrypt_object,
 )
 from tracecat.config import TRACECAT__API_URL, TRACECAT__RUNNER_URL
-from tracecat.contexts import ctx_session_role
+from tracecat.contexts import ctx_role
 
 
 def test_encrypt_decrypt():
@@ -103,7 +103,7 @@ async def test_authenticated_service_client_init_role_from_context():
         user_id="mock_ctx_user_id",
         service_id="mock_ctx_service_id",
     )
-    ctx_session_role.set(mock_ctx_role)
+    ctx_role.set(mock_ctx_role)
 
     async with AuthenticatedServiceClient() as client:
         assert client.role == mock_ctx_role
@@ -169,7 +169,7 @@ async def test_authenticated_runner_client_init_role_from_context():
         user_id="mock_ctx_user_id",
         service_id="mock_ctx_service_id",
     )
-    ctx_session_role.set(mock_ctx_role)
+    ctx_role.set(mock_ctx_role)
 
     async with AuthenticatedRunnerClient() as client:
         assert client.role == mock_ctx_role
