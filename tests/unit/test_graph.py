@@ -8,12 +8,6 @@ metadata = {
 }
 
 
-def assert_execution_ordering(graph: RFGraph, order: list[str]):
-    """Assert that the ordering of the graph edges is respected."""
-    node2pos = {node: i for i, node in enumerate(order)}
-    assert all(node2pos[edge.source] < node2pos[edge.target] for edge in graph.edges)
-
-
 def build_actions(graph: RFGraph) -> list[ActionStatement]:
     return [
         ActionStatement(

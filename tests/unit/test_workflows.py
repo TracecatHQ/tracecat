@@ -1,146 +1,180 @@
-"""Run end-to-end workflows in a test environment.
+"""Unit tests for workflows.
 
-We trigger a workflow by calling a webhook.
-To test successful completion, we check the status of the workflow run.
+Objectives
+----------
+1. Test that the workflows can be executed in an isolated environment
+2. Test that the workflows can be executed with the correct inputs and outputs
+3. Test that the workflows can be executed with the correct ordering
 
-Environment variables required:
-- TRACECAT__STORAGE_PATH: Path to the directory where the SQLite database will be stored
-- TRACECAT__API_URL
-- TRACECAT__RUNNER_URL
-- TRACECAT__SERVICE_KEY
-
-Note: API and runner servers must be running.
 """
 
-import logging
+import asyncio
 import os
-import threading
+import uuid
+from pathlib import Path
 
-import polars as pl
 import pytest
-import uvicorn
-from fastapi.testclient import TestClient
+from loguru import logger
+from temporalio.common import RetryPolicy
+from temporalio.worker import Worker
 
-from tracecat.api.app import app
-from tracecat.auth import (
-    Role,
-    authenticate_service,
-    authenticate_user,
-    authenticate_user_or_service,
+from tracecat.experimental.dsl.common import get_temporal_client
+from tracecat.experimental.dsl.worker import new_sandbox_runner
+from tracecat.experimental.dsl.workflow import (
+    DSLContext,
+    DSLInput,
+    DSLWorkflow,
+    dsl_activities,
 )
-from tracecat.runner.app import app as runner_app
-from tracecat.runner.app import valid_workflow
 
-TEST_WORKFLOW_RUN_TIMEOUT = 60  # seconds
-TEST_USER_ID = "3f1606c4-351e-41df-acb4-fb6e243fd071"
-
-client: TestClient
+DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
+SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
+ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
 
 
-# Define a fixture for the Runner server
-@pytest.fixture(scope="session")
-def start_servers():
-    global client
-    client = TestClient(app=app)
-
-    # Override authentication dependencies
-    app.dependency_overrides[authenticate_user] = lambda: Role(
-        type="user", user_id=TEST_USER_ID
-    )
-    app.dependency_overrides[authenticate_service] = lambda: Role(
-        type="service", service_id="tracecat-runner"
-    )
-    app.dependency_overrides[authenticate_user_or_service] = lambda: Role(
-        type="user", user_id=TEST_USER_ID, service_id="tracecat-runner"
-    )
-    runner_app.dependency_overrides[authenticate_service] = lambda: Role(
-        type="service", user_id="tracecat-api"
-    )
-    runner_app.dependency_overrides[valid_workflow] = lambda workflow_id: workflow_id
-
-    thread = threading.Thread(
-        target=lambda: uvicorn.run(app, host="localhost", port=8000, log_level="info")
-    )
-    thread = threading.Thread(
-        target=lambda: uvicorn.run(
-            runner_app, host="localhost", port=8001, log_level="info"
-        )
-    )
-    thread.daemon = True
-    thread.start()
-    yield
-    # Cleanup code here if needed
+def gen_id(name: str) -> str:
+    return f"{name}-{uuid.uuid4()!s}"
 
 
-def create_test_db():
-    with TestClient(app=app) as client:
-        # Load test data
-        actions = pl.read_csv("tests/data/actions.csv").fill_null("")
-        webhooks = pl.read_csv("tests/data/webhooks.csv").fill_null("")
-        workflows = pl.read_csv("tests/data/workflows.csv").fill_null("")
+@pytest.fixture
+def mock_registry():
+    """Mock registry for testing UDFs.
 
-        logging.info("Test Actions:\n%s", actions)
-        logging.info("Test Webhooks:\n%s", webhooks)
-        logging.info("Test Workflows:\n%s", workflows)
-
-        # Insert data into database
-        actions.write_database(
-            table_name="action",
-            connection=os.environ["TRACECAT__DB_URI"],
-            if_table_exists="append",
-        )
-        webhooks.write_database(
-            table_name="webhook",
-            connection=os.environ["TRACECAT__DB_URI"],
-            if_table_exists="append",
-        )
-        workflows.write_database(
-            table_name="workflow",
-            connection=os.environ["TRACECAT__DB_URI"],
-            if_table_exists="append",
-        )
-
-        # Insert secrets into database
-        secrets = [
-            {
-                "name": "URL_SCAN_KEY",
-                "value": os.environ["TRACECAT__TESTING__URL_SCAN_KEY"],
-            },
-        ]
-        for secret in secrets:
-            client.put("/secrets", json=secret)
-
-
-def pytest_generate_tests(metafunc):
-    """Dynamically generate workflow triggers fixture,
-    which is a list of dicts with workflow_id, action_id, and payload.
+    Note
+    ----
+    - This fixture is used to test the integration of UDFs with the workflow.
+    - It's unreachable by an external worker, as the worker will not have access
+    to these functions when it starts up.
     """
+    from tracecat.experimental.registry import registry
 
-    create_test_db()
-    # Directly use the fixture data for parametrization
-    query = "SELECT workflow_id, action_id FROM webhook"
-    triggers = (
-        pl.read_database_uri(query, uri=os.environ["TRACECAT__DB_URI"], engine="adbc")
-        .join(pl.read_ndjson("tests/data/trigger_payloads.ndjson"), on="action_id")
-        .to_dicts()
-    )
-    metafunc.parametrize(
-        "workflow_trigger",
-        triggers,
-        ids=[str(trigger["workflow_id"]) for trigger in triggers],
-    )
+    # NOTE!!!!!!!: Didn't want to spend too much time figuring out how
+    # to grab the actual execution order using the client, so I'm using a
+    # hacky way to get the order of execution. TO FIX LATER
+    # The counter doesn't get reset properly so you should never use this outside
+    # of the 'ordering' tests
+    def counter():
+        i = 0
+        while True:
+            yield i
+            i += 1
+
+    counter_gen = counter()
+    if "integration_test.count" not in registry:
+
+        @registry.register(
+            description="Counts up from 0",
+            namespace="integration_test",
+        )
+        def count(arg: str | None = None) -> int:
+            order = next(counter_gen)
+            return order
+
+    if "integration_test.passthrough" not in registry:
+
+        @registry.register(
+            description="passes through",
+            namespace="integration_test",
+        )
+        async def passthrough(num: int) -> int:
+            await asyncio.sleep(0.1)
+            return num
+
+    registry.init()
+    yield registry
+    counter_gen = counter()  # Reset the counter generator
 
 
-def test_workflow_run(workflow_trigger):
-    """End-to-end integration test for a workflow run.
+# Fixture to load workflow DSLs from YAML files
+@pytest.fixture
+def dsl(request: pytest.FixtureRequest) -> DSLInput:
+    path: list[Path] = request.param
+    dsl = DSLInput.from_yaml(path)
+    return dsl
 
-    Tests:
-    - Workflow run is triggered by a webhook
-    - Workflow sink actions complete successfully before timeout
-    """
-    trigger = workflow_trigger
-    client.post(
-        f"/workflows/{trigger['workflow_id']}/trigger",
-        json={"action_key": trigger["action_id"], "payload": trigger["payload"]},
-    )
-    # Check status of workflow run
+
+@pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
+@pytest.mark.asyncio
+async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, mock_registry):
+    client = await get_temporal_client()
+    # Run workflow
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=dsl_activities,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            dsl,
+            id=gen_id(f"test_workflow_can_run_from_yaml-{dsl.title}"),
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    logger.info(result)
+    assert len(result["ACTIONS"]) == len(dsl.actions)
+
+
+@pytest.mark.asyncio
+async def test_workflow_udf_registry_function_can_be_called(mock_registry):
+    """We need to test that the ordering of the workflow tasks is correct."""
+    udf = mock_registry.get("integration_test.count")
+    for i in range(10):
+        assert i == udf.fn()
+
+
+@pytest.mark.asyncio
+async def test_workflow_udf_registry_async_function_can_be_called(mock_registry):
+    """We need to test that the ordering of the workflow tasks is correct."""
+    udf = mock_registry.get("integration_test.passthrough")
+
+    async def coro(i: int):
+        v = await udf.fn(num=i)
+        assert i == v
+
+    async with asyncio.TaskGroup() as tg:
+        tasks = []
+        for i in range(10):
+            tasks.append(tg.create_task(coro(i)))
+
+
+def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
+    act_outputs = final_context["ACTIONS"]
+    for action in dsl.actions:
+        target = action.ref
+        for source in action.depends_on:
+            source_order = act_outputs[source]["result"]
+            target_order = act_outputs[target]["result"]
+            assert source_order < target_order
+
+
+@pytest.mark.parametrize("dsl", ORDERING_TEST_DEFNS, indirect=True)
+@pytest.mark.asyncio
+async def test_workflow_ordering_is_correct(dsl, temporal_cluster, mock_registry):
+    """We need to test that the ordering of the workflow tasks is correct."""
+
+    # Connect client
+
+    client = await get_temporal_client()
+    # Run a worker for the activities and workflow
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=dsl_activities,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            dsl,
+            id=gen_id(f"test_workflow_ordering_is_correct-{dsl.title}"),
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    # Iterate over the actual ordering of the tasks
+    # and compare that in the topological ordering every LHS task in a pair executed before the RHS task
+
+    # Check that the execution order respects the graph edges
+    assert_respectful_exec_order(dsl, result)

@@ -1,0 +1,44 @@
+title: Test kite order
+description: Tests execution order correctness
+config:
+  scheduler: dynamic
+entrypoint: a
+variables:
+  another_url: "http://api:8000"
+  value: 1
+
+triggers:
+  - type: webhook
+    ref: my_webhook
+    id: wh-XXXXXX
+    entrypoint: a # This can be any
+    args:
+      url: http://api:8000/test/items/1
+      method: GET
+
+# The workflow executor will parse these into nodes
+# This contains information about the tasks and their dependencies, which
+# form an execution DAG.
+actions:
+  - ref: a
+    action: integration_test.count
+
+  - ref: b
+    action: integration_test.count
+    depends_on:
+      - a
+
+  - ref: c
+    action: integration_test.count
+    depends_on:
+      - a
+
+  - ref: d
+    action: integration_test.count
+    depends_on:
+      - b
+      - c
+  - ref: e
+    action: integration_test.count
+    depends_on:
+      - d
