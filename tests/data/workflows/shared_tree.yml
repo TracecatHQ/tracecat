@@ -1,0 +1,78 @@
+title: Tree Workflow
+#    A
+#    /\
+#   B  c
+#  /|  |\
+# D E  F G
+description: Mainly tests correctness, templates, and context passing
+config:
+  scheduler: dynamic
+entrypoint: a
+variables:
+  another_url: "http://api:8000"
+  value: 1
+
+triggers:
+  - type: webhook
+    ref: my_webhook
+    id: wh-XXXXXX
+    entrypoint: a # This can be any
+    args:
+      url: http://api:8000/test/items/1
+      method: GET
+
+actions:
+  - ref: a
+    action: example.passthrough
+    args:
+      value: This is from A
+
+  - ref: b
+    action: example.passthrough
+    args:
+      value: ${{ ACTIONS.a.result -> str }}
+    depends_on:
+      - a
+
+  - ref: c
+    # Testing we can call different functions
+    action: example.my_function
+    args:
+      name: ${{ ACTIONS.a.result -> str }}
+      age: 3000000
+      is_member: false
+    depends_on:
+      - a
+
+  - ref: d
+    action: example.passthrough
+    args:
+      value: ${{ ACTIONS.b.result -> str }}
+    depends_on:
+      - b
+
+  - ref: e
+    action: example.passthrough
+    args:
+      value: "5"
+    depends_on:
+      - b
+
+  - ref: f
+    action: example.my_function
+    args:
+      # Grab the result from 2 parents above
+      name: ${{ ACTIONS.a.result -> str }}
+      age: 99999999
+      is_member: true
+    depends_on:
+      - c
+
+  - ref: g
+    action: example.my_function
+    args:
+      name: ${{ ACTIONS.c.result.name -> str }}
+      age: ${{ ACTIONS.c.result.age -> int }}
+      is_member: false
+    depends_on:
+      - c
