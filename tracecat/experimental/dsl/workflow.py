@@ -109,7 +109,7 @@ class DSLNodeResult(TypedDict):
 class DSLScheduler:
     """Manage only scheduling of tasks in a topological-like order."""
 
-    _queue_wait_timeout = 2
+    _queue_wait_timeout = 1
 
     def __init__(
         self,
@@ -148,10 +148,11 @@ class DSLScheduler:
         logger.info("Task completed", task_ref=task_ref)
 
         # Update the indegrees of the tasks
-        for next_task_ref in self.adj[task_ref]:
-            self.indegrees[next_task_ref] -= 1
-            if self.indegrees[next_task_ref] == 0:
-                self.queue.put_nowait(next_task_ref)
+        async with asyncio.TaskGroup() as tg:
+            for next_task_ref in self.adj[task_ref]:
+                self.indegrees[next_task_ref] -= 1
+                if self.indegrees[next_task_ref] == 0:
+                    tg.create_task(self.queue.put(next_task_ref))
 
     async def dynamic_start(self) -> None:
         """Run the scheduler in dynamic mode."""
@@ -233,8 +234,10 @@ class DSLActivities:
         activity.logger.info(f"{input = }")
         udf = registry[input.type]
         if udf.is_async:
+            activity.logger.info("Running async")
             result = await udf.fn(**input.args)
         else:
+            activity.logger.info("Running sync")
             # Force it to be async
             result = await asyncio.to_thread(udf.fn, **input.args)
         activity.logger.info(f"Result: {result}")

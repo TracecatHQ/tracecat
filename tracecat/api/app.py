@@ -43,7 +43,7 @@ from tracecat.db.models import (
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.experimental.dsl.dispatcher import dispatch_wofklow
+from tracecat.experimental.dsl.dispatcher import dispatch_workflow
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.types.api import (
     ActionMetadataResponse,
@@ -462,7 +462,7 @@ async def trigger_workflow_run(
     path = "workflow4"
     with Path(f"/app/tracecat/static/workflows/{path}.yaml").resolve().open() as f:
         dsl_yaml = f.read()
-    await dispatch_wofklow(dsl_yaml)
+    await dispatch_workflow(dsl_yaml)
 
     return StartWorkflowResponse(
         status="ok", message="Workflow started.", id=workflow_id
