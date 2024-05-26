@@ -101,6 +101,7 @@ class Secret(Resource, table=True):
 
     @property
     def keys(self) -> list[SecretKeyValue] | None:
+        """Getter: Decrypt the keys and return them as a list of SecretKeyValue objects."""
         if not self.encrypted_keys:
             return None
         obj = auth.decrypt_object(self.encrypted_keys)
@@ -109,6 +110,7 @@ class Secret(Resource, table=True):
 
     @keys.setter
     def keys(self, value: list[SecretKeyValue]) -> None:
+        """Setter: Encrypt the keys and store them as bytes."""
         # Convert to dict
         kv = {item.key: item.value for item in value}
         self._validate_obj(kv)

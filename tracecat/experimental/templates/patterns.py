@@ -1,6 +1,7 @@
 import re
 
-TEMPLATED_OBJ = re.compile(r"(?P<template>\${{\s*.+\s*}})")
+TEMPLATED_OBJ = re.compile(r"(?P<template>\${{\s*.+?\s*}})")  # Lazy match
+
 TYPED_TEMPLATE = re.compile(
     r"""
     \${{\s*                                               # Opening curly braces and optional whitespace
@@ -8,6 +9,16 @@ TYPED_TEMPLATE = re.compile(
     \.
     (?P<expr>.+?)            # Non-greedy capture for 'expression', any chars
     (\s*->\s*(?P<type>int|float|str))?                             # Capture 'type', which must be one of 'int', 'float', 'str'
+    \s*}}                                               # Optional whitespace and closing curly braces
+""",
+    re.VERBOSE,
+)
+SECRET_TEMPLATE = re.compile(
+    r"""
+    \${{\s*                                               # Opening curly braces and optional whitespace
+    SECRETS
+    \.
+    (?P<secret>.+?)            # Non-greedy capture for 'expression', any chars
     \s*}}                                               # Optional whitespace and closing curly braces
 """,
     re.VERBOSE,
