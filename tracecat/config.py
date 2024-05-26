@@ -18,7 +18,8 @@ TRACECAT__PUBLIC_RUNNER_URL = os.environ.get(
     "TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001"
 )
 TRACECAT__DB_URI = os.environ.get(
-    "TRACECAT__DB_URI", "postgresql+psycopg://postgres:postgres@postgres:5432/postgres"
+    "TRACECAT__DB_URI",
+    "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
 )
 
 TRACECAT__TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"

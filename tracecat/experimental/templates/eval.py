@@ -1,7 +1,7 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
-from typing import Any, TypedDict, TypeVar
+from typing import Any, TypeVar
 
 from tracecat.experimental.templates import patterns
 from tracecat.experimental.templates.future import TemplatedFuture
@@ -10,7 +10,7 @@ T = TypeVar("T", str, list[Any], dict[str, Any])
 
 
 OperatorType = Callable[[re.Match[str]], str]
-OperandType = dict[str, Any] | TypedDict("OperandType", {})
+OperandType = Mapping[str, Any]
 
 
 def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:
@@ -26,10 +26,7 @@ def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:
             return obj
 
 
-def _eval_future_op(
-    match: re.Match[str],
-    operand: dict[str, Any],
-):
+def _eval_future_op(match: re.Match[str], operand: dict[str, Any]):
     return _eval_templated_future(match.group("template"), operand)
 
 
@@ -39,9 +36,9 @@ def _eval_templated_future(expr: str, operand: OperandType) -> Any:
 
 
 def eval_templated_object(
-    templated_obj: Any,
+    obj: Any,
     *,
-    operand: OperandType,
+    operand: OperandType | None = None,
     pattern: re.Pattern[str] = patterns.TEMPLATED_OBJ,
 ) -> dict[str, Any]:
     """Populate templated fields with actual values."""
@@ -54,16 +51,17 @@ def eval_templated_object(
         When we reach this point, the target is a string.
         The string could be an inline templated future or just the templated
         future itself.
+        Note that we don't remove leading/trailing whitespace from the string.
         Case A - Inline template: "The answer is ${{42}}!!!"
         Case B - Template only: "${{42}}"
 
         """
-        target = line.strip()
-        if _is_template_only(target):
-            return _eval_templated_future(target, operand)
-        return pattern.sub(evaluator, target)
+        if _is_template_only(line) and len(pattern.findall(line)) == 1:
+            # This allows us to perform the casts as we aren't using regex sub
+            return _eval_templated_future(line, operand)
+        return pattern.sub(evaluator, line)
 
-    processed_kwargs = _eval_templated_obj_rec(templated_obj, operator)
+    processed_kwargs = _eval_templated_obj_rec(obj, operator)
     return processed_kwargs
 
 
@@ -71,30 +69,19 @@ def _is_template_only(template: str) -> bool:
     return template.startswith("${{") and template.endswith("}}")
 
 
-if __name__ == "__main__":
-    data = {
-        "ACTIONS": {
-            "webhook": {
-                "result": 42,
-                "url": "https://example.com",
-            }
-        }
-    }
+def extract_templated_secrets(
+    templated_obj: Any,
+    *,
+    pattern: re.Pattern[str] = patterns.SECRET_TEMPLATE,
+) -> list[str]:
+    """Extract secrets from templated objects."""
+    secrets: set[str] = set()
 
-    templates = [
-        {
-            "test": {
-                "data": "INLINE: ${{ ACTIONS.webhook.result }}",
-                "url": "${{ ACTIONS.webhook.url}}",
-                "number": "${{ ACTIONS.webhook.result -> int }}",
-                "number_whitespace": "${{ ACTIONS.webhook.result -> int }}",
-            }
-        },
-        "Inline substitution ${{ ACTIONS.webhook.result}} like this",
-        "${{ ACTIONS.webhook.url}}",
-    ]
+    def operator(line: str) -> Any:
+        """Collect secrets from the templated string."""
+        for match in re.finditer(pattern, line):
+            secret = match.group("secret")
+            secrets.add(secret)
 
-    res = eval_templated_object(templates, operand=data)
-    import json
-
-    print(json.dumps(res, indent=2))
+    _eval_templated_obj_rec(templated_obj, operator)
+    return list(secrets)

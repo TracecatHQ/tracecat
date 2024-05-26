@@ -24,7 +24,8 @@ def monkeysession(request):
     mpatch.undo()
 
 
-@pytest.fixture(autouse=True, scope="session")
+# NOTE: Don't auto-use this fixture unless necessary
+@pytest.fixture(scope="session")
 def auth_sandbox():
     from tracecat.auth import Role
     from tracecat.contexts import ctx_role
@@ -38,11 +39,11 @@ def auth_sandbox():
 
 @pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession, request: pytest.FixtureRequest):
-    logger.info("Setting up environment variables for integration tests")
+    logger.info("Setting up environment variables")
     temporal_compose_file = request.config.getoption("--temporal-compose-file")
     monkeysession.setenv(
         "TRACECAT__DB_URI",
-        "postgresql+psycopg://postgres:postgres@postgres:5432/postgres",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
     monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
@@ -54,6 +55,7 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-dsl-task-queue")
     yield
     # Cleanup is automatic with monkeypatch
+    logger.info("Environment variables cleaned up")
 
 
 @pytest.fixture(scope="session")
@@ -79,7 +81,7 @@ def create_mock_secret():
 def temporal_cluster(env_sandbox):
     compose_file = os.environ["TEMPORAL__DOCKER_COMPOSE_PATH"]
     logger.info(
-        "Setting up Temporal cluster for integration tests",
+        "Setting up Temporal cluster",
         compose_file=compose_file,
     )
     try:
@@ -98,3 +100,20 @@ def temporal_cluster(env_sandbox):
             check=True,
         )
         logger.info("Successfully shut down Temporal cluster")
+
+
+@pytest.fixture(scope="session")
+def tracecat_stack(env_sandbox):
+    logger.info("Setup Tracecat stack")
+    try:
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "api", "postgres_db"], check=True
+        )
+        time.sleep(5)  # Wait for the cluster to start
+        logger.info("Tracecat stack started")
+
+        yield
+    finally:
+        logger.info("Shutting down Tracecat stack")
+        subprocess.run(["docker", "compose", "down", "--remove-orphans"], check=True)
+        logger.info("Successfully shut down Tracecat stack")
