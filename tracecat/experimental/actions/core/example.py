@@ -11,29 +11,48 @@ from typing_extensions import Doc
 from tracecat.experimental.registry import registry
 
 
-class Stats(TypedDict):
-    strength: int
-    dexterity: int
-    intelligence: int
-    vitality: int
+class Member(TypedDict):
+    name: str
+    age: int
+    is_member: bool
 
 
 CONST = "test_"
 
 
 @registry.register(
+    description="For testing the registry",
+    namespace="example",
+    version="0.1.0",
+)
+def passthrough(
+    value: Annotated[str, Field(..., description="The value to pass through")],
+) -> str:
+    return value
+
+
+@registry.register(
+    description="Adder example",
+    namespace="example",
+    version="0.1.0",
+)
+def add(
+    lhs: Annotated[int, Field(..., description="The first number")],
+    rhs: Annotated[int, Field(..., description="The second number")],
+) -> int:
+    return lhs + rhs
+
+
+@registry.register(
     description="This is a test function",
-    namespace="core.example",
+    namespace="example",
     version="0.1.0",
 )
 def my_function(
     age: Annotated[int, Field(30, description="Persons age in years")],
-    name: Annotated[
-        dict,
-        Field(description="Name of the person"),
-    ] = None,
+    name: Annotated[str, Field(description="Name of the person")] = None,
     is_member: bool = False,
-) -> Stats:
+) -> Member:
     """My function
 
     Parameters
@@ -50,19 +69,12 @@ def my_function(
     Stats
         the result
     """
-    # Function implementation goes here
-    print(f"Name: {name}, Age: {age}, Is member: {is_member}")
-    return {
-        "strength": 9999999,
-        "dexterity": 9999999,
-        "intelligence": 9999999,
-        "vitality": 400000000000,
-    }
+    return Member(name=name, age=age, is_member=is_member)
 
 
 @registry.register(
     description="This is another test function",
-    namespace="core.example",
+    namespace="example",
     version="0.1.0",
 )
 def another_function(
