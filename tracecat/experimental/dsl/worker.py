@@ -1,9 +1,9 @@
 import asyncio
 import dataclasses
+import os
 
 from loguru import logger
 from temporalio import workflow
-from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
@@ -13,8 +13,7 @@ from temporalio.worker.workflow_sandbox import (
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
 with workflow.unsafe.imports_passed_through():
-    from tracecat import config
-    from tracecat.experimental.dsl._converter import pydantic_data_converter
+    from tracecat.experimental.dsl.common import get_temporal_client
     from tracecat.experimental.dsl.workflow import DSLWorkflow, dsl_activities
     from tracecat.experimental.registry import registry
 
@@ -50,14 +49,12 @@ async def main() -> None:
     logger.info("Connecting to Temporal")
 
     registry.init()
-    client = await Client.connect(
-        config.TEMPORAL__CLUSTER_URL, data_converter=pydantic_data_converter
-    )
+    client = await get_temporal_client()
 
     # Run a worker for the activities and workflow
     async with Worker(
         client,
-        task_queue="dsl-task-queue",
+        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "dsl-task-queue"),
         activities=dsl_activities,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),

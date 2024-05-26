@@ -1,39 +1,44 @@
 import asyncio
 import json
+import os
 import sys
 import uuid
 
-from temporalio.client import Client
+from pydantic import BaseModel
 
-from tracecat import config
 from tracecat.contexts import ctx_role
-from tracecat.experimental.dsl._converter import pydantic_data_converter
-from tracecat.experimental.dsl.workflow import DSLInput, DSLWorkflow
+from tracecat.experimental.dsl.common import get_temporal_client
+from tracecat.experimental.dsl.workflow import DSLContext, DSLInput, DSLWorkflow
 from tracecat.logging import standard_logger
 
 logger = standard_logger("tracecat.experimental.dsl.dispatcher")
 
 
-async def dispatch_wofklow(dsl: DSLInput) -> None:
+class DispatchResult(BaseModel):
+    wf_id: str
+    final_context: DSLContext
+
+
+async def dispatch_workflow(dsl: DSLInput, **kwargs) -> DispatchResult:
     # Connect client
     role = ctx_role.get()
-    client = await Client.connect(
-        config.TEMPORAL__CLUSTER_URL, data_converter=pydantic_data_converter
-    )
-
+    client = await get_temporal_client()
     # Run workflow
     logger.info(f"Executing DSL workflow: {dsl.title!r} {role=}")
+    wf_id = f"dsl-workflow-{uuid.uuid4()}"
     result = await client.execute_workflow(
         DSLWorkflow.run,
         dsl,
-        id=f"dsl-workflow-{uuid.uuid4()}",
-        task_queue="dsl-task-queue",
+        id=wf_id,
+        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "dsl-task-queue"),
+        **kwargs,
     )
-    logger.info(f"Workflow result:\n{json.dumps(result, indent=2)}")
+    logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
+    return DispatchResult(wf_id=wf_id, final_context=result)
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise RuntimeError("Expected single argument for YAML file")
     path = sys.argv[1]
-    asyncio.run(dispatch_wofklow(DSLInput.from_yaml(path)))
+    asyncio.run(dispatch_workflow(DSLInput.from_yaml(path)))

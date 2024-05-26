@@ -127,7 +127,7 @@ class _Registry:
             6. [x] Store other metadata about the udf.
             """
             key = f"{namespace}.{fn.__name__}"
-            logger.info("Registering udf", key=key)
+            logger.debug("Registering udf", key=key)
 
             wrapped_fn: FunctionType
 
