@@ -83,8 +83,8 @@ class TemplatedFuture:
         self._context = match.group("context")
         self._expr = match.group("expr")
         self._resolve_typename = match.group("type")
-        # If no type is specified, default to str
-        self._resolve_type = _BUILTIN_TYPE_NAP.get(self._resolve_typename, str)
+        # If no type is specified, do not cast the result
+        self._resolve_type = _BUILTIN_TYPE_NAP.get(self._resolve_typename)
 
         # Operand
         self._operand = operand
@@ -123,6 +123,9 @@ class TemplatedFuture:
                 if not self._operand:
                     raise ValueError("Operand is required for templated jsonpath.")
                 ret = eval_jsonpath(self._expr, self._operand[self._context])
+
+        if not self._resolve_type:
+            return ret
         try:
             # Attempt to cast the result into the desired type
             return self._resolve_type(ret)
