@@ -31,5 +31,5 @@ def workflow_to_dsl(workflow: Workflow) -> DSLInput:
         actions=graph.action_statements(workflow),
         # config=workflow.config,
         # triggers=workflow.triggers,
-        # variables=workflow.variables,
+        # inputs=workflow.inputs,
     )

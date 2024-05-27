@@ -53,7 +53,7 @@ class DSLInput(BaseModel):
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
-    variables: dict[str, Any] = Field(default_factory=dict)
+    inputs: dict[str, Any] = Field(default_factory=dict)
 
     @staticmethod
     def from_yaml(path: str | Path) -> DSLInput:
@@ -189,7 +189,7 @@ class DSLWorkflow:
     async def run(self, dsl: DSLInput) -> DSLContext:
         # Setup
         self.dsl = dsl
-        self.context = DSLContext(INPUTS=dsl.variables, ACTIONS={})
+        self.context = DSLContext(INPUTS=dsl.inputs, ACTIONS={})
         self.dep_list = {task.ref: task.depends_on for task in dsl.actions}
         wfr_id = workflow.info().run_id
         workflow.logger.info(f"Running DSL task workflow {wfr_id}")
@@ -204,6 +204,10 @@ class DSLWorkflow:
         """Purely execute a task and manage the results."""
         # Resolve all templated arguments
         workflow.logger.info(f"Executing task {task.ref}")
+        # Securely inject secrets into the task arguments
+        # 1. Find all secrets in the task arguments
+        # 2. Load the secrets
+        # 3. Inject the secrets into the task arguments using an enriched context
         processed_args = eval_templated_object(task.args, operand=self.context)
 
         # TODO: Set a retry policy for the activity

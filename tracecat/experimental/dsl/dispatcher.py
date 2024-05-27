@@ -4,14 +4,14 @@ import os
 import sys
 import uuid
 
+from loguru import logger
 from pydantic import BaseModel
 
 from tracecat.contexts import ctx_role
 from tracecat.experimental.dsl.common import get_temporal_client
 from tracecat.experimental.dsl.workflow import DSLContext, DSLInput, DSLWorkflow
-from tracecat.logging import standard_logger
 
-logger = standard_logger("tracecat.experimental.dsl.dispatcher")
+# logger = standard_logger("tracecat.experimental.dsl.dispatcher")
 
 
 class DispatchResult(BaseModel):
@@ -22,10 +22,10 @@ class DispatchResult(BaseModel):
 async def dispatch_workflow(dsl: DSLInput, **kwargs) -> DispatchResult:
     # Connect client
     role = ctx_role.get()
+    logger.info(f"Executing DSL workflow: {dsl.title!r} {role=}")
+    wf_id = kwargs.pop("workflow_id", f"wf-{uuid.uuid4().hex}")
     client = await get_temporal_client()
     # Run workflow
-    logger.info(f"Executing DSL workflow: {dsl.title!r} {role=}")
-    wf_id = f"dsl-workflow-{uuid.uuid4()}"
     result = await client.execute_workflow(
         DSLWorkflow.run,
         dsl,
