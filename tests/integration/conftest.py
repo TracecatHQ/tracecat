@@ -1,5 +1,6 @@
 """Set up shared environment variables and S3 proxy server (MinIO) for integration tests."""
 
+import os
 import subprocess
 import sys
 import time
@@ -61,7 +62,14 @@ def tracecat_worker(env_sandbox):
     try:
         # Check that worker is not already running
         logger.info("Starting Tracecat Temporal worker")
-        subprocess.run(["docker", "compose", "up", "-d", "worker"], check=True)
+        env_copy = os.environ.copy()
+        # As the worker is running inside a container, use host.docker.internal
+        env_copy["TEMPORAL__CLUSTER_URL"] = "http://host.docker.internal:7233"
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "worker"],
+            check=True,
+            env=env_copy,
+        )
         time.sleep(5)
 
         yield

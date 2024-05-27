@@ -26,6 +26,7 @@ from tracecat.experimental.dsl.workflow import DSLInput
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
 ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
+IO_TEST_DEFNS = list(DATA_PATH.glob("integration_io_*.yml"))
 
 
 def gen_id(name: str) -> str:
@@ -43,5 +44,12 @@ def dsl(request: pytest.FixtureRequest) -> DSLInput:
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
 @pytest.mark.asyncio
 async def test_workflow_can_be_dispatched(dsl, temporal_cluster, tracecat_worker):
+    result = await dispatch_workflow(dsl, retry_policy=RetryPolicy(maximum_attempts=1))
+    assert len(result.final_context["ACTIONS"]) == len(dsl.actions)
+
+
+@pytest.mark.parametrize("dsl", IO_TEST_DEFNS, indirect=True)
+@pytest.mark.asyncio
+async def test_workflow_io_can_complete(dsl, temporal_cluster, tracecat_worker):
     result = await dispatch_workflow(dsl, retry_policy=RetryPolicy(maximum_attempts=1))
     assert len(result.final_context["ACTIONS"]) == len(dsl.actions)
