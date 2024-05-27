@@ -5,7 +5,7 @@ config:
   # Dynamic -> node execution order is not fixed
   scheduler: dynamic
 entrypoint: a
-variables:
+inputs:
   another_url: "http://api:8000"
   value: 1
 

@@ -51,6 +51,8 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
     monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", "test-service-key")
     monkeysession.setenv("TEMPORAL__DOCKER_COMPOSE_PATH", temporal_compose_file)
+    # When launching the worker directly in a test, use localhost
+    # If the worker is running inside a container, use host.docker.internal
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-dsl-task-queue")
     yield
