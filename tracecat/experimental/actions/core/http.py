@@ -16,7 +16,7 @@ RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 class HTTPResponse(TypedDict):
     status_code: int
     headers: dict[str, str]
-    data: str | dict[str, Any]
+    data: str | dict[str, Any] | list[Any]
 
 
 @registry.register(
@@ -37,22 +37,27 @@ async def http_request(
         dict[str, Any],
         Field(description="HTTP request payload"),
     ] = None,
+    params: Annotated[
+        dict[str, Any],
+        Field(description="URL query parameters"),
+    ] = None,
     method: Annotated[
         RequestMethods,
         Field(description="HTTP reqest method"),
     ] = "GET",
 ) -> HTTPResponse:
     try:
-        kwargs: dict[str, Any] = {}
-        if headers is not None:
-            kwargs["headers"] = headers
-        if payload is not None:
-            kwargs["payload"] = payload
         async with httpx.AsyncClient() as client:
-            response = await client.request(method=method, url=url, **kwargs)
+            response = await client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=params,
+                json=payload,
+            )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        logger.error("HTTP request failed with status {}.", e.response.status_code)
+        logger.error(f"HTTP request failed with status {e.response.status_code}.")
         raise e
 
     # TODO: Better parsing logic
