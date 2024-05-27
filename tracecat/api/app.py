@@ -18,7 +18,7 @@ from tracecat.api.completions import (
     FieldCons,
     stream_case_completions,
 )
-from tracecat.api.routers import test, triggers
+from tracecat.api.routers import triggers
 from tracecat.auth import (
     Role,
     authenticate_service,
@@ -38,6 +38,7 @@ from tracecat.db.models import (
     User,
     Webhook,
     Workflow,
+    WorkflowDefinition,
     WorkflowRun,
 )
 
@@ -72,6 +73,7 @@ from tracecat.types.api import (
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
+    UpsertWorkflowDefinitionParams,
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
@@ -117,7 +119,6 @@ else:
 
 app = create_app(lifespan=lifespan, default_response_class=ORJSONResponse)
 app.include_router(triggers.router)
-app.include_router(test.router)
 app.add_middleware(
     CORSMiddleware,
     **cors_origins_kwargs,
@@ -330,6 +331,84 @@ def copy_workflow(
         new_workflow = clone_workflow(workflow, session, role.user_id)
         session.commit()
         session.refresh(new_workflow)
+
+
+### Workflow Definitions
+
+
+@app.get("/workflows/{workflow_id}/definition")
+async def list_workflow_definitions(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+) -> list[WorkflowDefinition]:
+    with Session(engine) as session:
+        statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.owner_id == role.user_id,
+        )
+        if workflow_id:
+            statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
+        result = session.exec(statement)
+        return result.all()
+
+
+@app.get("/workflows/{workflow_id}/definition")
+def get_workflow_definition(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+    version: int | None = None,
+) -> WorkflowDefinition:
+    with Session(engine) as session:
+        statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.owner_id == role.user_id,
+            WorkflowDefinition.workflow_id == workflow_id,
+        )
+        if version:
+            statement = statement.where(WorkflowDefinition.version == version)
+        else:
+            # Get the latest version
+            statement = statement.order_by(WorkflowDefinition.version.desc())
+
+        result = session.exec(statement)
+        try:
+            defn = result.first()
+            if not defn:
+                raise NoResultFound
+            return defn
+        except NoResultFound as e:
+            logger.opt(exception=e).error("Workflow definition does not exist", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            ) from e
+
+
+@app.post("/workflows/{workflow_id}/definition", status_code=status.HTTP_204_NO_CONTENT)
+def upsert_workflow_definition(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+    params: UpsertWorkflowDefinitionParams,
+) -> None:
+    with Session(engine) as session:
+        statement = (
+            select(WorkflowDefinition)
+            .where(
+                WorkflowDefinition.owner_id == role.user_id,
+                WorkflowDefinition.workflow_id == workflow_id,
+            )
+            .order_by(WorkflowDefinition.version.desc())
+        )
+        result = session.exec(statement)
+        latest_defn = result.first()
+
+        version = latest_defn.version + 1 if latest_defn else 1
+        defn = WorkflowDefinition(
+            owner_id=role.user_id,
+            workflow_id=workflow_id,
+            content=params.content.model_dump(),
+            version=version,
+        )
+        session.add(defn)
+        session.commit()
+        session.refresh(defn)
 
 
 ### Workflow Runs

@@ -9,10 +9,9 @@ from sqlmodel import Session, select
 
 from tracecat.auth import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.connectors import workflow_to_dsl
 from tracecat.db.engine import get_engine
-from tracecat.db.models import Workflow
-from tracecat.experimental.dsl.workflow import DSLInput
+from tracecat.db.models import WorkflowDefinition
+from tracecat.experimental.dsl.dispatcher import dispatch_workflow
 
 engine: Engine = get_engine()
 
@@ -20,42 +19,45 @@ engine: Engine = get_engine()
 router = APIRouter()
 
 
-def validate_incoming_webhook(webhook_id: str, secret: str) -> Workflow:
+def validate_incoming_webhook(webhook_id: str, secret: str) -> WorkflowDefinition:
     with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.id == webhook_id)
+        # Match the webhook id with the workflow id and get the latest version
+        statement = (
+            select(WorkflowDefinition)
+            .where(WorkflowDefinition.workflow_id == webhook_id)
+            .order_by(WorkflowDefinition.version.desc())
+        )
+
         # statement = select(Webhook).where(Webhook.id == webhook_id)
+        # NOTE: Probably best to first check Webhook.
         result = session.exec(statement)
         try:
-            workflow = result.one()
+            defn = result.first()
+            if not defn:
+                raise NoResultFound("No workflow found")
         except NoResultFound as e:
+            # No workflow associated with the webhook
             logger.opt(exception=e).error("Webhook does not exist", error=e)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Invalid webhook ID"
             ) from e
-        # if secret != webhook.secret:
-        #     raise HTTPException(
-        #         status_code=status.HTTP_401_UNAUTHORIZED,
-        #         detail="Unauthorized webhook request",
-        #     )
+        if secret != "test-secret":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized webhook request",
+            )
 
         # if (workflow := webhook.workflow) is None:
         #     raise HTTPException(
         #         status_code=status.HTTP_404_NOT_FOUND, detail="There is no workflow"
         #     )
-        _ = workflow.actions  # Hydrate the workflow
-        if workflow.actions is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Workflow has no actions"
-            )
         ctx_role.set(
-            Role(
-                type="service", user_id=workflow.owner_id, service_id="tracecat-runner"
-            )
+            Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
         )
-        return workflow
+        return WorkflowDefinition.model_validate(defn)
 
 
-async def handle_incoming_webhook(path: str, secret: str) -> DSLInput:
+async def handle_incoming_webhook(path: str, secret: str) -> WorkflowDefinition:
     """Handle incoming webhook requests.
 
     Steps
@@ -68,21 +70,24 @@ async def handle_incoming_webhook(path: str, secret: str) -> DSLInput:
     Webhook path is its natural key
     """
     # TODO(perf): Replace this when we get async sessions
-    workflow = await asyncio.to_thread(
+    defn = await asyncio.to_thread(
         validate_incoming_webhook, webhook_id=path, secret=secret
     )
-    logger.info(workflow)
-
-    return workflow_to_dsl(workflow)
+    return defn
 
 
-@router.post("/webhooks/{path}/{secret}")
+@router.post("/webhooks/{path}/{secret}", tags=["triggers"])
 async def webhook(
-    dsl: Annotated[DSLInput, Depends(handle_incoming_webhook)],
+    defn: Annotated[WorkflowDefinition, Depends(handle_incoming_webhook)],
     path: str,
-    payload: dict[str, Any],
+    payload: dict[str, Any] | None = None,
 ):
     """Webhook endpoint to trigger a workflow.
+
+    Params
+    ------
+    path: str
+        The webhook path, equivalent to the workflow id
 
     Notes
     -----
@@ -102,8 +107,9 @@ async def webhook(
     logger.info("Webhook hit", path=path, payload=payload)
 
     # Fetch the DSL from the workflow object
-    logger.info(dsl)
-    logger.info(dsl.dump_yaml())
+    logger.info(defn)
+    dsl_input = defn.content
+    logger.info(dsl_input.dump_yaml())
 
-    # await dispatch_wofklow(dsl)
+    asyncio.create_task(dispatch_workflow(dsl_input, workflow_id=path))
     return {"status": "ok"}

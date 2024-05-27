@@ -10,6 +10,7 @@ from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
 from tracecat import auth, config
+from tracecat.experimental.dsl.workflow import DSLInput
 from tracecat.experimental.registry import RegisteredUDF
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
@@ -190,12 +191,13 @@ class UDFSpec(Resource, table=True):
         )
 
 
-class DSL(Resource, table=True):
+class WorkflowDefinition(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("dsl"), nullable=False, unique=True, index=True
+        default_factory=gen_id("wf-defn"), nullable=False, unique=True, index=True
     )
-    spec: dict[str, Any] | None = Field(sa_column=Column(JSON))
-    version: int
+    content: DSLInput = Field(sa_column=Column(JSON))
+    version: int = Field(..., description="DSL spec version")
+    workflow_id: str
 
 
 class Workflow(Resource, table=True):
