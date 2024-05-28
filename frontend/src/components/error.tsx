@@ -30,36 +30,36 @@ export default function Error({ error }: { error: ErrorProps | AxiosError }) {
     </main>
   )
 }
+function sessionExpiredError(router: AppRouterInstance): CustomError {
+  return {
+    headline: "Your session has expired",
+    level: "warning",
+    message: "Please log in again.",
+    action: (
+      <Button
+        variant="outline"
+        onClick={async () => {
+          router.push("/")
+          router.refresh()
+        }}
+      >
+        Log in
+      </Button>
+    ),
+  }
+}
 
-function refineError(
-  error: ErrorProps | AxiosError,
-  router: AppRouterInstance
-): {
+type CustomError = {
   headline: string
   level: AlertLevel
   message: string
   action: React.ReactNode | boolean
-} {
+}
+function refineError(
+  error: ErrorProps | AxiosError,
+  router: AppRouterInstance
+): CustomError {
   console.log("HANDLING ERROR", error)
-  if (error instanceof AxiosError) {
-    console.log("AXIOS ERROR", error)
-    return {
-      headline: "Your session has expired",
-      level: "warning",
-      message: "Please log in again.",
-      action: (
-        <Button
-          variant="outline"
-          onClick={async () => {
-            router.push("/")
-            router.refresh()
-          }}
-        >
-          Log in
-        </Button>
-      ),
-    }
-  }
   return {
     headline: "Oh no! An error occurred :(",
     level: "error",
