@@ -1,5 +1,4 @@
 import { type Metadata } from "next"
-import { EventFeedProvider } from "@/providers/event-feed-stream"
 import { WorkflowProvider } from "@/providers/workflow"
 
 import Navbar from "@/components/nav/navbar"
@@ -15,12 +14,10 @@ export default async function WorkflowsLayout({
 }) {
   return (
     <WorkflowProvider>
-      <EventFeedProvider>
-        <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-          <Navbar />
-          {children}
-        </div>
-      </EventFeedProvider>
+      <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+        <Navbar />
+        {children}
+      </div>
     </WorkflowProvider>
   )
 }
