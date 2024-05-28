@@ -55,7 +55,6 @@ Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
-runner = ["jsonpath_ng", "python-multipart"]
 dev = [
     "respx",
     "pytest",
@@ -64,6 +63,7 @@ dev = [
     "minio",
     "mypy",
     "boto3-stubs[cloudtrail,guardduty,s3]",
+    "pre-commit",
 ]
 
 [tool.hatch.version]
