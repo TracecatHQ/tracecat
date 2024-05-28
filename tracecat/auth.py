@@ -243,7 +243,6 @@ if IS_AUTH_DISABLED:
         ctx_role.set(role)
         return role
 else:
-    logger.info("User authentication is enabled")
 
     async def _get_role_from_jwt(token: str | bytes) -> Role:
         try:
