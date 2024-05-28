@@ -11,6 +11,8 @@ from pydantic import AnyHttpUrl, Field
 from tracecat.experimental.registry import registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
+JSONPrimitive = str | int | float | bool | None | dict[str, Any] | list[Any]
+JSONObjectOrArray = dict[str, JSONPrimitive] | list[JSONPrimitive]
 
 
 class HTTPResponse(TypedDict):
@@ -34,7 +36,7 @@ async def http_request(
         Field(description="HTTP request headers"),
     ] = None,
     payload: Annotated[
-        dict[str, Any],
+        JSONObjectOrArray,
         Field(description="HTTP request payload"),
     ] = None,
     params: Annotated[
@@ -58,6 +60,7 @@ async def http_request(
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP request failed with status {e.response.status_code}.")
+        logger.error(e.response.text)
         raise e
 
     # TODO: Better parsing logic
