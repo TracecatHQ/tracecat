@@ -15,7 +15,6 @@ import {
   type WorkflowMetadata,
 } from "@/types/schemas"
 import { client } from "@/lib/api"
-import type { BaseActionForm } from "@/components/workspace/panel/action/schemas"
 
 export async function updateDndFlow(
   workflowId: string,
