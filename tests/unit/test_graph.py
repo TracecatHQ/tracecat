@@ -4,7 +4,7 @@ from tracecat.experimental.dsl.workflow import ActionStatement, DSLInput
 metadata = {
     "title": "TEST_WORKFLOW",
     "description": "TEST_DESCRIPTION",
-    "entrypoint": "a",
+    "entrypoint": "action_a",
 }
 
 

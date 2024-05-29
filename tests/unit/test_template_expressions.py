@@ -13,7 +13,10 @@ from tracecat.experimental.templates.eval import (
     eval_templated_object,
     extract_templated_secrets,
 )
-from tracecat.experimental.templates.future import TemplatedFuture, eval_jsonpath
+from tracecat.experimental.templates.expressions import (
+    TemplateExpression,
+    eval_jsonpath,
+)
 from tracecat.types.secrets import SecretKeyValue
 
 
@@ -42,7 +45,7 @@ def test_eval_jsonpath():
     [
         ("${{ ACTIONS.webhook.result -> int }}", 1),
         ("${{ INPUTS.arg1 -> int }}", 1),
-        ("${{ INPUTS.arg1 }}", "1"),  # Default to str
+        ("${{ INPUTS.arg1 }}", 1),  # Doesn't cast
         ("${{ INPUTS.arg2 -> str }}", "2"),
         ("${{ ACTIONS.webhook.result -> str }}", "1"),
         ("${{ ACTIONS.path_A_first.result.path.nested.value -> int }}", 9999),
@@ -64,7 +67,7 @@ def test_templated_expression_result(expression, expected_result):
         "metadata": {"name": "John Doe", "age": 30},
     }
 
-    fut = TemplatedFuture(expression, operand=exec_vars)
+    fut = TemplateExpression(expression, operand=exec_vars)
     assert fut.result() == expected_result
 
 
@@ -203,7 +206,7 @@ def test_eval_templated_object():
     templates = [
         {
             "test": {
-                "data": "INLINE: ${{ ACTIONS.webhook.result }}",
+                "data": "INLINE: ${{ ACTIONS.webhook.result -> str }}",
                 "url": "${{ ACTIONS.webhook.url}}",
                 "number": "${{ ACTIONS.webhook.result -> int }}",
                 "number_whitespace": "${{ ACTIONS.webhook.result -> int }}",
@@ -248,15 +251,13 @@ def test_eval_templated_object_inline_fails_if_not_str():
             "my_secret": "@@@",
         },
     }
-    with pytest.raises(TypeError) as e:
-        _ = eval_templated_object(
-            "${{ ACTIONS.webhook.result -> int }} ${{ ACTIONS.webhook.count }}",
-            operand=data,
-        )
-    assert "expected str instance, int found" in str(e.value)
-    with pytest.raises(TypeError) as e:
-        _ = eval_templated_object(
-            "   ${{ ACTIONS.webhook.result -> int }} ${{ ACTIONS.webhook.count }}   ",
-            operand=data,
-        )
-    assert "expected str instance, int found" in str(e.value)
+    actual1 = eval_templated_object(
+        "${{ ACTIONS.webhook.result -> int }} ${{ ACTIONS.webhook.count }}",
+        operand=data,
+    )
+    assert actual1 == "42 3"
+    actual2 = eval_templated_object(
+        "   ${{ ACTIONS.webhook.result -> int }} ${{ ACTIONS.webhook.count }}   ",
+        operand=data,
+    )
+    assert actual2 == "   42 3   "

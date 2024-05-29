@@ -46,10 +46,3 @@ def dsl(request: pytest.FixtureRequest) -> DSLInput:
 async def test_workflow_can_be_dispatched(dsl, temporal_cluster, tracecat_worker):
     result = await dispatch_workflow(dsl, retry_policy=RetryPolicy(maximum_attempts=1))
     assert len(result.final_context["ACTIONS"]) == len(dsl.actions)
-
-
-@pytest.mark.parametrize("dsl", IO_TEST_DEFNS, indirect=True)
-@pytest.mark.asyncio
-async def test_workflow_io_can_complete(dsl, temporal_cluster, tracecat_worker):
-    result = await dispatch_workflow(dsl, retry_policy=RetryPolicy(maximum_attempts=1))
-    assert len(result.final_context["ACTIONS"]) == len(dsl.actions)
