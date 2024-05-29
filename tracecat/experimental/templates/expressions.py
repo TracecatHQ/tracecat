@@ -1,19 +1,19 @@
-"""A module for templated futures.
+"""A module for templated expressions.
 
 
 Motivation
 ----------
 - Formalize the templated expression syntax and vocabulary.
-- By doing so, in TypeScript we can infer the final type of the future to improve type checking and validation.
+- By doing so, in TypeScript we can infer the final type of the expression to improve type checking and validation.
     - This helps with type checking in the UI at form submission time
 
 Template
 --------
-A string with one or more templated expressions, e.g. "{{ $.webhook.result: int }}"
+A string with one or more templated expressions, e.g. "${{ $.webhook.result -> int }}"
 
 Expression
 ----------
-The constituients of the template, "{{ <expression>: <type> }}" "$.webhook.result: int"
+The constituients of the template, "${{ <expression> -> <type> }}" "$.webhook.result -> int"
 The expression and type together are referred to as typed/annotated expression
 
 
@@ -60,8 +60,8 @@ TemplateStr = str
 OperandType = dict[str, Any]
 
 
-class TemplatedFuture:
-    """A future that resolves into a type T."""
+class TemplateExpression:
+    """A expression that resolves into a type T."""
 
     _context: Literal["SECRETS", "FNS", "ACTIONS", "INPUTS"]
     """The context of the expression, e.g. SECRETS, FNS, ACTIONS, INPUTS, or a jsonpath."""
@@ -94,7 +94,7 @@ class TemplatedFuture:
 
     def __repr__(self) -> str:
         return (
-            "TemplatedFuture("
+            "Templatedexpression("
             f"template={self._template},"
             f" expression={self._expr},"
             f" typename={self._resolve_typename},"
@@ -115,7 +115,7 @@ class TemplatedFuture:
         # return fn_name
 
     def result(self) -> Any:
-        """Evaluate the templated future and return the result."""
+        """Evaluate the templated expression and return the result."""
         match self._context:
             case "FNS":
                 ret = self._resolve_fn()

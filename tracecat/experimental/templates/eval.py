@@ -4,7 +4,7 @@ from functools import partial
 from typing import Any, TypeVar
 
 from tracecat.experimental.templates import patterns
-from tracecat.experimental.templates.future import TemplatedFuture
+from tracecat.experimental.templates.expressions import TemplateExpression
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
@@ -26,13 +26,13 @@ def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:
             return obj
 
 
-def _eval_future_op(match: re.Match[str], operand: dict[str, Any]):
-    return _eval_templated_future(match.group("template"), operand)
-
-
-def _eval_templated_future(expr: str, operand: OperandType) -> Any:
-    fut = TemplatedFuture(expr, operand=operand)
-    return fut.result()
+def _eval_expression_op(match: re.Match[str], operand: dict[str, Any]) -> str:
+    expr = match.group("template")
+    result = TemplateExpression(expr, operand=operand).result()
+    try:
+        return str(result)
+    except Exception as e:
+        raise ValueError(f"Error evaluating str expression: {expr!r}") from e
 
 
 def eval_templated_object(
@@ -43,7 +43,7 @@ def eval_templated_object(
 ) -> dict[str, Any]:
     """Populate templated fields with actual values."""
 
-    evaluator = partial(_eval_future_op, operand=operand)
+    evaluator = partial(_eval_expression_op, operand=operand)
 
     def operator(line: str) -> Any:
         """Evaluate the templated string.
@@ -57,8 +57,13 @@ def eval_templated_object(
 
         """
         if _is_template_only(line) and len(pattern.findall(line)) == 1:
-            # This allows us to perform the casts as we aren't using regex sub
-            return _eval_templated_future(line, operand)
+            # Non-inline template
+            # If the template expression isn't given a reolve type, its underlying
+            # value is returned as is.
+            return TemplateExpression(line, operand=operand).result()
+        # Inline template
+        # If the template expression is inline, we evaluate the result
+        # and attempt to cast each underlying value into a string.
         return pattern.sub(evaluator, line)
 
     processed_kwargs = _eval_templated_obj_rec(obj, operator)
