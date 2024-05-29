@@ -8,7 +8,7 @@ from httpx import Response
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.helpers import batch_get_secrets, format_secrets_as_json
-from tracecat.db.models import Secret
+from tracecat.db.schemas import Secret
 from tracecat.experimental.templates.eval import (
     eval_templated_object,
     extract_templated_secrets,

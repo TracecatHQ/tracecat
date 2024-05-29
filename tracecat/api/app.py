@@ -27,7 +27,7 @@ from tracecat.auth import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
-from tracecat.db.models import (
+from tracecat.db.schemas import (
     Action,
     ActionRun,
     CaseAction,

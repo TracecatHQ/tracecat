@@ -13,7 +13,7 @@ from sqlmodel import (
 )
 
 from tracecat import config
-from tracecat.db.models import (
+from tracecat.db.schemas import (
     DEFAULT_CASE_ACTIONS,
     Action,
     CaseAction,

@@ -10,7 +10,7 @@ from slugify import slugify
 from tracecat.experimental.dsl.workflow import ActionStatement
 
 if TYPE_CHECKING:
-    from tracecat.db.models import Workflow
+    from tracecat.db.schemas import Workflow
 
 
 def get_ref(text: str) -> str:

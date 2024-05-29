@@ -62,7 +62,7 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
 
 @pytest.fixture(scope="session")
 def create_mock_secret():
-    from tracecat.db.models import Secret
+    from tracecat.db.schemas import Secret
     from tracecat.types.secrets import SecretKeyValue
 
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
