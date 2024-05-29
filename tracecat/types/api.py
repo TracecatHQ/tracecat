@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from tracecat.db.schemas import ActionRun, WorkflowRun
-from tracecat.experimental.dsl.workflow import DSLInput
+from tracecat.dsl.workflow import DSLInput
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
 

@@ -1,7 +1,7 @@
 from temporalio.client import Client
 
 from tracecat import config
-from tracecat.experimental.dsl._converter import pydantic_data_converter
+from tracecat.dsl._converter import pydantic_data_converter
 
 
 async def get_temporal_client() -> Client:

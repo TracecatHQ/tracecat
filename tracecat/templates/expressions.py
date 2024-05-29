@@ -44,7 +44,7 @@ from typing import Any, Literal, TypeVar
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
-from tracecat.experimental.templates import patterns
+from tracecat.templates import patterns
 
 T = TypeVar("T")
 token_pattern = r""

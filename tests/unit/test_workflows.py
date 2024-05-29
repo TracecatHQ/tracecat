@@ -18,9 +18,9 @@ from loguru import logger
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
-from tracecat.experimental.dsl.common import get_temporal_client
-from tracecat.experimental.dsl.worker import new_sandbox_runner
-from tracecat.experimental.dsl.workflow import (
+from tracecat.dsl.common import get_temporal_client
+from tracecat.dsl.worker import new_sandbox_runner
+from tracecat.dsl.workflow import (
     DSLContext,
     DSLInput,
     DSLWorkflow,
@@ -46,7 +46,7 @@ def mock_registry():
     - It's unreachable by an external worker, as the worker will not have access
     to these functions when it starts up.
     """
-    from tracecat.experimental.registry import registry
+    from tracecat.registry import registry
 
     # NOTE!!!!!!!: Didn't want to spend too much time figuring out how
     # to grab the actual execution order using the client, so I'm using a

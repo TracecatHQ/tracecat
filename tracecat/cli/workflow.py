@@ -6,7 +6,7 @@ import rich
 import typer
 
 from tracecat.auth import AuthenticatedAPIClient
-from tracecat.experimental.dsl.workflow import DSLInput
+from tracecat.dsl.workflow import DSLInput
 
 from . import config
 

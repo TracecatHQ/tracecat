@@ -8,7 +8,7 @@ from typing import Annotated, Any, Generic, Literal, TypeVar, override
 from loguru import logger
 from pydantic import BaseModel, Field, TypeAdapter
 
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 ComparisonVariant = Literal[
     "less_than",

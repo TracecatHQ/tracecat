@@ -8,7 +8,7 @@ import httpx
 from loguru import logger
 from pydantic import AnyHttpUrl, Field
 
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 JSONPrimitive = str | int | float | bool | None | dict[str, Any] | list[Any]

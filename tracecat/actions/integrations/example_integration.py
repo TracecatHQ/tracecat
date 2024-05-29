@@ -9,7 +9,7 @@ Note
 import os
 from typing import Literal
 
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 
 @registry.register(

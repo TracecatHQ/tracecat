@@ -44,7 +44,7 @@ from tracecat.db.schemas import (
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.experimental.dsl.dispatcher import dispatch_workflow
+from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.types.api import (
     ActionMetadataResponse,

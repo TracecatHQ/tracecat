@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Self
 from pydantic import BaseModel, Field
 from slugify import slugify
 
-from tracecat.experimental.dsl.workflow import ActionStatement
+from tracecat.dsl.workflow import ActionStatement
 
 if TYPE_CHECKING:
     from tracecat.db.schemas import Workflow

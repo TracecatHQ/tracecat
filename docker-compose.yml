@@ -102,7 +102,7 @@ services:
     restart: unless-stopped
     networks:
       - internal-network
-    entrypoint: ["python", "tracecat/experimental/dsl/worker.py"]
+    entrypoint: ["python", "tracecat/dsl/worker.py"]
 
 networks:
   internal-network:

@@ -16,8 +16,8 @@ with workflow.unsafe.imports_passed_through():
     from loguru import logger
     from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-    from tracecat.experimental.registry import registry
-    from tracecat.experimental.templates.eval import eval_templated_object
+    from tracecat.registry import registry
+    from tracecat.templates.eval import eval_templated_object
 
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"

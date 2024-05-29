@@ -13,9 +13,9 @@ from temporalio.worker.workflow_sandbox import (
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
 with workflow.unsafe.imports_passed_through():
-    from tracecat.experimental.dsl.common import get_temporal_client
-    from tracecat.experimental.dsl.workflow import DSLWorkflow, dsl_activities
-    from tracecat.experimental.registry import registry
+    from tracecat.dsl.common import get_temporal_client
+    from tracecat.dsl.workflow import DSLWorkflow, dsl_activities
+    from tracecat.registry import registry
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to

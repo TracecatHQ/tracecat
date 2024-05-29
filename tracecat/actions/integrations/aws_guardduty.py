@@ -13,7 +13,7 @@ import dateutil.parser
 
 from tracecat.etl.aws_guardduty import load_guardduty_findings
 from tracecat.etl.query_builder import pl_sql_query
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 
 @registry.register(

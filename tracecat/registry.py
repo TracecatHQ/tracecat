@@ -95,7 +95,7 @@ class _Registry:
         """Initialize the registry."""
         logger.warning("Initializing registry")
         if not _Registry._done_init:
-            from tracecat.experimental import actions  # noqa: F401
+            from tracecat import actions  # noqa: F401
 
             # Load default workflows
 
