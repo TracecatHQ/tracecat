@@ -1,3 +1,5 @@
+"""Database schemas for Tracecat."""
+
 from datetime import datetime
 from typing import Any, Self
 from uuid import uuid4

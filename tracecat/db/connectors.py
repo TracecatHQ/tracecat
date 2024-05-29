@@ -1,4 +1,4 @@
-from tracecat.db.models import Workflow
+from tracecat.db.schemas import Workflow
 from tracecat.experimental.dsl.graph import RFGraph
 from tracecat.experimental.dsl.workflow import DSLInput
 
