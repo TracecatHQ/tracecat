@@ -4,16 +4,22 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { Slash, ShieldAlertIcon, RadioIcon, WorkflowIcon } from "lucide-react"
+import { RadioIcon, ShieldAlertIcon, WorkflowIcon } from "lucide-react"
 
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-
 
 export default function WorkflowNav() {
-  const { workflow, workflowId, isLoading, isOnline, setIsOnline } = useWorkflowMetadata()
+  const { workflow, workflowId, isLoading, isOnline, setIsOnline } =
+    useWorkflowMetadata()
 
   if (!workflow || isLoading) {
     return null
@@ -28,8 +34,8 @@ export default function WorkflowNav() {
             </BreadcrumbItem>
             {workflow && (
               <>
-                <BreadcrumbSeparator>
-                  <Slash />
+                <BreadcrumbSeparator className="font-semibold">
+                  {"/"}
                 </BreadcrumbSeparator>
                 <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
               </>
@@ -67,7 +73,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
   return (
     <Tabs value={leafRoute}>
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger className="w-full py-0 px-4" value="workflow" asChild>
+        <TabsTrigger className="w-full px-4 py-0" value="workflow" asChild>
           <Link
             href={`/workflows/${workflowId}`}
             className="size-full text-sm"
@@ -77,7 +83,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
             <span>Workflow</span>
           </Link>
         </TabsTrigger>
-        <TabsTrigger className="w-full py-0 px-4" value="cases" asChild>
+        <TabsTrigger className="w-full px-4 py-0" value="cases" asChild>
           <Link
             href={`/workflows/${workflowId}/cases`}
             className="size-full text-sm"
