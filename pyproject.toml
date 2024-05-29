@@ -65,6 +65,10 @@ dev = [
     "boto3-stubs[cloudtrail,guardduty,s3]",
     "pre-commit",
 ]
+cli = ["typer==0.12.3", "python-dotenv"]
+
+[project.scripts]
+tracecat = "tracecat.__main__:main"
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
