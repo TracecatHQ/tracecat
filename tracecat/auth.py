@@ -53,7 +53,7 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        # Precedence: role > ctx_session_role > default role. Role is always set.
+        # Precedence: role > ctx_role > default role. Role is always set.
         self.role = role or ctx_role.get(
             Role(type="service", service_id="tracecat-service")
         )
