@@ -15,6 +15,7 @@ from tracecat.experimental.actions.core import (
 )
 from tracecat.experimental.actions.integrations import (
     aws_cloudtrail,
+    aws_guardduty,
     datadog,
     emailrep,
     example_integration,
@@ -36,6 +37,7 @@ __all__ = [
     "example_integration",
     "datadog",
     "aws_cloudtrail",
+    "aws_guardduty",
     "sublime",
     "urlscan",
     "project_discovery",
