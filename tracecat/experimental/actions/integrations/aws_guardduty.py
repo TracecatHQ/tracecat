@@ -13,11 +13,13 @@ import dateutil.parser
 
 from tracecat.etl.aws_guardduty import load_guardduty_findings
 from tracecat.etl.query_builder import pl_sql_query
-from tracecat.integrations._registry import registry
+from tracecat.experimental.registry import registry
 
 
 @registry.register(
-    description="Query AWS GuardDuty findings", secrets=["aws-guardduty"]
+    namespace="aws_guardduty",
+    description="Query AWS GuardDuty findings",
+    secrets=["aws-guardduty"],
 )
 def query_guardduty_findings(
     start: str,
