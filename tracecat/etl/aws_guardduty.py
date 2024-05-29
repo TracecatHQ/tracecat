@@ -14,16 +14,15 @@ import boto3
 import diskcache as dc
 import mmh3
 import polars as pl
+from loguru import logger
 from tqdm.contrib.concurrent import thread_map
 
 from tracecat.config import TRACECAT__TRIAGE_DIR
 from tracecat.contexts import ctx_role
-from tracecat.logging import standard_logger
 
 if TYPE_CHECKING:
     from mypy_boto3_guardduty.type_defs import GetFindingsResponseTypeDef
 
-logger = standard_logger("runner.aws_guardduty")
 
 # Supress botocore info logs
 logging.getLogger("botocore").setLevel(logging.CRITICAL)
