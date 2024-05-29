@@ -17,7 +17,7 @@ import polars as pl
 from tqdm.contrib.concurrent import thread_map
 
 from tracecat.config import TRACECAT__TRIAGE_DIR
-from tracecat.contexts import ctx_session_role
+from tracecat.contexts import ctx_role
 from tracecat.logging import standard_logger
 
 if TYPE_CHECKING:
@@ -113,7 +113,7 @@ def load_guardduty_findings(
     """
     # Include the session role in the cache key to avoid collisions
     # when possibly serving multiple users concurrently
-    role = ctx_session_role.get()
+    role = ctx_role.get()
     logger.info(f"Loading GuardDuty findings for role {role}")
 
     key = mmh3.hash(
