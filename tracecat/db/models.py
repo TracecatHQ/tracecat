@@ -3,8 +3,7 @@ from typing import Any, Self
 from uuid import uuid4
 
 import pyarrow as pa
-from croniter import croniter
-from pydantic import computed_field, field_validator
+from pydantic import computed_field
 from slugify import slugify
 from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
@@ -259,12 +258,12 @@ class WorkflowSchedule(Resource, table=True):
     workflow_id: str | None = Field(foreign_key="workflow.id")
     workflow: Workflow | None = Relationship(back_populates="schedules")
 
-    # Custom validator for the cron field
-    @field_validator("cron")
-    def validate_cron(cls, v):
-        if not croniter.is_valid(v):
-            raise ValueError("Invalid cron string")
-        return v
+    # # Custom validator for the cron field
+    # @field_validator("cron")
+    # def validate_cron(cls, v):
+    #     if not croniter.is_valid(v):
+    #         raise ValueError("Invalid cron string")
+    #     return v
 
 
 class Action(Resource, table=True):
