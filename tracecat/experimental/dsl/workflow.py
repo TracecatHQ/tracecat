@@ -8,14 +8,13 @@ from pathlib import Path
 from typing import Any, Literal, Self, TypedDict
 
 import yaml
-from pydantic import model_validator
 from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     from loguru import logger
-    from pydantic import BaseModel, ConfigDict, Field
+    from pydantic import BaseModel, ConfigDict, Field, model_validator
 
     from tracecat.experimental.registry import registry
     from tracecat.experimental.templates.eval import eval_templated_object
@@ -23,6 +22,10 @@ with workflow.unsafe.imports_passed_through():
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
+
+
+class DSLError(ValueError):
+    pass
 
 
 class Trigger(BaseModel):
@@ -70,12 +73,16 @@ class DSLInput(BaseModel):
         return yaml.dump(self.model_dump())
 
     @model_validator(mode="after")
-    def validate_actions(self) -> Self:
+    def validate_input(self) -> Self:
         if not self.actions:
-            raise ValueError("At least one action must be defined")
-        # Ensure all task.ref are unique
+            raise DSLError("At least one action must be defined")
         if len({action.ref for action in self.actions}) != len(self.actions):
-            raise ValueError("All task.ref must be unique")
+            raise DSLError("All task.ref must be unique")
+        if self.entrypoint not in {action.ref for action in self.actions}:
+            raise DSLError("Entrypoint must be one of the actions")
+        n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
+        if n_entrypoints != 1:
+            raise DSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
         return self
 
 
