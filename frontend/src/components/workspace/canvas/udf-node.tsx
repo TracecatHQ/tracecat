@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
 
-import { cn, copyToClipboard, nsLeaf, slugify, undoSlugify } from "@/lib/utils"
+import { cn, copyToClipboard, slugify, undoSlugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Card,
