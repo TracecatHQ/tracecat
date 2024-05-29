@@ -13,7 +13,7 @@ import dateutil.parser
 
 from tracecat.etl.aws_cloudtrail import load_cloudtrail_logs
 from tracecat.etl.query_builder import pl_sql_query
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 AWS_REGION_NAMES = Literal[
     "us-east-1",  # US East (N. Virginia)

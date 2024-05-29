@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 VT_BASE_URL = "https://www.virustotal.com/api/v3/"
 

@@ -23,8 +23,8 @@ from tracecat.db.schemas import (
     Webhook,
     Workflow,
 )
-from tracecat.experimental.registry import registry
 from tracecat.labels.mitre import get_mitre_tactics_techniques
+from tracecat.registry import registry
 
 STORAGE_PATH = config.TRACECAT_DIR / "storage"
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)

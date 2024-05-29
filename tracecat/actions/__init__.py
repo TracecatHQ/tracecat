@@ -5,7 +5,7 @@ WARNING!!!
 Do not add `from __future__ import annotations` to any action module. This will cause class types to be resolved as strings."""
 
 # Bring all actions into the namespace to be registered
-from tracecat.experimental.actions.core import (
+from tracecat.actions.core import (
     cases,
     condition,
     email,
@@ -13,7 +13,7 @@ from tracecat.experimental.actions.core import (
     http,
     llm,
 )
-from tracecat.experimental.actions.integrations import (
+from tracecat.actions.integrations import (
     aws_cloudtrail,
     aws_guardduty,
     datadog,

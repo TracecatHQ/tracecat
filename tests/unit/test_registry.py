@@ -1,4 +1,4 @@
-from tracecat.experimental.registry import _Registry, registry
+from tracecat.registry import _Registry, registry
 
 
 def test_registry_is_singleton():

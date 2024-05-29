@@ -7,8 +7,8 @@ from typing import Annotated, Any, Literal, Self, TypedDict
 
 from pydantic import BaseModel, Field
 
-from tracecat.experimental.registry import registry
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
+from tracecat.registry import registry
 
 TaskType = Literal[
     "llm.translate",

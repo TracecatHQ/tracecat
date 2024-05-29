@@ -4,7 +4,7 @@ from typing import Any, Literal
 import httpx
 from tenacity import retry, stop_after_delay, wait_combine, wait_fixed
 
-from tracecat.experimental.registry import registry
+from tracecat.registry import registry
 
 URLSCAN_BASE_URL = "https://urlscan.io/api/v1/"
 

@@ -11,8 +11,8 @@ from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
 from tracecat import auth, config
-from tracecat.experimental.dsl.workflow import DSLInput
-from tracecat.experimental.registry import RegisteredUDF
+from tracecat.dsl.workflow import DSLInput
+from tracecat.registry import RegisteredUDF
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 DEFAULT_CASE_ACTIONS = [
