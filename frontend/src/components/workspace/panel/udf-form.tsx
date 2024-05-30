@@ -49,12 +49,10 @@ import { toast } from "@/components/ui/use-toast"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { DELETE_BUTTON_STYLE } from "@/styles/tailwind"
 
 ///////////////////////////
 // UDF Form Components
 ///////////////////////////
-
 export function UDFForm({
   panelAction: {
     action,
@@ -64,11 +62,9 @@ export function UDFForm({
     queryKeys,
   },
   type: key,
-  namespace,
 }: {
   panelAction: PanelAction<any>
   type: string
-  namespace: string
   actionId: string
   workflowId: string
 }) {
@@ -165,6 +161,19 @@ export function UDFForm({
               </div>
             </div>
             <Separator />
+            <h4 className="text-m font-medium">Details</h4>
+            <div className="space-y-2 text-xs text-muted-foreground">
+              <h5 className="font-bold">UDF</h5>
+              <p>
+                {udf.key} v{udf.version}
+              </p>
+            </div>
+            <div className="inline-block space-y-2 text-xs text-muted-foreground">
+              <h5 className="font-bold">Description</h5>
+              <p>{udf.description}</p>
+            </div>
+            <Separator />
+            <h4></h4>
             <CollapsibleSection
               node="Input Schema"
               showToggleText={false}
@@ -262,14 +271,6 @@ export function UDFForm({
               <Separator />
               <div className="space-y-4">
                 <h4 className="text-m font-medium">Action Inputs</h4>
-                <div className="inline-block space-y-2 text-xs text-muted-foreground">
-                  <p>{udf?.description}</p>
-                </div>
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  <h5 className="font-bold">Docstring</h5>
-                  <p>{udf?.version}</p>
-                </div>
-
                 <div className="space-y-2 capitalize">
                   {Object.entries(formConfig).map(([inputKey, fieldConfig]) => (
                     <UDFFormField<Schema>
@@ -532,6 +533,8 @@ export function UDFFormJSON<T extends FieldValues>({
   )
 }
 
+const DELETE_BUTTON_STYLE =
+  "border border-red-500/70 bg-red-500/10 text-red-500/80 hover:bg-red-500/20 hover:text-red-500"
 export function UDFFormArray<T extends FieldValues>({
   inputKey,
   fieldConfig,
