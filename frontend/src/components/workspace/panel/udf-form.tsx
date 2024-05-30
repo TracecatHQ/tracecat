@@ -32,6 +32,11 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -282,15 +287,35 @@ export function UDFForm({
                   ))}
                 </div>
                 <Separator />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => console.log("Add item")} // TODO: Implement this
-                  className="w-full space-x-2 text-xs"
-                >
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add Optional Field
-                </Button>
+                <Popover>
+                  <PopoverTrigger className="w-full space-x-2 text-xs">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => console.log("Add item")} // TODO: Implement this
+                      className="w-full space-x-2 text-xs"
+                    >
+                      <PlusCircle className="mr-2 h-4 w-4" />
+                      Add Optional Field
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent side="left" className="p-0">
+                    {Object.keys(methods.getValues())
+                      .filter((item) => formConfig[item]?.optional)
+                      .map((item) => (
+                        <Button
+                          key={item}
+                          type="button"
+                          variant="ghost"
+                          className="m-0 w-full p-0 text-xs"
+                          onClick={() => console.log("Add item")} // TODO: Implement this
+                        >
+                          {item}
+                        </Button>
+                      ))}
+                  </PopoverContent>
+                </Popover>
+
                 <CollapsibleSection
                   node="JSON View"
                   showToggleText={false}
