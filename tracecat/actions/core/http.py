@@ -11,8 +11,7 @@ from pydantic import AnyHttpUrl, Field
 from tracecat.registry import registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
-JSONPrimitive = str | int | float | bool | None | dict[str, Any] | list[Any]
-JSONObjectOrArray = dict[str, JSONPrimitive] | list[JSONPrimitive]
+JSONObjectOrArray = dict[str, Any] | list[Any]
 
 
 class HTTPResponse(TypedDict):
