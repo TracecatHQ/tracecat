@@ -81,6 +81,7 @@ from tracecat.types.api import (
     WorkflowRunResponse,
 )
 from tracecat.types.cases import Case, CaseMetrics
+from tracecat.types.exceptions import TracecatException
 
 engine: Engine
 
@@ -136,6 +137,25 @@ logger.warning("App started", env=config.TRACECAT__APP_ENV, origins=cors_origins
 async def custom_exception_handler(request: Request, exc: Exception):
     logger.error(
         "Unexpected error: {!s}",
+        exc,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "An unexpected error occurred. Please try again later."},
+    )
+
+
+@app.exception_handler(TracecatException)
+async def tracecat_exception_handler(request: Request, exc: TracecatException):
+    """Generic exception handler for Tracecat exceptions.
+
+    We can customize exceptions to expose only what should be user facing.
+    """
+    logger.error(
+        "Got a tracecat error: {!s}",
         exc,
         role=ctx_role.get(),
         params=request.query_params,
