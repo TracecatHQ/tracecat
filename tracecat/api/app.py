@@ -46,6 +46,7 @@ from tracecat.db.schemas import (
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.registry import RegistryValidationError, registry
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -1795,3 +1796,29 @@ def create_udf(
                 status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
             )
         return udf
+
+
+@app.post("/udfs/{key}/validate")
+def validate_udf_args(
+    role: Annotated[Role, Depends(authenticate_user)],
+    key: str,
+    args: dict[str, Any],
+) -> bool:
+    """Get an UDF spec by its path."""
+    try:
+        udf = registry.get(key)
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"UDF {key!r} not found"
+        ) from e
+    try:
+        udf.validate_args(**args)
+        return True
+    except RegistryValidationError as e:
+        logger.opt(exception=e).error("Error validating UDF args")
+        return False
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unexpected error validating UDF args",
+        ) from e
