@@ -114,7 +114,7 @@ export async function updateAction(
   actionId: string,
   actionProps: Record<string, any>
 ): Promise<Action> {
-  const { title, description, ...inputs } = actionProps
+  const { title, description, inputs } = actionProps
   const updateActionParams = {
     title,
     description,
