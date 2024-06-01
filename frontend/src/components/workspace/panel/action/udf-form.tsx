@@ -16,14 +16,13 @@ import {
 import { FieldValues, FormProvider, useForm } from "react-hook-form"
 
 import { PanelAction, useActionInputs } from "@/lib/hooks"
-import { useUDFSchema } from "@/lib/udf"
+import { ErrorDetails, useUDFSchema, validateUDFArgs } from "@/lib/udf"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
@@ -41,6 +40,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -69,6 +69,9 @@ export function UDFActionForm({
     },
   })
   const { actionInputs, setActionInputs } = useActionInputs(action)
+  const [JSONViewerrors, setJSONViewErrors] = React.useState<
+    ErrorDetails[] | undefined
+  >(undefined)
 
   if (schemaLoading || actionLoading) {
     return <CenteredSpinner />
@@ -92,6 +95,15 @@ export function UDFActionForm({
   }
 
   const onSubmit = async (values: FieldValues) => {
+    const validateResponse = await validateUDFArgs(udf.key, actionInputs)
+    if (!validateResponse.ok) {
+      const detail = validateResponse.detail
+      console.log("Validation failed", validateResponse)
+      setJSONViewErrors(detail ?? undefined)
+      return
+    }
+    setJSONViewErrors([])
+
     const params = {
       title: values.title,
       description: values.description,
@@ -112,14 +124,14 @@ export function UDFActionForm({
             <div className="col-span-2 overflow-hidden">
               <h3 className="p-4 px-4">
                 <div className="flex w-full items-center space-x-4">
-                  <Avatar>{getIcon(udf.key, { className: "size-5" })}</Avatar>
+                  {getIcon(udf.key, { className: "size-6" })}
                   <div className="flex w-full flex-1 justify-between space-x-12">
                     <div className="flex flex-col">
                       <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                        <div className="flex w-full">{}</div>
+                        <div className="flex w-full">{action.title}</div>
                       </div>
                       <p className="mt-2 text-xs text-muted-foreground">
-                        {"Description or subtitle"}
+                        {action.description}
                       </p>
                     </div>
                   </div>
@@ -215,6 +227,7 @@ export function UDFActionForm({
                   <ActionInputs
                     inputs={actionInputs}
                     setInputs={setActionInputs}
+                    errors={JSONViewerrors}
                   />
                 </div>
               </AccordionContent>
@@ -229,9 +242,11 @@ export function UDFActionForm({
 export function ActionInputs({
   inputs,
   setInputs,
+  errors,
 }: {
   inputs: any
   setInputs: (obj: any) => void
+  errors?: ErrorDetails[]
 }) {
   return (
     <Tabs defaultValue="json">
@@ -261,6 +276,27 @@ export function ActionInputs({
             }}
             className="text-xs"
           />
+        </div>
+        <div className="w-full space-y-2 py-4">
+          {errors?.length == 0 ? (
+            <AlertNotification
+              className="text-xs"
+              level="success"
+              message="Validated successfully!"
+            />
+          ) : (
+            errors?.map((error, idx) => {
+              const msg = `${error.type}: ${error.msg} @ \`${error.loc[0]}\`. Received input ${error.input}`
+              return (
+                <AlertNotification
+                  className="text-xs"
+                  key={idx}
+                  level="error"
+                  message={msg}
+                />
+              )
+            })
+          )}
         </div>
       </TabsContent>
       <TabsContent value="form">

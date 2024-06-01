@@ -104,3 +104,42 @@ export function useUDFSchema(
   }
   return { udf, isLoading }
 }
+
+/**
+ * This is mirrored from pydantic_core.ErrorDetails
+ */
+const ErrorDetailsSchema = z.object({
+  type: z.string(),
+  loc: z.array(z.union([z.string(), z.number()])),
+  msg: z.string(),
+  input: z.unknown(),
+  ctx: z.record(z.string(), z.unknown()).nullish(),
+})
+export type ErrorDetails = z.infer<typeof ErrorDetailsSchema>
+
+const UDFArgsValidationResponseSchema = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+  detail: z.array(ErrorDetailsSchema).nullable(),
+})
+export type UDFArgsValidationResponse = z.infer<
+  typeof UDFArgsValidationResponseSchema
+>
+
+/**
+ *
+ * @param key
+ * @returns Hook that has the UDF schema that will be passed into AJV
+ */
+export async function validateUDFArgs(
+  key: string,
+  args: Record<string, unknown>
+): Promise<UDFArgsValidationResponse> {
+  const response = await client.post<UDFArgsValidationResponse>(
+    `/udfs/${key}/validate`,
+    args
+  )
+  const res = await UDFArgsValidationResponseSchema.parseAsync(response.data)
+  console.log("validateUDFArgs", res)
+  return res
+}

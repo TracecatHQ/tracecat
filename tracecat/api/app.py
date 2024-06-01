@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
 from loguru import logger
+from pydantic_core import ValidationError
 from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
@@ -46,7 +47,7 @@ from tracecat.db.schemas import (
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry import RegistryValidationError, registry
+from tracecat.registry import registry
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -70,6 +71,7 @@ from tracecat.types.api import (
     StartWorkflowParams,
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
+    UDFArgsValidationResponse,
     UpdateActionParams,
     UpdateSecretParams,
     UpdateUserParams,
@@ -1803,7 +1805,7 @@ def validate_udf_args(
     role: Annotated[Role, Depends(authenticate_user)],
     key: str,
     args: dict[str, Any],
-) -> bool:
+) -> UDFArgsValidationResponse:
     """Get an UDF spec by its path."""
     try:
         udf = registry.get(key)
@@ -1813,10 +1815,12 @@ def validate_udf_args(
         ) from e
     try:
         udf.validate_args(**args)
-        return True
-    except RegistryValidationError as e:
+        return UDFArgsValidationResponse(ok=True, message="UDF args are valid")
+    except ValidationError as e:
         logger.opt(exception=e).error("Error validating UDF args")
-        return False
+        return UDFArgsValidationResponse(
+            ok=False, message="Error validating UDF args", detail=e.errors()
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

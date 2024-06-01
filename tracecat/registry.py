@@ -10,6 +10,7 @@ from typing import Annotated, Any, Self, TypedDict
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
+from pydantic_core import ValidationError
 from typing_extensions import Doc
 
 from tracecat import templates
@@ -68,9 +69,12 @@ class RegisteredUDF(BaseModel):
         # so template expressions will pass args model validation
         try:
             self.args_cls.model_validate(kwargs, strict=True)
+        except ValidationError as e:
+            logger.error(f"Validation error for UDF {self.key!r}. {e.errors()!r}")
+            raise e
         except Exception as e:
             raise RegistryValidationError(
-                f"Invalid input arguments for UDF {self.key!r}. {e}"
+                f"Error when validating input arguments for UDF {self.key!r}. {e}"
             ) from e
 
 
@@ -268,7 +272,11 @@ def _generate_model_from_function(
         field_info = Field(default=default, **field_info_kwargs)
         fields[name] = (field_type, field_info)
     # Dynamically create and return the Pydantic model class
-    input_model = create_model(_udf_slug_camelcase(func, namespace), **fields)  # type: ignore
+    input_model = create_model(
+        _udf_slug_camelcase(func, namespace),
+        __config__=ConfigDict(extra="forbid"),
+        **fields,
+    )  # type: ignore
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
