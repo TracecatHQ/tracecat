@@ -95,41 +95,45 @@ async def lifespan(app: FastAPI):
 
 def create_app(**kwargs) -> FastAPI:
     global logger
+    if config.TRACECAT__APP_ENV == "production":
+        # NOTE: If you are using Tracecat self-hosted
+        # please replace with your own domain
+        cors_origins_kwargs = {
+            "allow_origins": [
+                "https://platform.tracecat.com",
+                config.TRACECAT__RUNNER_URL,
+            ]
+        }
+    elif config.TRACECAT__APP_ENV == "staging":
+        cors_origins_kwargs = {
+            # "allow_origins": [config.TRACECAT__RUNNER_URL],
+            # "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
+            "allow_origins": "*"
+        }
+    else:
+        cors_origins_kwargs = {
+            "allow_origins": "*",
+        }
     app = FastAPI(**kwargs)
     app.logger = logger
+    app.add_middleware(
+        CORSMiddleware,
+        **cors_origins_kwargs,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.add_middleware(RequestLoggingMiddleware)
+    logger.warning(
+        "App started", env=config.TRACECAT__APP_ENV, origins=cors_origins_kwargs
+    )
     return app
 
 
-if config.TRACECAT__APP_ENV == "production":
-    # NOTE: If you are using Tracecat self-hosted
-    # please replace with your own domain
-    cors_origins_kwargs = {
-        "allow_origins": ["https://platform.tracecat.com", config.TRACECAT__RUNNER_URL]
-    }
-elif config.TRACECAT__APP_ENV == "staging":
-    cors_origins_kwargs = {
-        # "allow_origins": [config.TRACECAT__RUNNER_URL],
-        # "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
-        "allow_origins": "*"
-    }
-else:
-    cors_origins_kwargs = {
-        "allow_origins": "*",
-    }
-
-
 app = create_app(lifespan=lifespan, default_response_class=ORJSONResponse)
-app.add_middleware(
-    CORSMiddleware,
-    **cors_origins_kwargs,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(RequestLoggingMiddleware)
 
-# TODO: Check config.TRACECAT__APP_ENV to set methods and headers
-logger.warning("App started", env=config.TRACECAT__APP_ENV, origins=cors_origins_kwargs)
+
+# ----- Utility ----- #
 
 
 # Catch-all exception handler to prevent stack traces from leaking
@@ -177,7 +181,7 @@ def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
 
 
-### Triggers
+# ----- Triggers ----- #
 
 
 def validate_incoming_webhook(webhook_id: str, secret: str) -> WorkflowDefinition:
@@ -276,7 +280,7 @@ async def webhook(
     return {"status": "ok"}
 
 
-### Workflows
+# ----- Workflows ----- #
 
 
 @app.get("/workflows")
@@ -451,7 +455,7 @@ def copy_workflow(
         session.refresh(new_workflow)
 
 
-### Workflow Definitions
+# ----- Workflow Definitions ----- #
 
 
 @app.get("/workflows/{workflow_id}/definition")
@@ -529,7 +533,7 @@ def upsert_workflow_definition(
         session.refresh(defn)
 
 
-### Workflow Runs
+# ----- Workflow Runs ----- #
 
 
 @app.get("/workflows/{workflow_id}/runs")
@@ -666,7 +670,7 @@ async def trigger_workflow_run(
     )
 
 
-### Actions
+# ----- Actions ----- #
 
 
 @app.get("/actions")
@@ -839,7 +843,7 @@ def delete_action(
         session.commit()
 
 
-### Action Runs
+# ----- Action Runs ----- #
 
 
 @app.get("/actions/{action_id}/runs")
@@ -948,7 +952,7 @@ def update_action_run(
         session.refresh(action_run)
 
 
-### Webhooks
+# ----- Webhooks ----- #
 
 
 @app.get("/webhooks")
@@ -1116,7 +1120,7 @@ def authenticate_webhook(
     )
 
 
-### Events Management
+# ----- Events Management ----- #
 
 
 SUPPORTED_EVENT_AGGS = {
@@ -1143,7 +1147,7 @@ def search_events(
     raise NotImplementedError
 
 
-### Case Management
+# ----- Case Management ----- #
 
 
 @app.post("/workflows/{workflow_id}/cases", status_code=status.HTTP_201_CREATED)
@@ -1313,7 +1317,7 @@ def get_case_metrics(
     return df
 
 
-### Available Case Actions
+# ----- Available Case Actions ----- #
 
 
 @app.get("/case-actions")
@@ -1365,7 +1369,7 @@ def delete_case_action(
         session.commit()
 
 
-### Available Context Labels
+# ----- Available Context Labels ----- #
 
 
 @app.get("/case-contexts")
@@ -1475,7 +1479,7 @@ async def streaming_autofill_case_fields(
     )
 
 
-### Users
+# ----- Users ----- #
 
 
 @app.put("/users", status_code=status.HTTP_201_CREATED)
@@ -1570,7 +1574,7 @@ def delete_user(
         session.commit()
 
 
-### Secrets
+# ----- Secrets ----- #
 
 
 @app.get("/secrets")
@@ -1717,6 +1721,9 @@ def search_secrets(
         result = session.exec(statement)
         secrets = result.all()
         return secrets
+
+
+# ----- UDFs ----- #
 
 
 @app.get("/udfs")
