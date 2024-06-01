@@ -1,16 +1,29 @@
 import React, { ComponentPropsWithoutRef } from "react"
 import { ExclamationTriangleIcon } from "@radix-ui/react-icons"
 import { cva, type VariantProps } from "class-variance-authority"
-import { AlertCircleIcon } from "lucide-react"
+import { AlertCircleIcon, CheckCheckIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-export type AlertLevel = "error" | "info" | "warning"
+export type AlertLevel = "error" | "info" | "warning" | "success"
 interface AlertNotificationProps
   extends ComponentPropsWithoutRef<typeof Notification> {
   level?: AlertLevel
   message: string
   reset?: () => void
+}
+
+function getIcon(level: AlertLevel) {
+  switch (level) {
+    case "error":
+      return ExclamationTriangleIcon
+    case "info":
+      return AlertCircleIcon
+    case "warning":
+      return ExclamationTriangleIcon
+    case "success":
+      return CheckCheckIcon
+  }
 }
 
 export function AlertNotification({
@@ -19,7 +32,7 @@ export function AlertNotification({
   reset,
   className,
 }: AlertNotificationProps) {
-  const Icon = level === "info" ? AlertCircleIcon : ExclamationTriangleIcon
+  const Icon = getIcon(level)
   return (
     <Notification
       variant={level}
@@ -43,6 +56,8 @@ const notificationVariants = cva(
   {
     variants: {
       variant: {
+        success:
+          "bg-green-500/15 border-green-500/50 text-green-600 dark:border-green-500 [&>svg]:text-green-500",
         info: "bg-cyan-500/15 border-cyan-500/50 text-cyan-600 dark:border-cyan-500 [&>svg]:text-cyan-500",
         warning:
           "bg-yellow-500/10 border-yellow-500/50 text-yellow-600 dark:border-yellow-500 [&>svg]:text-yellow-500",
