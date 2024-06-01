@@ -18,13 +18,13 @@ import {
 } from "reactflow"
 
 import { updateDndFlow } from "@/lib/flow"
-import { ActionNodeType } from "@/components/workspace/canvas/action-node"
+import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
   workflowId: string | null
   selectedNodeId: string | null
-  getNode: (id: string) => ActionNodeType | undefined
+  getNode: (id: string) => UDFNodeType | undefined
   setNodes: React.Dispatch<SetStateAction<Node[]>>
   setEdges: React.Dispatch<SetStateAction<Edge[]>>
 }
@@ -49,9 +49,7 @@ export const WorkflowBuilderProvider: React.FC<
   }
 
   const setReactFlowNodes = useCallback(
-    (
-      nodes: ActionNodeType[] | ((nodes: ActionNodeType[]) => ActionNodeType[])
-    ) => {
+    (nodes: UDFNodeType[] | ((nodes: UDFNodeType[]) => UDFNodeType[])) => {
       reactFlowInstance.setNodes(nodes)
       updateDndFlow(workflowId, reactFlowInstance)
     },
@@ -65,7 +63,7 @@ export const WorkflowBuilderProvider: React.FC<
     [workflowId, reactFlowInstance]
   )
   useOnSelectionChange({
-    onChange: ({ nodes }: { nodes: ActionNodeType[] }) => {
+    onChange: ({ nodes }: { nodes: UDFNodeType[] }) => {
       const actionNodeSelected = nodes[0]
       setSelectedNodeId(actionNodeSelected?.id ?? null)
     },

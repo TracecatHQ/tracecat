@@ -13,7 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { AvailabilityBadge } from "@/components/badges"
-import { ActionNodeType } from "@/components/workspace/canvas/action-node"
+import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 import { ActionTile } from "@/components/workspace/catalog/action-tiles-schema"
 
 interface ActionTilesProps {
@@ -55,7 +55,7 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
           y: selectedNode.position.y + 200,
         },
         data: newNodeData,
-      } as ActionNodeType
+      } as UDFNodeType
 
       setNodes((prevNodes) =>
         prevNodes
