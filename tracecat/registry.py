@@ -59,7 +59,7 @@ class RegisteredUDF(BaseModel):
             metadata=self.metadata,
         )
 
-    def validate_args(self, *args, **kwargs):
+    def validate_args(self, *args, **kwargs) -> None:
         if len(args) > 0:
             raise RegistryValidationError("UDF must be called with keyword arguments.")
 
