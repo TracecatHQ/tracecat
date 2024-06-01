@@ -17,9 +17,9 @@ The constituients of the template, "${{ <expression> -> <type> }}" "$.webhook.re
 The expression and type together are referred to as typed/annotated expression
 
 
-Resolved Type
+Type Coercion
 -------------
-The type to cast the result to, e.g. "int" or "str" or "float"
+The type to cast the result to, e.g. "int" or "str" or "float". This is expressed using the -> operator.
 
 Context
 -------

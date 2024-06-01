@@ -6,15 +6,21 @@ import os
 import re
 from collections.abc import Callable
 from types import FunctionType, GenericAlias
-from typing import Any, Self, TypedDict
+from typing import Annotated, Any, Self, TypedDict
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from typing_extensions import Doc
 
+from tracecat import templates
 from tracecat.auth import AuthSandbox, Role
+from tracecat.types.exceptions import TracecatException
 
 DEFAULT_NAMESPACE = "core"
+
+
+class RegistryValidationError(TracecatException):
+    """Exception raised when a registry validation error occurs."""
 
 
 class UDFSchema(TypedDict):
@@ -52,6 +58,20 @@ class RegisteredUDF(BaseModel):
             key=self.key,
             metadata=self.metadata,
         )
+
+    def validate_args(self, *args, **kwargs):
+        if len(args) > 0:
+            raise RegistryValidationError("UDF must be called with keyword arguments.")
+
+        # Validate the input arguments, fail early if the input is invalid
+        # Note that we've added TemplateValidator to the list of validators
+        # so template expressions will pass args model validation
+        try:
+            self.args_cls.model_validate(kwargs, strict=True)
+        except Exception as e:
+            raise RegistryValidationError(
+                f"Invalid input arguments for UDF {self.key!r}. {e}"
+            ) from e
 
 
 class _Registry:
@@ -125,18 +145,12 @@ class _Registry:
             4. [x] Using the model from 3,  create a specification (jsonschema/oas3) for the udf.
             5. [x] Parse out annotated argument docstrings from the function signature.
             6. [x] Store other metadata about the udf.
+            7. [x] Add TemplateValidator to the function annotations.
             """
             key = f"{namespace}.{fn.__name__}"
             logger.debug(f"Registering udf {key=}")
 
             wrapped_fn: FunctionType
-
-            def _validate_args(*args, **kwargs):
-                if len(args) > 0:
-                    raise ValueError("UDF must be called with keyword arguments.")
-
-                # Validate the input arguments, fail early if the input is invalid
-                self[key].args_cls.model_validate(kwargs, strict=True)
 
             if inspect.iscoroutinefunction(fn):
 
@@ -151,7 +165,7 @@ class _Registry:
                     2. Inject all secret keys into the execution environment.
                     3. Clean up the environment after the function has executed.
                     """
-                    _validate_args(*args, **kwargs)
+                    self[key].validate_args(*args, **kwargs)
 
                     role: Role = kwargs.pop("__role", Role(type="service"))
                     with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
@@ -163,7 +177,7 @@ class _Registry:
                 def wrapped_fn(*args, **kwargs) -> Any:
                     """Sync version of the wrapper function for the udf."""
 
-                    _validate_args(*args, **kwargs)
+                    self[key].validate_args(*args, **kwargs)
 
                     role: Role = kwargs.pop("__role", Role(type="service"))
                     with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
@@ -175,6 +189,8 @@ class _Registry:
             if not callable(fn):
                 raise ValueError("Provided object is not a callable function.")
             # Store function and decorator arguments in a dict
+
+            _attach_validators(fn, templates.TemplateValidator())
             args_cls, rtype_cls, rtype_adapter = _generate_model_from_function(
                 fn, namespace=namespace
             )
@@ -204,7 +220,22 @@ class _Registry:
 registry = _Registry()
 
 
-def _udf_slug_camelcase(func: Callable, namespace: str) -> str:
+def _attach_validators(func: FunctionType, *validators: Callable):
+    sig = inspect.signature(func)
+
+    new_annotations = {
+        name: Annotated[
+            param.annotation,
+            *validators,
+        ]
+        for name, param in sig.parameters.items()
+    }
+    if sig.return_annotation is not sig.empty:
+        new_annotations["return"] = sig.return_annotation
+    func.__annotations__ = new_annotations
+
+
+def _udf_slug_camelcase(func: FunctionType, namespace: str) -> str:
     # Use slugify to preprocess the string
     slugified_string = re.sub(r"[^a-zA-Z0-9]+", " ", namespace)
     slugified_name = re.sub(r"[^a-zA-Z0-9]+", " ", func.__name__)
