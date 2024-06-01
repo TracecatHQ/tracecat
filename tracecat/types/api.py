@@ -300,3 +300,9 @@ class CaseEventParams(BaseModel):
 
 class UpsertWorkflowDefinitionParams(BaseModel):
     content: DSLInput
+
+
+class UDFArgsValidationResponse(BaseModel):
+    ok: bool
+    message: str
+    detail: Any | None = None

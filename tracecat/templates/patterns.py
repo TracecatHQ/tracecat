@@ -45,3 +45,5 @@ EXPR_INLINE_FN = re.compile(
     re.VERBOSE,
 )
 EXPR_QUALIFIED_ATTRIBUTE = re.compile(r"\b[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)+\b")
+
+FULL_TEMPLATE = re.compile(r"^\${{\s*[^{}]*\s*}}$")

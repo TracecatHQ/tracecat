@@ -26,13 +26,9 @@ import {
   updateDndFlow,
 } from "@/lib/flow"
 import { useToast } from "@/components/ui/use-toast"
-import ActionNode, {
-  ActionNodeType,
-} from "@/components/workspace/canvas/action-node"
-import udfNode from "@/components/workspace/canvas/udf-node"
+import udfNode, { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 
 const nodeTypes = {
-  action: ActionNode,
   udf: udfNode,
 }
 
@@ -152,7 +148,7 @@ const WorkflowCanvas: React.FC = () => {
     )
   }
 
-  const onNodesDelete = async (nodesToDelete: ActionNodeType[]) => {
+  const onNodesDelete = async (nodesToDelete: UDFNodeType[]) => {
     try {
       await Promise.all(nodesToDelete.map((node) => deleteAction(node.id)))
       setNodes((nds) =>
@@ -183,8 +179,8 @@ const WorkflowCanvas: React.FC = () => {
 
   const onNodesDragStop = (
     event: React.MouseEvent,
-    node: ActionNodeType,
-    nodes: ActionNodeType[]
+    node: UDFNodeType,
+    nodes: UDFNodeType[]
   ) => {
     if (workflowId && reactFlowInstance) {
       updateDndFlow(workflowId, reactFlowInstance)

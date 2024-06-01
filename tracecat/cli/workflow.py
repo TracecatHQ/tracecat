@@ -41,7 +41,7 @@ def commit(
 ):
     """Commit a workflow definition to the database."""
     asyncio.run(upsert_workflow_definition(file, workflow_id))
-    rich.print(f"Userted workflow definition for {workflow_id!r}")
+    rich.print(f"Upserted workflow definition for {workflow_id!r}")
 
 
 @app.command(help="Commit a workflow definition")

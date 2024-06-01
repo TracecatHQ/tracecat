@@ -1,0 +1,2 @@
+class TracecatException(Exception):
+    pass

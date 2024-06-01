@@ -1,11 +1,6 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { toNestErrors } from "@hookform/resolvers"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import Ajv, { DefinedError, JSONSchemaType } from "ajv"
-import AjvErrors from "ajv-errors"
-import AjvFormats from "ajv-formats"
-import { appendErrors, FieldError, FieldValues } from "react-hook-form"
 
 import { Action, CaseEvent, type Case } from "@/types/schemas"
 import {
@@ -17,7 +12,7 @@ import {
 } from "@/lib/cases"
 import { getActionById, updateAction } from "@/lib/flow"
 import { toast } from "@/components/ui/use-toast"
-import { ActionNodeType } from "@/components/workspace/canvas/action-node"
+import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 
 export function useLocalStorage<T>(
   key: string,
@@ -147,8 +142,8 @@ export function usePanelAction<T extends Record<string, any>>(
   const { mutateAsync } = useMutation({
     mutationFn: (values: T) => updateAction(actionId, values),
     onSuccess: (data: Action) => {
-      setNodes((nds: ActionNodeType[]) =>
-        nds.map((node: ActionNodeType) => {
+      setNodes((nds: UDFNodeType[]) =>
+        nds.map((node: UDFNodeType) => {
           if (node.id === actionId) {
             const { title } = data
             node.data = {
@@ -193,78 +188,16 @@ export function usePanelAction<T extends Record<string, any>>(
   }
 }
 
-const parseErrorSchema = (
-  ajvErrors: DefinedError[],
-  validateAllFieldCriteria: boolean
-) => {
-  // Ajv will return empty instancePath when require error
-  ajvErrors.forEach((error) => {
-    if (error.keyword === "required") {
-      error.instancePath += "/" + error.params.missingProperty
-    }
-  })
-
-  return ajvErrors.reduce<Record<string, FieldError>>((previous, error) => {
-    // `/deepObject/data` -> `deepObject.data`
-    const path = error.instancePath?.substring(1).replace(/\//g, ".") as string
-
-    if (!previous[path]) {
-      previous[path] = {
-        message: error.message,
-        type: error.keyword,
-      }
-    }
-
-    if (validateAllFieldCriteria) {
-      const types = previous[path].types
-      const messages = types && types[error.keyword]
-
-      previous[path] = appendErrors(
-        path,
-        validateAllFieldCriteria,
-        previous,
-        error.keyword,
-        messages
-          ? ([] as string[]).concat(messages as string[], error.message || "")
-          : error.message
-      ) as FieldError
-    }
-
-    return previous
-  }, {})
-}
-
-export const useCustomAJVResolver = (schema: JSONSchemaType<any>) =>
-  useCallback(
-    async (
-      values: FieldValues,
-      _: any,
-      options: any
-    ): Promise<{ values: FieldValues; errors: any }> => {
-      const ajv = new Ajv({
-        allErrors: true,
-        strict: false,
-        $data: true,
-      })
-      AjvFormats(ajv)
-      AjvErrors(ajv)
-      const validate = ajv.compile(schema)
-
-      const valid = validate(values)
-      return valid
-        ? { values, errors: {} }
-        : {
-            values: {},
-            errors: toNestErrors(
-              parseErrorSchema(
-                validate.errors as DefinedError[],
-                !options.shouldUseNativeValidation &&
-                  options.criteriaMode === "all"
-              ),
-              options
-            ),
-          }
-    },
-
-    [schema]
+export function useActionInputs(action?: Action) {
+  const [actionInputs, setActionInputs] = useState<Record<string, any>>(
+    action?.inputs || {}
   )
+
+  useEffect(() => {
+    if (action?.inputs) {
+      setActionInputs(action.inputs)
+    }
+  }, [action?.inputs])
+
+  return { actionInputs, setActionInputs }
+}

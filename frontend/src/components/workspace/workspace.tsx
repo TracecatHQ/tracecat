@@ -20,7 +20,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/workspace/canvas/canvas"
 import { ActionCatalog } from "@/components/workspace/catalog/action-catalog"
 import { actionTiles } from "@/components/workspace/catalog/action-tiles-schema"
-import IntegrationsCatalog from "@/components/workspace/catalog/integrations-catalog"
 import UDFCatalog from "@/components/workspace/catalog/udfs-catalog"
 import { WorkspacePanel } from "@/components/workspace/panel/workspace-panel"
 
@@ -92,7 +91,7 @@ export function Workspace({
               className={cn(
                 "flex h-full flex-col p-2",
                 isCollapsed &&
-                "min-w-14 transition-all duration-300 ease-in-out"
+                  "min-w-14 transition-all duration-300 ease-in-out"
               )}
             >
               <CatalogTabs isCollapsed={isCollapsed} />

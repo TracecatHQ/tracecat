@@ -1,14 +1,11 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useCallback, useEffect, useState } from "react"
 import * as React from "react"
 import { useWorkflowMetadata } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
-
 import { PlayIcon, ZapIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
-import SyntaxHighlighter from "react-syntax-highlighter"
-import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import { z } from "zod"
 
 import { Action, Workflow } from "@/types/schemas"
@@ -23,6 +20,14 @@ import {
 } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -32,16 +37,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 
 const workflowControlsFormSchema = z
@@ -76,7 +77,10 @@ export function WorkflowControlsForm({
 
   const handleSubmit = useCallback(async () => {
     // Make the API call to start the workflow
-    const values = { ...form.getValues(), actionKey: selectedAction ? getActionKey(selectedAction) : undefined }
+    const values = {
+      ...form.getValues(),
+      actionKey: selectedAction ? getActionKey(selectedAction) : undefined,
+    }
     if (!values.actionKey) {
       console.error("No action key provided")
       toast({
@@ -101,7 +105,6 @@ export function WorkflowControlsForm({
     }
   }, [selectedAction, form, setSelectedAction])
 
-
   return (
     <Accordion type="single" collapsible>
       <AccordionItem value="workflow-trigger">
@@ -112,7 +115,7 @@ export function WorkflowControlsForm({
           </div>
         </AccordionTrigger>
         <AccordionContent>
-          <div className="px-4 my-4">
+          <div className="my-4 px-4">
             <Form {...form}>
               <form>
                 <FormField
@@ -122,9 +125,14 @@ export function WorkflowControlsForm({
                     <FormItem>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <FormLabel className="text-xs decoration-dotted underline underline-offset-2">Trigger Parameters</FormLabel>
+                          <FormLabel className="text-xs underline decoration-dotted underline-offset-2">
+                            Trigger Parameters
+                          </FormLabel>
                         </TooltipTrigger>
-                        <TooltipContent>JSON input to send to the selected webhook and trigger the workflow.</TooltipContent>
+                        <TooltipContent>
+                          JSON input to send to the selected webhook and trigger
+                          the workflow.
+                        </TooltipContent>
                       </Tooltip>
                       <FormControl>
                         <Textarea

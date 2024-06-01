@@ -17,6 +17,7 @@ from tracecat.templates.expressions import (
     TemplateExpression,
     eval_jsonpath,
 )
+from tracecat.templates.patterns import FULL_TEMPLATE
 from tracecat.types.secrets import SecretKeyValue
 
 
@@ -27,6 +28,22 @@ def mock_api(monkeysession, env_sandbox, tracecat_stack):
 
     with TestClient(app) as client:
         yield client
+
+
+@pytest.mark.parametrize(
+    "expression, expected_result",
+    [
+        ("${{ path.to.example -> asdf }}", True),
+        ("${{ example }} more text", False),
+        ("${{ ${example} }}", False),
+        ("${{ example ${var} }}", False),  # Should not match
+        ("${{ example }}${{ another }}", False),  # Should not match
+        ("${{ example }} ${{ another }}", False),  # Should not match
+    ],
+)
+def test_full_template(expression, expected_result):
+    matched = FULL_TEMPLATE.match(expression) is not None
+    assert matched == expected_result
 
 
 @pytest.mark.asyncio
