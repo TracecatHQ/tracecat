@@ -1,6 +1,5 @@
 from typing import TypeVar
 
-from loguru import logger
 from pydantic import ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
 
@@ -29,9 +28,7 @@ class TemplateValidator:
         # i.e., we defer the type checking to runtime
         if isinstance(v, str) and is_full_template(v):
             # if its a string and a full template, return it as is
-            logger.info(f"Found a template: {v}")
             return v
         # Otherwise, it's an inline template or non-template
         # Call the default handler
-        logger.info(f"Found a non-template: {v}")
         return handler(v, info)
