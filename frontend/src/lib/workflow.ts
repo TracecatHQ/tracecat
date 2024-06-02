@@ -262,3 +262,18 @@ export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
     throw error
   }
 }
+
+/**
+ * Commit workflow changes and add a new `WorkflowDefinition` to the database.
+ */
+export async function commitWorkflow(
+  workflowId: string
+): Promise<WorkflowMetadata[]> {
+  try {
+    const response = await client.post(`/workflows/${workflowId}/commit`)
+    return response.data
+  } catch (error) {
+    console.error("Error commiting workflow:", error)
+    throw error
+  }
+}
