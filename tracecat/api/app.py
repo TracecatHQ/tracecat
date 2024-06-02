@@ -27,6 +27,7 @@ from tracecat.auth import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
+from tracecat.db.connectors import workflow_to_dsl
 from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
 from tracecat.db.schemas import (
     Action,
@@ -46,6 +47,7 @@ from tracecat.db.schemas import (
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
+from tracecat.dsl.workflow import DSLInput
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
 from tracecat.types.api import (
@@ -458,6 +460,35 @@ def copy_workflow(
         session.refresh(new_workflow)
 
 
+@app.post("/workflows/{workflow_id}/commit", status_code=status.HTTP_204_NO_CONTENT)
+def commit_workflow(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: str,
+) -> None:
+    """Convert an application state workflow into a `WorkflowDefinition`."""
+
+    # Grab workflow and actions
+    with Session(engine) as session:
+        statement = select(Workflow).where(
+            Workflow.owner_id == role.user_id,
+            Workflow.id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            workflow = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+        # Hydrate actions
+        _ = workflow.actions
+
+        # Convert the workflow into a WorkflowDefinition
+        dsl = workflow_to_dsl(workflow)
+        _upsert_workflow_definition(session, role, workflow_id, dsl)
+
+
 # ----- Workflow Definitions ----- #
 
 
@@ -513,27 +544,33 @@ def upsert_workflow_definition(
     params: UpsertWorkflowDefinitionParams,
 ) -> None:
     with Session(engine) as session:
-        statement = (
-            select(WorkflowDefinition)
-            .where(
-                WorkflowDefinition.owner_id == role.user_id,
-                WorkflowDefinition.workflow_id == workflow_id,
-            )
-            .order_by(WorkflowDefinition.version.desc())
-        )
-        result = session.exec(statement)
-        latest_defn = result.first()
+        _upsert_workflow_definition(session, role, workflow_id, params.content)
 
-        version = latest_defn.version + 1 if latest_defn else 1
-        defn = WorkflowDefinition(
-            owner_id=role.user_id,
-            workflow_id=workflow_id,
-            content=params.content.model_dump(),
-            version=version,
+
+def _upsert_workflow_definition(
+    session: Session, role: Role, workflow_id: str, content: DSLInput
+) -> WorkflowDefinition:
+    statement = (
+        select(WorkflowDefinition)
+        .where(
+            WorkflowDefinition.owner_id == role.user_id,
+            WorkflowDefinition.workflow_id == workflow_id,
         )
-        session.add(defn)
-        session.commit()
-        session.refresh(defn)
+        .order_by(WorkflowDefinition.version.desc())
+    )
+    result = session.exec(statement)
+    latest_defn = result.first()
+
+    version = latest_defn.version + 1 if latest_defn else 1
+    defn = WorkflowDefinition(
+        owner_id=role.user_id,
+        workflow_id=workflow_id,
+        content=content.model_dump(),
+        version=version,
+    )
+    session.add(defn)
+    session.commit()
+    session.refresh(defn)
 
 
 # ----- Workflow Runs ----- #
