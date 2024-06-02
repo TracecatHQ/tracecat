@@ -10,8 +10,8 @@ import { z } from "zod"
 
 import { Action, Workflow } from "@/types/schemas"
 import { stringToJSONSchema } from "@/types/validators"
-import { triggerWorkflow } from "@/lib/flow"
 import { getActionKey } from "@/lib/utils"
+import { triggerWorkflow } from "@/lib/workflow"
 import {
   Accordion,
   AccordionContent,

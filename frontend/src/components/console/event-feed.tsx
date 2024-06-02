@@ -3,8 +3,8 @@ import { useEventFeedContext } from "@/providers/event-feed-stream"
 import { CloudOff, CornerDownLeft, Loader, Mic, Paperclip } from "lucide-react"
 import { useFormContext } from "react-hook-form"
 
-import { triggerWorkflow } from "@/lib/flow"
 import { cn } from "@/lib/utils"
+import { triggerWorkflow } from "@/lib/workflow"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,

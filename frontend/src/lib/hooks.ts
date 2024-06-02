@@ -10,7 +10,7 @@ import {
   fetchCaseEvents,
   updateCase,
 } from "@/lib/cases"
-import { getActionById, updateAction } from "@/lib/flow"
+import { getActionById, updateAction } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 

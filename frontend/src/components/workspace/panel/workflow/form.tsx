@@ -11,7 +11,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
-import { updateWorkflow } from "@/lib/flow"
+import { updateWorkflow } from "@/lib/workflow"
 import {
   Accordion,
   AccordionContent,
