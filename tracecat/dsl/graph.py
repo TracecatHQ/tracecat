@@ -97,7 +97,7 @@ class RFGraph(BaseModel):
 
     @property
     def entrypoint(self) -> str:
-        entrypoints = [node.id for node in self.nodes if self.indegree[node.id] == 0]
+        entrypoints = [node.ref for node in self.nodes if self.indegree[node.id] == 0]
         if len(entrypoints) != 1:
             raise ValueError(
                 f"Expected 1 entrypoint, got {len(entrypoints)}: {entrypoints!r}"

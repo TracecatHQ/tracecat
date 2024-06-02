@@ -8,13 +8,19 @@ import "@radix-ui/react-dialog"
 import { UpdateIcon } from "@radix-ui/react-icons"
 import { ScrollArea } from "@radix-ui/react-scroll-area"
 import { useQuery } from "@tanstack/react-query"
-import { CircleCheck, CircleX, Loader, Loader2, HistoryIcon } from "lucide-react"
+import {
+  CircleCheck,
+  CircleX,
+  HistoryIcon,
+  Loader,
+  Loader2,
+} from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { ActionRun, RunStatus, WorkflowRun } from "@/types/schemas"
-import { fetchWorkflowRun, fetchWorkflowRuns } from "@/lib/flow"
 import { cn, parseActionRunId, undoSlugify } from "@/lib/utils"
+import { fetchWorkflowRun, fetchWorkflowRuns } from "@/lib/workflow"
 import {
   Accordion,
   AccordionContent,
@@ -65,7 +71,7 @@ export function WorkflowRunsView({
           </div>
         </AccordionTrigger>
         <AccordionContent>
-          <div className="space-y-4 px-4 my-2">
+          <div className="my-2 space-y-4 px-4">
             <ScrollArea
               className={cn(
                 "h-full max-h-[400px] overflow-y-auto rounded-md border p-4",
@@ -82,7 +88,9 @@ export function WorkflowRunsView({
               ) : workflowRuns && workflowRuns.length > 0 ? (
                 <Accordion type="single" collapsible className="w-full">
                   {workflowRuns
-                    ?.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+                    ?.sort(
+                      (a, b) => b.created_at.getTime() - a.created_at.getTime()
+                    )
                     .map((props, index) => (
                       <WorkflowRunItem key={index} {...props} />
                     ))}
@@ -91,7 +99,8 @@ export function WorkflowRunsView({
                 <NoContent className="my-8" message="No runs available" />
               )}
             </ScrollArea>
-          </div>    </AccordionContent>
+          </div>{" "}
+        </AccordionContent>
       </AccordionItem>
     </Accordion>
   )

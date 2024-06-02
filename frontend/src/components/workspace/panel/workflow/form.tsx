@@ -5,13 +5,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { SaveIcon, Settings2Icon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
-import { updateWorkflow } from "@/lib/flow"
+import { useSaveWorkflow } from "@/lib/hooks"
 import {
   Accordion,
   AccordionContent,
@@ -35,7 +34,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
 import { WorkflowSettings } from "@/components/workspace/panel/workflow/settings"
 
 const workflowFormSchema = z.object({
@@ -57,7 +55,6 @@ export function WorkflowForm({
     title: workflowTitle,
     description: workflowDescription,
   } = workflow
-  const queryClient = useQueryClient()
   const form = useForm<TWorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
@@ -65,46 +62,24 @@ export function WorkflowForm({
       description: workflowDescription || "",
     },
   })
+  const { mutateAsync: saveAsync } = useSaveWorkflow(workflowId)
 
-  function useUpdateWorkflow(workflowId: string) {
-    const mutation = useMutation({
-      mutationFn: (values: TWorkflowForm) => updateWorkflow(workflowId, values),
-      onSuccess: (data) => {
-        console.log("Workflow update successful", data)
-        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
-        toast({
-          title: "Saved workflow",
-          description: "Workflow updated successfully.",
-        })
-      },
-      onError: (error) => {
-        console.error("Failed to update workflow:", error)
-        toast({
-          title: "Error updating workflow",
-          description: "Could not update workflow. Please try again.",
-        })
-      },
-    })
-
-    return mutation
-  }
-
-  const { mutate } = useUpdateWorkflow(workflowId)
-  function onSubmit(values: TWorkflowForm) {
-    mutate(values)
+  const onSubmit = async (values: TWorkflowForm) => {
+    console.log("Saving changes...")
+    await saveAsync(values)
   }
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="flex flex-1 justify-end space-x-2 p-4">
+        <div className="flex flex-1 justify-end gap-2 p-4">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button type="submit" size="icon">
                 <SaveIcon className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Save</TooltipContent>
+            <TooltipContent>Save Changes</TooltipContent>
           </Tooltip>
           <WorkflowSettings workflow={workflow} />
         </div>

@@ -24,7 +24,7 @@ import {
   deleteAction,
   fetchWorkflow,
   updateDndFlow,
-} from "@/lib/flow"
+} from "@/lib/workflow"
 import { useToast } from "@/components/ui/use-toast"
 import udfNode, { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 

@@ -4,8 +4,14 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkflowMetadata } from "@/providers/workflow"
-import { RadioIcon, ShieldAlertIcon, WorkflowIcon } from "lucide-react"
+import {
+  GitPullRequestCreateArrowIcon,
+  RadioIcon,
+  ShieldAlertIcon,
+  WorkflowIcon,
+} from "lucide-react"
 
+import { useCommitWorkflow } from "@/lib/hooks"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,6 +19,7 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -20,9 +27,15 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 export default function WorkflowNav() {
   const { workflow, workflowId, isLoading, isOnline, setIsOnline } =
     useWorkflowMetadata()
+  const { mutateAsync: commitAsync } = useCommitWorkflow(workflowId!)
 
   if (!workflow || isLoading) {
     return null
+  }
+
+  const handleCommit = async () => {
+    console.log("Committing changes...")
+    await commitAsync()
   }
   return (
     workflowId && (
@@ -44,6 +57,15 @@ export default function WorkflowNav() {
         </Breadcrumb>
         <TabSwitcher workflowId={workflowId} />
         <div className="flex flex-1 items-center justify-end space-x-3">
+          <Button
+            variant="outline"
+            onClick={handleCommit}
+            className="delay-50 h-7 text-xs text-muted-foreground transition duration-200 ease-in-out hover:-translate-y-0.5 hover:scale-105 hover:bg-emerald-500 hover:text-white"
+          >
+            <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
+            Commit
+          </Button>
+
           <Switch
             id="enable-workflow"
             checked={isOnline}

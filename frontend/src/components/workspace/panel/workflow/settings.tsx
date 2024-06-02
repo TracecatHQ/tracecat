@@ -1,10 +1,10 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-
 import { SettingsIcon, Trash2Icon } from "lucide-react"
+
 import { Workflow } from "@/types/schemas"
-import { deleteWorkflow } from "@/lib/flow"
+import { deleteWorkflow } from "@/lib/workflow"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -22,8 +22,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { toast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
+import { toast } from "@/components/ui/use-toast"
 
 export function WorkflowSettings({ workflow }: { workflow: Workflow }) {
   const router = useRouter()
@@ -41,17 +41,14 @@ export function WorkflowSettings({ workflow }: { workflow: Workflow }) {
     <Dialog>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
-          >
+          <Button variant="outline" size="icon">
             <SettingsIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-4">
           <DialogTrigger asChild>
-            <DropdownMenuItem className="text-red-600 text-sm">
-              <Trash2Icon className="size-4 mr-2" />
+            <DropdownMenuItem className="text-sm text-red-600">
+              <Trash2Icon className="mr-2 size-4" />
               <span>Delete</span>
             </DropdownMenuItem>
           </DialogTrigger>

@@ -4,8 +4,8 @@ import { DragEvent, useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 import { ActionType } from "@/types/schemas"
-import { createAction } from "@/lib/flow"
 import { cn } from "@/lib/utils"
+import { createAction } from "@/lib/workflow"
 import { buttonVariants } from "@/components/ui/button"
 import {
   Tooltip,

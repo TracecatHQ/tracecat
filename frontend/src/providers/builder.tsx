@@ -17,7 +17,7 @@ import {
   useReactFlow,
 } from "reactflow"
 
-import { updateDndFlow } from "@/lib/flow"
+import { updateDndFlow } from "@/lib/workflow"
 import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 
 interface ReactFlowContextType {

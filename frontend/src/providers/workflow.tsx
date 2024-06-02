@@ -12,7 +12,7 @@ import { useParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 
 import { Workflow } from "@/types/schemas"
-import { fetchWorkflow, updateWorkflow } from "@/lib/flow"
+import { fetchWorkflow, updateWorkflow } from "@/lib/workflow"
 
 type WorkflowContextType = {
   workflow: Workflow | null
