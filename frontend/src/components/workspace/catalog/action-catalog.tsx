@@ -164,7 +164,7 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
                     key={index}
                     className={cn(
                       buttonVariants({ variant: variant, size: "sm" }),
-                      "justify-start space-x-1",
+                      "w-full justify-start space-x-1",
                       variant === "default" &&
                         "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
                       hierarchy === "group" || availability === "comingSoon"
