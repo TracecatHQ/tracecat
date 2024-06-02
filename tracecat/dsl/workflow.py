@@ -78,8 +78,9 @@ class DSLInput(BaseModel):
             raise DSLError("At least one action must be defined")
         if len({action.ref for action in self.actions}) != len(self.actions):
             raise DSLError("All task.ref must be unique")
-        if self.entrypoint not in {action.ref for action in self.actions}:
-            raise DSLError("Entrypoint must be one of the actions")
+        valid_actions = tuple(action.ref for action in self.actions)
+        if self.entrypoint not in valid_actions:
+            raise DSLError(f"Entrypoint must be one of the actions {valid_actions!r}")
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
         if n_entrypoints != 1:
             raise DSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
