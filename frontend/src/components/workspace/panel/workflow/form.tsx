@@ -5,16 +5,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
 
-import {
-  GitPullRequestCreateArrowIcon,
-  SaveIcon,
-  Settings2Icon,
-} from "lucide-react"
+import { SaveIcon, Settings2Icon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
-import { useCommitWorkflow, useSaveWorkflow } from "@/lib/hooks"
+import { useSaveWorkflow } from "@/lib/hooks"
 import {
   Accordion,
   AccordionContent,
@@ -67,40 +63,24 @@ export function WorkflowForm({
     },
   })
   const { mutateAsync: saveAsync } = useSaveWorkflow(workflowId)
-  const { mutateAsync: commitAsync } = useCommitWorkflow(workflowId)
 
   const onSubmit = async (values: TWorkflowForm) => {
     console.log("Saving changes...")
     await saveAsync(values)
   }
 
-  const handleCommit = async () => {
-    console.log("Committing changes...")
-    await commitAsync()
-  }
-
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="flex flex-1 justify-between p-4">
-          <div className="space-x-2 ">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button type="button" size="icon" onClick={handleCommit}>
-                  <GitPullRequestCreateArrowIcon className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Commit Changes</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button type="submit" size="icon">
-                  <SaveIcon className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Save Changes</TooltipContent>
-            </Tooltip>
-          </div>
+        <div className="flex flex-1 justify-end gap-2 p-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="submit" size="icon">
+                <SaveIcon className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Save Changes</TooltipContent>
+          </Tooltip>
           <WorkflowSettings workflow={workflow} />
         </div>
         <Separator />
