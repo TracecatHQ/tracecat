@@ -101,8 +101,58 @@ ConditionValidator: TypeAdapter[ConditionVariant] = TypeAdapter(
     namespace="core.condition",
     version="0.1.0",
     description="Perform a conditional rule evaluation.",
+    default_title="Regex",
+    display_group="Condition",
 )
-async def condition(
+async def regex(
+    # NOTE: This arrives as a dictionary becaused we called `model_dump` on the ConditionAction instance.
+    condition_rules: dict[str, Any],
+    # Common
+    action_run_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a conditional action."""
+    logger.debug("Perform conditional rules action", rules=condition_rules)
+    rule = ConditionValidator.validate_python(condition_rules)
+    rule_match = rule.evaluate()
+    return {
+        "output": "true" if rule_match else "false",  # Explicitly convert to string
+        "output_type": "bool",
+        "__should_continue__": rule_match,
+    }
+
+
+@registry.register(
+    namespace="core.condition",
+    version="0.1.0",
+    description="Perform a conditional rule evaluation.",
+    default_title="Comparre",
+    display_group="Condition",
+)
+async def compare(
+    # NOTE: This arrives as a dictionary becaused we called `model_dump` on the ConditionAction instance.
+    condition_rules: dict[str, Any],
+    # Common
+    action_run_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a conditional action."""
+    logger.debug("Perform conditional rules action", rules=condition_rules)
+    rule = ConditionValidator.validate_python(condition_rules)
+    rule_match = rule.evaluate()
+    return {
+        "output": "true" if rule_match else "false",  # Explicitly convert to string
+        "output_type": "bool",
+        "__should_continue__": rule_match,
+    }
+
+
+@registry.register(
+    namespace="core.condition",
+    version="0.1.0",
+    description="Perform a conditional rule evaluation.",
+    default_title="Membership",
+    display_group="Condition",
+)
+async def membership(
     # NOTE: This arrives as a dictionary becaused we called `model_dump` on the ConditionAction instance.
     condition_rules: dict[str, Any],
     # Common
