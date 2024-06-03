@@ -6,7 +6,7 @@ import { Node } from "reactflow"
 import { usePanelAction } from "@/lib/hooks"
 import { FormLoading } from "@/components/loading/form"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
-import { UDFActionForm } from "@/components/workspace/panel/action/udf-form"
+import { UDFActionPanel } from "@/components/workspace/panel/udf-panel"
 import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
@@ -22,7 +22,7 @@ export function WorkspacePanel() {
       {!workflow ? (
         <FormLoading />
       ) : selectedNode ? (
-        <WrappedUDFForm selectedNode={selectedNode} workflowId={workflow.id} />
+        <WrappedUDFPanel selectedNode={selectedNode} workflowId={workflow.id} />
       ) : workflow ? (
         <div>
           <WorkflowForm workflow={workflow} />
@@ -36,7 +36,7 @@ export function WorkspacePanel() {
   )
 }
 
-function WrappedUDFForm({
+function WrappedUDFPanel({
   selectedNode,
   workflowId,
 }: {
@@ -47,7 +47,7 @@ function WrappedUDFForm({
   const nodeData = selectedNode.data
 
   return (
-    <UDFActionForm
+    <UDFActionPanel
       panelAction={panelAction}
       type={nodeData.type}
       actionId={selectedNode.id}
