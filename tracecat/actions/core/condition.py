@@ -125,7 +125,7 @@ async def regex(
     namespace="core.condition",
     version="0.1.0",
     description="Perform a conditional rule evaluation.",
-    default_title="Comparre",
+    default_title="Compare",
     display_group="Condition",
 )
 async def compare(
