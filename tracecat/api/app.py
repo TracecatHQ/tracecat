@@ -1768,7 +1768,7 @@ def search_secrets(
 
 @app.get("/udfs")
 def list_udfs(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     limit: int | None = None,
     namespace: str = Query(None),
 ) -> list[UDFSpec]:
@@ -1781,7 +1781,7 @@ def list_udfs(
             )
         )
         if namespace:
-            statement = statement.where(UDFSpec.namespace == namespace)
+            statement = statement.where(UDFSpec.key.startswith(namespace))
         if limit:
             statement = statement.limit(limit)
         result = session.exec(statement)
@@ -1791,7 +1791,7 @@ def list_udfs(
 
 @app.get("/udfs/{key}")
 def get_udf(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     key: str,
     namespace: str = Query(None),
 ) -> UDFSpec:
