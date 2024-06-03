@@ -4,7 +4,6 @@ import {
   BellDotIcon,
   ChevronDownIcon,
   CircleCheckBigIcon,
-  CircleIcon,
   Copy,
   Delete,
   EyeIcon,
