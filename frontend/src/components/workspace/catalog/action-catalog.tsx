@@ -3,7 +3,7 @@
 import { DragEvent, useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 
-import { ActionType } from "@/types/schemas"
+import { UDF, useUDFs } from "@/lib/udf"
 import { cn } from "@/lib/utils"
 import { createAction } from "@/lib/workflow"
 import { buttonVariants } from "@/components/ui/button"
@@ -12,35 +12,71 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { AvailabilityBadge } from "@/components/badges"
-import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
-import { ActionTile } from "@/components/workspace/catalog/action-tiles-schema"
+import { getIcon } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  RFGraphUDFNodeType,
+  UDFNodeData,
+  UDFNodeType,
+} from "@/components/workspace/canvas/udf-node"
 
-interface ActionTilesProps {
-  isCollapsed: boolean
-  tiles: ActionTile[]
+const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
+  const groups = {} as Record<string, UDF[]>
+  udfs.forEach((udf) => {
+    const displayGroup = (
+      udf.metadata?.["display_group"] ||
+      udf.metadata?.["default_title"] ||
+      udf.key
+    ).toString()
+    if (!groups[displayGroup]) {
+      groups[displayGroup] = []
+    }
+    groups[displayGroup].push(udf)
+  })
+  return groups
 }
-const ACTION_NODE_TAG = "action" as const
 
-export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
+const onDragStart = (event: DragEvent<HTMLDivElement>, udf: UDF) => {
+  event.dataTransfer.setData("application/reactflow", RFGraphUDFNodeType)
+  event.dataTransfer.setData(
+    "application/json",
+    JSON.stringify({
+      type: udf.key,
+      title: udf.metadata?.["default_title"] || udf.key,
+      namespace: udf.namespace,
+      status: "offline",
+      isConfigured: false,
+      numberOfEvents: 0,
+    })
+  )
+  event.dataTransfer.effectAllowed = "move"
+}
+
+export function ActionCatalog({ isCollapsed }: { isCollapsed: boolean }) {
+  const { udfs, isLoading: udfsLoading, error } = useUDFs("core")
   const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
     useWorkflowBuilder()
+
+  /**
+   * Enables the user to create an action node by clicking on a tile
+   */
   const handleTileClick = useCallback(
-    async (type?: ActionType, title?: string) => {
+    async (udf: UDF) => {
       const selectedNode = getNode(selectedNodeId ?? "")
-      if (!type || !selectedNode || !workflowId || !title) {
+      if (!selectedNode || !workflowId) {
         console.error("Missing required data to create action")
         return
       }
-      // Proceed to add this action as a child of the selected node
 
       const newNodeData = {
-        type: type,
-        title: title || `${type} Action`,
+        type: udf.key,
+        title: udf.metadata?.["default_title"] || udf.key,
+        namespace: udf.namespace,
         status: "offline",
         isConfigured: false,
         numberOfEvents: 0,
-      }
+      } as UDFNodeData
+
       const actionId = await createAction(
         newNodeData.type,
         newNodeData.title,
@@ -49,7 +85,7 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
 
       const newNode = {
         id: actionId,
-        type: ACTION_NODE_TAG,
+        type: RFGraphUDFNodeType,
         position: {
           x: selectedNode.position.x,
           y: selectedNode.position.y + 200,
@@ -75,20 +111,9 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
     },
     [selectedNodeId]
   )
-  const onDragStart = (event: DragEvent<HTMLDivElement>, tile: ActionTile) => {
-    const actionNodeData = {
-      type: tile.type,
-      title: tile.title || `${tile.type} Action`,
-      status: "offline",
-      isConfigured: false,
-      numberOfEvents: 0,
-    }
-    event.dataTransfer.setData("application/reactflow", ACTION_NODE_TAG)
-    event.dataTransfer.setData(
-      "application/json",
-      JSON.stringify(actionNodeData)
-    )
-    event.dataTransfer.effectAllowed = "move"
+
+  if (!udfs || udfsLoading) {
+    return <CenteredSpinner />
   }
 
   return (
@@ -97,108 +122,119 @@ export function ActionCatalog({ tiles, isCollapsed }: ActionTilesProps) {
       className="group flex flex-col gap-4 p-2 data-[collapsed=true]:py-2"
     >
       <nav className="grid px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
-        {tiles.map((tile, index) => {
-          const {
-            type,
-            variant,
-            title,
-            icon: TileIcon,
-            hierarchy,
-            availability,
-          } = tile
-          return isCollapsed ? (
-            <Tooltip key={index} delayDuration={0}>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    buttonVariants({ variant: variant, size: "icon" }),
-                    "h-9 w-9",
-                    variant === "default" &&
-                      "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                    hierarchy === "group" || availability === "comingSoon"
-                      ? "hover:cursor-default hover:bg-transparent"
-                      : "hover:cursor-grab",
-                    availability === "comingSoon" && "opacity-70"
-                  )}
-                  draggable={
-                    hierarchy !== "group" && availability !== "comingSoon"
-                  }
-                  onDragStart={(event) => onDragStart(event, tile)}
-                  onClick={() => {
-                    if (!availability) {
-                      handleTileClick(type, title)
-                    }
-                  }}
-                >
-                  <TileIcon className="h-4 w-4" />
-                  <span className="sr-only">{type}</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="flex items-center gap-4">
-                {type?.startsWith("llm.") && "AI "}
-                {title}
-                {availability && (
-                  <span className="flex grow justify-end">
-                    <AvailabilityBadge
-                      className="text-xs"
-                      availability={availability}
-                    />
-                  </span>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <Tooltip
-              key={index}
-              delayDuration={0}
-              disableHoverableContent={!availability}
-            >
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    hierarchy === "groupItem" &&
-                      "ml-5 border-l border-zinc-300 pl-1"
-                  )}
-                >
-                  <div
+        {Object.entries(groupByDisplayGroup(udfs))
+          .sort(([groupA], [groupB]) => groupA.localeCompare(groupB))
+          .map(([group, udfs], groupIndex) => {
+            if (udfs.length === 1) {
+              return (
+                <UDFCatalogItem
+                  key={groupIndex}
+                  udf={udfs[0]}
+                  isCollapsed={isCollapsed}
+                  handleTileClick={handleTileClick}
+                />
+              )
+            }
+            return (
+              <div key={groupIndex}>
+                <UDFCatalogGroup
+                  key={groupIndex}
+                  displayName={group}
+                  isCollapsed={isCollapsed}
+                />
+                {udfs.map((udf, index) => (
+                  <UDFCatalogItem
                     key={index}
-                    className={cn(
-                      buttonVariants({ variant: variant, size: "sm" }),
-                      "w-full justify-start space-x-1",
-                      variant === "default" &&
-                        "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white",
-                      hierarchy === "group" || availability === "comingSoon"
-                        ? "hover:cursor-default hover:bg-transparent"
-                        : "hover:cursor-grab",
-                      availability === "comingSoon" && "opacity-50"
-                    )}
-                    draggable={
-                      hierarchy !== "group" && availability !== "comingSoon"
-                    }
-                    onDragStart={(event) => onDragStart(event, tile)}
-                    onClick={() => {
-                      if (!availability) {
-                        handleTileClick(type, title)
-                      }
-                    }}
-                  >
-                    <TileIcon className="mr-2 h-4 w-4" />
-                    <span>{title}</span>
-                  </div>
-                </div>
-              </TooltipTrigger>
-              {availability && (
-                <TooltipContent side="right" className="bg-transparent">
-                  <AvailabilityBadge
-                    className="h-5  text-xs"
-                    availability={availability}
+                    indent={1}
+                    udf={udf}
+                    isCollapsed={isCollapsed}
+                    handleTileClick={handleTileClick}
                   />
-                </TooltipContent>
-              )}
-            </Tooltip>
-          )
-        })}
+                ))}
+              </div>
+            )
+          })}
       </nav>
     </div>
+  )
+}
+
+function UDFCatalogGroup({
+  displayName,
+  isCollapsed,
+}: {
+  displayName: string
+  isCollapsed: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        buttonVariants({
+          variant: "ghost",
+          size: "sm",
+        }),
+        isCollapsed ? "hidden" : "w-full justify-start gap-2",
+        "hover:cursor-default hover:bg-transparent"
+      )}
+    >
+      {getIcon("group", { className: "size-5" })}
+      {!isCollapsed && <span>{displayName}</span>}
+    </div>
+  )
+}
+
+function UDFCatalogItem({
+  indent = 0,
+  udf,
+  isCollapsed,
+  handleTileClick,
+  isAvailable = true,
+}: {
+  indent?: number
+  udf: UDF
+  isCollapsed: boolean
+  handleTileClick: (udf: UDF) => void
+  isAvailable?: boolean
+}) {
+  const defaultTitle = (udf.metadata?.["default_title"] || udf.key).toString()
+  return (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            !isCollapsed && indent > 0 && "ml-5 border-l border-zinc-300 pl-1"
+          )}
+        >
+          <div
+            className={cn(
+              buttonVariants({
+                variant: "ghost",
+                size: isCollapsed ? "icon" : "sm",
+              }),
+              "hover:cursor-grab",
+              isCollapsed ? "size-9" : "w-full justify-start gap-2"
+            )}
+            draggable={isAvailable}
+            onDragStart={(event) => onDragStart(event, udf)}
+            onClick={() => handleTileClick(udf)}
+          >
+            {getIcon(udf.key, {
+              className: "size-5",
+              flairSize: "sm",
+            })}
+            {!isCollapsed && <span>{defaultTitle}</span>}
+          </div>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        className={cn(
+          "flex items-center gap-4 rounded-lg p-2 shadow-lg",
+          !isCollapsed && "hidden"
+        )}
+      >
+        {defaultTitle}
+      </TooltipContent>
+    </Tooltip>
   )
 }

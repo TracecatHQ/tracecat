@@ -14,13 +14,9 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/workspace/canvas/canvas"
 import { ActionCatalog } from "@/components/workspace/catalog/action-catalog"
-import { actionTiles } from "@/components/workspace/catalog/action-tiles-schema"
-import UDFCatalog from "@/components/workspace/catalog/udfs-catalog"
 import { WorkspacePanel } from "@/components/workspace/panel/workspace-panel"
 
 interface WorkspaceProps {
@@ -94,7 +90,7 @@ export function Workspace({
                   "min-w-14 transition-all duration-300 ease-in-out"
               )}
             >
-              <CatalogTabs isCollapsed={isCollapsed} />
+              <ActionCatalog isCollapsed={isCollapsed} />
               {/* For items that should align at the end of the side nav */}
             </ResizablePanel>
             <CustomResizableHandle>
@@ -121,44 +117,5 @@ export function Workspace({
         </TooltipProvider>
       </WorkflowBuilderProvider>
     </ReactFlowProvider>
-  )
-}
-
-export function CatalogTabs({ isCollapsed }: { isCollapsed: boolean }) {
-  return (
-    <Tabs
-      defaultValue="actions"
-      className="w-full"
-      value={isCollapsed ? "actions" : undefined}
-    >
-      {!isCollapsed && (
-        <>
-          <TabsList className="grid w-full grid-cols-2 bg-transparent hover:cursor-pointer">
-            <TabsTrigger
-              value="actions"
-              className="text-xs data-[state=active]:shadow-none"
-              asChild
-            >
-              <span>Actions</span>
-            </TabsTrigger>
-
-            <TabsTrigger
-              value="udfs"
-              className="text-xs data-[state=active]:shadow-none"
-              asChild
-            >
-              <span>UDFs</span>
-            </TabsTrigger>
-          </TabsList>
-          <Separator />
-        </>
-      )}
-      <TabsContent value="actions">
-        <ActionCatalog isCollapsed={isCollapsed} tiles={actionTiles} />
-      </TabsContent>
-      <TabsContent value="udfs">
-        <UDFCatalog />
-      </TabsContent>
-    </Tabs>
   )
 }

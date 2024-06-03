@@ -6,7 +6,6 @@ import ReactFlow, {
   Controls,
   Edge,
   MarkerType,
-  Node,
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
@@ -18,7 +17,6 @@ import "reactflow/dist/style.css"
 
 import { useParams } from "next/navigation"
 
-import { NodeType } from "@/types/schemas"
 import {
   createAction,
   deleteAction,
@@ -26,7 +24,10 @@ import {
   updateDndFlow,
 } from "@/lib/workflow"
 import { useToast } from "@/components/ui/use-toast"
-import udfNode, { UDFNodeType } from "@/components/workspace/canvas/udf-node"
+import udfNode, {
+  UDFNodeData,
+  UDFNodeType,
+} from "@/components/workspace/canvas/udf-node"
 
 const nodeTypes = {
   udf: udfNode,
@@ -37,15 +38,6 @@ const defaultEdgeOptions = {
     type: MarkerType.ArrowClosed,
   },
   style: { strokeWidth: 2 },
-}
-export type NodeDataType = Node<NodeData>
-export interface NodeData {
-  type: NodeType
-  title: string
-  status: "online" | "offline"
-  isConfigured: boolean
-  numberOfEvents: number
-  // Generic metadata
 }
 const WorkflowCanvas: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -117,9 +109,8 @@ const WorkflowCanvas: React.FC = () => {
     )
     console.log("React Flow Node Type:", reactFlowNodeType)
 
-    const nodeData = JSON.parse(
-      event.dataTransfer.getData("application/json")
-    ) as NodeData
+    const rawNodeData = event.dataTransfer.getData("application/json")
+    const nodeData = JSON.parse(rawNodeData) as UDFNodeData
 
     console.log("Action Node Data:", nodeData)
 
@@ -139,7 +130,7 @@ const WorkflowCanvas: React.FC = () => {
       type: reactFlowNodeType,
       position: reactFlowNodePosition,
       data: nodeData,
-    } as NodeDataType
+    } as UDFNodeType
 
     setNodes((prevNodes) =>
       prevNodes

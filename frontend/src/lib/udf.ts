@@ -36,11 +36,7 @@ export const UDFSpecSchema = z.object({
 export type UDFSpec = z.infer<typeof UDFSpecSchema>
 
 export async function fetchAllUDFs(namespace?: string): Promise<UDF[]> {
-  let path = "/udfs"
-  if (namespace) {
-    path += `?namespace=${namespace}`
-  }
-  const response = await client.get<UDF[]>(path)
+  const response = await client.get<UDF[]>("/udfs", { params: { namespace } })
   const udfspecs = await z.array(UDFSpecSchema).parseAsync(response.data)
   return udfspecs.map((u) => u.json_schema)
 }
@@ -60,7 +56,11 @@ export async function fetchUDF(key: string, namespace?: string): Promise<UDF> {
  * @param namespace
  * @returns
  */
-export function useUDFs(namespace?: string) {
+export function useUDFs(namespace?: string): {
+  udfs?: UDF[]
+  isLoading: boolean
+  error: Error | null
+} {
   const {
     data: udfs,
     isLoading,
@@ -70,7 +70,7 @@ export function useUDFs(namespace?: string) {
     queryFn: async () => await fetchAllUDFs(namespace),
   })
   if (isLoading) {
-    return { udfs: [], isLoading, error }
+    return { udfs: undefined, isLoading, error }
   }
   return { udfs, isLoading, error }
 }

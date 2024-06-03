@@ -32,7 +32,6 @@ import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 
-export type UDFNodeType = Node<UDFNodeData>
 export interface UDFNodeData {
   type: string // alias for key
   title: string
@@ -40,11 +39,13 @@ export interface UDFNodeData {
   status: "online" | "offline"
   isConfigured: boolean
   numberOfEvents: number
-  // Generic metadata
 }
+export type UDFNodeType = Node<UDFNodeData>
+export const RFGraphUDFNodeType = "udf" as const
+
 const handleStyle = { width: 8, height: 8 }
 export default React.memo(function UDFNode({
-  data: { title, isConfigured, numberOfEvents, type: key, namespace },
+  data: { title, isConfigured, numberOfEvents, type: key },
   selected,
 }: NodeProps<UDFNodeData>) {
   const id = useNodeId()
@@ -56,34 +57,31 @@ export default React.memo(function UDFNode({
     const slug = slugify(title)
     copyToClipboard({
       value: slug,
-      message: `JSONPath copied to clipboard`,
+      message: `Node ref copied to clipboard`,
     })
     toast({
-      title: "Copied action tile slug",
-      description: `The slug ${slug} has been copied to your clipboard.`,
+      title: "Copied action node reference",
+      description: `The node reference '${slug}' has been copied to your clipboard.`,
     })
   }, [title, toast])
 
   const handleDeleteNode = useCallback(async () => {
-    if (!workflowId || !id) {
-      return
-    }
-    const node = getNode(id)
-    if (!node) {
-      console.error("Could not find node with ID", id)
-      return
-    }
     try {
+      if (!workflowId || !id) {
+        throw new Error("Missing required data to delete node")
+      }
+      const node = getNode(id)
+      if (!node) {
+        console.error("Could not find node with ID", id)
+        throw new Error("Could not find node to delete")
+      }
       reactFlow.deleteElements({ nodes: [node] })
-      toast({
-        title: "Deleted action node",
-        description: "Successfully deleted action node.",
-      })
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
       toast({
         title: "Error deleting action node",
         description: "Failed to delete action node.",
+        variant: "destructive",
       })
     }
   }, [id, toast])

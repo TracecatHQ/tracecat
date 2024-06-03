@@ -2,6 +2,7 @@ import {
   Blend,
   Bolt,
   BookText,
+  BoxesIcon,
   CheckSquare,
   Container,
   Cpu,
@@ -13,6 +14,7 @@ import {
   Regex,
   Send,
   ShieldAlert,
+  Sparkles,
   Tags,
   Webhook,
 } from "lucide-react"
@@ -158,7 +160,21 @@ export const Icons = {
   ),
 }
 
-export function getIcon(key: string, props?: IconProps): JSX.Element {
+export function getFlairSize(size: "sm" | "md" | "lg"): string {
+  switch (size) {
+    case "sm":
+      return "size-2"
+    case "lg":
+      return "size-6"
+    default:
+      return "size-4"
+  }
+}
+
+export function getIcon(
+  key: string,
+  props?: IconProps & Record<string, any>
+): JSX.Element {
   // Try exact match
   if (UDFIcons[key]) {
     return UDFIcons[key](props ?? {})
@@ -174,9 +190,18 @@ export function getIcon(key: string, props?: IconProps): JSX.Element {
   // return default icon
   return <Bolt {...props} />
 }
-const basicIconsCommon =
+export const basicIconsCommon =
   "flex p-1 shrink-0 rounded-full items-center justify-center"
-export const UDFIcons: Record<string, (props: IconProps) => JSX.Element> = {
+export const UDFIcons: Record<
+  string,
+  (props: IconProps & Record<string, any>) => JSX.Element
+> = {
+  // Generic Group
+  group: ({ className, ...rest }) => (
+    <div className={cn("bg-slate-200/50", basicIconsCommon, className)}>
+      <BoxesIcon {...rest} />
+    </div>
+  ),
   // Core namespace
   core: ({ className, ...rest }) => (
     <div className={cn("bg-slate-200/50", basicIconsCommon, className)}>
@@ -228,29 +253,70 @@ export const UDFIcons: Record<string, (props: IconProps) => JSX.Element> = {
       <Send {...rest} />
     </div>
   ),
-  "core.llm.extract": ({ className, ...rest }) => (
-    <div className={cn("bg-amber-100", basicIconsCommon, className)}>
+  /* AI subnamespace */
+  "core.ai.extract": ({ className, flairSize = "md", ...rest }) => (
+    <div
+      className={cn("relative flex bg-amber-100", basicIconsCommon, className)}
+    >
       <FlaskConical {...rest} />
+      <Sparkles
+        className={cn(
+          "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+          getFlairSize(flairSize)
+        )}
+      />
     </div>
   ),
-  "core.llm.label": ({ className, ...rest }) => (
-    <div className={cn("bg-amber-100", basicIconsCommon, className)}>
+  "core.ai.label": ({ className, flairSize = "md", ...rest }) => (
+    <div
+      className={cn("relative flex bg-amber-100", basicIconsCommon, className)}
+    >
       <Tags {...rest} />
+      <Sparkles
+        className={cn(
+          "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+          getFlairSize(flairSize)
+        )}
+      />
     </div>
   ),
-  "core.llm.translate": ({ className, ...rest }) => (
-    <div className={cn("bg-amber-100", basicIconsCommon, className)}>
+  "core.ai.translate": ({ className, flairSize = "md", ...rest }) => (
+    <div
+      className={cn("relative flex bg-amber-100", basicIconsCommon, className)}
+    >
       <Languages {...rest} />
+      <Sparkles
+        className={cn(
+          "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+          getFlairSize(flairSize)
+        )}
+      />
     </div>
   ),
-  "core.llm.choice": ({ className, ...rest }) => (
-    <div className={cn("bg-amber-100", basicIconsCommon, className)}>
+  "core.ai.select": ({ className, flairSize = "md", ...rest }) => (
+    <div
+      className={cn("relative flex bg-amber-100", basicIconsCommon, className)}
+    >
       <CheckSquare {...rest} />
+      <Sparkles
+        className={cn(
+          "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+          getFlairSize(flairSize)
+        )}
+      />
     </div>
   ),
-  "core.llm.summarize": ({ className, ...rest }) => (
-    <div className={cn("bg-amber-100", basicIconsCommon, className)}>
+  "core.ai.summarize": ({ className, flairSize = "md", ...rest }) => (
+    <div
+      className={cn("relative flex bg-amber-100", basicIconsCommon, className)}
+    >
       <BookText {...rest} />
+      <Sparkles
+        className={cn(
+          "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+          getFlairSize(flairSize)
+        )}
+      />
     </div>
   ),
   // AWS namespace
