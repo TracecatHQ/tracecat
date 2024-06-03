@@ -52,7 +52,7 @@ const onDragStart = (event: DragEvent<HTMLDivElement>, udf: UDF) => {
   event.dataTransfer.effectAllowed = "move"
 }
 
-export function ActionCatalog({ isCollapsed }: { isCollapsed: boolean }) {
+export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
   const { udfs, isLoading: udfsLoading, error } = useUDFs("core")
   const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
     useWorkflowBuilder()
