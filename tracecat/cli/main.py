@@ -1,7 +1,7 @@
 import typer
 from dotenv import find_dotenv, load_dotenv
 
-from . import events, workflow
+from . import dev, events, workflow
 
 load_dotenv(find_dotenv())
 app = typer.Typer(no_args_is_help=True)
@@ -25,6 +25,7 @@ def tracecat(
 
 app.add_typer(workflow.app, name="workflow")
 app.add_typer(events.app, name="events")
+app.add_typer(dev.app, name="dev")
 
 if __name__ == "__main__":
     app()
