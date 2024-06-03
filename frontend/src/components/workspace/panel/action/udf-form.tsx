@@ -124,14 +124,19 @@ export function UDFActionForm({
             <div className="col-span-2 overflow-hidden">
               <h3 className="p-4 px-4">
                 <div className="flex w-full items-center space-x-4">
-                  {getIcon(udf.key, { className: "size-6" })}
+                  {getIcon(udf.key, {
+                    className: "size-10 p-2",
+                    flairSize: "md",
+                  })}
                   <div className="flex w-full flex-1 justify-between space-x-12">
                     <div className="flex flex-col">
                       <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
                         <div className="flex w-full">{action.title}</div>
                       </div>
                       <p className="mt-2 text-xs text-muted-foreground">
-                        {action.description}
+                        {action.description || (
+                          <span className="italic">No description</span>
+                        )}
                       </p>
                     </div>
                   </div>
