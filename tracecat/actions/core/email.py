@@ -137,6 +137,7 @@ class ResendMailProvider(AsyncMailProvider):
     version="0.1.0",
     description="Perform a send email action",
     secrets=["resend_api_key"],
+    default_title="Send Email",
 )
 async def send_email(
     recipients: list[str],

@@ -20,6 +20,7 @@ from tracecat.types.cases import Case
     namespace="core",
     version="0.1.0",
     description="Open a new case in the case management system.",
+    default_title="Open Case",
 )
 async def open_case(
     # Action Inputs

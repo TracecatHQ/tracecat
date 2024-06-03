@@ -24,6 +24,7 @@ class HTTPResponse(TypedDict):
     namespace="core",
     version="0.1.0",
     description="Perform a HTTP request to a given URL.",
+    default_title="HTTP Request",
 )
 async def http_request(
     url: Annotated[
