@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import get_temporal_client
-from tracecat.dsl.workflow import DSLContext, DSLInput, DSLWorkflow
+from tracecat.dsl.workflow import DSLContext, DSLInput, DSLRunArgs, DSLWorkflow
 
 # logger = standard_logger("tracecat.dsl.dispatcher")
 
@@ -28,7 +28,7 @@ async def dispatch_workflow(dsl: DSLInput, **kwargs) -> DispatchResult:
     # Run workflow
     result = await client.execute_workflow(
         DSLWorkflow.run,
-        dsl,
+        DSLRunArgs(dsl=dsl, role=role),
         id=wf_id,
         task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "dsl-task-queue"),
         **kwargs,

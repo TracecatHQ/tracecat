@@ -264,9 +264,6 @@ def validate_incoming_webhook(
             )
 
         # If we are here, all checks have passed
-        ctx_role.set(
-            Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
-        )
         return WorkflowDefinition.model_validate(defn)
 
 
@@ -279,7 +276,10 @@ async def handle_incoming_webhook(
         defn = await asyncio.to_thread(
             validate_incoming_webhook, webhook_id=path, secret=secret, request=request
         )
-        return defn
+    ctx_role.set(
+        Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
+    )
+    return defn
 
 
 @app.post("/webhooks/{path}/{secret}", tags=["public"])
@@ -310,10 +310,11 @@ async def incoming_webhook(
     -----
     We're going to use Svix to manage our webhooks.
     """
+    role = ctx_role.get()
     logger.info("Webhook hit", path=path, payload=payload)
 
     # Fetch the DSL from the workflow object
-    logger.info(defn)
+    logger.info("Incoming webhook role", role=role)
     dsl_input = defn.content
     logger.info(dsl_input.dump_yaml())
 
