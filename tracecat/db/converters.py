@@ -4,6 +4,7 @@ from tracecat.dsl.workflow import DSLInput
 
 
 def workflow_to_dsl(workflow: Workflow) -> DSLInput:
+    """Connector to convert an AppState workflow to a DSLInput."""
     # NOTE: Must only call inside a db session
     # Check that we're inside an open
     if not workflow.object:
@@ -14,16 +15,6 @@ def workflow_to_dsl(workflow: Workflow) -> DSLInput:
             "calling `workflow.actions` inside an open db session."
         )
     graph = RFGraph.from_workflow(workflow)
-    actions = []
-    for action in workflow.actions:
-        action_inputs = action.inputs
-        actions.append(
-            {
-                "ref": action.ref,
-                "action": action.type,
-                "args": action_inputs,
-            }
-        )
     return DSLInput(
         title=workflow.title,
         description=workflow.description,
