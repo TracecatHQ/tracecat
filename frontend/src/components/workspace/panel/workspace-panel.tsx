@@ -1,57 +1,99 @@
 import React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 import { Node } from "reactflow"
 
+import { Workflow } from "@/types/schemas"
 import { usePanelAction } from "@/lib/hooks"
 import { FormLoading } from "@/components/loading/form"
+import { AlertNotification } from "@/components/notifications"
+import { NodeType } from "@/components/workspace/canvas/canvas"
+import { TriggerNodeData } from "@/components/workspace/canvas/trigger-node"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
+import { TriggerPanel } from "@/components/workspace/panel/trigger-panel"
 import { UDFActionPanel } from "@/components/workspace/panel/udf-panel"
 import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
 
 export function WorkspacePanel() {
-  // Ensure workflow exists
   const { selectedNodeId, getNode } = useWorkflowBuilder()
-  const { workflow } = useWorkflowMetadata()
+  const { workflow } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")
 
   return (
     <div className="h-full w-full overflow-auto">
-      {!workflow ? (
-        <FormLoading />
-      ) : selectedNode ? (
-        <WrappedUDFPanel selectedNode={selectedNode} workflowId={workflow.id} />
-      ) : workflow ? (
-        <div>
-          <WorkflowForm workflow={workflow} />
-          <WorkflowControlsForm workflow={workflow} />
-          <WorkflowRunsView workflowId={workflow.id} />
-        </div>
-      ) : (
-        <FormLoading />
-      )}
+      <Inner workflow={workflow} selectedNode={selectedNode} />
+    </div>
+  )
+}
+function Inner({
+  workflow,
+  selectedNode,
+}: {
+  workflow: Workflow | null
+  selectedNode?: NodeType
+}) {
+  if (!workflow) {
+    return <FormLoading />
+  }
+  // Workflow is loaded
+  if (selectedNode) {
+    return <NodePanel node={selectedNode} workflow={workflow} />
+  }
+  // No node is selected
+  return (
+    <div>
+      <WorkflowForm workflow={workflow} />
+      <WorkflowControlsForm workflow={workflow} />
+      <WorkflowRunsView workflowId={workflow.id} />
     </div>
   )
 }
 
-function WrappedUDFPanel({
-  selectedNode,
-  workflowId,
+function NodePanel<T>({
+  node,
+  workflow,
 }: {
-  selectedNode: Node<UDFNodeData>
-  workflowId: string
+  node: NodeType
+  workflow: Workflow
 }) {
-  const panelAction = usePanelAction(selectedNode.id, workflowId)
-  const nodeData = selectedNode.data
+  switch (node.type) {
+    case "udf":
+      return (
+        <WrappedUDFPanel
+          node={node as Node<UDFNodeData>}
+          workflowId={workflow.id}
+        />
+      )
+    case "trigger":
+      return (
+        <TriggerPanel
+          nodeData={node.data as TriggerNodeData}
+          workflow={workflow}
+        />
+      )
+    default:
+      return <AlertNotification level="error" message="Unknown node type" />
+  }
 
-  return (
-    <UDFActionPanel
-      panelAction={panelAction}
-      type={nodeData.type}
-      actionId={selectedNode.id}
-      workflowId={workflowId}
-    />
-  )
+  function WrappedUDFPanel({
+    node,
+    workflowId,
+  }: {
+    node: Node<UDFNodeData>
+    workflowId: string
+  }) {
+    const panelAction = usePanelAction(node.id, workflowId)
+    const nodeData = node.data
+
+    return (
+      <UDFActionPanel
+        panelAction={panelAction}
+        type={nodeData.type}
+        actionId={node.id}
+        workflowId={workflowId}
+      />
+    )
+  }
 }
