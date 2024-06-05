@@ -5,12 +5,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
 
+import { useWorkflow } from "@/providers/workflow"
 import { SaveIcon, Settings2Icon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Workflow } from "@/types/schemas"
-import { useSaveWorkflow } from "@/lib/hooks"
 import {
   Accordion,
   AccordionContent,
@@ -43,30 +43,23 @@ const workflowFormSchema = z.object({
 
 type TWorkflowForm = z.infer<typeof workflowFormSchema>
 
-interface WorkflowFormProps {
-  workflow: Workflow
-}
-
 export function WorkflowForm({
   workflow,
-}: WorkflowFormProps): React.JSX.Element {
-  const {
-    id: workflowId,
-    title: workflowTitle,
-    description: workflowDescription,
-  } = workflow
+}: {
+  workflow: Workflow
+}): React.JSX.Element {
+  const { update } = useWorkflow()
   const form = useForm<TWorkflowForm>({
     resolver: zodResolver(workflowFormSchema),
     defaultValues: {
-      title: workflowTitle || "",
-      description: workflowDescription || "",
+      title: workflow.title || "",
+      description: workflow.description || "",
     },
   })
-  const { mutateAsync: saveAsync } = useSaveWorkflow(workflowId)
 
   const onSubmit = async (values: TWorkflowForm) => {
     console.log("Saving changes...")
-    await saveAsync(values)
+    await update(values)
   }
 
   return (

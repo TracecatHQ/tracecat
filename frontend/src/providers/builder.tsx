@@ -8,7 +8,7 @@ import React, {
   useContext,
   useState,
 } from "react"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 import {
   Edge,
   Node,
@@ -17,14 +17,16 @@ import {
   useReactFlow,
 } from "reactflow"
 
+import { slugify } from "@/lib/utils"
 import { updateDndFlow } from "@/lib/workflow"
-import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
+import { NodeType } from "@/components/workspace/canvas/canvas"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
   workflowId: string | null
   selectedNodeId: string | null
-  getNode: (id: string) => UDFNodeType | undefined
+  getNode: (id: string) => NodeType | undefined
+  getNodeRef: (id?: string) => string | undefined
   setNodes: React.Dispatch<SetStateAction<Node[]>>
   setEdges: React.Dispatch<SetStateAction<Edge[]>>
 }
@@ -41,7 +43,7 @@ export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
-  const { workflowId, error } = useWorkflowMetadata()
+  const { workflowId, error } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   if (!workflowId) {
@@ -49,7 +51,7 @@ export const WorkflowBuilderProvider: React.FC<
   }
 
   const setReactFlowNodes = useCallback(
-    (nodes: UDFNodeType[] | ((nodes: UDFNodeType[]) => UDFNodeType[])) => {
+    (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
       reactFlowInstance.setNodes(nodes)
       updateDndFlow(workflowId, reactFlowInstance)
     },
@@ -63,7 +65,7 @@ export const WorkflowBuilderProvider: React.FC<
     [workflowId, reactFlowInstance]
   )
   useOnSelectionChange({
-    onChange: ({ nodes }: { nodes: UDFNodeType[] }) => {
+    onChange: ({ nodes }: { nodes: NodeType[] }) => {
       const actionNodeSelected = nodes[0]
       setSelectedNodeId(actionNodeSelected?.id ?? null)
     },
@@ -82,6 +84,11 @@ export const WorkflowBuilderProvider: React.FC<
         setNodes: setReactFlowNodes,
         setEdges: setReactFlowEdges,
         reactFlow: reactFlowInstance,
+        getNodeRef: (id?: string) => {
+          if (!id) return undefined
+          const node = reactFlowInstance.getNode(id)
+          return node ? slugify(node.data.title) : undefined
+        },
       }}
     >
       {children}

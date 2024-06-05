@@ -8,7 +8,7 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type Case } from "@/types/schemas"
@@ -31,7 +31,7 @@ export default function CasesProvider({
   children,
 }: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
   const [cases, setCases] = useState<Case[]>([])
-  const { workflowId } = useWorkflowMetadata()
+  const { workflowId } = useWorkflow()
   const [isCommitable, setIsCommitable] = useState(false)
   const [isCommitting, setIsCommitting] = useState(false)
   const queryClient = useQueryClient()

@@ -9,7 +9,7 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 
 import { streamGenerator } from "@/lib/api"
 import {
@@ -40,7 +40,7 @@ interface EventFeedProviderProps {
 export const EventFeedProvider: React.FC<EventFeedProviderProps> = ({
   children,
 }) => {
-  const { workflowId } = useWorkflowMetadata()
+  const { workflowId } = useWorkflow()
   const [events, setEvents] = useState<GenericConsoleEvent[] | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
 

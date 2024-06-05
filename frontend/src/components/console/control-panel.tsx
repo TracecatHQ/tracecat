@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useEventFeedContext } from "@/providers/event-feed-stream"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 import { FileJson, FileType, Sheet } from "lucide-react"
 import { useFormContext } from "react-hook-form"
 
@@ -53,7 +53,7 @@ export function ConsolePanel({
   className,
 }: React.HTMLAttributes<HTMLDivElement>) {
   const { control } = useFormContext<WorkflowControlsForm>()
-  const { workflow } = useWorkflowMetadata()
+  const { workflow } = useWorkflow()
   const [actions, setActions] = useState<Action[]>([])
   const { isStreaming, clearEvents } = useEventFeedContext()
   useEffect(() => {
@@ -199,11 +199,7 @@ export function ConsolePanel({
             description="You are about to clear all console events from your local browser storage. This action cannot be undone."
             onConfirm={handleClearEvents}
           >
-            <Button
-              className={cn("w-full")}
-              type="button"
-              variant="outline"
-            >
+            <Button className={cn("w-full")} type="button" variant="outline">
               Clear Events
             </Button>
           </ConfirmationDialog>
