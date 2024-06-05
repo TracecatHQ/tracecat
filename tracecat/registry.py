@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Callable
 from types import FunctionType, GenericAlias
-from typing import Annotated, Any, Self, TypedDict
+from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
@@ -31,7 +31,10 @@ class UDFSchema(TypedDict):
     secrets: list[str] | None
 
 
-class RegisteredUDF(BaseModel):
+ArgsT = TypeVar("ArgsT", bound=type[BaseModel])
+
+
+class RegisteredUDF(BaseModel, Generic[ArgsT]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     fn: FunctionType
     key: str
@@ -39,7 +42,7 @@ class RegisteredUDF(BaseModel):
     namespace: str
     version: str | None = None
     secrets: list[str] | None = None
-    args_cls: type[BaseModel]
+    args_cls: ArgsT
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter | None = None
