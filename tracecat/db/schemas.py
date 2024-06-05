@@ -4,8 +4,9 @@ from datetime import datetime
 from typing import Any, Self
 from uuid import uuid4
 
+import croniter
 import pyarrow as pa
-from pydantic import computed_field
+from pydantic import computed_field, field_validator
 from slugify import slugify
 from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
@@ -193,48 +194,95 @@ class UDFSpec(Resource, table=True):
 
 
 class WorkflowDefinition(Resource, table=True):
+    """A workflow definition.
+
+    This is the underlying representation/snapshot of a workflow in the system, which
+    can directly execute in the runner.
+
+    Shoulds
+    -------
+    1. Be convertible into a Workspace Workflow + Acitons
+    2. Be convertible into a YAML DSL
+    3. Be able to be versioned
+
+    Shouldn'ts
+    ----------
+    1. Have any stateful information
+
+    Relationships
+    -------------
+    - 1 Workflow to many WorkflowDefinitions
+
+    """
+
+    # Metadata
     id: str = Field(
         default_factory=gen_id("wf-defn"), nullable=False, unique=True, index=True
     )
+    version: int = Field(..., index=True, description="DSL spec version")
+    workflow_id: str = Field(
+        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    )
+
+    # DSL content
     content: DSLInput = Field(sa_column=Column(JSON))
-    version: int = Field(..., description="DSL spec version")
-    workflow_id: str
+    workflow: "Workflow" = Relationship(back_populates="definitions")
 
 
 class Workflow(Resource, table=True):
+    """The workflow state.
+
+    Notes
+    -----
+    - This table serves as the source of truth for the workflow regardless of operating
+     mode (headless or not)
+    - Workflow controls (status, scheduels, etc.) are stored and modified here
+    - Workflow definitions are executable instances (snapshots) of the workflow
+
+    Relationships
+    -------------
+    - 1 Workflow to many WorkflowDefinitions
+    """
+
     id: str = Field(
         default_factory=gen_id("wf"), nullable=False, unique=True, index=True
     )
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
-    # React flow graph object
-    object: dict[str, Any] | None = Field(sa_column=Column(JSON))
+    version: int | None = None
+    entrypoint: str | None = Field(
+        None,
+        description="ID of the node directly connected to the trigger.",
+    )
+    object: dict[str, Any] | None = Field(
+        sa_column=Column(JSON), description="React flow graph object"
+    )
     icon_url: str | None = None
     # Owner
     owner_id: str = Field(
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
+    # Relationships
     owner: User | None = Relationship(back_populates="owned_workflows")
     runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-    webhooks: list["Webhook"] | None = Relationship(
+    definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-    schedules: list["WorkflowSchedule"] | None = Relationship(
+    # Triggers
+    webhook: "Webhook" = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-
-    @computed_field
-    @property
-    def key(self) -> str:
-        slug = slugify(self.title, separator="_")
-        return f"{self.id}.{slug}"
+    schedules: list["Schedule"] | None = Relationship(
+        back_populates="workflow",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
 
 
 class WorkflowRun(Resource, table=True):
@@ -247,28 +295,58 @@ class WorkflowRun(Resource, table=True):
     action_runs: list["ActionRun"] | None = Relationship(back_populates="workflow_run")
 
 
-class WorkflowSchedule(Resource, table=True):
+class Webhook(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("workflow_schedule"),
-        nullable=False,
-        unique=True,
-        index=True,
+        default_factory=gen_id("wh"), nullable=False, unique=True, index=True
     )
+    status: str = "offline"  # "online" or "offline"
+    method: str = "POST"
+    filters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    # Relationships
+    workflow_id: str | None = Field(
+        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    )
+    workflow: Workflow | None = Relationship(back_populates="webhook")
+
+    @computed_field
+    @property
+    def secret(self) -> str:
+        return auth.compute_hash(self.id)
+
+    @computed_field
+    @property
+    def url(self) -> str:
+        return f"{config.TRACECAT__PUBLIC_RUNNER_URL}/webhooks/{self.workflow_id}/{self.secret}"
+
+
+class Schedule(Resource, table=True):
+    id: str = Field(
+        default_factory=gen_id("sch"), nullable=False, unique=True, index=True
+    )
+    status: str = "offline"  # "online" or "offline"
     cron: str
-    entrypoint_key: str
-    entrypoint_payload: str  # JSON-serialized String of payload
-    workflow_id: str | None = Field(foreign_key="workflow.id")
+    entrypoint_payload: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON)
+    )
+
+    # Relationships
+    workflow_id: str | None = Field(
+        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    )
     workflow: Workflow | None = Relationship(back_populates="schedules")
 
-    # # Custom validator for the cron field
-    # @field_validator("cron")
-    # def validate_cron(cls, v):
-    #     if not croniter.is_valid(v):
-    #         raise ValueError("Invalid cron string")
-    #     return v
+    # Custom validator for the cron field
+    @field_validator("cron")
+    def validate_cron(cls, v):
+        if not croniter.is_valid(v):
+            raise ValueError("Invalid cron string")
+        return v
 
 
 class Action(Resource, table=True):
+    """The workspace action state."""
+
     id: str = Field(
         default_factory=gen_id("act"), nullable=False, unique=True, index=True
     )
@@ -308,29 +386,6 @@ class ActionRun(Resource, table=True):
     workflow_run: WorkflowRun | None = Relationship(back_populates="action_runs")
     error_msg: str | None = None
     result: str | None = None  # JSON-serialized String of result
-
-
-class Webhook(Resource, table=True):
-    id: str = Field(
-        default_factory=gen_id("wh"), nullable=False, unique=True, index=True
-    )
-    action_id: str | None = Field(
-        sa_column=Column(String, ForeignKey("action.id", ondelete="CASCADE"))
-    )
-    workflow_id: str | None = Field(
-        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
-    )
-    workflow: Workflow | None = Relationship(back_populates="webhooks")
-
-    @computed_field
-    @property
-    def secret(self) -> str:
-        return auth.compute_hash(self.id)
-
-    @computed_field
-    @property
-    def url(self) -> str:
-        return f"{config.TRACECAT__PUBLIC_RUNNER_URL}/webhook/{self.id}/{self.secret}"
 
 
 CaseSchema = pa.schema(

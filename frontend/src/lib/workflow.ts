@@ -4,7 +4,6 @@ import { z } from "zod"
 import {
   actionMetadataSchema,
   actionSchema,
-  NodeType,
   workflowMetadataSchema,
   WorkflowRun,
   workflowRunSchema,
@@ -80,9 +79,17 @@ export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
   }
 }
 
-export async function updateWorkflow(workflowId: string, values: Object) {
-  const response = await client.post(`/workflows/${workflowId}`, values)
-  return response.data
+export async function updateWorkflow(
+  workflowId: string,
+  values: Record<string, any>
+) {
+  try {
+    const response = await client.post(`/workflows/${workflowId}`, values)
+    return response.data
+  } catch (error) {
+    console.error("Error updating workflow:", error)
+    throw error
+  }
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<void> {
@@ -143,7 +150,7 @@ export async function deleteAction(actionId: string): Promise<void> {
 }
 
 export async function createAction(
-  type: NodeType,
+  type: string,
   title: string,
   workflowId: string
 ): Promise<string> {
@@ -179,7 +186,7 @@ export async function triggerWorkflow(
 ) {
   try {
     const response = await client.post(
-      `/workflows/${workflowId}/trigger`,
+      `/workflows/${workflowId}/controls/trigger`,
       JSON.stringify({
         action_key: actionKey,
         payload,

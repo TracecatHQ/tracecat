@@ -6,28 +6,45 @@ import {
   tagSchema,
 } from "@/types/validators"
 
+export const strAsDate = z.string().transform((x) => new Date(x))
+
+// Common resource Schema
+export const resourceSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  created_at: strAsDate,
+  updated_at: strAsDate,
+})
+
+export type Resource = z.infer<typeof resourceSchema>
+
 /**
- * Core action types.
+ * A trigger contains one or more webhooks and or schedules that can trigger a workflow.
  */
-const actionTypes = [
-  "webhook",
-  "http_request",
-  "data_transform",
-  "condition.compare",
-  "condition.regex",
-  "condition.membership",
-  "open_case",
-  "receive_email",
-  "send_email",
-  "llm.extract",
-  "llm.label",
-  "llm.translate",
-  "llm.choice",
-  "llm.summarize",
-] as const
-export type ActionType = (typeof actionTypes)[number]
+export const webhookSchema = z
+  .object({
+    status: z.enum(["online", "offline"]),
+    method: z.enum(["GET", "POST"]),
+    filters: z.record(z.any()),
+    // Computed fields
+    url: z.string().url(),
+    secret: z.string(),
+  })
+  .and(resourceSchema)
+export type Webhook = z.infer<typeof webhookSchema>
+
+/**
+ * A trigger contains one or more webhooks and or schedules that can trigger a workflow.
+ */
+export const scheduleSchema = z
+  .object({
+    status: z.enum(["online", "offline"]),
+    entrypoint_payload: z.record(z.any()),
+    cron: z.string(),
+  })
+  .and(resourceSchema)
+export type Schedule = z.infer<typeof scheduleSchema>
 /** Workflow Schemas */
-export type NodeType = string
 
 const actionStatusSchema = z.enum(["online", "offline"])
 export type ActionStatus = z.infer<typeof actionStatusSchema>
@@ -60,7 +77,11 @@ export const workflowSchema = z.object({
   description: z.string(),
   status: workflowStatusSchema,
   actions: z.record(actionSchema),
+  version: z.number().nullish(),
   object: z.record(z.any()).nullable(),
+  webhook: webhookSchema,
+  schedules: z.array(scheduleSchema).default([]),
+  entrypoint: z.string().nullable(),
 })
 
 export type Workflow = z.infer<typeof workflowSchema>
@@ -73,7 +94,6 @@ export const workflowMetadataSchema = z.object({
   icon_url: z.string().url().nullable(),
 })
 export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
-export const strAsDate = z.string().transform((x) => new Date(x))
 
 const runStatusSchema = z.enum([
   "pending",

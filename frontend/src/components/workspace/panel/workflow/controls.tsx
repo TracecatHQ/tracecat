@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import * as React from "react"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlayIcon, ZapIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
@@ -36,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -171,7 +170,7 @@ export default function EntrypointSelector({
 }: {
   setSelectedAction: React.Dispatch<React.SetStateAction<Action | null>>
 }) {
-  const { workflow } = useWorkflowMetadata()
+  const { workflow } = useWorkflow()
   const [actions, setActions] = useState<Action[]>([])
 
   useEffect(() => {

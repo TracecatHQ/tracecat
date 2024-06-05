@@ -3,7 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useWorkflowMetadata } from "@/providers/workflow"
+import { useWorkflow } from "@/providers/workflow"
 import {
   GitPullRequestCreateArrowIcon,
   RadioIcon,
@@ -11,7 +11,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 
-import { useCommitWorkflow } from "@/lib/hooks"
+import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -25,63 +25,62 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function WorkflowNav() {
-  const { workflow, workflowId, isLoading, isOnline, setIsOnline } =
-    useWorkflowMetadata()
-  const { mutateAsync: commitAsync } = useCommitWorkflow(workflowId!)
+  const { workflow, isLoading, isOnline, setIsOnline, commit } = useWorkflow()
+
+  const handleCommit = async () => {
+    console.log("Committing changes...")
+    await commit()
+  }
 
   if (!workflow || isLoading) {
     return null
   }
 
-  const handleCommit = async () => {
-    console.log("Committing changes...")
-    await commitAsync()
-  }
   return (
-    workflowId && (
-      <div className="flex w-full items-center space-x-8">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/workflows">Workflows</BreadcrumbLink>
-            </BreadcrumbItem>
-            {workflow && (
-              <>
-                <BreadcrumbSeparator className="font-semibold">
-                  {"/"}
-                </BreadcrumbSeparator>
-                <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
-              </>
-            )}
-          </BreadcrumbList>
-        </Breadcrumb>
-        <TabSwitcher workflowId={workflowId} />
-        <div className="flex flex-1 items-center justify-end space-x-3">
-          <Button
-            variant="outline"
-            onClick={handleCommit}
-            className="delay-50 h-7 text-xs text-muted-foreground transition duration-200 ease-in-out hover:-translate-y-0.5 hover:scale-105 hover:bg-emerald-500 hover:text-white"
-          >
-            <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
-            Commit
-          </Button>
+    <div className="flex w-full items-center space-x-8">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/workflows">Workflows</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator className="font-semibold">
+            {"/"}
+          </BreadcrumbSeparator>
+          <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <TabSwitcher workflowId={workflow.id} />
+      <div className="flex flex-1 items-center justify-end space-x-3">
+        <Button
+          variant="outline"
+          onClick={handleCommit}
+          className="delay-50 h-7 text-xs text-muted-foreground transition duration-200 ease-in-out hover:-translate-y-0.5 hover:scale-105 hover:bg-emerald-500 hover:text-white"
+        >
+          <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
+          Commit
+        </Button>
+        <Badge
+          variant="outline"
+          className="text-xs font-normal text-muted-foreground hover:cursor-default"
+        >
+          {workflow.version ? `v${workflow.version}` : "Not Committed"}
+        </Badge>
 
-          <Switch
-            id="enable-workflow"
-            checked={isOnline}
-            onCheckedChange={setIsOnline}
-            className="data-[state=checked]:bg-emerald-500"
-          />
-          <Label
-            className="flex text-xs text-muted-foreground"
-            htmlFor="enable-workflow"
-          >
-            <RadioIcon className="mr-2 h-4 w-4" />
-            <span>Enable workflow</span>
-          </Label>
-        </div>
+        <Switch
+          id="enable-workflow"
+          checked={isOnline}
+          onCheckedChange={setIsOnline}
+          className="data-[state=checked]:bg-emerald-500"
+        />
+        <Label
+          className="flex text-xs text-muted-foreground"
+          htmlFor="enable-workflow"
+        >
+          <RadioIcon className="mr-2 h-4 w-4" />
+          <span>Enable workflow</span>
+        </Label>
       </div>
-    )
+    </div>
   )
 }
 
