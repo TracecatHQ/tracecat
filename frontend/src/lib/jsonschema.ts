@@ -79,6 +79,9 @@ export function getType(value: any): string {
   if (value.anyOf) {
     return value.anyOf.map((item: any) => item.type).join(" | ")
   }
+  if (value.enum) {
+    return value.enum.join(" | ")
+  }
   return value.type || "unknown"
 }
 
