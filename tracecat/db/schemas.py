@@ -393,21 +393,20 @@ CaseSchema = pa.schema(
         pa.field("id", pa.string(), nullable=False),
         pa.field("owner_id", pa.string(), nullable=False),
         pa.field("workflow_id", pa.string(), nullable=False),
+        # To fill
         pa.field("case_title", pa.string(), nullable=False),
         pa.field("payload", pa.string(), nullable=False),  # JSON-serialized
-        pa.field("context", pa.string(), nullable=True),  # JSON-serialized
         pa.field("malice", pa.string(), nullable=False),
         pa.field("status", pa.string(), nullable=False),
-        pa.field("priority", pa.string(), nullable=False),
+        pa.field("priority", pa.string(), nullable=True),
+        pa.field("context", pa.string(), nullable=True),  # JSON-serialized
         pa.field("action", pa.string(), nullable=True),
         pa.field("suppression", pa.string(), nullable=True),  # JSON-serialized
         pa.field("tags", pa.string(), nullable=True),  # JSON-serialized
-        pa.field(
-            "created_at", pa.timestamp("us", tz="UTC"), nullable=True
-        ),  # JSON-serialized
-        pa.field(
-            "updated_at", pa.timestamp("us", tz="UTC"), nullable=True
-        ),  # JSON-serialized
+        # JSON-serialized
+        pa.field("created_at", pa.timestamp("us", tz="UTC"), nullable=True),
+        # JSON-serialized
+        pa.field("updated_at", pa.timestamp("us", tz="UTC"), nullable=True),
         # pa.field("_action_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
         # pa.field("_payload_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
         # pa.field("_context_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),

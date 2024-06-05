@@ -41,19 +41,20 @@ async def open_case(
         Field(description="Status of the case"),
     ],
     priority: Annotated[
-        Literal["low", "medium", "high", "critical"],
+        Literal["low", "medium", "high", "critical"] | None,
         Field(description="Priority of the case"),
-    ],
-    action: Annotated[
-        Literal[
-            "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
-        ],
-        Field(description="Action to be taken"),
-    ],
+    ] = None,
     context: Annotated[
         list[CaseContext] | None,
         Field(description="List of case contexts"),
-    ],
+    ] = None,
+    action: Annotated[
+        Literal[
+            "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+        ]
+        | None,
+        Field(description="Action to be taken"),
+    ] = None,
     suppression: Annotated[
         list[Suppression],
         Field(description="List of suppressions"),
