@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/resizable"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/workspace/canvas/canvas"
-import { UDFCatalog } from "@/components/workspace/catalog/udf-catalog"
+import { WorkflowCatalog } from "@/components/workspace/catalog/catalog"
 import { WorkspacePanel } from "@/components/workspace/panel/workspace-panel"
 
 interface WorkspaceProps {
@@ -90,7 +90,7 @@ export function Workspace({
                   "min-w-14 transition-all duration-300 ease-in-out"
               )}
             >
-              <UDFCatalog isCollapsed={isCollapsed} />
+              <WorkflowCatalog isCollapsed={isCollapsed} />
               {/* For items that should align at the end of the side nav */}
             </ResizablePanel>
             <CustomResizableHandle>
