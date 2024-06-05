@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 from loguru import logger
 from pydantic import Field
 
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.engine import create_vdb_conn
 from tracecat.db.schemas import CaseContext
 from tracecat.registry import registry
@@ -53,35 +53,41 @@ async def open_case(
     context: Annotated[
         list[CaseContext] | None,
         Field(description="List of case contexts"),
-    ],
+    ] = None,
     suppression: Annotated[
-        list[Suppression],
+        list[Suppression] | None,
         Field(description="List of suppressions"),
     ] = None,
     tags: Annotated[
-        list[Tag],
+        list[Tag] | None,
         Field(description="List of tags"),
     ] = None,
 ) -> dict[str, Any]:
     db = create_vdb_conn()
     tbl = db.open_table("cases")
+
+    run_ctx = ctx_run.get()
     role = ctx_role.get()
-    if role.user_id is None:
-        raise ValueError(f"User ID not found in session context: {role}.")
-    # TODO: Get ar-id from temporalio?
+
+    if not role or not run_ctx:
+        raise ValueError(f"Could not retrieve run context: {run_ctx}.")
+    _context = context or []
+    _suppression = suppression or []
+    _tags = tags or []
+    logger.info("Opening case", title=case_title, malice=malice, status=status)
+    logger.info("Opening case", context=_context, suppression=_suppression, tags=_tags)
     case = Case(
-        id="PLACEHOLDER",
         owner_id=role.user_id,
-        workflow_id="PLACEHOLDER",
+        workflow_id=run_ctx.wf_id,
         case_title=case_title,
         payload=payload,
         malice=malice,
         status=status,
         priority=priority,
-        context=context,
         action=action,
-        suppression=suppression,
-        tags=tags,
+        context=_context,
+        suppression=_suppression,
+        tags=_tags,
     )
     logger.opt(lazy=True).debug("Sinking case", case=lambda: case.model_dump())
     try:

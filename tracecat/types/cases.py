@@ -1,10 +1,10 @@
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
-from uuid import uuid4
 
 import orjson
 from pydantic import BaseModel, Field
 
+from tracecat.db.schemas import gen_id
 from tracecat.types.api import CaseContext, CaseParams, ListModel, Suppression, Tag
 
 CaseEvent = Literal[
@@ -20,7 +20,7 @@ class Case(BaseModel):
     """Case model used in the API and runner."""
 
     # Required inputs
-    id: str = Field(default_factory=lambda: uuid4().hex)  # Action run id
+    id: str = Field(default_factory=gen_id("case"))  # Action run id
     owner_id: str  # NOTE: Ideally this would inherit form db.Resource
     workflow_id: str
     case_title: str
@@ -28,10 +28,10 @@ class Case(BaseModel):
     malice: Literal["malicious", "benign"]
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     priority: Literal["low", "medium", "high", "critical"]
-    context: ListModel[CaseContext]  # JSON serialized
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
+    context: ListModel[CaseContext]  # JSON serialized
     suppression: ListModel[Suppression]  # JSON serialized
     tags: ListModel[Tag]  # JSON serialized
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
