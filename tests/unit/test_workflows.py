@@ -18,11 +18,13 @@ from loguru import logger
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
+from tracecat.contexts import ctx_role
 from tracecat.dsl.common import get_temporal_client
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import (
     DSLContext,
     DSLInput,
+    DSLRunArgs,
     DSLWorkflow,
     dsl_activities,
 )
@@ -95,7 +97,9 @@ def dsl(request: pytest.FixtureRequest) -> DSLInput:
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
 @pytest.mark.asyncio
-async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, mock_registry):
+async def test_workflow_can_run_from_yaml(
+    dsl, temporal_cluster, mock_registry, auth_sandbox
+):
     client = await get_temporal_client()
     # Run workflow
     async with Worker(
@@ -107,7 +111,7 @@ async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, mock_registry):
     ):
         result = await client.execute_workflow(
             DSLWorkflow.run,
-            dsl,
+            DSLRunArgs(dsl=dsl, role=ctx_role.get()),
             id=gen_id(f"test_workflow_can_run_from_yaml-{dsl.title}"),
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
@@ -152,7 +156,9 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
 
 @pytest.mark.parametrize("dsl", ORDERING_TEST_DEFNS, indirect=True)
 @pytest.mark.asyncio
-async def test_workflow_ordering_is_correct(dsl, temporal_cluster, mock_registry):
+async def test_workflow_ordering_is_correct(
+    dsl, temporal_cluster, mock_registry, auth_sandbox
+):
     """We need to test that the ordering of the workflow tasks is correct."""
 
     # Connect client
@@ -168,7 +174,7 @@ async def test_workflow_ordering_is_correct(dsl, temporal_cluster, mock_registry
     ):
         result = await client.execute_workflow(
             DSLWorkflow.run,
-            dsl,
+            DSLRunArgs(dsl=dsl, role=ctx_role.get()),
             id=gen_id(f"test_workflow_ordering_is_correct-{dsl.title}"),
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
