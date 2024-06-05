@@ -10,12 +10,8 @@ import {
   fetchCaseEvents,
   updateCase,
 } from "@/lib/cases"
-import {
-  commitWorkflow,
-  getActionById,
-  updateAction,
-  updateWorkflow,
-} from "@/lib/workflow"
+import { updateWebhook } from "@/lib/trigger"
+import { getActionById, updateAction } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 
@@ -207,45 +203,23 @@ export function useActionInputs(action?: Action) {
   return { actionInputs, setActionInputs }
 }
 
-export function useSaveWorkflow<T extends Object>(workflowId: string) {
+export function useUpdateWebhook(workflowId: string, webhookId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: async (values: T) => await updateWorkflow(workflowId, values),
+    mutationFn: async (params: {
+      entrypointRef?: string
+      method?: "GET" | "POST"
+      status?: "online" | "offline"
+    }) => await updateWebhook(workflowId, webhookId, params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
-      toast({
-        title: "Saved workflow changes",
-        description: "Workflow changes saved successfully.",
-      })
     },
     onError: (error) => {
-      console.error("Failed to save workflow:", error)
+      console.error("Failed to update webhook:", error)
       toast({
-        title: "Error saving workflow",
-        description: "Could not save workflow. Please try again.",
-      })
-    },
-  })
-
-  return mutation
-}
-
-export function useCommitWorkflow(workflowId: string) {
-  const queryClient = useQueryClient()
-  const mutation = useMutation({
-    mutationFn: async () => await commitWorkflow(workflowId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
-      toast({
-        title: "Commited changes to workflow",
-        description: "New workflow deployment created successfully.",
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to commit workflow:", error)
-      toast({
-        title: "Error commiting workflow",
-        description: "Could not commit workflow. Please try again.",
+        title: "Error updating webhook",
+        description: "Could not update webhook. Please try again.",
+        variant: "destructive",
       })
     },
   })
