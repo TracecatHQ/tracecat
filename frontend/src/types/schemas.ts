@@ -49,24 +49,17 @@ export type Schedule = z.infer<typeof scheduleSchema>
 const actionStatusSchema = z.enum(["online", "offline"])
 export type ActionStatus = z.infer<typeof actionStatusSchema>
 
-export const actionSchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: actionStatusSchema,
-  inputs: z.record(z.any()),
-})
+export const actionSchema = z
+  .object({
+    type: z.string(),
+    title: z.string(),
+    description: z.string(),
+    status: actionStatusSchema,
+    inputs: z.record(z.any()),
+  })
+  .and(resourceSchema)
 
 export type Action = z.infer<typeof actionSchema>
-
-export const actionMetadataSchema = z.object({
-  id: z.string(),
-  workflow_id: z.string(),
-  title: z.string(),
-  description: z.string(),
-})
-export type ActionMetadata = z.infer<typeof actionMetadataSchema>
 
 const workflowStatusSchema = z.enum(["online", "offline"])
 export type WorkflowStatus = z.infer<typeof workflowStatusSchema>

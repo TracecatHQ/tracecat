@@ -54,8 +54,6 @@ from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
 from tracecat.types.api import (
-    ActionMetadataResponse,
-    ActionResponse,
     ActionRunEventParams,
     ActionRunResponse,
     CaseActionParams,
@@ -400,10 +398,7 @@ def get_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        actions_responses = {
-            action.id: ActionResponse(**action.model_dump())
-            for action in workflow.actions or []
-        }
+        actions_responses = {action.id: action for action in workflow.actions or []}
         # Add webhook/schedules
         whresponse = WebhookResponse(**workflow.webhook.model_dump())
         return WorkflowResponse(
@@ -966,7 +961,7 @@ def delete_schedule(
 def list_actions(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-) -> list[ActionMetadataResponse]:
+) -> list[Action]:
     """List all Actions related to `workflow_id`."""
     with Session(engine) as session:
         statement = select(Action).where(
@@ -975,26 +970,14 @@ def list_actions(
         )
         results = session.exec(statement)
         actions = results.all()
-    action_metadata = [
-        ActionMetadataResponse(
-            id=action.id,
-            workflow_id=workflow_id,
-            type=action.type,
-            title=action.title,
-            description=action.description,
-            status=action.status,
-            key=action.key,
-        )
-        for action in actions
-    ]
-    return action_metadata
+    return actions
 
 
 @app.post("/actions")
 def create_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateActionParams,
-) -> ActionMetadataResponse:
+) -> Action:
     with Session(engine) as session:
         action = Action(
             owner_id=role.user_id,
@@ -1007,16 +990,7 @@ def create_action(
         session.commit()
         session.refresh(action)
 
-    action_metadata = ActionMetadataResponse(
-        id=action.id,
-        workflow_id=params.workflow_id,
-        type=params.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        key=action.key,
-    )
-    return action_metadata
+    return action
 
 
 @app.get("/actions/{action_id}")
@@ -1024,7 +998,7 @@ def get_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
     workflow_id: str,
-) -> ActionResponse:
+) -> Action:
     with Session(engine) as session:
         statement = select(Action).where(
             Action.owner_id == role.user_id,
@@ -1033,21 +1007,11 @@ def get_action(
         )
         result = session.exec(statement)
         try:
-            action = result.one()
+            return result.one()
         except NoResultFound as e:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
-
-    return ActionResponse(
-        id=action.id,
-        type=action.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        inputs=action.inputs,
-        key=action.key,
-    )
 
 
 @app.post("/actions/{action_id}")
@@ -1055,7 +1019,7 @@ def update_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
     params: UpdateActionParams,
-) -> ActionResponse:
+) -> Action:
     with Session(engine) as session:
         # Fetch the action by id
         statement = select(Action).where(
@@ -1083,18 +1047,10 @@ def update_action(
         session.commit()
         session.refresh(action)
 
-    return ActionResponse(
-        id=action.id,
-        type=action.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        inputs=action.inputs,
-        key=action.key,
-    )
+        return action
 
 
-@app.delete("/actions/{action_id}", status_code=204)
+@app.delete("/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,

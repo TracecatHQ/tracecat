@@ -2,14 +2,12 @@ import { ReactFlowInstance } from "reactflow"
 import { z } from "zod"
 
 import {
-  actionMetadataSchema,
   actionSchema,
   workflowMetadataSchema,
   WorkflowRun,
   workflowRunSchema,
   workflowSchema,
   type Action,
-  type ActionMetadata,
   type Workflow,
   type WorkflowMetadata,
 } from "@/types/schemas"
@@ -155,23 +153,19 @@ export async function createAction(
   workflowId: string
 ): Promise<string> {
   try {
-    const createActionMetadata = JSON.stringify({
+    const createActionParams = JSON.stringify({
       workflow_id: workflowId,
       type: type,
       title: title,
     })
 
-    const response = await client.post<ActionMetadata>(
-      "/actions",
-      createActionMetadata,
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )
+    const response = await client.post<Action>("/actions", createActionParams, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
     console.log("Action created successfully:", response.data)
-    const validatedResponse = actionMetadataSchema.parse(response.data)
+    const validatedResponse = actionSchema.parse(response.data)
     return validatedResponse.id
   } catch (error) {
     console.error("Error creating action:", error)

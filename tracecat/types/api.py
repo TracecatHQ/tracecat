@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
+from tracecat.db.schemas import Action, ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.workflow import DSLInput
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
@@ -23,38 +23,18 @@ class Undefined(Enum):
     Value = ...
 
 
-class ActionResponse(BaseModel):
-    id: str
-    type: str
-    title: str
-    description: str
-    status: str
-    inputs: dict[str, Any] = {}
-    key: str  # Computed field
-
-
 class WorkflowResponse(BaseModel):
     id: str
     title: str
     description: str
     status: str
-    actions: dict[str, ActionResponse]
+    actions: dict[str, Action]
     object: dict[str, Any] | None  # React Flow object
     owner_id: str
     version: int | None = None
     webhook: WebhookResponse
     schedules: list[Schedule]
     entrypoint: str | None
-
-
-class ActionMetadataResponse(BaseModel):
-    id: str
-    workflow_id: str
-    type: str
-    title: str
-    description: str
-    status: str
-    key: str
 
 
 class WorkflowMetadataResponse(BaseModel):
