@@ -3,13 +3,11 @@ import { z } from "zod"
 
 import {
   actionSchema,
-  workflowMetadataSchema,
   WorkflowRun,
   workflowRunSchema,
   workflowSchema,
   type Action,
   type Workflow,
-  type WorkflowMetadata,
 } from "@/types/schemas"
 import { client } from "@/lib/api"
 
@@ -25,11 +23,7 @@ export async function updateDndFlow(
       object: objectContent,
     }
 
-    await client.post(`/workflows/${workflowId}`, updateFlowObjectParams, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
+    await client.post(`/workflows/${workflowId}`, updateFlowObjectParams)
     console.log("Updated DnD flow object")
   } catch (error) {
     console.error("Error updating DnD flow object:", error)
@@ -49,28 +43,18 @@ export async function fetchWorkflow(workflowId: string): Promise<Workflow> {
 export async function createWorkflow(
   title: string,
   description: string
-): Promise<WorkflowMetadata> {
-  const response = await client.post<WorkflowMetadata>(
-    "/workflows",
-    JSON.stringify({
-      title,
-      description,
-    }),
-    {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  )
-  return workflowMetadataSchema.parse(response.data)
+): Promise<Workflow> {
+  const response = await client.post<Workflow>("/workflows", {
+    title,
+    description,
+  })
+  return workflowSchema.parse(response.data)
 }
 
-export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
+export async function fetchAllWorkflows(): Promise<Workflow[]> {
   try {
-    const response = await client.get<WorkflowMetadata[]>("/workflows")
-    let workflows = response.data
-
-    return z.array(workflowMetadataSchema).parse(workflows)
+    const response = await client.get<Workflow[]>("/workflows")
+    return z.array(workflowSchema).parse(response.data)
   } catch (error) {
     console.error("Error fetching workflows:", error)
     throw error
@@ -153,17 +137,13 @@ export async function createAction(
   workflowId: string
 ): Promise<string> {
   try {
-    const createActionParams = JSON.stringify({
+    const createActionParams = {
       workflow_id: workflowId,
       type: type,
       title: title,
-    })
+    }
 
-    const response = await client.post<Action>("/actions", createActionParams, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
+    const response = await client.post<Action>("/actions", createActionParams)
     console.log("Action created successfully:", response.data)
     const validatedResponse = actionSchema.parse(response.data)
     return validatedResponse.id
@@ -181,14 +161,9 @@ export async function triggerWorkflow(
   try {
     const response = await client.post(
       `/workflows/${workflowId}/controls/trigger`,
-      JSON.stringify({
+      {
         action_key: actionKey,
         payload,
-      }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
       }
     )
     if (response.status !== 200) {
@@ -254,7 +229,7 @@ export async function copyPlaybook(workflowId: string) {
  * @param maybeToken
  * @returns
  */
-export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
+export async function fetchAllPlaybooks(): Promise<Workflow[]> {
   try {
     const response = await client.get("/workflows?library=true")
     return response.data
@@ -267,9 +242,7 @@ export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
 /**
  * Commit workflow changes and add a new `WorkflowDefinition` to the database.
  */
-export async function commitWorkflow(
-  workflowId: string
-): Promise<WorkflowMetadata[]> {
+export async function commitWorkflow(workflowId: string): Promise<Workflow[]> {
   try {
     const response = await client.post(`/workflows/${workflowId}/commit`)
     return response.data

@@ -64,29 +64,21 @@ export type Action = z.infer<typeof actionSchema>
 const workflowStatusSchema = z.enum(["online", "offline"])
 export type WorkflowStatus = z.infer<typeof workflowStatusSchema>
 
-export const workflowSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: workflowStatusSchema,
-  actions: z.record(actionSchema),
-  version: z.number().nullish(),
-  object: z.record(z.any()).nullable(),
-  webhook: webhookSchema,
-  schedules: z.array(scheduleSchema).default([]),
-  entrypoint: z.string().nullable(),
-})
+export const workflowSchema = z
+  .object({
+    title: z.string(),
+    description: z.string(),
+    status: workflowStatusSchema,
+    actions: z.array(actionSchema),
+    version: z.number().nullish(),
+    object: z.record(z.any()).nullable(),
+    webhook: webhookSchema,
+    schedules: z.array(scheduleSchema).default([]),
+    entrypoint: z.string().nullable(),
+  })
+  .and(resourceSchema)
 
 export type Workflow = z.infer<typeof workflowSchema>
-
-export const workflowMetadataSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: workflowStatusSchema,
-  icon_url: z.string().url().nullable(),
-})
-export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
 
 const runStatusSchema = z.enum([
   "pending",

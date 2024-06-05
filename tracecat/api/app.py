@@ -81,7 +81,6 @@ from tracecat.types.api import (
     UpsertWebhookParams,
     UpsertWorkflowDefinitionParams,
     WebhookResponse,
-    WorkflowMetadataResponse,
     WorkflowResponse,
     WorkflowRunEventParams,
     WorkflowRunResponse,
@@ -326,31 +325,21 @@ async def incoming_webhook(
 def list_workflows(
     role: Annotated[Role, Depends(authenticate_user)],
     library: bool = False,
-) -> list[WorkflowMetadataResponse]:
+) -> list[WorkflowResponse]:
     """List all Workflows in database."""
     query_user_id = role.user_id if not library else "tracecat"
     with Session(engine) as session:
         statement = select(Workflow).where(Workflow.owner_id == query_user_id)
         results = session.exec(statement)
-        workflows = results.all()
-    workflow_metadata = [
-        WorkflowMetadataResponse(
-            id=workflow.id,
-            title=workflow.title,
-            description=workflow.description,
-            status=workflow.status,
-            icon_url=workflow.icon_url,
-        )
-        for workflow in workflows
-    ]
-    return workflow_metadata
+        workflows = [WorkflowResponse.from_obj(wf) for wf in results.all()]
+    return workflows
 
 
 @app.post("/workflows", status_code=status.HTTP_201_CREATED)
 def create_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateWorkflowParams,
-) -> WorkflowMetadataResponse:
+) -> WorkflowResponse:
     """Create new Workflow with title and description."""
     # When we create a workflow, we automatically create a webhook
     with Session(engine) as session:
@@ -368,14 +357,7 @@ def create_workflow(
         session.commit()
         session.refresh(workflow)
         session.refresh(webhook)
-
-    return WorkflowMetadataResponse(
-        id=workflow.id,
-        title=workflow.title,
-        description=workflow.description,
-        status=workflow.status,
-        icon_url=workflow.icon_url,
-    )
+    return WorkflowResponse.from_obj(workflow)
 
 
 @app.get("/workflows/{workflow_id}")
@@ -398,15 +380,7 @@ def get_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        actions_responses = {action.id: action for action in workflow.actions or []}
-        # Add webhook/schedules
-        whresponse = WebhookResponse(**workflow.webhook.model_dump())
-        return WorkflowResponse(
-            **workflow.model_dump(),
-            actions=actions_responses,
-            webhook=whresponse,
-            schedules=workflow.schedules,
-        )
+        return WorkflowResponse.from_obj(workflow)
 
 
 @app.post("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)

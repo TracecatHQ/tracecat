@@ -7,7 +7,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from tracecat.db.schemas import Action, ActionRun, Resource, Schedule, WorkflowRun
+from tracecat.db.schemas import (
+    Action,
+    ActionRun,
+    Resource,
+    Schedule,
+    Webhook,
+    Workflow,
+    WorkflowRun,
+)
 from tracecat.dsl.workflow import DSLInput
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
@@ -21,28 +29,6 @@ RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 
 class Undefined(Enum):
     Value = ...
-
-
-class WorkflowResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    actions: dict[str, Action]
-    object: dict[str, Any] | None  # React Flow object
-    owner_id: str
-    version: int | None = None
-    webhook: WebhookResponse
-    schedules: list[Schedule]
-    entrypoint: str | None
-
-
-class WorkflowMetadataResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    icon_url: str | None
 
 
 class WorkflowRunResponse(BaseModel):
@@ -107,6 +93,29 @@ class UpdateWorkflowParams(BaseModel):
     version: int | None | Undefined = Undefined.Value
     entrypoint: str | None | Undefined = Undefined.Value
     icon_url: str | None | Undefined = Undefined.Value
+
+
+class WorkflowResponse(Resource):
+    id: str
+    title: str
+    description: str
+    status: Literal["online", "offline"]
+    object: dict[str, Any] | None = None
+    version: int | None = None
+    icon_url: str | None = None
+    actions: list[Action] = []
+    entrypoint: str | None = None
+    webhook: Webhook
+    schedules: list[Schedule] = []
+
+    @staticmethod
+    def from_obj(workflow: Workflow) -> WorkflowResponse:
+        return WorkflowResponse(
+            **workflow.model_dump(),
+            actions=workflow.actions,
+            webhook=workflow.webhook,
+            schedules=workflow.schedules,
+        )
 
 
 class CreateActionParams(BaseModel):

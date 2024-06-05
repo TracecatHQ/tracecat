@@ -1,9 +1,9 @@
 import Link from "next/link"
 
-import { WorkflowMetadata } from "@/types/schemas"
+import { type Workflow } from "@/types/schemas"
 import { cn } from "@/lib/utils"
 
-export function WorkflowItem({ workflow }: { workflow: WorkflowMetadata }) {
+export function WorkflowItem({ workflow }: { workflow: Workflow }) {
   return (
     <Link
       key={workflow.id}
