@@ -10,12 +10,16 @@ from typing import Any, Literal, Self, TypedDict
 import yaml
 from temporalio import activity, workflow
 
+from tracecat.contexts import RunContext
+
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     from loguru import logger
     from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+    from tracecat.auth import Role
+    from tracecat.contexts import ctx_role, ctx_run
     from tracecat.registry import registry
     from tracecat.templates.eval import eval_templated_object
 
@@ -87,6 +91,11 @@ class DSLInput(BaseModel):
         return self
 
 
+class DSLRunArgs(BaseModel):
+    role: Role
+    dsl: DSLInput
+
+
 class ActionStatement(BaseModel):
     ref: str = Field(pattern=SLUG_PATTERN)
     """Unique reference for the task"""
@@ -153,7 +162,7 @@ class DSLScheduler:
         await self.executor(task)
 
         self.completed_tasks.add(task_ref)
-        logger.info("Task completed", task_ref=task_ref)
+        logger.info("Task completed", task_ref=task_ref, role=ctx_role.get())
 
         # Update the indegrees of the tasks
         async with asyncio.TaskGroup() as tg:
@@ -194,24 +203,31 @@ class DSLWorkflow:
     """Manage only the state and execution of the DSL workflow."""
 
     @workflow.run
-    async def run(self, dsl: DSLInput) -> DSLContext:
+    async def run(self, args: DSLRunArgs) -> DSLContext:
         # Setup
-        self.dsl = dsl
-        self.context = DSLContext(INPUTS=dsl.inputs, ACTIONS={})
-        self.dep_list = {task.ref: task.depends_on for task in dsl.actions}
-        wfr_id = workflow.info().run_id
-        workflow.logger.info(f"Running DSL task workflow {wfr_id}")
+        self.role = args.role
+        self.run_ctx = RunContext(
+            wf_id=workflow.info().workflow_id,
+            wf_run_id=workflow.info().run_id,
+        )
 
-        self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=dsl)
+        self.dsl = args.dsl
+        self.context = DSLContext(INPUTS=self.dsl.inputs, ACTIONS={})
+        self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
+        logger.info(
+            "Running DSL task workflow", wf_id=self.run_ctx.wf_id, role=self.role
+        )
+
+        self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=self.dsl)
         await self.scheduler.start()
 
-        workflow.logger.info("DSL workflow completed")
+        logger.info("DSL workflow completed", wf_id=self.run_ctx.wf_id)
         return self.context
 
     async def execute_task(self, task: ActionStatement) -> None:
         """Purely execute a task and manage the results."""
         # Resolve all templated arguments
-        workflow.logger.info(f"Executing task {task.ref}")
+        logger.info(f"Executing task {task.ref}")
         # Securely inject secrets into the task arguments
         # 1. Find all secrets in the task arguments
         # 2. Load the secrets
@@ -221,7 +237,12 @@ class DSLWorkflow:
         # TODO: Set a retry policy for the activity
         activity_result = await workflow.execute_activity(
             "run_udf",
-            arg=UDFAction(type=task.action, args=processed_args),
+            arg=UDFActionArgs(
+                type=task.action,
+                args=processed_args,
+                role=self.role,
+                context=self.run_ctx,
+            ),
             start_to_close_timeout=timedelta(minutes=1),
         )
         self.context["ACTIONS"][task.ref] = DSLNodeResult(
@@ -230,9 +251,11 @@ class DSLWorkflow:
         )
 
 
-class UDFAction(BaseModel):
+class UDFActionArgs(BaseModel):
     type: str
     args: dict[str, Any]
+    role: Role
+    context: RunContext
 
 
 class DSLActivities:
@@ -241,18 +264,23 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def run_udf(input: UDFAction) -> Any:
-        activity.logger.info("Run udf")
-        activity.logger.info(f"{input = }")
-        udf = registry[input.type]
+    async def run_udf(action: UDFActionArgs) -> Any:
+        ctx_run.set(action.context)
+        ctx_role.set(action.role)
+
+        udf = registry[action.type]
+        logger.info(
+            "Run udf",
+            type=action.type,
+            role=action.role,
+            is_async=udf.is_async,
+            args=action.args,
+        )
         if udf.is_async:
-            activity.logger.info("Running async")
-            result = await udf.fn(**input.args)
+            result = await udf.fn(**action.args)
         else:
-            activity.logger.info("Running sync")
-            # Force it to be async
-            result = await asyncio.to_thread(udf.fn, **input.args)
-        activity.logger.info(f"Result: {result}")
+            result = await asyncio.to_thread(udf.fn, **action.args)
+        logger.info(f"Result: {result}")
         return result
 
 

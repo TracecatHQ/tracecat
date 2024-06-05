@@ -14,7 +14,8 @@ from pydantic_core import ValidationError
 from typing_extensions import Doc
 
 from tracecat import templates
-from tracecat.auth import AuthSandbox, Role
+from tracecat.auth import AuthSandbox
+from tracecat.contexts import ctx_role
 from tracecat.types.exceptions import TracecatException
 
 DEFAULT_NAMESPACE = "core"
@@ -171,7 +172,7 @@ class _Registry:
                     """
                     self[key].validate_args(*args, **kwargs)
 
-                    role: Role = kwargs.pop("__role", Role(type="service"))
+                    role = ctx_role.get()
                     with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
                         async with AuthSandbox(role=role, secrets=secrets):
                             return await fn(**kwargs)
@@ -183,7 +184,7 @@ class _Registry:
 
                     self[key].validate_args(*args, **kwargs)
 
-                    role: Role = kwargs.pop("__role", Role(type="service"))
+                    role = ctx_role.get()
                     with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
                         with AuthSandbox(role=role, secrets=secrets):
                             return fn(**kwargs)
