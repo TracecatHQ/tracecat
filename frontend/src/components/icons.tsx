@@ -17,6 +17,7 @@ import {
   Sparkles,
   Tags,
   Webhook,
+  ZapIcon,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -202,15 +203,16 @@ export const UDFIcons: Record<
       <BoxesIcon {...rest} />
     </div>
   ),
+  // Triggers namespace
+  trigger: ({ className, ...rest }) => (
+    <div className={cn("bg-indigo-100", basicIconsCommon, className)}>
+      <ZapIcon {...rest} />
+    </div>
+  ),
   // Core namespace
   core: ({ className, ...rest }) => (
     <div className={cn("bg-slate-200/50", basicIconsCommon, className)}>
       <Cpu {...rest} />
-    </div>
-  ),
-  "core.webhook": ({ className, ...rest }) => (
-    <div className={cn("bg-indigo-100", basicIconsCommon, className)}>
-      <Webhook {...rest} />
     </div>
   ),
   "core.http_request": ({ className, ...rest }) => (
