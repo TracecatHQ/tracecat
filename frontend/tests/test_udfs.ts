@@ -134,7 +134,7 @@ export const ProjectDiscoveryGetAllScanResults: UDF = {
         type: "string",
       },
       vuln_status: {
-        enum: ["open", "closedfalse_positive", "fixed", "none"],
+        enum: ["open", "closed", "false_positive", "fixed", "none"],
         title: "Vuln Status",
         type: "string",
       },
