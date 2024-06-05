@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from tracecat.db.schemas import ActionRun, WorkflowRun
+from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.workflow import DSLInput
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
@@ -18,13 +19,17 @@ from tracecat.types.secrets import SecretKeyValue
 RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 
 
+class Undefined(Enum):
+    Value = ...
+
+
 class ActionResponse(BaseModel):
     id: str
     type: str
     title: str
     description: str
     status: str
-    inputs: dict[str, Any]
+    inputs: dict[str, Any] = {}
     key: str  # Computed field
 
 
@@ -36,6 +41,10 @@ class WorkflowResponse(BaseModel):
     actions: dict[str, ActionResponse]
     object: dict[str, Any] | None  # React Flow object
     owner_id: str
+    version: int | None = None
+    webhook: WebhookResponse
+    schedules: list[Schedule]
+    entrypoint: str | None
 
 
 class ActionMetadataResponse(BaseModel):
@@ -110,10 +119,14 @@ class CreateWorkflowParams(BaseModel):
 
 
 class UpdateWorkflowParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    status: str | None = None
-    object: dict[str, Any] | None = None
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    title: str | Undefined = Undefined.Value
+    description: str | Undefined = Undefined.Value
+    status: Literal["online", "offline"] | Undefined = Undefined.Value
+    object: dict[str, Any] | None | Undefined = Undefined.Value
+    version: int | None | Undefined = Undefined.Value
+    entrypoint: str | None | Undefined = Undefined.Value
+    icon_url: str | None | Undefined = Undefined.Value
 
 
 class CreateActionParams(BaseModel):
@@ -129,15 +142,19 @@ class UpdateActionParams(BaseModel):
     inputs: dict[str, Any] | None = None
 
 
-class CreateWebhookParams(BaseModel):
-    action_id: str
-    workflow_id: str
+class UpsertWebhookParams(BaseModel):
+    status: Literal["online", "offline"] | None = None
+    entrypoint_ref: str | None = None
+    method: Literal["GET", "POST"] | None = None
 
 
-class WebhookResponse(BaseModel):
+class WebhookResponse(Resource):
     id: str
     secret: str
-    action_id: str
+    status: Literal["online", "offline"]
+    entrypoint_ref: str | None = None
+    filters: dict[str, Any]
+    method: Literal["GET", "POST"]
     workflow_id: str
     url: str
 
@@ -145,15 +162,6 @@ class WebhookResponse(BaseModel):
 class GetWebhookParams(BaseModel):
     webhook_id: str | None = None
     path: str | None = None
-
-
-class AuthenticateWebhookResponse(BaseModel):
-    status: Literal["Authorized", "Unauthorized"]
-    owner_id: str | None = None
-    action_key: str | None = None
-    action_id: str | None = None
-    webhook_id: str | None = None
-    workflow_id: str | None = None
 
 
 class Event(BaseModel):
@@ -306,3 +314,9 @@ class UDFArgsValidationResponse(BaseModel):
     ok: bool
     message: str
     detail: Any | None = None
+
+
+class CreateScheduleParams(BaseModel):
+    entrypoint_ref: str
+    entrypoint_payload: dict[str, Any] | None = None
+    cron: str

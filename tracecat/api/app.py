@@ -8,7 +8,6 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
-from loguru import logger
 from pydantic_core import ValidationError
 from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound
@@ -27,7 +26,7 @@ from tracecat.auth import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.connectors import workflow_to_dsl
+from tracecat.db import converters
 from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
 from tracecat.db.schemas import (
     Action,
@@ -35,6 +34,7 @@ from tracecat.db.schemas import (
     CaseAction,
     CaseContext,
     CaseEvent,
+    Schedule,
     Secret,
     UDFSpec,
     User,
@@ -48,6 +48,9 @@ from tracecat.db.schemas import (
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.dsl.workflow import DSLInput
+
+# from loguru import logger
+from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
 from tracecat.types.api import (
@@ -55,29 +58,29 @@ from tracecat.types.api import (
     ActionResponse,
     ActionRunEventParams,
     ActionRunResponse,
-    AuthenticateWebhookResponse,
     CaseActionParams,
     CaseContextParams,
     CaseEventParams,
     CaseParams,
     CopyWorkflowParams,
     CreateActionParams,
+    CreateScheduleParams,
     CreateSecretParams,
-    CreateWebhookParams,
     CreateWorkflowParams,
     Event,
     EventSearchParams,
     SearchSecretsParams,
-    SearchWebhooksParams,
     SecretResponse,
     StartWorkflowParams,
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
     UDFArgsValidationResponse,
+    Undefined,
     UpdateActionParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
+    UpsertWebhookParams,
     UpsertWorkflowDefinitionParams,
     WebhookResponse,
     WorkflowMetadataResponse,
@@ -86,7 +89,7 @@ from tracecat.types.api import (
     WorkflowRunResponse,
 )
 from tracecat.types.cases import Case, CaseMetrics
-from tracecat.types.exceptions import TracecatException
+from tracecat.types.exceptions import TracecatException, TracecatValidationError
 
 engine: Engine
 
@@ -157,22 +160,23 @@ async def custom_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.exception_handler(TracecatValidationError)
 @app.exception_handler(TracecatException)
 async def tracecat_exception_handler(request: Request, exc: TracecatException):
     """Generic exception handler for Tracecat exceptions.
 
     We can customize exceptions to expose only what should be user facing.
     """
+    msg = exc.detail if hasattr(exc, "detail") else str(exc)
     logger.error(
-        "Got a tracecat error: {!s}",
-        exc,
+        msg,
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"message": "An unexpected error occurred. Please try again later."},
+        content={"type": type(exc).__name__, "message": msg},
     )
 
 
@@ -186,68 +190,100 @@ def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
 
 
-# ----- Triggers ----- #
+# ----- Trigger handlers ----- #
 
 
-def validate_incoming_webhook(webhook_id: str, secret: str) -> WorkflowDefinition:
+def validate_incoming_webhook(
+    webhook_id: str, secret: str, request: Request
+) -> WorkflowDefinition:
+    """Validate incoming webhook request.
+
+    NOte: The webhook ID here is the workflow ID.
+    """
     with Session(engine) as session:
-        # Match the webhook id with the workflow id and get the latest version
-        statement = (
-            select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == webhook_id)
-            .order_by(WorkflowDefinition.version.desc())
-        )
-
-        # statement = select(Webhook).where(Webhook.id == webhook_id)
-        # NOTE: Probably best to first check Webhook.
-        result = session.exec(statement)
+        result = session.exec(select(Webhook).where(Webhook.workflow_id == webhook_id))
         try:
-            defn = result.first()
-            if not defn:
-                raise NoResultFound("No workflow found")
+            # One webhook per workflow
+            webhook = result.one()
         except NoResultFound as e:
-            # No workflow associated with the webhook
             logger.opt(exception=e).error("Webhook does not exist", error=e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid webhook ID"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized webhook request.",
             ) from e
-        if secret != "test-secret":
+
+        if secret != webhook.secret:
+            logger.error("Secret does not match")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unauthorized webhook request",
             )
 
-        # if (workflow := webhook.workflow) is None:
-        #     raise HTTPException(
-        #         status_code=status.HTTP_404_NOT_FOUND, detail="There is no workflow"
-        #     )
+        # If we're here, the webhook has been validated
+        if webhook.status == "offline":
+            logger.error("Webhook is offline")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Webhook is offline",
+            )
+
+        if webhook.method.lower() != request.method.lower():
+            logger.error("Method does not match")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request method not allowed",
+            )
+
+        # Reaching here means the webhook is online and connected to an entrypoint
+
+        # Match the webhook id with the workflow id and get the latest version
+        # of the workflow defitniion.
+        result = session.exec(
+            select(WorkflowDefinition)
+            .where(WorkflowDefinition.workflow_id == webhook_id)
+            .order_by(WorkflowDefinition.version.desc())
+        )
+        try:
+            defn = result.first()
+            if not defn:
+                raise NoResultFound("No workflow definition found for workflow ID")
+        except NoResultFound as e:
+            # No workflow associated with the webhook
+            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            ) from e
+
+        # Check if the workflow is active
+
+        if defn.workflow.status == "offline":
+            logger.error("Workflow is inactive")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workflow is inactive",
+            )
+
+        # If we are here, all checks have passed
         ctx_role.set(
             Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
         )
         return WorkflowDefinition.model_validate(defn)
 
 
-async def handle_incoming_webhook(path: str, secret: str) -> WorkflowDefinition:
-    """Handle incoming webhook requests.
-
-    Steps
-    -----
-    1. Validate
-        - Lookup the secret in the database
-        - If the secret is not found, return a 404.
-
-
-    Webhook path is its natural key
-    """
+async def handle_incoming_webhook(
+    request: Request, path: str, secret: str
+) -> WorkflowDefinition:
+    """Handle incoming webhook requests."""
     # TODO(perf): Replace this when we get async sessions
-    defn = await asyncio.to_thread(
-        validate_incoming_webhook, webhook_id=path, secret=secret
-    )
-    return defn
+    with logger.contextualize(webhook_id=path):
+        defn = await asyncio.to_thread(
+            validate_incoming_webhook, webhook_id=path, secret=secret, request=request
+        )
+        return defn
 
 
-@app.post("/webhooks/{path}/{secret}", tags=["triggers"])
-async def webhook(
+@app.post("/webhooks/{path}/{secret}", tags=["public"])
+async def incoming_webhook(
     defn: Annotated[WorkflowDefinition, Depends(handle_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
@@ -318,15 +354,22 @@ def create_workflow(
     params: CreateWorkflowParams,
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
-    workflow = Workflow(
-        title=params.title,
-        description=params.description,
-        owner_id=role.user_id,
-    )
+    # When we create a workflow, we automatically create a webhook
     with Session(engine) as session:
+        workflow = Workflow(
+            title=params.title,
+            description=params.description,
+            owner_id=role.user_id,
+        )
+        webhook = Webhook(
+            owner_id=role.user_id,
+            workflow_id=workflow.id,
+        )
         session.add(workflow)
+        session.add(webhook)
         session.commit()
         session.refresh(workflow)
+        session.refresh(webhook)
 
     return WorkflowMetadataResponse(
         id=workflow.id,
@@ -357,15 +400,18 @@ def get_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        # List all Actions related to `workflow_id`
-        statement = select(Action).where(Action.workflow_id == workflow_id)
-        results = session.exec(statement)
-        actions = results.all()
-
-    actions_responses = {
-        action.id: ActionResponse(**action.model_dump()) for action in actions
-    }
-    return WorkflowResponse(**workflow.model_dump(), actions=actions_responses)
+        actions_responses = {
+            action.id: ActionResponse(**action.model_dump())
+            for action in workflow.actions or []
+        }
+        # Add webhook/schedules
+        whresponse = WebhookResponse(**workflow.webhook.model_dump())
+        return WorkflowResponse(
+            **workflow.model_dump(),
+            actions=actions_responses,
+            webhook=whresponse,
+            schedules=workflow.schedules,
+        )
 
 
 @app.post("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -388,14 +434,9 @@ def update_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        if params.title is not None:
-            workflow.title = params.title
-        if params.description is not None:
-            workflow.description = params.description
-        if params.status is not None:
-            workflow.status = params.status
-        if params.object is not None:
-            workflow.object = params.object
+        for key, value in params.model_dump().items():
+            if value is not Undefined.Value:
+                setattr(workflow, key, value)
 
         session.add(workflow)
         session.commit()
@@ -485,7 +526,7 @@ def commit_workflow(
         _ = workflow.actions
 
         # Convert the workflow into a WorkflowDefinition
-        dsl = workflow_to_dsl(workflow)
+        dsl = converters.workflow_to_dsl(workflow)
         _upsert_workflow_definition(session, role, workflow_id, dsl)
 
 
@@ -571,6 +612,12 @@ def _upsert_workflow_definition(
     session.add(defn)
     session.commit()
     session.refresh(defn)
+
+    workflow = defn.workflow  # Hydrate relationship attr
+    workflow.version = version
+    session.add(workflow)
+    session.commit()
+    session.refresh(workflow)
 
 
 # ----- Workflow Runs ----- #
@@ -677,7 +724,10 @@ def update_workflow_run(
         session.refresh(workflow_run)
 
 
-@app.post("/workflows/{workflow_id}/trigger")
+# ----- Workflow Controls ----- #
+
+
+@app.post("/workflows/{workflow_id}/controls/trigger")
 async def trigger_workflow_run(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -708,6 +758,205 @@ async def trigger_workflow_run(
     return StartWorkflowResponse(
         status="ok", message="Workflow started.", id=workflow_id
     )
+
+
+# ----- Workflow Webhooks ----- #
+
+
+@app.get("/workflows/{workflow_id}/webhooks")
+def list_webhooks(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+) -> list[WebhookResponse]:
+    """List all Webhooks for a workflow."""
+    with Session(engine) as session:
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        return [WebhookResponse(**webhook.model_dump()) for webhook in result.all()]
+
+
+@app.post("/workflows/{workflow_id}/webhooks", status_code=status.HTTP_201_CREATED)
+def create_webhook(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+    params: UpsertWebhookParams,
+) -> None:
+    """Create a Webhook."""
+
+    webhook = Webhook(
+        owner_id=role.user_id,
+        entrypoint_ref=params.entrypoint_ref,
+        method=params.method or "POST",
+        workflow_id=workflow_id,
+    )
+    with Session(engine) as session:
+        session.add(webhook)
+        session.commit()
+        session.refresh(webhook)
+
+
+@app.get("/workflows/{workflow_id}/webhooks/{webhook_id}")
+def get_webhook(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    webhook_id: str,
+    workflow_id: str,
+) -> WebhookResponse:
+    with Session(engine) as session:
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.id == webhook_id,
+            Webhook.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            webhook = result.one()
+            return WebhookResponse(**webhook.model_dump())
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+
+@app.delete("/workflows/{workflow_id}/webhooks/{webhook_id}")
+def delete_webhook(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+    webhook_id: str,
+) -> None:
+    with Session(engine) as session:
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.id == webhook_id,
+            Webhook.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            webhook = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        session.delete(webhook)
+        session.commit()
+
+
+@app.patch("/workflows/{workflow_id}/webhooks/{webhook_id}")
+def update_webhook(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    webhook_id: str,
+    workflow_id: str,
+    params: UpsertWebhookParams,
+) -> None:
+    with Session(engine) as session:
+        statement = select(Webhook).where(
+            Webhook.owner_id == role.user_id,
+            Webhook.id == webhook_id,
+            Webhook.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            webhook = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+        if params.entrypoint_ref is not None:
+            webhook.entrypoint_ref = params.entrypoint_ref
+        if params.method is not None:
+            webhook.method = params.method
+        if params.status is not None:
+            webhook.status = params.status
+
+        session.add(webhook)
+        session.commit()
+        session.refresh(webhook)
+
+
+# ----- Workflow Schedules ----- #
+
+
+@app.get("/workflows/{workflow_id}/schedules")
+def list_schedules(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+) -> list[Schedule]:
+    """List all Schedules for a workflow."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(
+            Schedule.owner_id == role.user_id,
+            Schedule.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        return result.all()
+
+
+@app.post("/workflows/{workflow_id}/schedules", status_code=status.HTTP_201_CREATED)
+def create_schedule(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    workflow_id: str,
+    params: CreateScheduleParams,
+) -> None:
+    """Create a Schedule."""
+
+    schedule = Schedule(
+        owner_id=role.user_id,
+        cron=params.cron,
+        entrypoint_payload=params.entrypoint_payload,
+        entrypoint_ref=params.entrypoint_ref,
+        workflow_id=workflow_id,
+    )
+    with Session(engine) as session:
+        session.add(schedule)
+        session.commit()
+        session.refresh(schedule)
+
+
+@app.get("/workflows/{workflow_id}/schedules/{schedule_id}")
+def get_schedule(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    schedule_id: str,
+    workflow_id: str,
+) -> Schedule:
+    with Session(engine) as session:
+        statement = select(Schedule).where(
+            Schedule.owner_id == role.user_id,
+            Schedule.id == schedule_id,
+            Schedule.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            return result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+
+@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}")
+def delete_schedule(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    schedule_id: str,
+    workflow_id: str,
+) -> None:
+    with Session(engine) as session:
+        statement = select(Schedule).where(
+            Schedule.owner_id == role.user_id,
+            Schedule.id == schedule_id,
+            Schedule.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            schedule = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        session.delete(schedule)
+        session.commit()
 
 
 # ----- Actions ----- #
@@ -758,13 +1007,6 @@ def create_action(
         session.commit()
         session.refresh(action)
 
-        if params.type.lower() == "webhook":
-            create_webhook(
-                role=role,
-                params=CreateWebhookParams(
-                    action_id=action.id, workflow_id=params.workflow_id
-                ),
-            )
     action_metadata = ActionMetadataResponse(
         id=action.id,
         workflow_id=params.workflow_id,
@@ -797,22 +1039,13 @@ def get_action(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        inputs: dict[str, Any] = action.inputs or {}
-        # Precompute webhook response
-        # Alias webhook.id as path
-        if action.type.lower() == "webhook":
-            webhook = search_webhooks(
-                role=role,
-                params=SearchWebhooksParams(action_id=action.id),
-            )
-            inputs.update(path=webhook.id, secret=webhook.secret, url=webhook.url)
     return ActionResponse(
         id=action.id,
         type=action.type,
         title=action.title,
         description=action.description,
         status=action.status,
-        inputs=inputs,
+        inputs=action.inputs,
         key=action.key,
     )
 
@@ -990,174 +1223,6 @@ def update_action_run(
         session.add(action_run)
         session.commit()
         session.refresh(action_run)
-
-
-# ----- Webhooks ----- #
-
-
-@app.get("/webhooks")
-def list_webhooks(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-) -> list[WebhookResponse]:
-    """List all Webhooks for a workflow."""
-    with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        webhooks = result.all()
-    webhook_responses = [
-        WebhookResponse(
-            id=webhook.id,
-            path=webhook.path,
-            action_id=webhook.action_id,
-            workflow_id=webhook.workflow_id,
-            url=webhook.url,
-        )
-        for webhook in webhooks
-    ]
-    return webhook_responses
-
-
-@app.post("/webhooks", status_code=status.HTTP_201_CREATED)
-def create_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    params: CreateWebhookParams,
-) -> WebhookResponse:
-    """Create a new Webhook."""
-    webhook = Webhook(
-        owner_id=role.user_id,
-        action_id=params.action_id,
-        workflow_id=params.workflow_id,
-    )
-    with Session(engine) as session:
-        session.add(webhook)
-        session.commit()
-        session.refresh(webhook)
-
-    return WebhookResponse(
-        id=webhook.id,
-        action_id=webhook.action_id,
-        workflow_id=webhook.workflow_id,
-        secret=webhook.secret,
-        url=webhook.url,
-    )
-
-
-@app.get("/webhooks/{webhook_id}")
-def get_webhook(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    webhook_id: str,
-) -> WebhookResponse:
-    with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.id == webhook_id,
-        )
-        result = session.exec(statement)
-        try:
-            webhook = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-    webhook_response = WebhookResponse(
-        id=webhook.id,
-        secret=webhook.secret,
-        action_id=webhook.action_id,
-        workflow_id=webhook.workflow_id,
-        url=webhook.url,
-    )
-    return webhook_response
-
-
-@app.delete("/webhooks/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    webhook_id: str,
-) -> None:
-    """Delete a Webhook by ID."""
-    with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.id == webhook_id,
-        )
-        result = session.exec(statement)
-        webhook = result.one()
-        session.delete(webhook)
-        session.commit()
-
-
-@app.get("/webhooks/search")
-def search_webhooks(
-    role: Annotated[Role, Depends(authenticate_user)],
-    params: SearchWebhooksParams,
-) -> WebhookResponse:
-    with Session(engine) as session:
-        statement = select(Webhook)
-
-        if params.action_id is not None:
-            statement = statement.where(
-                Webhook.owner_id == role.user_id,
-                Webhook.action_id == params.action_id,
-            )
-        result = session.exec(statement)
-        try:
-            webhook = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-    webhook_response = WebhookResponse(
-        id=webhook.id,
-        secret=webhook.secret,
-        action_id=webhook.action_id,
-        workflow_id=webhook.workflow_id,
-        url=webhook.url,
-    )
-    return webhook_response
-
-
-@app.post("/authenticate/webhooks/{webhook_id}/{secret}")
-def authenticate_webhook(
-    # TODO: Add user id to Role
-    _role: Annotated[Role, Depends(authenticate_service)],  # M2M
-    webhook_id: str,
-    secret: str,
-) -> AuthenticateWebhookResponse:
-    with Session(engine) as session:
-        statement = select(Webhook).where(Webhook.id == webhook_id)
-        result = session.exec(statement)
-        try:
-            webhook = result.one()
-        except NoResultFound as e:
-            logger.opt(exception=e).error("Webhook does not exist", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        if webhook.secret != secret:
-            logger.error("Secret doesn't match")
-            return AuthenticateWebhookResponse(status="Unauthorized")
-        # Get slug
-        statement = select(Action).where(Action.id == webhook.action_id)
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except Exception as e:
-            logger.opt(exception=e).error("Action does not exist", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-    return AuthenticateWebhookResponse(
-        status="Authorized",
-        owner_id=action.owner_id,
-        action_id=action.id,
-        action_key=action.key,
-        workflow_id=webhook.workflow_id,
-        webhook_id=webhook_id,
-    )
 
 
 # ----- Events Management ----- #
