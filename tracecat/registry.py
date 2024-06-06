@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import os
 import re
 from collections.abc import Callable
 from types import FunctionType, GenericAlias
@@ -15,7 +14,6 @@ from typing_extensions import Doc
 
 from tracecat import templates
 from tracecat.auth import AuthSandbox
-from tracecat.contexts import ctx_role
 from tracecat.types.exceptions import TracecatException
 
 DEFAULT_NAMESPACE = "core"
@@ -173,12 +171,10 @@ class _Registry:
                     2. Inject all secret keys into the execution environment.
                     3. Clean up the environment after the function has executed.
                     """
-                    self[key].validate_args(*args, **kwargs)
 
-                    role = ctx_role.get()
-                    with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
-                        async with AuthSandbox(role=role, secrets=secrets):
-                            return await fn(**kwargs)
+                    self[key].validate_args(*args, **kwargs)
+                    async with AuthSandbox(secrets=secrets):
+                        return await fn(**kwargs)
             else:
 
                 @functools.wraps(fn)
@@ -186,11 +182,8 @@ class _Registry:
                     """Sync version of the wrapper function for the udf."""
 
                     self[key].validate_args(*args, **kwargs)
-
-                    role = ctx_role.get()
-                    with logger.contextualize(user_id=role.user_id, pid=os.getpid()):
-                        with AuthSandbox(role=role, secrets=secrets):
-                            return fn(**kwargs)
+                    with AuthSandbox(secrets=secrets):
+                        return fn(**kwargs)
 
             if key in self:
                 raise ValueError(f"UDF {key!r} is already registered.")
