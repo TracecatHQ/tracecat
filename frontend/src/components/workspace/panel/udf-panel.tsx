@@ -278,7 +278,7 @@ export function ActionInputs({
               console.log("changed", params)
               setInputs(params.src)
             }}
-            className="text-xs"
+            className="text-sm"
           />
         </div>
         <div className="w-full space-y-2 py-4">
