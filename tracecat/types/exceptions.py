@@ -18,3 +18,9 @@ class TracecatValidationError(TracecatException):
     """Tracecat user-facting validation error"""
 
     pass
+
+
+class TracecatExpressionError(TracecatException):
+    """Tracecat user-facing expression error"""
+
+    pass

@@ -48,6 +48,7 @@ import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
 from tracecat.templates import patterns
+from tracecat.types.exceptions import TracecatExpressionError
 
 T = TypeVar("T")
 
@@ -115,7 +116,7 @@ class Expression:
         self._template = expression
         match = patterns.EXPR_PATTERN.match(expression)
         if not match:
-            raise ValueError(f"Invalid expression: {expression!r}")
+            raise TracecatExpressionError(f"Invalid expression: {expression!r}")
 
         # Top level types
         self._context = match.group("context")
@@ -167,7 +168,9 @@ class Expression:
                 ret = self._resolve_fn()
             case _:
                 if not self._operand:
-                    raise ValueError("Operand is required for templated jsonpath.")
+                    raise TracecatExpressionError(
+                        "Operand is required for templated jsonpath."
+                    )
                 ret = eval_jsonpath(self._expr, self._operand[self._context])
 
         if not self._resolve_type:
@@ -176,7 +179,9 @@ class Expression:
             # Attempt to cast the result into the desired type
             return self._resolve_type(ret)
         except Exception as e:
-            raise ValueError(f"Could not cast {ret!r} to {self._resolve_type!r}") from e
+            raise TracecatExpressionError(
+                f"Could not cast {ret!r} to {self._resolve_type!r}"
+            ) from e
 
 
 class TemplateExpression:
@@ -192,7 +197,7 @@ class TemplateExpression:
     ) -> None:
         match = pattern.match(template)
         if (expr := match.group("expr")) is None:
-            raise ValueError(f"Invalid template expression: {template!r}")
+            raise TracecatExpressionError(f"Invalid template expression: {template!r}")
         self.expr = Expression(expr, operand=operand)
 
     def __str__(self) -> str:
@@ -207,12 +212,14 @@ class TemplateExpression:
 
 def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
     if operand is None or not isinstance(operand, dict):
-        raise ValueError("A dict-type operand is required for templated jsonpath.")
+        raise TracecatExpressionError(
+            "A dict-type operand is required for templated jsonpath."
+        )
     try:
         # Try to evaluate the expression
         jsonpath_expr = jsonpath_ng.parse(expr)
     except JsonPathParserError as e:
-        raise ValueError(f"Invalid jsonpath {expr!r}") from e
+        raise TracecatExpressionError(f"Invalid jsonpath {expr!r}") from e
     matches = [found.value for found in jsonpath_expr.find(operand)]
     if len(matches) == 1:
         return matches[0]
@@ -221,7 +228,9 @@ def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
     else:
         # We know that if this function is called, there was a templated field.
         # Therefore, it means the jsonpath was valid but there was no match.
-        raise ValueError(f"Operand has no path {expr!r}. Operand: {operand}.")
+        raise TracecatExpressionError(
+            f"Operand has no path {expr!r}. Operand: {operand}."
+        )
 
 
 def eval_inline_expression(expr: str, operand: OperandType) -> Any:
@@ -239,4 +248,4 @@ def eval_inline_expression(expr: str, operand: OperandType) -> Any:
         value = match.group("value")
         return _BUILTIN_TYPE_NAP[type_name](value)
 
-    raise ValueError(f"Invalid function argument: {expr!r}")
+    raise TracecatExpressionError(f"Invalid function argument: {expr!r}")
