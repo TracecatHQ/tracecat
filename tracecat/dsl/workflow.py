@@ -4,6 +4,7 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from datetime import timedelta
+from enum import StrEnum, auto
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self, TypedDict
 
@@ -125,16 +126,29 @@ class DSLNodeResult(TypedDict):
     result_typename: str
 
 
+class TaskMarker(StrEnum):
+    SKIP = auto()
+    TERMINATED = auto()
+
+
+class SkipStrategy(StrEnum):
+    ISOLATE = auto()
+    PROPAGATE = auto()
+
+
 class DSLScheduler:
     """Manage only scheduling of tasks in a topological-like order."""
 
     _queue_wait_timeout = 1
+    skip_strategy: SkipStrategy
+    """Decide how to handle tasks that are marked for skipping."""
 
     def __init__(
         self,
         *,
         activity_coro: Callable[[ActionStatement], Coroutine[Any, Any, None]],
         dsl: DSLInput,
+        skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
     ):
         self.dsl = dsl
         self.tasks: dict[str, ActionStatement] = {}
@@ -143,6 +157,11 @@ class DSLScheduler:
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         # self.running_tasks: dict[str, asyncio.Task[None]] = {}
         self.completed_tasks: set[str] = set()
+        # Tasks can be marked for termination.
+        # This is useful for tasks that are
+        self.marked_tasks: dict[str, TaskMarker] = {}
+        self.skip_strategy = skip_strategy
+        self._task_exceptions = {}
 
         self.executor = activity_coro
         self.logger = ctx_logger.get(logger)
@@ -164,14 +183,33 @@ class DSLScheduler:
         task = self.tasks[task_ref]
         await self.executor(task)
 
+        # For now, tasks that were marked to skip also join this set
         self.completed_tasks.add(task_ref)
         self.logger.info("Task completed", task_ref=task_ref)
 
-        # Update the indegrees of the tasks
+        # Update child indegrees
+        # ----------------------
+        # Treat a skipped task as completed, update as usual.
+        # Any child task whose indegree reaches 0 must check if all its parent
+        # dependencies we skipped. if ALL parents were skipped, then the child
+        # task is also marked for skipping. If ANY parent was not skipped, then
+        # the child task is added to the queue.
+
+        # The intuition here is that if you have a task that becomes unreachable,
+        # then some of its children will also become unreachable. A node becomes unreachable
+        # if there is no one successful oath that leads to it.
+
+        # This allows us to have diamond-shaped graphs where some branches can be skipped
+        # but at the join point, if any parent was not skipped, then the child can still be executed.
         async with asyncio.TaskGroup() as tg:
             for next_task_ref in self.adj[task_ref]:
                 self.indegrees[next_task_ref] -= 1
                 if self.indegrees[next_task_ref] == 0:
+                    if (
+                        self.skip_strategy == SkipStrategy.PROPAGATE
+                        and self.task_is_reachable(next_task_ref)
+                    ):
+                        self.mark_task(next_task_ref, TaskMarker.SKIP)
                     tg.create_task(self.queue.put(next_task_ref))
 
     async def dynamic_start(self) -> None:
@@ -187,6 +225,16 @@ class DSLScheduler:
 
             asyncio.create_task(self._dynamic_task(task_ref))
         self.logger.info("All tasks completed")
+
+    def mark_task(self, task_ref: str, marker: TaskMarker) -> None:
+        self.marked_tasks[task_ref] = marker
+
+    def task_is_reachable(self, task_ref: str) -> bool:
+        """Check whether a task is reachable by checking if all its dependencies were skipped."""
+        return all(
+            self.marked_tasks.get(parent) == TaskMarker.SKIP
+            for parent in self.tasks[task_ref].depends_on
+        )
 
     async def _static_task(self, task_ref: str) -> None:
         raise NotImplementedError
@@ -235,14 +283,10 @@ class DSLWorkflow:
         1. Evaluate `run_if` condition
         2. Resolve all templated arguments
         """
-        # Evaluate the `run_if` condition
         with self.logger.contextualize(task_ref=task.ref):
-            if task.run_if is not None:
-                expr = templates.TemplateExpression(task.run_if, operand=self.context)
-                self.logger.info("`run_if` condition", task_run_if=task.run_if)
-                if not bool(expr.result()):
-                    self.logger.info("Task skipped")
-                    return
+            if self._should_skip_execution(task):
+                self._mark_task(task.ref, TaskMarker.SKIP)
+                return
 
             self.logger.info("Executing task")
             # TODO: Securely inject secrets into the task arguments
@@ -270,6 +314,22 @@ class DSLWorkflow:
                 result=activity_result,
                 result_typename=type(activity_result).__name__,
             )
+
+    def _should_skip_execution(self, task: ActionStatement) -> bool:
+        if self.scheduler.marked_tasks.get(task.ref) == TaskMarker.SKIP:
+            self.logger.info("Task marked for skipping, skipped")
+            return True
+        # Evaluate the `run_if` condition
+        if task.run_if is not None:
+            expr = templates.TemplateExpression(task.run_if, operand=self.context)
+            self.logger.debug("`run_if` condition", task_run_if=task.run_if)
+            if not bool(expr.result()):
+                self.logger.info("Task `run_if` condition did not pass, skipped")
+                return True
+        return False
+
+    def _mark_task(self, task_ref: str, marker: TaskMarker) -> None:
+        self.scheduler.mark_task(task_ref, marker)
 
 
 class UDFActionArgs(BaseModel):
