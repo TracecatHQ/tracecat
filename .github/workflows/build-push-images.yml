@@ -17,57 +17,6 @@ permissions:
   packages: write
 
 jobs:
-  push-to-ecr:
-    name: Deploy AWS CDK Stack
-    runs-on: ubuntu-latest
-    outputs:
-      ecr-tags: ${{ steps.meta.outputs.tags }}
-    timeout-minutes: 10
-    permissions:
-      id-token: write # This line allows GitHub Actions to request an OIDC token
-      contents: read
-    steps:
-      - name: Checkout tracecat repo 🛎️
-        uses: actions/checkout@v4
-        with:
-          repository: TracecatHQ/tracecat
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get SHA
-        id: get-sha
-        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT=
-
-      - name: Set AWS Credentials for ECR Admin
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-          role-to-assume: ${{ secrets.AWS_ECR__ROLE_TO_ASSUME }} # Full ARN
-          role-session-name: GitHubActionECR
-          role-duration-seconds: 600
-          mask-aws-account-id: true
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.AWS_ECR__REPOSITORY_URI }}
-
-      - name: Build and push API Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Set job output
-        id: ecr-tags
-        run: echo "tags=${{ steps.meta.outputs.tags }}" >> $GITHUB_OUTPUT
-
   push-to-ghcr:
     runs-on: ubuntu-latest
     steps:

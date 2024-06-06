@@ -2,58 +2,104 @@ exclude-labels:
   - skip changelog
   - release
 
-change-template: '- $TITLE (#$NUMBER)'
+name-template: Tracecat $RESOLVED_VERSION
+tag-template: $RESOLVED_VERSION
+
+change-template: "- $TITLE (#$NUMBER)"
 change-title-escapes: '\<*_&'
 replacers:
   # Remove conventional commits from titles
   - search: '/- (build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*\))?(\!)?\: /g'
-    replace: '- '
+    replace: "- "
 
 autolabeler:
   - label: frontend
     title:
       # Example: feat(ui): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*ui.*\))?\!?\: /'
+
   - label: engine
     title:
       # Example: feat(engine): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*engine.*\))?\!?\: /'
+
   - label: breaking
     title:
       # Example: feat!: ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*\))?\!\: /'
+
   - label: breaking frontend
     title:
       # Example: feat(ui!, engine): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*ui\!.*\)\: /'
+
   - label: breaking engine
     title:
       # Example: feat(engine!): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*engine\!.*\)\: /'
+
   - label: build
     title:
-      - '/^build/'
+      - "/^build/"
+
   - label: internal
     title:
-      - '/^(chore|ci|refactor|test)/'
+      - "/^(chore|ci|refactor|test)/"
+
   - label: deprecation
     title:
-      - '/^depr/'
+      - "/^depr/"
+
   - label: documentation
     title:
-      - '/^docs/'
+      - "/^docs/"
+
   - label: enhancement
     title:
-      - '/^feat/'
+      - "/^feat/"
+
   - label: fix
     title:
-      - '/^fix/'
+      - "/^fix/"
+
   - label: performance
     title:
-      - '/^perf/'
+      - "/^perf/"
+
   - label: release
     title:
-      - '/^release/'
+      - "/^release/"
+
+categories:
+  - title: 🏆 Highlights
+    labels: highlight
+
+  - title: 💥 Breaking changes
+    labels:
+      - breaking
+      - breaking ui
+      - breaking frontend
+
+  - title: ⚠️ Deprecations
+    labels: deprecation
+
+  - title: 🚀 Performance improvements
+    labels: performance
+
+  - title: ✨ Enhancements
+    labels: enhancement
+
+  - title: 🐞 Bug fixes
+    labels: fix
+
+  - title: 📖 Documentation
+    labels: documentation
+
+  - title: 📦 Build system
+    labels: build
+
+  - title: 🛠️ Other improvements
+    labels: internal
 
 template: |
   $CHANGES

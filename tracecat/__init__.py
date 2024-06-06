@@ -1,3 +1,3 @@
-"""Tracecat is an open source Tines alternative."""
+"""Tracecat is the open source Tines alternative."""
 
-__version__ = "0.0.1-alpha"
+__version__ = "0.2.0"

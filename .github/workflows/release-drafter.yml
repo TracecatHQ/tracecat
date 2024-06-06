@@ -1,4 +1,4 @@
-name: Update draft releases
+name: Update draft release
 
 on:
   push:
@@ -19,19 +19,9 @@ jobs:
   main:
     runs-on: ubuntu-latest
     steps:
-      - name: Draft Engine release
+      - name: Draft release
         uses: release-drafter/release-drafter@v6
         with:
-          config-name: release-drafter-engine.yml
-          commitish: ${{ inputs.sha || github.sha }}
-          disable-autolabeler: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Draft Frontend release
-        uses: release-drafter/release-drafter@v6
-        with:
-          config-name: release-drafter-ui.yml
           commitish: ${{ inputs.sha || github.sha }}
           disable-autolabeler: true
         env:
