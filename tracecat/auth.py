@@ -346,8 +346,8 @@ class AuthSandbox:
     _secret_names: list[str]
     _secret_objs: list[db.Secret]
 
-    def __init__(self, role: Role, secrets: list[str] | None = None):
-        self._role = role
+    def __init__(self, role: Role | None = None, secrets: list[str] | None = None):
+        self._role = role or ctx_role.get()
         self._secret_names = secrets
         self._secret_objs = []
 
