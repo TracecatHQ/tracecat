@@ -132,7 +132,7 @@ class Expression:
 
     def __repr__(self) -> str:
         return (
-            "Templatedexpression("
+            "Expression("
             f"template={self._template},"
             f" expression={self._expr},"
             f" typename={self._resolve_typename},"
@@ -194,6 +194,12 @@ class TemplateExpression:
         if (expr := match.group("expr")) is None:
             raise ValueError(f"Invalid template expression: {template!r}")
         self.expr = Expression(expr, operand=operand)
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        return f"TemplateExpression(expr={self.expr})"
 
     def result(self) -> Any:
         return self.expr.result()
