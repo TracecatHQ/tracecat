@@ -1,18 +1,34 @@
 import re
 
-TEMPLATED_OBJ = re.compile(r"(?P<template>\${{\s*.+?\s*}})")  # Lazy match
+TEMPLATED_OBJ = re.compile(r"(?P<template>\${{\s(?P<expr>.+?)\s*}})")  # Lazy match
+
+EXPR_PATTERN = re.compile(
+    r"""
+    ^\s*                                                    #  Optional whitespace
+    (?P<full>                                               # Capture the full expression
+    (?P<context>INPUTS|ACTIONS|SECRETS|FNS|ENV?)            # Non-greedy capture for 'expression', any chars
+    \.
+    (?P<expr>.+?)            # Non-greedy capture for 'expression', any chars
+    (\s*->\s*(?P<rtype>int|float|str|bool))?
+    )                          # Capture 'type', which must be one of 'int', 'float', 'str'
+    (?=\s*$)                                               # Optional whitespace
+    """,
+    re.VERBOSE,
+)
 
 TYPED_TEMPLATE = re.compile(
     r"""
     \${{\s*                                               # Opening curly braces and optional whitespace
-    (?P<context>INPUTS|ACTIONS|SECRETS|FNS?)            # Non-greedy capture for 'expression', any chars
+    (?P<context>INPUTS|ACTIONS|SECRETS|FNS|ENV?)            # Non-greedy capture for 'expression', any chars
     \.
     (?P<expr>.+?)            # Non-greedy capture for 'expression', any chars
-    (\s*->\s*(?P<type>int|float|str))?                             # Capture 'type', which must be one of 'int', 'float', 'str'
+    (\s*->\s*(?P<rtype>int|float|str|bool))?                             # Capture 'type', which must be one of 'int', 'float', 'str'
     \s*}}                                               # Optional whitespace and closing curly braces
 """,
     re.VERBOSE,
 )
+
+
 SECRET_TEMPLATE = re.compile(
     r"""
     \${{\s*                                               # Opening curly braces and optional whitespace
@@ -47,3 +63,14 @@ EXPR_INLINE_FN = re.compile(
 EXPR_QUALIFIED_ATTRIBUTE = re.compile(r"\b[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)+\b")
 
 FULL_TEMPLATE = re.compile(r"^\${{\s*[^{}]*\s*}}$")
+
+# Match "int(5)" or "float(5.0)" or "str('hello')" or "bool(True)"
+INLINE_TYPECAST = re.compile(
+    r"""
+    (?P<type>int|float|str|bool)  # Match one of 'int', 'float', 'str', 'bool'
+    \(
+    (?P<value>.+?)                # Non-greedy capture for 'value', any characters
+    \)
+""",
+    re.VERBOSE,
+)

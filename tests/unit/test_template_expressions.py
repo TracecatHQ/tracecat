@@ -66,9 +66,54 @@ def test_eval_jsonpath():
         ("${{ INPUTS.arg2 -> str }}", "2"),
         ("${{ ACTIONS.webhook.result -> str }}", "1"),
         ("${{ ACTIONS.path_A_first.result.path.nested.value -> int }}", 9999),
+        (
+            "${{ FNS.add(INPUTS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
+            10000,
+        ),
     ],
 )
 def test_templated_expression_result(expression, expected_result):
+    exec_vars = {
+        "INPUTS": {
+            "arg1": 1,
+            "arg2": 2,
+        },
+        "ACTIONS": {
+            "webhook": {"result": 1},
+            "path_A_first": {"result": {"path": {"nested": {"value": 9999}}}},
+            "path_A_second": {"result": 3},
+            "path_B_first": {"result": 4},
+            "path_B_second": {"result": 5},
+        },
+        "metadata": {"name": "John Doe", "age": 30},
+    }
+
+    fut = TemplateExpression(expression, operand=exec_vars)
+    assert fut.result() == expected_result
+
+
+@pytest.mark.parametrize(
+    "expression, expected_result",
+    [
+        (
+            "${{ FNS.is_equal(bool(True), bool(1)) -> bool }}",
+            True,
+        ),
+        (
+            "${{ FNS.add(int(1234), float(0.5)) -> float }}",
+            1234.5,
+        ),
+        (
+            "${{ FNS.less_than(INPUTS.arg1, INPUTS.arg2) -> bool }}",
+            True,
+        ),
+        (
+            "${{ FNS.is_equal(INPUTS.arg1, ACTIONS.webhook.result) -> bool }}",
+            True,
+        ),
+    ],
+)
+def test_templated_expression_function(expression, expected_result):
     exec_vars = {
         "INPUTS": {
             "arg1": 1,
