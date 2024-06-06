@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { JSONSchema7 } from "json-schema"
 
 import { Action, CaseEvent, type Case } from "@/types/schemas"
 import {
@@ -10,6 +11,7 @@ import {
   fetchCaseEvents,
   updateCase,
 } from "@/lib/cases"
+import { generateSchemaDefault } from "@/lib/jsonschema"
 import { updateWebhook } from "@/lib/trigger"
 import { getActionById, updateAction } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
@@ -189,14 +191,19 @@ export function usePanelAction<T extends Record<string, any>>(
   }
 }
 
-export function useActionInputs(action?: Action) {
+export function useActionInputs(action?: Action, schema?: JSONSchema7) {
   const [actionInputs, setActionInputs] = useState<Record<string, any>>(
     action?.inputs || {}
   )
 
   useEffect(() => {
-    if (action?.inputs) {
+    if (!!action?.inputs) {
       setActionInputs(action.inputs)
+    } else if (!!schema) {
+      const defaults = generateSchemaDefault(schema)
+      setActionInputs(defaults)
+    } else {
+      setActionInputs({})
     }
   }, [action?.inputs])
 

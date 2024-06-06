@@ -4,7 +4,8 @@ import JsonView from "react18-json-view"
 
 import "react18-json-view/src/style.css"
 
-import React from "react"
+import React, { useEffect } from "react"
+import { JSONSchema7 } from "json-schema"
 import {
   BracesIcon,
   LayoutListIcon,
@@ -16,6 +17,7 @@ import {
 import { FieldValues, FormProvider, useForm } from "react-hook-form"
 
 import { PanelAction, useActionInputs } from "@/lib/hooks"
+import { generateSchemaDefault } from "@/lib/jsonschema"
 import { ErrorDetails, useUDFSchema, validateUDFArgs } from "@/lib/udf"
 import {
   Accordion,
@@ -40,6 +42,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -94,6 +97,14 @@ export function UDFActionPanel({
   }
 
   const onSubmit = async (values: FieldValues) => {
+    if (!actionInputs) {
+      console.error("Action inputs not defined")
+      toast({
+        title: "Please define action inputs",
+        description: "Action inputs not defined.",
+      })
+      return
+    }
     const validateResponse = await validateUDFArgs(udf.key, actionInputs)
     if (!validateResponse.ok) {
       const detail = validateResponse.detail
@@ -232,6 +243,7 @@ export function UDFActionPanel({
                     inputs={actionInputs}
                     setInputs={setActionInputs}
                     errors={JSONViewerrors}
+                    schema={udf.args}
                   />
                 </div>
               </AccordionContent>
@@ -247,11 +259,15 @@ export function ActionInputs({
   inputs,
   setInputs,
   errors,
+  schema,
 }: {
-  inputs: any
+  inputs?: Record<string, any>
   setInputs: (obj: any) => void
   errors?: ErrorDetails[]
+  schema: JSONSchema7
 }) {
+  console.log("Inputs", inputs)
+  console.log("Schema", schema)
   return (
     <Tabs defaultValue="json">
       <div className="flex flex-1 justify-end">
@@ -268,7 +284,10 @@ export function ActionInputs({
       </div>
       <TabsContent value="json">
         <div className="w-full rounded-md border p-4">
-          {/* The json contains the view into the data */}
+          {/* The json contains the view into the data.
+          if inputs === undefined then we should generate the default schema
+
+          */}
           <JsonView
             displaySize
             editable
