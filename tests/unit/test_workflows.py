@@ -30,6 +30,7 @@ from tracecat.dsl.workflow import (
     DSLWorkflow,
     dsl_activities,
 )
+from tracecat.types.exceptions import TracecatExpressionError
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
@@ -201,22 +202,27 @@ async def test_workflow_ordering_is_correct(
     "dsl,expected",
     [
         (
-            DATA_PATH / "unit_conditional_adder_tree_halt.yml",
-            DATA_PATH / "unit_conditional_adder_tree_halt_expected.yaml",
+            DATA_PATH / "unit_conditional_adder_tree_skips.yml",
+            DATA_PATH / "unit_conditional_adder_tree_skips_expected.yml",
         ),
         (
             DATA_PATH / "unit_conditional_adder_tree_continues.yml",
-            DATA_PATH / "unit_conditional_adder_tree_continues_expected.yaml",
+            DATA_PATH / "unit_conditional_adder_tree_continues_expected.yml",
         ),
-        # (
-        #     DATA_PATH / "unit_conditional_adder_tree_halt_with_propagation.yml",
-        #     DATA_PATH / "unit_conditional_adder_tree_halt_with_propagation.yaml",
-        # ),
+        (
+            DATA_PATH / "unit_conditional_adder_tree_skip_propagates.yml",
+            DATA_PATH / "unit_conditional_adder_tree_skip_propagates_expected.yml",
+        ),
+        (
+            DATA_PATH / "unit_conditional_adder_diamond_skip_with_join_weak_dep.yml",
+            DATA_PATH
+            / "unit_conditional_adder_diamond_skip_with_join_weak_dep_expected.yml",
+        ),
     ],
     indirect=True,
 )
 @pytest.mark.asyncio
-async def test_conditional_execution(
+async def test_conditional_execution_completes(
     dsl, expected, temporal_cluster, mock_registry, auth_sandbox
 ):
     """We need to test that the ordering of the workflow tasks is correct."""
@@ -240,3 +246,41 @@ async def test_conditional_execution(
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "dsl",
+    [DATA_PATH / "unit_conditional_adder_diamond_skip_with_join_strong_dep_fails.yml"],
+    indirect=True,
+)
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_conditional_execution_fails(
+    dsl, temporal_cluster, mock_registry, auth_sandbox
+):
+    client = await get_temporal_client()
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=dsl_activities,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        # NOTE: I can't seem to figure out how to catch the exception thrown by the workflow
+        # We need to figure out how to bubble up certain exceptions to the client
+        # Or allow certain exceptions to control workflow execution
+        with pytest.raises(TracecatExpressionError) as e:
+            await client.execute_workflow(
+                DSLWorkflow.run,
+                DSLRunArgs(dsl=dsl, role=ctx_role.get()),
+                id=gen_id(f"test_conditional_execution-{dsl.title}"),
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                retry_policy=RetryPolicy(
+                    maximum_attempts=0,
+                    non_retryable_error_types=[
+                        "tracecat.types.exceptions.TracecatExpressionError"
+                        "TracecatValidationError"
+                    ],
+                ),
+            )
+        assert "Operand has no path" in str(e)

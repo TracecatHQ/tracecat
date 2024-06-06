@@ -1,8 +1,18 @@
-title: Adder tree 1 Workflow
+title: Adder diamond skip with join with strong depedency
 #    A
 #    /\
 #   B  [C] <- C should not run
-description: Test that the condition returns false and C does not run
+#    \ /
+#     D <- D should fail, because it tries to access C's result
+description: |
+  Initial conditions:
+  - C fails
+  - D has a strong dependency on C, meaning it's both structurally dependent and data dependent
+
+  Expect:
+  - Condition returns false
+  - C does not run
+  - D fails
 config:
   scheduler: dynamic
 entrypoint: a
@@ -28,7 +38,6 @@ actions:
   - ref: b
     action: example.add
     args:
-      # Demonstrate casting
       lhs: ${{ ACTIONS.a.result -> int }}
       rhs: 1
     depends_on:
@@ -41,5 +50,15 @@ actions:
       rhs: ${{ ACTIONS.a.result -> int }}
     depends_on:
       - a
-    # This task should not run, as a.result is "1"
+    # This expression returns false and the task should not run, as a.result is "1"
     run_if: ${{ FNS.is_equal(ACTIONS.a.result, str(2)) }}
+
+  # This task should still run, as B runs
+  - ref: d
+    action: example.add
+    args:
+      lhs: ${{ ACTIONS.c.result -> int }}
+      rhs: 4
+    depends_on:
+      - b
+      - c
