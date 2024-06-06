@@ -12,8 +12,10 @@ import asyncio
 import os
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 from loguru import logger
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
@@ -93,6 +95,15 @@ def dsl(request: pytest.FixtureRequest) -> DSLInput:
     path: list[Path] = request.param
     dsl = DSLInput.from_yaml(path)
     return dsl
+
+
+# Fixture to load yaml files from name
+@pytest.fixture
+def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
+    path: Path = request.param
+    with path.open() as f:
+        yaml_data = f.read()
+    return yaml.safe_load(yaml_data)
 
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
@@ -184,3 +195,48 @@ async def test_workflow_ordering_is_correct(
 
     # Check that the execution order respects the graph edges
     assert_respectful_exec_order(dsl, result)
+
+
+@pytest.mark.parametrize(
+    "dsl,expected",
+    [
+        (
+            DATA_PATH / "unit_conditional_adder_tree_halt.yml",
+            DATA_PATH / "unit_conditional_adder_tree_halt_expected.yaml",
+        ),
+        (
+            DATA_PATH / "unit_conditional_adder_tree_continues.yml",
+            DATA_PATH / "unit_conditional_adder_tree_continues_expected.yaml",
+        ),
+        # (
+        #     DATA_PATH / "unit_conditional_adder_tree_halt_with_propagation.yml",
+        #     DATA_PATH / "unit_conditional_adder_tree_halt_with_propagation.yaml",
+        # ),
+    ],
+    indirect=True,
+)
+@pytest.mark.asyncio
+async def test_conditional_execution(
+    dsl, expected, temporal_cluster, mock_registry, auth_sandbox
+):
+    """We need to test that the ordering of the workflow tasks is correct."""
+
+    # Connect client
+
+    client = await get_temporal_client()
+    # Run a worker for the activities and workflow
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=dsl_activities,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(dsl=dsl, role=ctx_role.get()),
+            id=gen_id(f"test_conditional_execution-{dsl.title}"),
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    assert result == expected
