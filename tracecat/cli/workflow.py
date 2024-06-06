@@ -1,19 +1,22 @@
 import asyncio
 from pathlib import Path
 
+import httpx
 import orjson
 import rich
 import typer
 
 from tracecat.auth import AuthenticatedAPIClient
 from tracecat.dsl.workflow import DSLInput
+from tracecat.types.api import WebhookResponse
 
 from . import config
 
 app = typer.Typer(no_args_is_help=True)
 
 
-async def upsert_workflow_definition(yaml_path: Path, workflow_id: str):
+async def _upsert_workflow_definition(yaml_path: Path, workflow_id: str):
+    """Bypass /workflows/{workflow_id}/commit endpoint and directly upsert the definition."""
     defn_content = DSLInput.from_yaml(yaml_path)
 
     async with AuthenticatedAPIClient(role=config.ROLE) as client:
@@ -22,12 +25,43 @@ async def upsert_workflow_definition(yaml_path: Path, workflow_id: str):
         res.raise_for_status()
 
 
-async def run_workflow(workflow_id: str, content: dict[str, str] | None = None):
+async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None):
     async with AuthenticatedAPIClient(role=config.ROLE) as client:
-        res = await client.post(
-            f"/webhooks/{workflow_id}/{config.SECRET}", content=content
-        )
+        # Get the webhook url
+        res = await client.get(f"/workflows/{workflow_id}/webhooks")
         res.raise_for_status()
+        # There's only 1 webhook
+        webhooks = WebhookResponse.model_validate(res.json()[0])
+    async with httpx.AsyncClient() as client:
+        res = await client.post(webhooks.url, content=content)
+        res.raise_for_status()
+        rich.print(res.json())
+
+
+async def _create_workflow(title: str | None = None, description: str | None = None):
+    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+        # Get the webhook url
+        params = {}
+        if title:
+            params["title"] = title
+        if description:
+            params["description"] = description
+        res = await client.post("/workflows", content=orjson.dumps(params))
+        res.raise_for_status()
+    rich.print("Created workflow")
+    rich.print(res.json())
+
+
+@app.command(help="Create a workflow")
+def create(
+    file: Path = typer.Option(
+        ..., "--file", "-f", help="Path to the workflow definition YAML file"
+    ),
+):
+    """Create a new workflow."""
+    rich.print("Creating a new workflow")
+    defn = DSLInput.from_yaml(file)
+    asyncio.run(_create_workflow(defn.title, defn.description))
 
 
 @app.command(help="List all workflow definitions")
@@ -40,7 +74,7 @@ def commit(
     ),
 ):
     """Commit a workflow definition to the database."""
-    asyncio.run(upsert_workflow_definition(file, workflow_id))
+    asyncio.run(_upsert_workflow_definition(file, workflow_id))
     rich.print(f"Upserted workflow definition for {workflow_id!r}")
 
 
@@ -59,4 +93,4 @@ def run(
 ):
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r}")
-    asyncio.run(run_workflow(workflow_id, orjson.loads(data) if data else None))
+    asyncio.run(_run_workflow(workflow_id, orjson.loads(data) if data else None))

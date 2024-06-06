@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -351,17 +352,30 @@ def list_workflows(
 
 @app.post("/workflows", status_code=status.HTTP_201_CREATED)
 def create_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     params: CreateWorkflowParams,
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
-    # When we create a workflow, we automatically create a webhook
+
+    title = (
+        params.title
+        if params.title != Undefined.Value
+        else datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+    )
+    # Create the message
+    description = (
+        params.description
+        if params.description != Undefined.Value
+        else f"New workflow created {title}"
+    )
+
     with Session(engine) as session:
         workflow = Workflow(
-            title=params.title,
-            description=params.description,
+            title=title,
+            description=description,
             owner_id=role.user_id,
         )
+        # When we create a workflow, we automatically create a webhook
         webhook = Webhook(
             owner_id=role.user_id,
             workflow_id=workflow.id,

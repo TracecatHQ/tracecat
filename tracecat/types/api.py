@@ -114,8 +114,8 @@ class WorkflowRunEventParams(BaseModel):
 
 
 class CreateWorkflowParams(BaseModel):
-    title: str
-    description: str
+    title: str | Undefined = Undefined.Value
+    description: str | Undefined = Undefined.Value
 
 
 class UpdateWorkflowParams(BaseModel):
