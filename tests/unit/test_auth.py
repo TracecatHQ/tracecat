@@ -3,10 +3,12 @@ import os
 import pytest
 from httpx import AsyncClient
 
-from tracecat.auth import (
+from tracecat.auth.clients import (
     AuthenticatedAPIClient,
     AuthenticatedRunnerClient,
     AuthenticatedServiceClient,
+)
+from tracecat.auth.credentials import (
     Role,
     decrypt,
     decrypt_object,

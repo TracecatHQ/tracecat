@@ -16,6 +16,8 @@ from tracecat.contexts import RunContext
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
+    from tracecat.auth.credentials import Role
+    from tracecat.auth.sandbox import AuthSandbox
     from tracecat.logging import logger
     from pydantic import BaseModel, ConfigDict, Field, model_validator
 

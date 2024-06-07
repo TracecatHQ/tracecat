@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from tracecat.auth import AuthenticatedAPIClient, Role
+from tracecat.auth.clients import AuthenticatedAPIClient
+from tracecat.auth.credentials import Role
 from tracecat.db.schemas import Secret
 
 

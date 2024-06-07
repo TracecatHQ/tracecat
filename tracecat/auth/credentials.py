@@ -1,25 +1,23 @@
+"""Tracecat authn credentials."""
+
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import os
 from functools import partial
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal
 
 import httpx
 import orjson
 import psycopg
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, Security, status
-from fastapi.security import (
-    APIKeyHeader,
-    OAuth2PasswordBearer,
-)
+from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
 from loguru import logger
 from pydantic import BaseModel
 
-from tracecat import config, db
+from tracecat import config
 from tracecat.contexts import ctx_role
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -32,69 +30,6 @@ CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 IS_AUTH_DISABLED = str(os.environ.get("TRACECAT__DISABLE_AUTH")) in ("true", "1")
-
-
-class AuthenticatedServiceClient(httpx.AsyncClient):
-    """An authenticated service client. Typically used by internal services.
-
-    Role precedence
-    ---------------
-    1. Role passed to the client
-    2. Role set in the session role context
-    3. Default role Role(type="service", service_id="tracecat-service")
-    """
-
-    __default_service_id = "tracecat-service"
-
-    def __init__(
-        self,
-        role: Role | None = None,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        # Precedence: role > ctx_role > default role. Role is always set.
-        self.role = role or ctx_role.get(
-            Role(type="service", service_id="tracecat-service")
-        )
-        if self.role.type != "service":
-            raise ValueError("AuthenticatedServiceClient can only be used by services")
-        self.headers["Service-Role"] = self.role.service_id or self.__default_service_id
-        self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
-        if self.role.user_id:
-            self.headers["Service-User-ID"] = self.role.user_id
-
-
-class AuthenticatedAPIClient(AuthenticatedServiceClient):
-    """An authenticated httpx client to hit main API endpoints.
-
-     Role precedence
-    ---------------
-    1. Role passed to the client
-    2. Role set in the session role context
-    3. Default role Role(type="service", service_id="tracecat-service")
-    """
-
-    def __init__(self, role: Role | None = None, *args, **kwargs):
-        kwargs["role"] = role
-        kwargs["base_url"] = config.TRACECAT__API_URL
-        super().__init__(*args, **kwargs)
-
-
-class AuthenticatedRunnerClient(AuthenticatedServiceClient):
-    """An authenticated httpx client to hit runner endpoints.
-
-     Role precedence
-    ---------------
-    1. Role passed to the client
-    2. Role set in the session role context
-    3. Default role Role(type="service", service_id="tracecat-service")
-    """
-
-    def __init__(self, role: Role | None = None, *args, **kwargs):
-        kwargs["role"] = role
-        kwargs["base_url"] = config.TRACECAT__RUNNER_URL
-        super().__init__(*args, **kwargs)
 
 
 class Role(BaseModel):
@@ -288,7 +223,7 @@ else:
             logger.error(msg)
             raise HTTP_EXC(msg) from e
 
-        # Validate this against supabase
+        # TODO: Think about this again later
         # if await _validate_user_exists_in_db(user_id) is None:
         #     logger.error("User not authenticated")
         #     raise CREDENTIALS_EXCEPTION
@@ -337,64 +272,3 @@ async def authenticate_user_or_service(
     if api_key:
         return await _get_role_from_service_key(request, api_key)
     raise HTTP_EXC("Could not validate credentials")
-
-
-class AuthSandbox:
-    """Context manager to temporarily set secrets in the environment."""
-
-    _role: Role
-    _secret_names: list[str]
-    _secret_objs: list[db.Secret]
-
-    def __init__(self, role: Role | None = None, secrets: list[str] | None = None):
-        self._role = role or ctx_role.get()
-        self._secret_names = secrets
-        self._secret_objs = []
-
-    def __enter__(self) -> Self:
-        if self._secret_names:
-            self.secret_objs = asyncio.run(self._get_secrets())
-            self._set_secrets()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self._unset_secrets()
-        if exc_type is not None:
-            logger.error("An error occurred", exc_info=(exc_type, exc_value, traceback))
-
-    async def __aenter__(self):
-        if self._secret_names:
-            self.secret_objs = await self._get_secrets()
-            self._set_secrets()
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        return self.__exit__(exc_type, exc_value, traceback)
-
-    def _set_secrets(self):
-        """Set secrets in the environment."""
-        for secret in self._secret_objs:
-            logger.info("Setting secret {!r}", secret.name)
-            for kv in secret.keys:
-                os.environ[kv.key] = kv.value
-
-    def _unset_secrets(self):
-        for secret in self._secret_objs:
-            logger.info("Deleting secret {!r}", secret.name)
-            for kv in secret.keys:
-                del os.environ[kv.key]
-
-    async def _get_secrets(self) -> list[db.Secret]:
-        """Retrieve secrets from the secrets API."""
-        async with AuthenticatedAPIClient(role=self._role) as client:
-            # NOTE(perf): This is not really batched - room for improvement
-            secret_responses = await asyncio.gather(
-                *[
-                    client.get(f"/secrets/{secret_name}")
-                    for secret_name in self._secret_names
-                ]
-            )
-            return [
-                db.Secret.model_validate_json(secret_bytes.content)
-                for secret_bytes in secret_responses
-            ]

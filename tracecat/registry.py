@@ -13,7 +13,7 @@ from pydantic_core import ValidationError
 from typing_extensions import Doc
 
 from tracecat import templates
-from tracecat.auth import AuthSandbox
+from tracecat.auth.sandbox import AuthSandbox
 from tracecat.types.exceptions import TracecatException
 
 DEFAULT_NAMESPACE = "core"
@@ -291,3 +291,8 @@ def _get_signature_docs(fn: FunctionType) -> dict[str, str]:
                 if isinstance(meta, Doc):
                     param_docs[name] = meta.documentation
     return param_docs
+
+
+def init() -> None:
+    """Initialize the registry."""
+    registry.init()
