@@ -9,7 +9,7 @@ from tracecat.auth.clients import AuthenticatedAPIClient
 
 from . import config
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 
 
 async def hit_api_endpoint(
