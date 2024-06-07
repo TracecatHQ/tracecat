@@ -7,7 +7,7 @@ import rich
 import typer
 
 from tracecat.auth.clients import AuthenticatedAPIClient
-from tracecat.dsl.workflow import DSLInput
+from tracecat.dsl.common import DSLInput
 from tracecat.types.api import WebhookResponse
 
 from . import config
