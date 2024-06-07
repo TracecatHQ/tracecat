@@ -12,7 +12,7 @@ from tracecat.types.api import WebhookResponse
 
 from . import config
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
 
 async def _upsert_workflow_definition(yaml_path: Path, workflow_id: str):
