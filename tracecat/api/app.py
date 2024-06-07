@@ -44,11 +44,11 @@ from tracecat.db.schemas import (
     WorkflowDefinition,
     WorkflowRun,
 )
+from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
-from tracecat.dsl.workflow import DSLInput
 
 # from loguru import logger
 from tracecat.logging import logger

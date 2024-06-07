@@ -1,5 +1,5 @@
+from tracecat.dsl.common import ActionStatement, DSLInput
 from tracecat.dsl.graph import RFGraph
-from tracecat.dsl.workflow import ActionStatement, DSLInput
 
 metadata = {
     "title": "TEST_WORKFLOW",

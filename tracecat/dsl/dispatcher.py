@@ -8,8 +8,8 @@ from loguru import logger
 from pydantic import BaseModel
 
 from tracecat.contexts import ctx_role
-from tracecat.dsl.common import get_temporal_client
-from tracecat.dsl.workflow import DSLContext, DSLInput, DSLRunArgs, DSLWorkflow
+from tracecat.dsl.common import DSLInput, get_temporal_client
+from tracecat.dsl.workflow import DSLContext, DSLRunArgs, DSLWorkflow
 
 # logger = standard_logger("tracecat.dsl.dispatcher")
 

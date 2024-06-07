@@ -21,11 +21,10 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from tracecat.contexts import ctx_role
-from tracecat.dsl.common import get_temporal_client
+from tracecat.dsl.common import DSLInput, get_temporal_client
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import (
     DSLContext,
-    DSLInput,
     DSLRunArgs,
     DSLWorkflow,
     dsl_activities,

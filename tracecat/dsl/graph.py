@@ -8,7 +8,7 @@ from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 from slugify import slugify
 
-from tracecat.dsl.workflow import ActionStatement
+from tracecat.dsl.common import ActionStatement
 from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:

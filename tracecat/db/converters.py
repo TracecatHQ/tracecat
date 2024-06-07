@@ -1,6 +1,6 @@
 from tracecat.db.schemas import Workflow
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
-from tracecat.dsl.workflow import DSLInput
 
 
 def workflow_to_dsl(workflow: Workflow) -> DSLInput:

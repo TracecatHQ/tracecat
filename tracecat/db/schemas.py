@@ -12,7 +12,7 @@ from sqlmodel import Field, Relationship, SQLModel
 
 from tracecat import config, registry
 from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
-from tracecat.dsl.workflow import DSLInput
+from tracecat.dsl.common import DSLInput
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 DEFAULT_CASE_ACTIONS = [
