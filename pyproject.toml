@@ -62,6 +62,7 @@ dev = [
     "pytest",
     "python-dotenv",
     "pytest-asyncio",
+    "pytest-mock==3.14.0",
     "minio",
     "mypy",
     "boto3-stubs[cloudtrail,guardduty,s3]",
