@@ -54,19 +54,3 @@ class AuthenticatedAPIClient(AuthenticatedServiceClient):
         kwargs["role"] = role
         kwargs["base_url"] = config.TRACECAT__API_URL
         super().__init__(*args, **kwargs)
-
-
-class AuthenticatedRunnerClient(AuthenticatedServiceClient):
-    """An authenticated httpx client to hit runner endpoints.
-
-     Role precedence
-    ---------------
-    1. Role passed to the client
-    2. Role set in the session role context
-    3. Default role Role(type="service", service_id="tracecat-service")
-    """
-
-    def __init__(self, role: Role | None = None, *args, **kwargs):
-        kwargs["role"] = role
-        kwargs["base_url"] = config.TRACECAT__RUNNER_URL
-        super().__init__(*args, **kwargs)
