@@ -76,7 +76,6 @@ from tracecat.types.api import (
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
     UDFArgsValidationResponse,
-    Undefined,
     UpdateActionParams,
     UpdateSecretParams,
     UpdateUserParams,
@@ -358,15 +357,15 @@ def create_workflow(
     """Create new Workflow with title and description."""
 
     title = (
-        params.title
-        if params.title != Undefined.Value
-        else datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+        datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+        if params.title is None
+        else params.title
     )
     # Create the message
     description = (
-        params.description
-        if params.description != Undefined.Value
-        else f"New workflow created {title}"
+        f"New workflow created {title}"
+        if params.description is None
+        else params.description
     )
 
     with Session(engine) as session:
@@ -449,9 +448,9 @@ def update_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        for key, value in params.model_dump().items():
-            if value is not Undefined.Value:
-                setattr(workflow, key, value)
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safe because params has been validated
+            setattr(workflow, key, value)
 
         session.add(workflow)
         session.commit()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -17,10 +16,6 @@ from tracecat.types.secrets import SecretKeyValue
 # should be the same as the metadata responses
 
 RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
-
-
-class Undefined(Enum):
-    Value = ...
 
 
 class ActionResponse(BaseModel):
@@ -114,19 +109,19 @@ class WorkflowRunEventParams(BaseModel):
 
 
 class CreateWorkflowParams(BaseModel):
-    title: str | Undefined = Undefined.Value
-    description: str | Undefined = Undefined.Value
+    title: str | None = None
+    description: str | None = None
 
 
 class UpdateWorkflowParams(BaseModel):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
-    title: str | Undefined = Undefined.Value
-    description: str | Undefined = Undefined.Value
-    status: Literal["online", "offline"] | Undefined = Undefined.Value
-    object: dict[str, Any] | None | Undefined = Undefined.Value
-    version: int | None | Undefined = Undefined.Value
-    entrypoint: str | None | Undefined = Undefined.Value
-    icon_url: str | None | Undefined = Undefined.Value
+    title: str | None = None
+    description: str | None = None
+    status: Literal["online", "offline"] | None = None
+    object: dict[str, Any] | None = None
+    version: int | None = None
+    entrypoint: str | None = None
+    icon_url: str | None = None
 
 
 class CreateActionParams(BaseModel):
