@@ -4,16 +4,15 @@ from datetime import datetime
 from typing import Any, Self
 from uuid import uuid4
 
-import croniter
 import pyarrow as pa
 from pydantic import computed_field, field_validator
 from slugify import slugify
 from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
-from tracecat import auth, config
+from tracecat import config, registry
+from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
 from tracecat.dsl.workflow import DSLInput
-from tracecat.registry import RegisteredUDF
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 DEFAULT_CASE_ACTIONS = [
@@ -107,7 +106,7 @@ class Secret(Resource, table=True):
         """Getter: Decrypt the keys and return them as a list of SecretKeyValue objects."""
         if not self.encrypted_keys:
             return None
-        obj = auth.decrypt_object(self.encrypted_keys)
+        obj = decrypt_object(self.encrypted_keys)
         kv = self._validate_obj(obj)
         return [SecretKeyValue(key=k, value=v) for k, v in kv.model_dump().items()]
 
@@ -117,7 +116,7 @@ class Secret(Resource, table=True):
         # Convert to dict
         kv = {item.key: item.value for item in value}
         self._validate_obj(kv)
-        self.encrypted_keys = auth.encrypt_object(kv)
+        self.encrypted_keys = encrypt_object(kv)
 
 
 class CaseAction(Resource, table=True):
@@ -180,7 +179,7 @@ class UDFSpec(Resource, table=True):
 
     @staticmethod
     def from_registry_udf(
-        key: str, udf: RegisteredUDF, owner_id: str = "tracecat"
+        key: str, udf: registry.RegisteredUDF, owner_id: str = "tracecat"
     ) -> Self:
         return UDFSpec(
             owner_id=owner_id,
@@ -312,7 +311,7 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def secret(self) -> str:
-        return auth.compute_hash(self.id)
+        return compute_hash(self.id)
 
     @computed_field
     @property
@@ -339,6 +338,8 @@ class Schedule(Resource, table=True):
     # Custom validator for the cron field
     @field_validator("cron")
     def validate_cron(cls, v):
+        import croniter
+
         if not croniter.is_valid(v):
             raise ValueError("Invalid cron string")
         return v

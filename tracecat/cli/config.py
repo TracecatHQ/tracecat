@@ -1,6 +1,6 @@
 from dotenv import find_dotenv, load_dotenv
 
-from tracecat.auth import Role
+from tracecat.auth.credentials import Role
 
 load_dotenv(find_dotenv())
 

@@ -20,7 +20,7 @@ from tracecat.api.completions import (
     FieldCons,
     stream_case_completions,
 )
-from tracecat.auth import (
+from tracecat.auth.credentials import (
     Role,
     authenticate_service,
     authenticate_user,

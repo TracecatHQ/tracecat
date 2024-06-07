@@ -5,7 +5,7 @@ import orjson
 import rich
 import typer
 
-from tracecat.auth import AuthenticatedAPIClient
+from tracecat.auth.clients import AuthenticatedAPIClient
 
 from . import config
 
