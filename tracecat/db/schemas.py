@@ -85,7 +85,7 @@ class Secret(Resource, table=True):
     id: str = Field(
         default_factory=gen_id("secret"), nullable=False, unique=True, index=True
     )
-    type: str  # "custom", "token", "oauth2"
+    type: str = "custom"  # "custom", "token", "oauth2"
     name: str = Field(..., max_length=255, index=True, nullable=False)
     description: str | None = Field(default=None, max_length=255)
     # We store this object as encrypted bytes, but first validate that it's the correct type
