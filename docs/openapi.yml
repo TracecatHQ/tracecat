@@ -20,20 +20,6 @@ info:
     url: https://www.gnu.org/licenses/agpl-3.0.html
   version: 0.1.0
 paths:
-  /:
-    get:
-      summary: Root
-      operationId: root__get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-                title: Response Root  Get
   /health:
     get:
       summary: Check Health

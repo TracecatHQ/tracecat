@@ -89,114 +89,113 @@
         {
           "group": "Reference",
           "pages": [
-            "api-reference/root",
-            "api-reference/check-health",
+            "api-reference/reference/check-health",
             {
               "group": "public",
               "pages": [
-                "api-reference/public/incoming-webhook"
+                "api-reference/reference/public/incoming-webhook"
               ]
             },
             {
               "group": "workflows",
               "pages": [
-                "api-reference/workflows/list-workflows",
-                "api-reference/workflows/create-workflow",
-                "api-reference/workflows/get-workflow",
-                "api-reference/workflows/update-workflow",
-                "api-reference/workflows/delete-workflow",
-                "api-reference/workflows/copy-workflow",
-                "api-reference/workflows/commit-workflow",
-                "api-reference/workflows/get-workflow-definition",
-                "api-reference/workflows/upsert-workflow-definition",
-                "api-reference/workflows/list-workflow-runs",
-                "api-reference/workflows/create-workflow-run",
-                "api-reference/workflows/get-workflow-run",
-                "api-reference/workflows/update-workflow-run",
-                "api-reference/workflows/trigger-workflow-run"
+                "api-reference/reference/workflows/list-workflows",
+                "api-reference/reference/workflows/create-workflow",
+                "api-reference/reference/workflows/get-workflow",
+                "api-reference/reference/workflows/update-workflow",
+                "api-reference/reference/workflows/delete-workflow",
+                "api-reference/reference/workflows/copy-workflow",
+                "api-reference/reference/workflows/commit-workflow",
+                "api-reference/reference/workflows/get-workflow-definition",
+                "api-reference/reference/workflows/upsert-workflow-definition",
+                "api-reference/reference/workflows/list-workflow-runs",
+                "api-reference/reference/workflows/create-workflow-run",
+                "api-reference/reference/workflows/get-workflow-run",
+                "api-reference/reference/workflows/update-workflow-run",
+                "api-reference/reference/workflows/trigger-workflow-run"
               ]
             },
             {
               "group": "triggers",
               "pages": [
-                "api-reference/triggers/list-webhooks",
-                "api-reference/triggers/create-webhook",
-                "api-reference/triggers/get-webhook",
-                "api-reference/triggers/delete-webhook",
-                "api-reference/triggers/update-webhook",
-                "api-reference/triggers/list-schedules",
-                "api-reference/triggers/create-schedule",
-                "api-reference/triggers/get-schedule",
-                "api-reference/triggers/delete-schedule"
+                "api-reference/reference/triggers/list-webhooks",
+                "api-reference/reference/triggers/create-webhook",
+                "api-reference/reference/triggers/get-webhook",
+                "api-reference/reference/triggers/delete-webhook",
+                "api-reference/reference/triggers/update-webhook",
+                "api-reference/reference/triggers/list-schedules",
+                "api-reference/reference/triggers/create-schedule",
+                "api-reference/reference/triggers/get-schedule",
+                "api-reference/reference/triggers/delete-schedule"
               ]
             },
             {
               "group": "actions",
               "pages": [
-                "api-reference/actions/list-actions",
-                "api-reference/actions/create-action",
-                "api-reference/actions/get-action",
-                "api-reference/actions/update-action",
-                "api-reference/actions/delete-action",
-                "api-reference/actions/list-action-runs",
-                "api-reference/actions/create-action-run",
-                "api-reference/actions/get-action-run",
-                "api-reference/actions/update-action-run"
+                "api-reference/reference/actions/list-actions",
+                "api-reference/reference/actions/create-action",
+                "api-reference/reference/actions/get-action",
+                "api-reference/reference/actions/update-action",
+                "api-reference/reference/actions/delete-action",
+                "api-reference/reference/actions/list-action-runs",
+                "api-reference/reference/actions/create-action-run",
+                "api-reference/reference/actions/get-action-run",
+                "api-reference/reference/actions/update-action-run"
               ]
             },
             {
               "group": "events",
               "pages": [
-                "api-reference/events/search-events"
+                "api-reference/reference/events/search-events"
               ]
             },
             {
               "group": "cases",
               "pages": [
-                "api-reference/cases/list-cases",
-                "api-reference/cases/create-case",
-                "api-reference/cases/get-case",
-                "api-reference/cases/update-case",
-                "api-reference/cases/list-case-events",
-                "api-reference/cases/create-case-event",
-                "api-reference/cases/get-case-event",
-                "api-reference/cases/get-case-metrics",
-                "api-reference/cases/list-case-actions",
-                "api-reference/cases/create-case-action",
-                "api-reference/cases/delete-case-action",
-                "api-reference/cases/list-case-contexts",
-                "api-reference/cases/create-case-context",
-                "api-reference/cases/delete-case-context",
-                "api-reference/cases/streaming-autofill-case-fields"
+                "api-reference/reference/cases/list-cases",
+                "api-reference/reference/cases/create-case",
+                "api-reference/reference/cases/get-case",
+                "api-reference/reference/cases/update-case",
+                "api-reference/reference/cases/list-case-events",
+                "api-reference/reference/cases/create-case-event",
+                "api-reference/reference/cases/get-case-event",
+                "api-reference/reference/cases/get-case-metrics",
+                "api-reference/reference/cases/list-case-actions",
+                "api-reference/reference/cases/create-case-action",
+                "api-reference/reference/cases/delete-case-action",
+                "api-reference/reference/cases/list-case-contexts",
+                "api-reference/reference/cases/create-case-context",
+                "api-reference/reference/cases/delete-case-context",
+                "api-reference/reference/cases/streaming-autofill-case-fields"
               ]
             },
             {
               "group": "users",
               "pages": [
-                "api-reference/users/get-user",
-                "api-reference/users/create-user",
-                "api-reference/users/update-user",
-                "api-reference/users/delete-user"
+                "api-reference/reference/users/get-user",
+                "api-reference/reference/users/create-user",
+                "api-reference/reference/users/update-user",
+                "api-reference/reference/users/delete-user"
               ]
             },
             {
               "group": "secrets",
               "pages": [
-                "api-reference/secrets/list-secrets",
-                "api-reference/secrets/create-secret",
-                "api-reference/secrets/update-secret",
-                "api-reference/secrets/get-secret",
-                "api-reference/secrets/delete-secret",
-                "api-reference/secrets/search-secrets"
+                "api-reference/reference/secrets/list-secrets",
+                "api-reference/reference/secrets/create-secret",
+                "api-reference/reference/secrets/update-secret",
+                "api-reference/reference/secrets/get-secret",
+                "api-reference/reference/secrets/delete-secret",
+                "api-reference/reference/secrets/search-secrets"
               ]
             },
             {
               "group": "udfs",
               "pages": [
-                "api-reference/udfs/list-udfs",
-                "api-reference/udfs/get-udf",
-                "api-reference/udfs/create-udf",
-                "api-reference/udfs/validate-udf-args"
+                "api-reference/reference/udfs/list-udfs",
+                "api-reference/reference/udfs/get-udf",
+                "api-reference/reference/udfs/create-udf",
+                "api-reference/reference/udfs/validate-udf-args"
               ]
             }
           ]
