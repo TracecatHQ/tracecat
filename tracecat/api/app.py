@@ -1809,20 +1809,20 @@ def update_secret(
 
 
 @app.delete(
-    "/secrets/{secret_id}",
+    "/secrets/{secret_name}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["secrets"],
 )
 def delete_secret(
-    role: Annotated[Role, Depends(authenticate_user)],
-    secret_id: str,
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    secret_name: str,
 ) -> None:
-    """Delete a secret by ID."""
+    """Delete a secret by name."""
     with Session(engine) as session:
         # Check if secret exists
         statement = (
             select(Secret)
-            .where(Secret.owner_id == role.user_id, Secret.id == secret_id)
+            .where(Secret.owner_id == role.user_id, Secret.name == secret_name)
             .limit(1)
         )
         result = session.exec(statement)
