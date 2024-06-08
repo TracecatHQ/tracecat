@@ -1696,11 +1696,11 @@ def delete_user(
 # ----- Secrets ----- #
 
 
-@app.get("/secrets")
+@app.get("/secrets", tags=["secrets"])
 def list_secrets(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
 ) -> list[SecretResponse]:
-    """List all secrets for a user."""
+    """List user secrets."""
     with Session(engine) as session:
         statement = select(Secret).where(Secret.owner_id == role.user_id)
         result = session.exec(statement)
@@ -1717,14 +1717,12 @@ def list_secrets(
         ]
 
 
-@app.get("/secrets/{secret_name}")
+@app.get("/secrets/{secret_name}", tags=["secrets"])
 def get_secret(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
 ) -> Secret:
-    """Get a secret by ID.
-
-    Support access for both user and service roles."""
+    """Get a secret by name."""
 
     with Session(engine) as session:
         # Check if secret exists
@@ -1744,12 +1742,16 @@ def get_secret(
         return secret
 
 
-@app.put("/secrets", status_code=status.HTTP_201_CREATED)
+@app.put(
+    "/secrets",
+    status_code=status.HTTP_201_CREATED,
+    tags=["secrets"],
+)
 def create_secret(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     params: CreateSecretParams,
 ) -> None:
-    """Get a secret by ID."""
+    """Create a secret."""
     with Session(engine) as session:
         # Check if secret exists
         statement = (
@@ -1777,12 +1779,16 @@ def create_secret(
         session.refresh(new_secret)
 
 
-@app.post("/secrets", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/secrets",
+    status_code=status.HTTP_201_CREATED,
+    tags=["secrets"],
+)
 def update_secret(
     role: Annotated[Role, Depends(authenticate_user)],
     params: UpdateSecretParams,
 ) -> Secret:
-    """Get a secret by ID."""
+    """Update a secret"""
     with Session(engine) as session:
         # Check if secret exists
         statement = (
@@ -1802,12 +1808,16 @@ def update_secret(
         session.refresh(secret)
 
 
-@app.delete("/secrets/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/secrets/{secret_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["secrets"],
+)
 def delete_secret(
     role: Annotated[Role, Depends(authenticate_user)],
     secret_id: str,
 ) -> None:
-    """Get a secret by ID."""
+    """Delete a secret by ID."""
     with Session(engine) as session:
         # Check if secret exists
         statement = (
@@ -1825,12 +1835,12 @@ def delete_secret(
         session.commit()
 
 
-@app.post("/secrets/search")
+@app.post("/secrets/search", tags=["secrets"])
 def search_secrets(
     role: Annotated[Role, Depends(authenticate_user)],
     params: SearchSecretsParams,
 ) -> list[Secret]:
-    """Get a secret by ID."""
+    """[UNUSED] Get a secret by ID."""
     with Session(engine) as session:
         statement = (
             select(Secret)
