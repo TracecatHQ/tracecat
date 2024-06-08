@@ -1,9 +1,16 @@
-from pydantic import BaseModel, ConfigDict
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, SecretStr
 
 
 class SecretKeyValue(BaseModel):
     key: str
-    value: str
+    value: SecretStr
+
+    @staticmethod
+    def from_str(kv: str) -> Self:
+        key, value = kv.split("=", 1)
+        return SecretKeyValue(key=key, value=value)
 
 
 class SecretBase(BaseModel):
