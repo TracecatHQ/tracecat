@@ -39,12 +39,14 @@ paths:
       tags:
       - public
       summary: Incoming Webhook
-      description: "Webhook endpoint to trigger a workflow.\n\nParams\n------\npath:\
-        \ str\n    The webhook path, equivalent to the workflow id\n\nNotes\n-----\n\
-        The `Workflow` object holds the RF graph\n\nSteps\n-----\n0. Authenticate\
-        \ the user\n1. Fetch the DSL from the workflow object\n2. Construct the DSLInput\
-        \ object\n3. Dispatch the workflow\n\nTodos\n-----\nWe're going to use Svix\
-        \ to manage our webhooks."
+      description: 'Webhook endpoint to trigger a workflow.
+
+
+        This is an external facing endpoint is used to trigger a workflow by sending
+        a webhook request.
+
+        The workflow is identified by the `path` parameter, which is equivalent to
+        the workflow id.'
       operationId: incoming_webhook_webhooks__path___secret__post
       parameters:
       - name: path
@@ -84,7 +86,11 @@ paths:
       tags:
       - workflows
       summary: List Workflows
-      description: List all Workflows in database.
+      description: 'List workflows.
+
+
+        If `library` is True, it will list workflows from the library. If `library`
+        is False, it will list workflows owned by the user.'
       operationId: list_workflows_workflows_get
       security:
       - OAuth2PasswordBearer: []
@@ -175,7 +181,7 @@ paths:
       tags:
       - workflows
       summary: Update Workflow
-      description: Update Workflow.
+      description: Update a workflow.
       operationId: update_workflow_workflows__workflow_id__post
       security:
       - OAuth2PasswordBearer: []
@@ -205,7 +211,7 @@ paths:
       tags:
       - workflows
       summary: Delete Workflow
-      description: Delete Workflow.
+      description: Delete a workflow.
       operationId: delete_workflow_workflows__workflow_id__delete
       security:
       - OAuth2PasswordBearer: []
@@ -230,11 +236,7 @@ paths:
       tags:
       - workflows
       summary: Copy Workflow
-      description: 'Copy a Workflow.
-
-
-        We currently only permit copying workflows from the tracecat user into the
-        user''s own account.'
+      description: Copy a workflow. Not intended for users.
       operationId: copy_workflow_workflows__workflow_id__copy_post
       security:
       - OAuth2PasswordBearer: []
@@ -268,7 +270,10 @@ paths:
       tags:
       - workflows
       summary: Commit Workflow
-      description: Convert an application state workflow into a `WorkflowDefinition`.
+      description: 'Commit a workflow.
+
+
+        This deploys the workflow and updates its version.'
       operationId: commit_workflow_workflows__workflow_id__commit_post
       security:
       - OAuth2PasswordBearer: []
@@ -293,6 +298,7 @@ paths:
       tags:
       - workflows
       summary: Get Workflow Definition
+      description: Get the latest version of a workflow definition.
       operationId: get_workflow_definition_workflows__workflow_id__definition_get
       security:
       - OAuth2PasswordBearer: []
@@ -329,6 +335,7 @@ paths:
       tags:
       - workflows
       summary: Upsert Workflow Definition
+      description: Upsert a workflow definition.
       operationId: upsert_workflow_definition_workflows__workflow_id__definition_post
       security:
       - OAuth2PasswordBearer: []
@@ -360,7 +367,7 @@ paths:
       tags:
       - workflows
       summary: List Workflow Runs
-      description: List all Workflow Runs for a Workflow.
+      description: '**[DEPRECATED]** List all runs for a workflow.'
       operationId: list_workflow_runs_workflows__workflow_id__runs_get
       security:
       - OAuth2PasswordBearer: []
@@ -399,7 +406,7 @@ paths:
       tags:
       - workflows
       summary: Create Workflow Run
-      description: Create a Workflow Run.
+      description: '**[DEPRECATED]** Create a workflow run.'
       operationId: create_workflow_run_workflows__workflow_id__runs_post
       security:
       - APIKeyHeader: []
@@ -433,8 +440,7 @@ paths:
       tags:
       - workflows
       summary: Get Workflow Run
-      description: Return WorkflowRun as title, description, list of Action JSONs,
-        adjacency list of Action IDs.
+      description: '**[DEPRECATED]** Get a workflow run.'
       operationId: get_workflow_run_workflows__workflow_id__runs__workflow_run_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -468,7 +474,7 @@ paths:
       tags:
       - workflows
       summary: Update Workflow Run
-      description: Update Workflow.
+      description: '**[DEPRECATED]** Update a workflow run.'
       operationId: update_workflow_run_workflows__workflow_id__runs__workflow_run_id__post
       security:
       - APIKeyHeader: []
@@ -505,7 +511,7 @@ paths:
       tags:
       - workflows
       summary: Trigger Workflow Run
-      description: Trigger a Workflow Run.
+      description: Trigger a workflow run.
       operationId: trigger_workflow_run_workflows__workflow_id__controls_trigger_post
       security:
       - OAuth2PasswordBearer: []
@@ -540,7 +546,8 @@ paths:
       tags:
       - triggers
       summary: List Webhooks
-      description: List all Webhooks for a workflow.
+      description: List all webhooks for a workflow. Wrokflows only have one webhook
+        at the moment but this may change in the future.
       operationId: list_webhooks_workflows__workflow_id__webhooks_get
       security:
       - OAuth2PasswordBearer: []
@@ -572,7 +579,7 @@ paths:
       tags:
       - triggers
       summary: Create Webhook
-      description: Create a Webhook.
+      description: Create a webhook for a workflow.
       operationId: create_webhook_workflows__workflow_id__webhooks_post
       security:
       - OAuth2PasswordBearer: []
@@ -607,6 +614,7 @@ paths:
       tags:
       - triggers
       summary: Get Webhook
+      description: Get the webhook from a workflow.
       operationId: get_webhook_workflows__workflow_id__webhooks__webhook_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -641,6 +649,7 @@ paths:
       tags:
       - triggers
       summary: Delete Webhook
+      description: Delete the webhook from a workflow.
       operationId: delete_webhook_workflows__workflow_id__webhooks__webhook_id__delete
       security:
       - OAuth2PasswordBearer: []
@@ -674,6 +683,7 @@ paths:
       tags:
       - triggers
       summary: Update Webhook
+      description: Update a webhook for a workflow.
       operationId: update_webhook_workflows__workflow_id__webhooks__webhook_id__patch
       security:
       - OAuth2PasswordBearer: []
@@ -714,7 +724,7 @@ paths:
       tags:
       - triggers
       summary: List Schedules
-      description: List all Schedules for a workflow.
+      description: '**[WORK IN PROGRESS]** List all schedules for a workflow.'
       operationId: list_schedules_workflows__workflow_id__schedules_get
       security:
       - OAuth2PasswordBearer: []
@@ -746,7 +756,7 @@ paths:
       tags:
       - triggers
       summary: Create Schedule
-      description: Create a Schedule.
+      description: '**[WORK IN PROGRESS]** Create a schedule for a workflow.'
       operationId: create_schedule_workflows__workflow_id__schedules_post
       security:
       - OAuth2PasswordBearer: []
@@ -781,6 +791,7 @@ paths:
       tags:
       - triggers
       summary: Get Schedule
+      description: '**[WORK IN PROGRESS]** Get a schedule from a workflow.'
       operationId: get_schedule_workflows__workflow_id__schedules__schedule_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -815,6 +826,7 @@ paths:
       tags:
       - triggers
       summary: Delete Schedule
+      description: '**[WORK IN PROGRESS]** Delete a schedule from a workflow.'
       operationId: delete_schedule_workflows__workflow_id__schedules__schedule_id__delete
       security:
       - OAuth2PasswordBearer: []
@@ -849,7 +861,7 @@ paths:
       tags:
       - actions
       summary: List Actions
-      description: List all Actions related to `workflow_id`.
+      description: List all actions for a workflow.
       operationId: list_actions_actions_get
       security:
       - OAuth2PasswordBearer: []
@@ -880,6 +892,7 @@ paths:
       tags:
       - actions
       summary: Create Action
+      description: Create a new action for a workflow.
       operationId: create_action_actions_post
       security:
       - OAuth2PasswordBearer: []
@@ -907,6 +920,7 @@ paths:
       tags:
       - actions
       summary: Get Action
+      description: Get an action.
       operationId: get_action_actions__action_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -940,6 +954,7 @@ paths:
       tags:
       - actions
       summary: Update Action
+      description: Update an action.
       operationId: update_action_actions__action_id__post
       security:
       - OAuth2PasswordBearer: []
@@ -973,6 +988,7 @@ paths:
       tags:
       - actions
       summary: Delete Action
+      description: Delete an action.
       operationId: delete_action_actions__action_id__delete
       security:
       - OAuth2PasswordBearer: []
@@ -997,7 +1013,7 @@ paths:
       tags:
       - actions
       summary: List Action Runs
-      description: List all action Runs for an action.
+      description: '**[DEPRECATED]** List all action Runs for an action.'
       operationId: list_action_runs_actions__action_id__runs_get
       security:
       - OAuth2PasswordBearer: []
@@ -1036,7 +1052,7 @@ paths:
       tags:
       - actions
       summary: Create Action Run
-      description: Create a action Run.
+      description: '**[DEPRECATED]** Create an action Run.'
       operationId: create_action_run_actions__action_id__runs_post
       security:
       - APIKeyHeader: []
@@ -1071,8 +1087,7 @@ paths:
       tags:
       - actions
       summary: Get Action Run
-      description: Return ActionRun as title, description, of Action JSONs, adjacency
-        list of Action IDs.
+      description: '**[DEPRECATED]** Get an action run.'
       operationId: get_action_run_actions__action_id__runs__action_run_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -1106,7 +1121,7 @@ paths:
       tags:
       - actions
       summary: Update Action Run
-      description: Update action.
+      description: '**[DEPRECATED]** Update an action run.'
       operationId: update_action_run_actions__action_id__runs__action_run_id__post
       security:
       - APIKeyHeader: []
@@ -1144,7 +1159,7 @@ paths:
       - events
       - search
       summary: Search Events
-      description: 'Search for events based on query parameters.
+      description: '**[DEPRECATED]** Search for events based on query parameters.
 
 
         Note: currently on supports filter by `workflow_id` and sort by `published_at`.'
@@ -1178,6 +1193,7 @@ paths:
       tags:
       - cases
       summary: Create Case
+      description: Create a new case for a workflow.
       operationId: create_case_workflows__workflow_id__cases_post
       security:
       - APIKeyHeader: []
@@ -1213,10 +1229,7 @@ paths:
       tags:
       - cases
       summary: List Cases
-      description: 'List all cases under a workflow.
-
-
-        Note: currently only supports listing the first 100 cases.'
+      description: List all cases for a workflow.
       operationId: list_cases_workflows__workflow_id__cases_get
       security:
       - OAuth2PasswordBearer: []
@@ -1255,7 +1268,7 @@ paths:
       tags:
       - cases
       summary: Get Case
-      description: Get a specific case by ID under a workflow.
+      description: Get a specific case for a workflow.
       operationId: get_case_workflows__workflow_id__cases__case_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -1289,7 +1302,7 @@ paths:
       tags:
       - cases
       summary: Update Case
-      description: Update a specific case by ID under a workflow.
+      description: Update a specific case for a workflow.
       operationId: update_case_workflows__workflow_id__cases__case_id__post
       security:
       - OAuth2PasswordBearer: []
@@ -1407,7 +1420,7 @@ paths:
       tags:
       - cases
       summary: Get Case Event
-      description: Get a specific case event by ID under a workflow.
+      description: Get a specific case event.
       operationId: get_case_event_workflows__workflow_id__cases__case_id__events__event_id__get
       security:
       - OAuth2PasswordBearer: []
@@ -1447,7 +1460,7 @@ paths:
       tags:
       - cases
       summary: Get Case Metrics
-      description: Get a specific case by ID under a workflow.
+      description: '**[DEPRECATED]** Get a specific case event metrics for a workflow.'
       operationId: get_case_metrics_workflows__workflow_id__cases__case_id__metrics_get
       security:
       - OAuth2PasswordBearer: []
@@ -1482,6 +1495,7 @@ paths:
       tags:
       - cases
       summary: List Case Actions
+      description: List all case actions.
       operationId: list_case_actions_case_actions_get
       responses:
         '200':
@@ -1499,6 +1513,7 @@ paths:
       tags:
       - cases
       summary: Create Case Action
+      description: Create a new case action.
       operationId: create_case_action_case_actions_post
       requestBody:
         content:
@@ -1526,6 +1541,7 @@ paths:
       tags:
       - cases
       summary: Delete Case Action
+      description: Delete a case action.
       operationId: delete_case_action_case_actions__case_action_id__delete
       security:
       - OAuth2PasswordBearer: []
@@ -1553,6 +1569,7 @@ paths:
       tags:
       - cases
       summary: List Case Contexts
+      description: List all case contexts.
       operationId: list_case_contexts_case_contexts_get
       responses:
         '200':
@@ -1570,6 +1587,7 @@ paths:
       tags:
       - cases
       summary: Create Case Context
+      description: Create a new case context.
       operationId: create_case_context_case_contexts_post
       requestBody:
         content:
@@ -1597,6 +1615,7 @@ paths:
       tags:
       - cases
       summary: Delete Case Context
+      description: Delete a case context.
       operationId: delete_case_context_case_contexts__case_context_id__delete
       security:
       - OAuth2PasswordBearer: []
@@ -1625,17 +1644,7 @@ paths:
       - cases
       - completions
       summary: Streaming Autofill Case Fields
-      description: 'List of case IDs.
-
-        Steps
-
-        -----
-
-        1. Using Case IDs, fetch case data
-
-        2. Figure out  which fields need to be populated - these fields are None
-
-        3. Complete the fields'
+      description: Use an LLM to autocomplete fields for cases.
       operationId: streaming_autofill_case_fields_completions_cases_stream_post
       requestBody:
         content:
@@ -1667,8 +1676,7 @@ paths:
       tags:
       - users
       summary: Get User
-      description: Return user as title, description, list of Action JSONs, adjacency
-        list of Action IDs.
+      description: Get a user.
       operationId: get_user_users_get
       responses:
         '200':
@@ -1683,10 +1691,7 @@ paths:
       tags:
       - users
       summary: Create User
-      description: 'Create new user.
-
-
-        Note that this is just for user config, auth is done separately.'
+      description: Create new user.
       operationId: create_user_users_put
       responses:
         '201':
@@ -1701,7 +1706,7 @@ paths:
       tags:
       - users
       summary: Update User
-      description: Update user.
+      description: Update a user.
       operationId: update_user_users_post
       requestBody:
         content:
@@ -1724,7 +1729,7 @@ paths:
       tags:
       - users
       summary: Delete User
-      description: Delete user.
+      description: Delete a user.
       operationId: delete_user_users_delete
       responses:
         '204':
@@ -1810,7 +1815,7 @@ paths:
       tags:
       - secrets
       summary: Get Secret
-      description: Get a secret by name.
+      description: Get a secret.
       operationId: get_secret_secrets__secret_name__get
       security:
       - OAuth2PasswordBearer: []
@@ -1839,7 +1844,7 @@ paths:
       tags:
       - secrets
       summary: Delete Secret
-      description: Delete a secret by name.
+      description: Delete a secret.
       operationId: delete_secret_secrets__secret_name__delete
       security:
       - OAuth2PasswordBearer: []
@@ -1865,7 +1870,7 @@ paths:
       tags:
       - secrets
       summary: Search Secrets
-      description: '[UNUSED] Get a secret by ID.'
+      description: '**[WORK IN PROGRESS]**   Get a secret by ID.'
       operationId: search_secrets_secrets_search_post
       requestBody:
         content:
@@ -1896,7 +1901,7 @@ paths:
       tags:
       - udfs
       summary: List Udfs
-      description: List all UDF specs for a user.
+      description: List all user-defined function specifications for a user.
       operationId: list_udfs_udfs_get
       security:
       - OAuth2PasswordBearer: []
@@ -1932,23 +1937,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /udfs/{key}:
+  /udfs/{udf_key}:
     get:
       tags:
       - udfs
       summary: Get Udf
-      description: Get an UDF spec by its path.
-      operationId: get_udf_udfs__key__get
+      description: Get a user-defined function specification.
+      operationId: get_udf_udfs__udf_key__get
       security:
       - OAuth2PasswordBearer: []
       - APIKeyHeader: []
       parameters:
-      - name: key
+      - name: udf_key
         in: path
         required: true
         schema:
           type: string
-          title: Key
+          title: Udf Key
       - name: namespace
         in: query
         required: false
@@ -1968,12 +1973,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /udfs/{udf_key}:
     post:
       tags:
       - udfs
       summary: Create Udf
-      description: Get an UDF spec by its path.
+      description: Create a user-defined function specification.
       operationId: create_udf_udfs__udf_key__post
       security:
       - OAuth2PasswordBearer: []
@@ -1997,22 +2001,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /udfs/{key}/validate:
+  /udfs/{udf_key}/validate:
     post:
       tags:
       - udfs
       summary: Validate Udf Args
-      description: Get an UDF spec by its path.
-      operationId: validate_udf_args_udfs__key__validate_post
+      description: Validate user-defined function's arguments.
+      operationId: validate_udf_args_udfs__udf_key__validate_post
       security:
       - OAuth2PasswordBearer: []
       parameters:
-      - name: key
+      - name: udf_key
         in: path
         required: true
         schema:
           type: string
-          title: Key
+          title: Udf Key
       requestBody:
         required: true
         content:
