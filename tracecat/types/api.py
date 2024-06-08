@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.common import DSLInput
@@ -190,16 +190,33 @@ UpdateUserParams = CreateUserParams
 
 
 class CreateSecretParams(BaseModel):
-    # Secret types
-    # ------------
-    # - Custom: Arbitrary user-defined types
-    # - Token: A token, e.g. API Key, JWT Token (TBC)
-    # - OAuth2: OAuth2 Client Credentials (TBC)
-    type: Literal["custom"]  # Support other types later
+    """Create a new secret.
+
+    Secret types
+    ------------
+    - `custom`: Arbitrary user-defined types
+    - `token`: A token, e.g. API Key, JWT Token (TBC)
+    - `oauth2`: OAuth2 Client Credentials (TBC)"""
+
+    type: Literal["custom"] = "custom"  # Support other types later
     name: str
     description: str | None = None
     keys: list[SecretKeyValue]
     tags: dict[str, str] | None = None
+
+    @staticmethod
+    def from_strings(name: str, keyvalues: list[str]) -> CreateSecretParams:
+        keys = [SecretKeyValue.from_str(kv) for kv in keyvalues]
+        return CreateSecretParams(name=name, keys=keys)
+
+    @field_validator("keys")
+    def validate_keys(cls, v, values):
+        if not v:
+            raise ValueError("Keys cannot be empty")
+        # Ensure keys are unique
+        if len({kv.key for kv in v}) != len(v):
+            raise ValueError("Keys must be unique")
+        return v
 
 
 UpdateSecretParams = CreateSecretParams

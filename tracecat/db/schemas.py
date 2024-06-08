@@ -76,12 +76,6 @@ class User(Resource, table=True):
 
 
 class Secret(Resource, table=True):
-    """Secret model.
-
-    A secret can contain an arbitrary number of keys.
-    e.g.
-    """
-
     id: str = Field(
         default_factory=gen_id("secret"), nullable=False, unique=True, index=True
     )
@@ -114,7 +108,7 @@ class Secret(Resource, table=True):
     def keys(self, value: list[SecretKeyValue]) -> None:
         """Setter: Encrypt the keys and store them as bytes."""
         # Convert to dict
-        kv = {item.key: item.value for item in value}
+        kv = {item.key: item.value.get_secret_value() for item in value}
         self._validate_obj(kv)
         self.encrypted_keys = encrypt_object(kv)
 
