@@ -33,3 +33,8 @@ def api(
     result = asyncio.run(hit_api_endpoint(method, endpoint, payload))
     rich.print("Hit the endpoint successfully!")
     rich.print(result, len(result))
+
+
+@app.command(help="Print the current role")
+def whoami():
+    rich.print(config.ROLE)
