@@ -1,9 +1,11 @@
 import asyncio
+import json
 from typing import Any
 
 import orjson
 import rich
 import typer
+import yaml
 
 from tracecat.auth.clients import AuthenticatedAPIClient
 
@@ -22,7 +24,7 @@ async def hit_api_endpoint(
     return res.json()
 
 
-@app.command(help="Hit the API endpoint with an authenticated service client")
+@app.command(help="Hit the API endpoint with an authenticated service client.")
 def api(
     endpoint: str = typer.Argument(..., help="Endpoint to hit"),
     method: str = typer.Option("GET", "-X", help="HTTP Method"),
@@ -38,3 +40,23 @@ def api(
 @app.command(help="Print the current role")
 def whoami():
     rich.print(config.ROLE)
+
+
+@app.command(help="Generate OpenAPI specification.")
+def oas(outfile: str = typer.Option("openapi.yml", "-o", help="Output file path")):
+    """Generate OpenAPI specification."""
+    from tracecat.api.app import app
+
+    openapi = app.openapi()
+    if (version := openapi.get("openapi")) is None:
+        rich.print("[yellow]Could not determine the OpenAPI version.[/yellow]")
+    version = f"v{version}" if version else "unknown version"
+    rich.print(f"Writing openapi spec {version}")
+
+    with open(outfile, "w") as f:
+        if outfile.endswith(".json"):
+            json.dump(openapi, f, indent=2)
+        else:
+            yaml.dump(openapi, f, sort_keys=False)
+
+    rich.print(f"Spec written to {outfile}")
