@@ -1,5 +1,8 @@
 import asyncio
 import json
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import orjson
@@ -42,9 +45,20 @@ def whoami():
     rich.print(config.ROLE)
 
 
-@app.command(help="Generate OpenAPI specification.")
-def oas(outfile: str = typer.Option("openapi.yml", "-o", help="Output file path")):
+@app.command(name="generate-spec", help="Generate OpenAPI specification. Requires npx.")
+def generate_spec(
+    outfile: str = typer.Option(
+        f"{config.DOCS_PATH!s}/openapi.yml", "-o", help="Output file path"
+    ),
+    update_docs: bool = typer.Option(
+        False,
+        "--update-docs",
+        help="Update API reference paths in docs and update Mintlify config.",
+    ),
+):
     """Generate OpenAPI specification."""
+
+    # Write the OpenAPI spec to docs/openapi.yml
     from tracecat.api.app import app
 
     openapi = app.openapi()
@@ -53,10 +67,86 @@ def oas(outfile: str = typer.Option("openapi.yml", "-o", help="Output file path"
     version = f"v{version}" if version else "unknown version"
     rich.print(f"Writing openapi spec {version}")
 
-    with open(outfile, "w") as f:
-        if outfile.endswith(".json"):
+    outpath = Path(outfile)
+    with outpath.open("w") as f:
+        if outpath.suffix == ".json":
             json.dump(openapi, f, indent=2)
         else:
             yaml.dump(openapi, f, sort_keys=False)
 
     rich.print(f"Spec written to {outfile}")
+
+    # Generate the API reference paths
+    if not update_docs:
+        return
+
+    rich.print(f"Generating API reference paths in {config.DOCS_PATH!s}...")
+
+    oas_relpath = outpath.relative_to(config.DOCS_PATH)
+    api_docs_group = "API Documentation"
+    api_ref_pages_group = "Reference"
+
+    # Define the command that generates the output
+    cmd = (
+        f"cd {config.DOCS_PATH!s} &&"
+        "npx @mintlify/scraping@latest"
+        f" openapi-file {oas_relpath!s}"  # This should be a relative path from within the docs root dir
+        f" -o api-reference"  # Output directory, relative to the docs root dir
+    )
+
+    # Create a temporary file to store the JSON output
+    with tempfile.NamedTemporaryFile(mode="w+", delete=True) as tmpfile:
+        # Run the command and capture the JSON output
+        subprocess.run(
+            f"{cmd} | awk '/navigation object suggestion:/ {{flag=1; next}} flag' > {tmpfile.name}",
+            shell=True,
+            check=True,
+        )
+
+        # Move the file cursor to the beginning of the temporary file
+        tmpfile.seek(0)
+
+        # Read the captured JSON data
+        json_data = json.load(tmpfile)
+
+    # Load the existing JSON from 'mint.json'
+    mint_cfg = config.DOCS_PATH / "mint.json"
+    with mint_cfg.open() as file:
+        mint_data = json.load(file)
+
+    # Overwrite the 'navigation' property with the new JSON data
+    try:
+        apidocs = next(
+            item for item in mint_data["navigation"] if item["group"] == api_docs_group
+        )
+    except StopIteration as e:
+        # Has no API Documentation group
+        rich.print(f"[red]No {api_docs_group!r} group found in mint.json[/red]")
+        raise typer.Exit() from e
+
+    # NOTE: Customize this as how the API reference pages are grouped in the Mint config
+    # Replace the object that has the 'group' property 'Reference'
+    # and create it if it doesn't exist
+    try:
+        ref = next(
+            item
+            for item in apidocs["pages"]
+            if isinstance(item, dict) and item["group"] == api_ref_pages_group
+        )
+        ref["pages"] = json_data
+    except StopIteration:
+        # No Reference group found, create it
+        rich.print(
+            f"[yellow]No {api_ref_pages_group!r} group found in mint.json, creating...[/yellow]"
+        )
+        apidocs["pages"].append({"group": api_ref_pages_group, "pages": json_data})
+
+    # Add "/{openapi relative spec path}" to the navigation if it doesn't exist
+    full_oas_relpath = f"/{oas_relpath!s}"
+    if str(full_oas_relpath) not in mint_data["openapi"]:
+        rich.print(f"Updating OpenAPI spec path: {full_oas_relpath!s}")
+        mint_data["openapi"].append(str(full_oas_relpath))
+
+    # Save the updated JSON back to 'mint.json'
+    with mint_cfg.open("w") as file:
+        json.dump(mint_data, file, indent=2)
