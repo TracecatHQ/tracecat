@@ -315,27 +315,11 @@ async def incoming_webhook(
     path: str,
     payload: dict[str, Any] | None = None,
 ):
-    """Webhook endpoint to trigger a workflow.
+    """
+    Webhook endpoint to trigger a workflow.
 
-    Params
-    ------
-    path: str
-        The webhook path, equivalent to the workflow id
-
-    Notes
-    -----
-    The `Workflow` object holds the RF graph
-
-    Steps
-    -----
-    0. Authenticate the user
-    1. Fetch the DSL from the workflow object
-    2. Construct the DSLInput object
-    3. Dispatch the workflow
-
-    Todos
-    -----
-    We're going to use Svix to manage our webhooks.
+    This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
+    The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
     role = ctx_role.get()
     logger.info("Webhook hit", path=path, payload=payload)
@@ -357,7 +341,11 @@ def list_workflows(
     role: Annotated[Role, Depends(authenticate_user)],
     library: bool = False,
 ) -> list[WorkflowMetadataResponse]:
-    """List all Workflows in database."""
+    """
+    List workflows.
+
+    If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
+    """
     query_user_id = role.user_id if not library else "tracecat"
     with Session(engine) as session:
         statement = select(Workflow).where(Workflow.owner_id == query_user_id)
@@ -465,7 +453,7 @@ def update_workflow(
     workflow_id: str,
     params: UpdateWorkflowParams,
 ) -> None:
-    """Update Workflow."""
+    """Update a workflow."""
     with Session(engine) as session:
         statement = select(Workflow).where(
             Workflow.owner_id == role.user_id,
@@ -496,7 +484,7 @@ def delete_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> None:
-    """Delete Workflow."""
+    """Delete a workflow."""
 
     with Session(engine) as session:
         statement = select(Workflow).where(
@@ -524,10 +512,7 @@ def copy_workflow(
     workflow_id: str,
     params: Annotated[CopyWorkflowParams | None, Body(...)] = None,
 ) -> None:
-    """Copy a Workflow.
-
-    We currently only permit copying workflows from the tracecat user into the user's own account.
-    """
+    """Copy a workflow. Not intended for users."""
     if role.type == "user" and params is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -563,7 +548,9 @@ def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> None:
-    """Convert an application state workflow into a `WorkflowDefinition`."""
+    """Commit a workflow.
+
+    This deploys the workflow and updates its version."""
 
     # Grab workflow and actions
     with Session(engine) as session:
@@ -595,6 +582,7 @@ async def list_workflow_definitions(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
 ) -> list[WorkflowDefinition]:
+    """List all workflow definitions for a Workflow."""
     with Session(engine) as session:
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.owner_id == role.user_id,
@@ -611,6 +599,7 @@ def get_workflow_definition(
     workflow_id: str,
     version: int | None = None,
 ) -> WorkflowDefinition:
+    """Get the latest version of a workflow definition."""
     with Session(engine) as session:
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.owner_id == role.user_id,
@@ -645,6 +634,8 @@ def upsert_workflow_definition(
     workflow_id: str,
     params: UpsertWorkflowDefinitionParams,
 ) -> None:
+    """Upsert a workflow definition."""
+
     with Session(engine) as session:
         _upsert_workflow_definition(session, role, workflow_id, params.content)
 
@@ -690,7 +681,7 @@ def list_workflow_runs(
     workflow_id: str,
     limit: int | None = None,
 ) -> list[WorkflowRunResponse]:
-    """List all Workflow Runs for a Workflow."""
+    """**[DEPRECATED]** List all runs for a workflow."""
     with Session(engine) as session:
         # Being here means the user has access to the workflow
         statement = select(WorkflowRun).where(
@@ -719,7 +710,7 @@ def create_workflow_run(
     workflow_id: str,
     params: WorkflowRunEventParams,
 ) -> None:
-    """Create a Workflow Run."""
+    """**[DEPRECATED]** Create a workflow run."""
 
     with Session(engine) as session:
         workflow_run = WorkflowRun(workflow_id=workflow_id, **params.model_dump())
@@ -734,7 +725,7 @@ def get_workflow_run(
     workflow_id: str,
     workflow_run_id: str,
 ) -> WorkflowRunResponse:
-    """Return WorkflowRun as title, description, list of Action JSONs, adjacency list of Action IDs."""
+    """**[DEPRECATED]** Get a workflow run."""
 
     with Session(engine) as session:
         # Get Workflow given workflow_id
@@ -765,7 +756,7 @@ def update_workflow_run(
     workflow_run_id: str,
     params: WorkflowRunEventParams,
 ) -> None:
-    """Update Workflow."""
+    """**[DEPRECATED]** Update a workflow run."""
 
     with Session(engine) as session:
         statement = select(WorkflowRun).where(
@@ -799,7 +790,7 @@ async def trigger_workflow_run(
     workflow_id: str,
     params: TriggerWorkflowRunParams,
 ) -> StartWorkflowResponse:
-    """Trigger a Workflow Run."""
+    """Trigger a workflow run."""
     # Create service role
     workflow_params = StartWorkflowParams(
         entrypoint_key=params.action_key,
@@ -834,7 +825,7 @@ def list_webhooks(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
 ) -> list[WebhookResponse]:
-    """List all Webhooks for a workflow."""
+    """List all webhooks for a workflow. Wrokflows only have one webhook at the moment but this may change in the future."""
     with Session(engine) as session:
         statement = select(Webhook).where(
             Webhook.owner_id == role.user_id,
@@ -854,7 +845,7 @@ def create_webhook(
     workflow_id: str,
     params: UpsertWebhookParams,
 ) -> None:
-    """Create a Webhook."""
+    """Create a webhook for a workflow."""
 
     webhook = Webhook(
         owner_id=role.user_id,
@@ -874,6 +865,7 @@ def get_webhook(
     webhook_id: str,
     workflow_id: str,
 ) -> WebhookResponse:
+    """Get the webhook from a workflow."""
     with Session(engine) as session:
         statement = select(Webhook).where(
             Webhook.owner_id == role.user_id,
@@ -896,6 +888,7 @@ def delete_webhook(
     workflow_id: str,
     webhook_id: str,
 ) -> None:
+    """Delete the webhook from a workflow."""
     with Session(engine) as session:
         statement = select(Webhook).where(
             Webhook.owner_id == role.user_id,
@@ -920,6 +913,7 @@ def update_webhook(
     workflow_id: str,
     params: UpsertWebhookParams,
 ) -> None:
+    """Update a webhook for a workflow."""
     with Session(engine) as session:
         statement = select(Webhook).where(
             Webhook.owner_id == role.user_id,
@@ -954,7 +948,7 @@ def list_schedules(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
 ) -> list[Schedule]:
-    """List all Schedules for a workflow."""
+    """**[WORK IN PROGRESS]** List all schedules for a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
             Schedule.owner_id == role.user_id,
@@ -974,7 +968,7 @@ def create_schedule(
     workflow_id: str,
     params: CreateScheduleParams,
 ) -> None:
-    """Create a Schedule."""
+    """**[WORK IN PROGRESS]** Create a schedule for a workflow."""
 
     schedule = Schedule(
         owner_id=role.user_id,
@@ -995,6 +989,7 @@ def get_schedule(
     schedule_id: str,
     workflow_id: str,
 ) -> Schedule:
+    """**[WORK IN PROGRESS]** Get a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
             Schedule.owner_id == role.user_id,
@@ -1016,6 +1011,7 @@ def delete_schedule(
     schedule_id: str,
     workflow_id: str,
 ) -> None:
+    """**[WORK IN PROGRESS]** Delete a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
             Schedule.owner_id == role.user_id,
@@ -1041,7 +1037,7 @@ def list_actions(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> list[ActionMetadataResponse]:
-    """List all Actions related to `workflow_id`."""
+    """List all actions for a workflow."""
     with Session(engine) as session:
         statement = select(Action).where(
             Action.owner_id == role.user_id,
@@ -1069,6 +1065,7 @@ def create_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateActionParams,
 ) -> ActionMetadataResponse:
+    """Create a new action for a workflow."""
     with Session(engine) as session:
         action = Action(
             owner_id=role.user_id,
@@ -1099,6 +1096,7 @@ def get_action(
     action_id: str,
     workflow_id: str,
 ) -> ActionResponse:
+    """Get an action."""
     with Session(engine) as session:
         statement = select(Action).where(
             Action.owner_id == role.user_id,
@@ -1130,6 +1128,7 @@ def update_action(
     action_id: str,
     params: UpdateActionParams,
 ) -> ActionResponse:
+    """Update an action."""
     with Session(engine) as session:
         # Fetch the action by id
         statement = select(Action).where(
@@ -1175,6 +1174,7 @@ def delete_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
 ) -> None:
+    """Delete an action."""
     with Session(engine) as session:
         statement = select(Action).where(
             Action.owner_id == role.user_id,
@@ -1201,7 +1201,7 @@ def list_action_runs(
     action_id: str,
     limit: int | None = None,
 ) -> list[ActionRunResponse]:
-    """List all action Runs for an action."""
+    """**[DEPRECATED]** List all action Runs for an action."""
     with Session(engine) as session:
         # Being here means the user has access to the action
         statement = select(ActionRun).where(
@@ -1227,7 +1227,7 @@ def create_action_run(
     action_id: str,
     params: ActionRunEventParams,
 ) -> ActionRunResponse:
-    """Create a action Run."""
+    """**[DEPRECATED]** Create an action Run."""
 
     action_run = ActionRun(action_id=action_id, **params.model_dump())
     with Session(engine) as session:
@@ -1244,7 +1244,7 @@ def get_action_run(
     action_id: str,
     action_run_id: str,
 ) -> ActionRunResponse:
-    """Return ActionRun as title, description, of Action JSONs, adjacency list of Action IDs."""
+    """**[DEPRECATED]** Get an action run."""
 
     with Session(engine) as session:
         # Get action given action_id
@@ -1275,7 +1275,7 @@ def update_action_run(
     action_run_id: str,
     params: ActionRunEventParams,
 ) -> None:
-    """Update action."""
+    """**[DEPRECATED]** Update an action run."""
 
     with Session(engine) as session:
         statement = select(ActionRun).where(
@@ -1324,7 +1324,7 @@ def search_events(
     role: Annotated[Role, Depends(authenticate_user)],
     params: EventSearchParams,
 ) -> list[Event]:
-    """Search for events based on query parameters.
+    """**[DEPRECATED]** Search for events based on query parameters.
 
     Note: currently on supports filter by `workflow_id` and sort by `published_at`.
     """
@@ -1344,6 +1344,7 @@ def create_case(
     workflow_id: str,
     cases: list[CaseParams],
 ):
+    """Create a new case for a workflow."""
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     # Should probably also add a check for existing case IDs
@@ -1360,10 +1361,7 @@ def list_cases(
     workflow_id: str,
     limit: int = 100,
 ) -> list[Case]:
-    """List all cases under a workflow.
-
-    Note: currently only supports listing the first 100 cases.
-    """
+    """List all cases for a workflow."""
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     result = (
@@ -1383,7 +1381,7 @@ def get_case(
     workflow_id: str,
     case_id: str,
 ) -> Case:
-    """Get a specific case by ID under a workflow."""
+    """Get a specific case for a workflow."""
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     result = (
@@ -1410,7 +1408,7 @@ def update_case(
     case_id: str,
     params: CaseParams,
 ):
-    """Update a specific case by ID under a workflow."""
+    """Update a specific case for a workflow."""
     updated_case = Case.from_params(params, owner_id=role.user_id, id=case_id)
     db = create_vdb_conn()
     tbl = db.open_table("cases")
@@ -1470,7 +1468,7 @@ def get_case_event(
     case_id: str,
     event_id: str,
 ):
-    """Get a specific case event by ID under a workflow."""
+    """Get a specific case event."""
     with Session(engine) as session:
         query = select(CaseEvent).where(
             CaseEvent.owner_id == role.user_id,
@@ -1492,7 +1490,7 @@ def get_case_metrics(
     workflow_id: str,
     case_id: str,
 ) -> CaseMetrics:
-    """Get a specific case by ID under a workflow."""
+    """**[DEPRECATED]** Get a specific case event metrics for a workflow."""
     db = create_vdb_conn()
     tbl = db.open_table("cases")
     df = pl.DataFrame(
@@ -1513,6 +1511,7 @@ def get_case_metrics(
 def list_case_actions(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> list[CaseAction]:
+    """List all case actions."""
     with Session(engine) as session:
         statement = select(CaseAction).where(
             or_(
@@ -1529,6 +1528,7 @@ def create_case_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseActionParams,
 ) -> CaseAction:
+    """Create a new case action."""
     case_action = CaseAction(owner_id=role.user_id, **params.model_dump())
     with Session(engine) as session:
         session.add(case_action)
@@ -1542,6 +1542,7 @@ def delete_case_action(
     role: Annotated[Role, Depends(authenticate_user)],
     case_action_id: str,
 ):
+    """Delete a case action."""
     with Session(engine) as session:
         statement = select(CaseAction).where(
             CaseAction.owner_id == role.user_id,
@@ -1565,6 +1566,7 @@ def delete_case_action(
 def list_case_contexts(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> list[CaseContext]:
+    """List all case contexts."""
     with Session(engine) as session:
         statement = select(CaseContext).where(
             or_(
@@ -1581,6 +1583,7 @@ def create_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseContextParams,
 ) -> CaseContext:
+    """Create a new case context."""
     case_context = CaseContext(owner_id=role.user_id, **params.model_dump())
     with Session(engine) as session:
         session.add(case_context)
@@ -1594,6 +1597,7 @@ def delete_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     case_context_id: str,
 ):
+    """Delete a case context."""
     with Session(engine) as session:
         statement = select(CaseContext).where(
             CaseContext.owner_id == role.user_id,
@@ -1618,14 +1622,7 @@ async def streaming_autofill_case_fields(
     cases: list[Case],  # TODO: Replace this with case IDs
     fields: list[str],
 ) -> dict[str, str]:
-    """List of case IDs.
-    Steps
-    -----
-    1. Using Case IDs, fetch case data
-    2. Figure out  which fields need to be populated - these fields are None
-    3. Complete the fields
-
-    """
+    """Use an LLM to autocomplete fields for cases."""
     fields_set = set(fields)
 
     if not fields_set:
@@ -1675,11 +1672,7 @@ async def streaming_autofill_case_fields(
 def create_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
-    """Create new user.
-
-    Note that this is just for user config, auth is done separately."""
-
-    # Check if user exists
+    """Create new user."""
 
     with Session(engine) as session:
         # Check if user exists
@@ -1703,7 +1696,7 @@ def create_user(
 def get_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
-    """Return user as title, description, list of Action JSONs, adjacency list of Action IDs."""
+    """Get a user."""
 
     with Session(engine) as session:
         # Get user given user_id
@@ -1723,7 +1716,7 @@ def update_user(
     role: Annotated[Role, Depends(authenticate_user)],
     params: UpdateUserParams,
 ) -> None:
-    """Update user."""
+    """Update a user."""
 
     with Session(engine) as session:
         statement = select(User).where(User.id == role.user_id)
@@ -1748,7 +1741,7 @@ def update_user(
 def delete_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> None:
-    """Delete user."""
+    """Delete a user."""
 
     with Session(engine) as session:
         statement = select(User).where(User.id == role.user_id)
@@ -1792,7 +1785,7 @@ def get_secret(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
 ) -> Secret:
-    """Get a secret by name."""
+    """Get a secret."""
 
     with Session(engine) as session:
         # Check if secret exists
@@ -1887,7 +1880,7 @@ def delete_secret(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
 ) -> None:
-    """Delete a secret by name."""
+    """Delete a secret."""
     with Session(engine) as session:
         # Check if secret exists
         statement = (
@@ -1910,7 +1903,7 @@ def search_secrets(
     role: Annotated[Role, Depends(authenticate_user)],
     params: SearchSecretsParams,
 ) -> list[Secret]:
-    """[UNUSED] Get a secret by ID."""
+    """**[WORK IN PROGRESS]**   Get a secret by ID."""
     with Session(engine) as session:
         statement = (
             select(Secret)
@@ -1931,7 +1924,7 @@ def list_udfs(
     limit: int | None = None,
     namespace: str = Query(None),
 ) -> list[UDFSpec]:
-    """List all UDF specs for a user."""
+    """List all user-defined function specifications for a user."""
     with Session(engine) as session:
         statement = select(UDFSpec).where(
             or_(
@@ -1948,20 +1941,20 @@ def list_udfs(
         return udfs
 
 
-@app.get("/udfs/{key}", tags=["udfs"])
+@app.get("/udfs/{udf_key}", tags=["udfs"])
 def get_udf(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
-    key: str,
+    udf_key: str,
     namespace: str = Query(None),
 ) -> UDFSpec:
-    """Get an UDF spec by its path."""
+    """Get a user-defined function specification."""
     with Session(engine) as session:
         statement = select(UDFSpec).where(
             or_(
                 UDFSpec.owner_id == "tracecat",
                 UDFSpec.owner_id == role.user_id,
             ),
-            UDFSpec.key == key,
+            UDFSpec.key == udf_key,
         )
         if namespace:
             statement = statement.where(UDFSpec.namespace == namespace)
@@ -1979,7 +1972,7 @@ def create_udf(
     role: Annotated[Role, Depends(authenticate_user)],
     udf_key: str,
 ) -> UDFSpec:
-    """Get an UDF spec by its path."""
+    """Create a user-defined function specification."""
     _, platform, name = udf_key.split(".")
     with Session(engine) as session:
         statement = select(UDFSpec).where(
@@ -1996,18 +1989,18 @@ def create_udf(
         return udf
 
 
-@app.post("/udfs/{key}/validate", tags=["udfs"])
+@app.post("/udfs/{udf_key}/validate", tags=["udfs"])
 def validate_udf_args(
     role: Annotated[Role, Depends(authenticate_user)],
-    key: str,
+    udf_key: str,
     args: dict[str, Any],
 ) -> UDFArgsValidationResponse:
-    """Get an UDF spec by its path."""
+    """Validate user-defined function's arguments."""
     try:
-        udf = registry.get(key)
+        udf = registry.get(udf_key)
     except KeyError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"UDF {key!r} not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"UDF {udf_key!r} not found"
         ) from e
     try:
         udf.validate_args(**args)
