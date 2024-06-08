@@ -7,7 +7,7 @@ from rich.console import Console
 from tracecat.auth.clients import AuthenticatedAPIClient
 from tracecat.types.api import CreateSecretParams
 
-from . import config
+from ._config import config
 from ._utils import dynamic_table
 
 app = typer.Typer(no_args_is_help=True, help="Manage secrets.")
@@ -22,7 +22,7 @@ async def create_secret(secret_name: str, keyvalues: list[str]):
         keyvalues (list[str]): Space-separated KEY-VALUE items.
     """
     params = CreateSecretParams.from_strings(secret_name, keyvalues)
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         res = await client.put(
             "/secrets", content=params.model_dump_json(exclude_unset=True).encode()
         )
@@ -36,7 +36,7 @@ async def delete_secret(secret_name: str):
     Args:
         secret_name (str): Secret name.
     """
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         res = await client.delete(f"/secrets/{secret_name}")
         res.raise_for_status()
 
@@ -48,7 +48,7 @@ async def list_secrets():
     Returns:
         dict: JSON response containing the list of secrets.
     """
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         res = await client.get("/secrets")
         res.raise_for_status()
     return res.json()

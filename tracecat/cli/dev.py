@@ -12,7 +12,7 @@ import yaml
 
 from tracecat.auth.clients import AuthenticatedAPIClient
 
-from . import config
+from ._config import config
 
 app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 
@@ -20,7 +20,7 @@ app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 async def hit_api_endpoint(
     method: str, endpoint: str, payload: dict[str, str] | None
 ) -> dict[str, Any]:
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         content = orjson.dumps(payload) if payload else None
         res = await client.request(method=method, url=endpoint, content=content)
         res.raise_for_status()
@@ -42,13 +42,13 @@ def api(
 
 @app.command(help="Print the current role")
 def whoami():
-    rich.print(config.ROLE)
+    rich.print(config.role)
 
 
 @app.command(name="generate-spec", help="Generate OpenAPI specification. Requires npx.")
 def generate_spec(
     outfile: str = typer.Option(
-        f"{config.DOCS_PATH!s}/openapi.yml", "-o", help="Output file path"
+        f"{config.docs_path!s}/openapi.yml", "-o", help="Output file path"
     ),
     update_docs: bool = typer.Option(
         False,
@@ -80,18 +80,16 @@ def generate_spec(
     if not update_docs:
         return
 
-    rich.print(f"Generating API reference paths in {config.DOCS_PATH!s}...")
+    rich.print(f"Generating API reference paths in {config.docs_path!s}...")
 
-    oas_relpath = outpath.relative_to(config.DOCS_PATH)
-    api_docs_group = "API Documentation"
-    api_ref_pages_group = "Reference"
+    oas_relpath = outpath.relative_to(config.docs_path)
 
     # Define the command that generates the output
     cmd = (
-        f"cd {config.DOCS_PATH!s} &&"
+        f"cd {config.docs_path!s} &&"
         "npx @mintlify/scraping@latest"
         f" openapi-file {oas_relpath!s}"  # This should be a relative path from within the docs root dir
-        f" -o api-reference"  # Output directory, relative to the docs root dir
+        f" -o api-reference/reference"  # Output directory, relative to the docs root dir
     )
 
     # Create a temporary file to store the JSON output
@@ -110,18 +108,20 @@ def generate_spec(
         json_data = json.load(tmpfile)
 
     # Load the existing JSON from 'mint.json'
-    mint_cfg = config.DOCS_PATH / "mint.json"
+    mint_cfg = config.docs_path / "mint.json"
     with mint_cfg.open() as file:
         mint_data = json.load(file)
 
     # Overwrite the 'navigation' property with the new JSON data
     try:
         apidocs = next(
-            item for item in mint_data["navigation"] if item["group"] == api_docs_group
+            item
+            for item in mint_data["navigation"]
+            if item["group"] == config.docs_api_group
         )
     except StopIteration as e:
         # Has no API Documentation group
-        rich.print(f"[red]No {api_docs_group!r} group found in mint.json[/red]")
+        rich.print(f"[red]No {config.docs_api_group!r} group found in mint.json[/red]")
         raise typer.Exit() from e
 
     # NOTE: Customize this as how the API reference pages are grouped in the Mint config
@@ -131,15 +131,17 @@ def generate_spec(
         ref = next(
             item
             for item in apidocs["pages"]
-            if isinstance(item, dict) and item["group"] == api_ref_pages_group
+            if isinstance(item, dict) and item["group"] == config.docs_api_pages_group
         )
         ref["pages"] = json_data
     except StopIteration:
         # No Reference group found, create it
         rich.print(
-            f"[yellow]No {api_ref_pages_group!r} group found in mint.json, creating...[/yellow]"
+            f"[yellow]No {config.docs_api_pages_group!r} group found in mint.json, creating...[/yellow]"
         )
-        apidocs["pages"].append({"group": api_ref_pages_group, "pages": json_data})
+        apidocs["pages"].append(
+            {"group": config.docs_api_pages_group, "pages": json_data}
+        )
 
     # Add "/{openapi relative spec path}" to the navigation if it doesn't exist
     full_oas_relpath = f"/{oas_relpath!s}"
