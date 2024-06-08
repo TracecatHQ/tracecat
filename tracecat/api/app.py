@@ -1,4 +1,5 @@
 import asyncio
+import textwrap
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -122,7 +123,33 @@ def create_app(**kwargs) -> FastAPI:
         cors_origins_kwargs = {
             "allow_origins": "*",
         }
-    app = FastAPI(**kwargs)
+    app = FastAPI(
+        title="Tracecat API",
+        description=textwrap.dedent("""
+        Tracecat is the security automation platform built for builders.
+
+        You can operate Tracecat in headless mode by using the API to create, manage, and run workflows.
+        """),
+        summary="Tracecat API",
+        version="0.1.0",
+        terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
+        contact={"name": "Tracecat Founders", "email": "founders@tracecat.com"},
+        license_info={
+            "name": "AGPL-3.0",
+            "url": "https://www.gnu.org/licenses/agpl-3.0.html",
+        },
+        openapi_tags=[
+            {"name": "public", "description": "Public facing endpoints"},
+            {"name": "workflows", "description": "Workflow management"},
+            {"name": "actions", "description": "Action management"},
+            {"name": "triggers", "description": "Workflow triggers"},
+            {"name": "secrets", "description": "Secret management"},
+            {"name": "udfs", "description": "User-defined functions"},
+            {"name": "events", "description": "Event management"},
+            {"name": "cases", "description": "Case management"},
+        ],
+        **kwargs,
+    )
     app.logger = logger
     app.add_middleware(
         CORSMiddleware,
@@ -325,7 +352,7 @@ async def incoming_webhook(
 # ----- Workflows ----- #
 
 
-@app.get("/workflows")
+@app.get("/workflows", tags=["workflows"])
 def list_workflows(
     role: Annotated[Role, Depends(authenticate_user)],
     library: bool = False,
@@ -349,7 +376,7 @@ def list_workflows(
     return workflow_metadata
 
 
-@app.post("/workflows", status_code=status.HTTP_201_CREATED)
+@app.post("/workflows", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 def create_workflow(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     params: CreateWorkflowParams,
@@ -394,7 +421,7 @@ def create_workflow(
     )
 
 
-@app.get("/workflows/{workflow_id}")
+@app.get("/workflows/{workflow_id}", tags=["workflows"])
 def get_workflow(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -428,7 +455,11 @@ def get_workflow(
         )
 
 
-@app.post("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.post(
+    "/workflows/{workflow_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflows"],
+)
 def update_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -456,7 +487,11 @@ def update_workflow(
         session.commit()
 
 
-@app.delete("/workflows/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/workflows/{workflow_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflows"],
+)
 def delete_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -479,7 +514,11 @@ def delete_workflow(
         session.commit()
 
 
-@app.post("/workflows/{workflow_id}/copy", status_code=status.HTTP_204_NO_CONTENT)
+@app.post(
+    "/workflows/{workflow_id}/copy",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflows"],
+)
 def copy_workflow(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -515,7 +554,11 @@ def copy_workflow(
         session.refresh(new_workflow)
 
 
-@app.post("/workflows/{workflow_id}/commit", status_code=status.HTTP_204_NO_CONTENT)
+@app.post(
+    "/workflows/{workflow_id}/commit",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflows"],
+)
 def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -547,7 +590,7 @@ def commit_workflow(
 # ----- Workflow Definitions ----- #
 
 
-@app.get("/workflows/{workflow_id}/definition")
+@app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
 async def list_workflow_definitions(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -562,7 +605,7 @@ async def list_workflow_definitions(
         return result.all()
 
 
-@app.get("/workflows/{workflow_id}/definition")
+@app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
 def get_workflow_definition(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -592,7 +635,11 @@ def get_workflow_definition(
             ) from e
 
 
-@app.post("/workflows/{workflow_id}/definition", status_code=status.HTTP_204_NO_CONTENT)
+@app.post(
+    "/workflows/{workflow_id}/definition",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflows"],
+)
 def upsert_workflow_definition(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -637,7 +684,7 @@ def _upsert_workflow_definition(
 # ----- Workflow Runs ----- #
 
 
-@app.get("/workflows/{workflow_id}/runs")
+@app.get("/workflows/{workflow_id}/runs", tags=["workflows"])
 def list_workflow_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -662,7 +709,11 @@ def list_workflow_runs(
     return workflow_runs_metadata
 
 
-@app.post("/workflows/{workflow_id}/runs", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/workflows/{workflow_id}/runs",
+    status_code=status.HTTP_201_CREATED,
+    tags=["workflows"],
+)
 def create_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
@@ -677,7 +728,7 @@ def create_workflow_run(
         session.refresh(workflow_run)
 
 
-@app.get("/workflows/{workflow_id}/runs/{workflow_run_id}")
+@app.get("/workflows/{workflow_id}/runs/{workflow_run_id}", tags=["workflows"])
 def get_workflow_run(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -706,6 +757,7 @@ def get_workflow_run(
 @app.post(
     "/workflows/{workflow_id}/runs/{workflow_run_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflows"],
 )
 def update_workflow_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
@@ -741,7 +793,7 @@ def update_workflow_run(
 # ----- Workflow Controls ----- #
 
 
-@app.post("/workflows/{workflow_id}/controls/trigger")
+@app.post("/workflows/{workflow_id}/controls/trigger", tags=["workflows"])
 async def trigger_workflow_run(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -777,7 +829,7 @@ async def trigger_workflow_run(
 # ----- Workflow Webhooks ----- #
 
 
-@app.get("/workflows/{workflow_id}/webhooks")
+@app.get("/workflows/{workflow_id}/webhooks", tags=["triggers"])
 def list_webhooks(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -792,7 +844,11 @@ def list_webhooks(
         return [WebhookResponse(**webhook.model_dump()) for webhook in result.all()]
 
 
-@app.post("/workflows/{workflow_id}/webhooks", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/workflows/{workflow_id}/webhooks",
+    status_code=status.HTTP_201_CREATED,
+    tags=["triggers"],
+)
 def create_webhook(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -812,7 +868,7 @@ def create_webhook(
         session.refresh(webhook)
 
 
-@app.get("/workflows/{workflow_id}/webhooks/{webhook_id}")
+@app.get("/workflows/{workflow_id}/webhooks/{webhook_id}", tags=["triggers"])
 def get_webhook(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     webhook_id: str,
@@ -834,7 +890,7 @@ def get_webhook(
             ) from e
 
 
-@app.delete("/workflows/{workflow_id}/webhooks/{webhook_id}")
+@app.delete("/workflows/{workflow_id}/webhooks/{webhook_id}", tags=["triggers"])
 def delete_webhook(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -857,7 +913,7 @@ def delete_webhook(
         session.commit()
 
 
-@app.patch("/workflows/{workflow_id}/webhooks/{webhook_id}")
+@app.patch("/workflows/{workflow_id}/webhooks/{webhook_id}", tags=["triggers"])
 def update_webhook(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     webhook_id: str,
@@ -893,7 +949,7 @@ def update_webhook(
 # ----- Workflow Schedules ----- #
 
 
-@app.get("/workflows/{workflow_id}/schedules")
+@app.get("/workflows/{workflow_id}/schedules", tags=["triggers"])
 def list_schedules(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -908,7 +964,11 @@ def list_schedules(
         return result.all()
 
 
-@app.post("/workflows/{workflow_id}/schedules", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/workflows/{workflow_id}/schedules",
+    status_code=status.HTTP_201_CREATED,
+    tags=["triggers"],
+)
 def create_schedule(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
@@ -929,7 +989,7 @@ def create_schedule(
         session.refresh(schedule)
 
 
-@app.get("/workflows/{workflow_id}/schedules/{schedule_id}")
+@app.get("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["triggers"])
 def get_schedule(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     schedule_id: str,
@@ -950,7 +1010,7 @@ def get_schedule(
             ) from e
 
 
-@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}")
+@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["triggers"])
 def delete_schedule(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     schedule_id: str,
@@ -976,7 +1036,7 @@ def delete_schedule(
 # ----- Actions ----- #
 
 
-@app.get("/actions")
+@app.get("/actions", tags=["actions"])
 def list_actions(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1004,7 +1064,7 @@ def list_actions(
     return action_metadata
 
 
-@app.post("/actions")
+@app.post("/actions", tags=["actions"])
 def create_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateActionParams,
@@ -1033,7 +1093,7 @@ def create_action(
     return action_metadata
 
 
-@app.get("/actions/{action_id}")
+@app.get("/actions/{action_id}", tags=["actions"])
 def get_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
@@ -1064,7 +1124,7 @@ def get_action(
     )
 
 
-@app.post("/actions/{action_id}")
+@app.post("/actions/{action_id}", tags=["actions"])
 def update_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
@@ -1108,7 +1168,9 @@ def update_action(
     )
 
 
-@app.delete("/actions/{action_id}", status_code=204)
+@app.delete(
+    "/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"]
+)
 def delete_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
@@ -1133,7 +1195,7 @@ def delete_action(
 # ----- Action Runs ----- #
 
 
-@app.get("/actions/{action_id}/runs")
+@app.get("/actions/{action_id}/runs", tags=["actions"])
 def list_action_runs(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
@@ -1157,7 +1219,9 @@ def list_action_runs(
     return action_runs_metadata
 
 
-@app.post("/actions/{action_id}/runs", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/actions/{action_id}/runs", status_code=status.HTTP_201_CREATED, tags=["actions"]
+)
 def create_action_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     action_id: str,
@@ -1174,7 +1238,7 @@ def create_action_run(
     return ActionRunResponse.from_orm(action_run)
 
 
-@app.get("/actions/{action_id}/runs/{action_run_id}")
+@app.get("/actions/{action_id}/runs/{action_run_id}", tags=["actions"])
 def get_action_run(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
@@ -1203,6 +1267,7 @@ def get_action_run(
 @app.post(
     "/actions/{action_id}/runs/{action_run_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    tags=["actions"],
 )
 def update_action_run(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
@@ -1254,7 +1319,7 @@ SUPPORTED_EVENT_AGGS = {
 }
 
 
-@app.get("/events/search")
+@app.get("/events/search", tags=["events", "search"])
 def search_events(
     role: Annotated[Role, Depends(authenticate_user)],
     params: EventSearchParams,
@@ -1269,7 +1334,11 @@ def search_events(
 # ----- Case Management ----- #
 
 
-@app.post("/workflows/{workflow_id}/cases", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/workflows/{workflow_id}/cases",
+    status_code=status.HTTP_201_CREATED,
+    tags=["cases"],
+)
 def create_case(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
@@ -1285,7 +1354,7 @@ def create_case(
     tbl.add([case.flatten() for case in new_cases])
 
 
-@app.get("/workflows/{workflow_id}/cases")
+@app.get("/workflows/{workflow_id}/cases", tags=["cases"])
 def list_cases(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1308,7 +1377,7 @@ def list_cases(
     return [Case.from_flattened(c) for c in result]
 
 
-@app.get("/workflows/{workflow_id}/cases/{case_id}")
+@app.get("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
 def get_case(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1334,7 +1403,7 @@ def get_case(
     return Case.from_flattened(result[0])
 
 
-@app.post("/workflows/{workflow_id}/cases/{case_id}")
+@app.post("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
 def update_case(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1354,6 +1423,7 @@ def update_case(
 @app.post(
     "/workflows/{workflow_id}/cases/{case_id}/events",
     status_code=status.HTTP_201_CREATED,
+    tags=["cases"],
 )
 def create_case_event(
     role: Annotated[Role, Depends(authenticate_user)],
@@ -1376,7 +1446,7 @@ def create_case_event(
         return case_event
 
 
-@app.get("/workflows/{workflow_id}/cases/{case_id}/events")
+@app.get("/workflows/{workflow_id}/cases/{case_id}/events", tags=["cases"])
 def list_case_events(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1393,7 +1463,7 @@ def list_case_events(
         return case_events
 
 
-@app.get("/workflows/{workflow_id}/cases/{case_id}/events/{event_id}")
+@app.get("/workflows/{workflow_id}/cases/{case_id}/events/{event_id}", tags=["cases"])
 def get_case_event(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1416,7 +1486,7 @@ def get_case_event(
         return case_event
 
 
-@app.get("/workflows/{workflow_id}/cases/{case_id}/metrics")
+@app.get("/workflows/{workflow_id}/cases/{case_id}/metrics", tags=["cases"])
 def get_case_metrics(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
@@ -1439,7 +1509,7 @@ def get_case_metrics(
 # ----- Available Case Actions ----- #
 
 
-@app.get("/case-actions")
+@app.get("/case-actions", tags=["cases"])
 def list_case_actions(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> list[CaseAction]:
@@ -1454,7 +1524,7 @@ def list_case_actions(
     return actions
 
 
-@app.post("/case-actions")
+@app.post("/case-actions", tags=["cases"])
 def create_case_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseActionParams,
@@ -1467,7 +1537,7 @@ def create_case_action(
     return case_action
 
 
-@app.delete("/case-actions/{case_action_id}")
+@app.delete("/case-actions/{case_action_id}", tags=["cases"])
 def delete_case_action(
     role: Annotated[Role, Depends(authenticate_user)],
     case_action_id: str,
@@ -1491,7 +1561,7 @@ def delete_case_action(
 # ----- Available Context Labels ----- #
 
 
-@app.get("/case-contexts")
+@app.get("/case-contexts", tags=["cases"])
 def list_case_contexts(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> list[CaseContext]:
@@ -1506,7 +1576,7 @@ def list_case_contexts(
     return actions
 
 
-@app.post("/case-contexts")
+@app.post("/case-contexts", tags=["cases"])
 def create_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseContextParams,
@@ -1519,7 +1589,7 @@ def create_case_context(
     return params
 
 
-@app.delete("/case-contexts/{case_context_id}")
+@app.delete("/case-contexts/{case_context_id}", tags=["cases"])
 def delete_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     case_context_id: str,
@@ -1542,7 +1612,7 @@ def delete_case_context(
     pass
 
 
-@app.post("/completions/cases/stream")
+@app.post("/completions/cases/stream", tags=["cases", "completions"])
 async def streaming_autofill_case_fields(
     role: Annotated[Role, Depends(authenticate_user)],
     cases: list[Case],  # TODO: Replace this with case IDs
@@ -1601,7 +1671,7 @@ async def streaming_autofill_case_fields(
 # ----- Users ----- #
 
 
-@app.put("/users", status_code=status.HTTP_201_CREATED)
+@app.put("/users", status_code=status.HTTP_201_CREATED, tags=["users"])
 def create_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
@@ -1629,7 +1699,7 @@ def create_user(
         return user
 
 
-@app.get("/users")
+@app.get("/users", tags=["users"])
 def get_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
@@ -1648,7 +1718,7 @@ def get_user(
             ) from e
 
 
-@app.post("/users", status_code=status.HTTP_204_NO_CONTENT)
+@app.post("/users", status_code=status.HTTP_204_NO_CONTENT, tags=["users"])
 def update_user(
     role: Annotated[Role, Depends(authenticate_user)],
     params: UpdateUserParams,
@@ -1674,7 +1744,7 @@ def update_user(
         session.commit()
 
 
-@app.delete("/users", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/users", status_code=status.HTTP_204_NO_CONTENT, tags=["users"])
 def delete_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> None:
@@ -1855,7 +1925,7 @@ def search_secrets(
 # ----- UDFs ----- #
 
 
-@app.get("/udfs")
+@app.get("/udfs", tags=["udfs"])
 def list_udfs(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     limit: int | None = None,
@@ -1878,7 +1948,7 @@ def list_udfs(
         return udfs
 
 
-@app.get("/udfs/{key}")
+@app.get("/udfs/{key}", tags=["udfs"])
 def get_udf(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     key: str,
@@ -1904,7 +1974,7 @@ def get_udf(
         return udf
 
 
-@app.post("/udfs/{udf_key}")
+@app.post("/udfs/{udf_key}", tags=["udfs"])
 def create_udf(
     role: Annotated[Role, Depends(authenticate_user)],
     udf_key: str,
@@ -1926,7 +1996,7 @@ def create_udf(
         return udf
 
 
-@app.post("/udfs/{key}/validate")
+@app.post("/udfs/{key}/validate", tags=["udfs"])
 def validate_udf_args(
     role: Annotated[Role, Depends(authenticate_user)],
     key: str,
