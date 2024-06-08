@@ -26,9 +26,6 @@ TRACECAT__TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
 TRACECAT__TRIAGE_DIR = TRACECAT_DIR / "triage"
 TRACECAT__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-TRACECAT__SERVICE_ROLES_WHITELIST = [
-    "tracecat-runner",
-    "tracecat-api",
-]
+TRACECAT__SERVICE_ROLES_WHITELIST = ["tracecat-runner", "tracecat-api", "tracecat-cli"]
 
 TEMPORAL__CLUSTER_URL = os.environ.get("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
