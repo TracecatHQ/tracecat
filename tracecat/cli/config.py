@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import rich
 import typer
 from dotenv import find_dotenv, load_dotenv
@@ -14,3 +16,4 @@ if not load_dotenv(find_dotenv()):
 ROLE: Role = Role(
     type="service", user_id="default-tracecat-user", service_id="tracecat-cli"
 )
+DOCS_PATH = Path("docs")
