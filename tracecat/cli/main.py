@@ -1,10 +1,10 @@
 import typer
 from dotenv import find_dotenv, load_dotenv
 
-from . import dev, workflow
+from . import dev, secret, workflow
 
 load_dotenv(find_dotenv())
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 
 
 def version_callback(value: bool):
@@ -25,6 +25,7 @@ def tracecat(
 
 app.add_typer(workflow.app, name="workflow")
 app.add_typer(dev.app, name="dev")
+app.add_typer(secret.app, name="secret")
 
 if __name__ == "__main__":
-    app()
+    typer.run(app)
