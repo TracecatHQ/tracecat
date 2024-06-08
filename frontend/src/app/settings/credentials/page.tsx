@@ -46,13 +46,7 @@ export default function CredentialsPage() {
   })
   const { mutate } = useMutation({
     mutationFn: async (secret: Secret) => {
-      // Fix for Problem 1: Update mutationFn to return a Promise
-      if (!secret.id) {
-        // Fix for Problem 2: Provide a default value for secret?.id
-        console.error("No secret provided to delete")
-        return
-      }
-      await deleteSecret(secret?.id) // Fix for Problem 2: Await the deleteSecret function
+      await deleteSecret(secret.name)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["secrets"] })
