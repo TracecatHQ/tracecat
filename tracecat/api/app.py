@@ -207,7 +207,7 @@ async def tracecat_exception_handler(request: Request, exc: TracecatException):
     )
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
