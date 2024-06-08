@@ -10,7 +10,7 @@ from tracecat.auth.clients import AuthenticatedAPIClient
 from tracecat.dsl.common import DSLInput
 from tracecat.types.api import WebhookResponse
 
-from . import config
+from ._config import config
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
@@ -19,14 +19,14 @@ async def _upsert_workflow_definition(yaml_path: Path, workflow_id: str):
     """Bypass /workflows/{workflow_id}/commit endpoint and directly upsert the definition."""
     defn_content = DSLInput.from_yaml(yaml_path)
 
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         content = orjson.dumps({"content": defn_content.model_dump()})
         res = await client.post(f"/workflows/{workflow_id}/definition", content=content)
         res.raise_for_status()
 
 
 async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None):
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         # Get the webhook url
         res = await client.get(f"/workflows/{workflow_id}/webhooks")
         res.raise_for_status()
@@ -39,7 +39,7 @@ async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None)
 
 
 async def _create_workflow(title: str | None = None, description: str | None = None):
-    async with AuthenticatedAPIClient(role=config.ROLE) as client:
+    async with AuthenticatedAPIClient(role=config.role) as client:
         # Get the webhook url
         params = {}
         if title:
