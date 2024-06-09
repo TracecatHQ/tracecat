@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Run Tracecat locally
+description: Run Tracecat locally.
 ---
 
 <Note>
@@ -11,35 +11,46 @@ description: Run Tracecat locally
 Install Tracecat locally on your machine.
 
 _NOTE: The default setup is not intended for production use, but rather for
-development and testing purposes._
+testing and development._
 
 ## Video Tutorial
 
-<iframe
-  width="560"
-  height="315"
-  src="https://www.youtube.com/embed/JE79sa2KCyk"
-  title="Installation Tutorial"
-  frameborder="0"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-  referrerpolicy="strict-origin-when-cross-origin"
-  allowfullscreen
-></iframe>
+_Updated video tutorial coming soon!_
 
 ## Prerequisites
 
-### Required
-
-- [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+)
-- [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop)
-- [ngrok](https://ngrok.com/)
-- [pnpm](https://pnpm.io/installation) (with Node v20+)
+Tracecat can operate in **Headless mode** (no frontend, optional CLI) or **GUI mode** (with frontend).
 
 <Warning>
-  This setup has only been tested on MacOS, Linux (Ubuntu 20.04), and Windows
-  WSL (Ubuntu 20.04). All with Docker Desktop and Docker Compose V2 installed.
+  Tracecat runs best on MacOS and and Windows WSL (Ubuntu 20.04) with Docker
+  Desktop installed on MacOS and Windows respectively. **Linux (Ubuntu 20.04) is
+  also supported, but you may encounter issues with Docker DNS resolution in GUI
+  mode.**
 </Warning>
+
+### Required
+
+Core infrastructure for both headless and GUI modes.
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop) (built-in resolution for `host.docker.internal`)
+- [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+; ships with Docker Desktop)
+- [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2; ships with Docker Desktop)
+- [ngrok](https://ngrok.com/) (recommended for tunneling)
+
+### Headless mode only
+
+You'll need these to run the Tracecat CLI.
+
+- [Python 3.12+](https://www.python.org/downloads/)
+- [pip](https://pip.pypa.io/en/stable/installation/)
+
+<Note>Advanced users may wish to hit the API endpoints directly.</Note>
+
+### GUI mode only
+
+You'll need this to run the Tracecat frontend.
+
+- [pnpm](https://pnpm.io/installation) (with Node v20+)
 
 ### Optional
 
@@ -52,22 +63,48 @@ You don't have to set up these services to run Tracecat, but they are required f
 
 Please install the prerequisite tools beforehand.
 
-Clone the `engine-0.1.0` tag from the Tracecat repository and navigate to the project root:
+First, clone the Tracecat repository:
 
 ```bash
-git clone git@github.com:TracecatHQ/tracecat.git --branch engine-0.1.0
+git clone git@github.com:TracecatHQ/tracecat.git
 cd tracecat
 ```
 
-From here, install the frontend dependencies using `pnpm`:
+### GUI mode
+
+To install the frontend dependencies using `pnpm`:
 
 ```bash
+# From the Tracecat directory root
 cd frontend
 pnpm install
 ```
 
 <Note>
   The frontend Docker container looks for `node_modules` on the host machine.
+</Note>
+
+### Headless mode
+
+To do this we'll have to install the Tracecat CLI. We recommend installing the CLI in a virtual environment with `pip`.
+
+Activate your virtual environment, then install the CLI:
+
+```bash
+# With your venv activated
+pip install ".[cli]"
+```
+
+You can now access the Tracecat CLI by running:
+
+```bash
+tracecat  # or 'tracecat --help'
+```
+
+<Note>
+  If you use `oh-my-zsh`, running just `tracecat` might move you into the
+  Tracecat package. To avoid this you can run `tracecat --help` to see the
+  available commands. All other commands should work as expected.
 </Note>
 
 ### Environment variables
@@ -93,13 +130,13 @@ chmod +x env.sh
 bash env.sh
 ```
 
-You'll be prompted to enter your public facing Runner URL, OpenAI API key, and Resend API key.
+You'll be prompted to enter your public facing runner URL, optional OpenAI API key, and optional Resend API key.
 If you'd rather provide these later, you can skip each prompt step by pressing `Enter`.
 
-If you use `ngrok`, the Runner URL should take the form `https://<your-ngrok-domain>.ngrok-free.app`.
-See the section [Expose runner via ngrok](#expose-runner-via-ngrok) for more details.
+If you use `ngrok`, the public runner URL should take the form `https://<your-ngrok-domain>.ngrok-free.app`.
+See the section [Expose webhooks via ngrok](#expose-webhooks-via-ngrok) for more details.
 
-### Expose runner via ngrok
+### Expose webhooks via ngrok
 
 Go to [ngrok](https://ngrok.com/) and create an account.
 Follow the instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install `ngrok` on your local machine.
@@ -120,7 +157,7 @@ ngrok http http://localhost:8000
 
 <Note>
   By binding `ngrok` to port 8001 on the host machine, incoming webhook requests
-  are forwarded to the Runner container.
+  are forwarded to the workflow runner.
 </Note>
 
 If correctly set up, your .env should contain:
@@ -138,6 +175,7 @@ To resolve this, you can add the following parameter to each of the services in 
 For example:
 
 ```yaml
+# See the comments (1) and (2) below
 services:
   api:
     build: .
@@ -149,9 +187,7 @@ services:
       - app-storage:/var/lib/tracecat
     environment:
       API_MODULE: "tracecat.api.app:app"
-      # Shared
       LOG_LEVEL: ${LOG_LEVEL}
-      RABBITMQ_URI: ${RABBITMQ_URI}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
@@ -162,17 +198,15 @@ services:
       # Auth
       CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     restart: unless-stopped
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     networks:
-      - internal-network
+      - tracecat-network
+    ###### (1) Add this section here ######
     extra_hosts:
       - "host.docker.internal:host-gateway"
-# Do the same for the rest of the services
+    #######################################
+# (2) Repeat this change for ALL of the services
 # ...
 ```
 
