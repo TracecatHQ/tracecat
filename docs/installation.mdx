@@ -22,10 +22,15 @@ _Updated video tutorial coming soon!_
 Tracecat can operate in **Headless mode** (no frontend, optional CLI) or **GUI mode** (with frontend).
 
 <Warning>
-  Tracecat runs best on MacOS and and Windows WSL (Ubuntu 20.04) with Docker
-  Desktop installed on MacOS and Windows respectively. **Linux (Ubuntu 20.04) is
-  also supported, but you may encounter issues with Docker DNS resolution in GUI
-  mode.**
+  <>
+    Tracecat runs best on MacOS and and Windows WSL (Ubuntu 20.04 + Docker
+    Desktop in Windows).
+  </>
+  <>
+    Linux (Ubuntu 20.04) is also supported, but **you may encounter issues with
+    Docker DNS resolution in GUI mode. Please see [Docker
+    networking](#docker-networking) to troubleshoot.**
+  </>
 </Warning>
 
 ### Required
@@ -36,6 +41,7 @@ Core infrastructure for both headless and GUI modes.
 - [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+; ships with Docker Desktop)
 - [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2; ships with Docker Desktop)
 - [ngrok](https://ngrok.com/) (recommended for tunneling)
+- [Temporal](https://github.com/temporalio/docker-compose) (clone this into a separate directory)
 
 ### Headless mode only
 
@@ -156,7 +162,7 @@ ngrok http http://localhost:8000
 ```
 
 <Note>
-  By binding `ngrok` to port 8001 on the host machine, incoming webhook requests
+  By binding `ngrok` to port 8000 on the host machine, incoming webhook requests
   are forwarded to the workflow runner.
 </Note>
 
@@ -210,22 +216,52 @@ services:
 # ...
 ```
 
-### Start Tracecat services
+### Setup Temporal
 
-Finally, start Tracecat using `docker compose`:
+Visit [temporalio/docker-compose](https://github.com/temporalio/docker-compose) and follow their installation guide to clone this into a separate directory.
+We will just use the base `docker-compose.yml` for this.
+
+## Start Tracecat
+
+The Tracecat stack manages services that span the application and persistence layers.
+Temporal manages the workflow orchestration layer.
+
+First, spin up the Temporal stack. From the cloned `temporalio/docker-compose` repository run:
 
 ```bash
+# In path/to/some/docker-compose
 docker compose up
+```
+
+Finally, start Tracecat. Navigate to the `tracecat` root directory and run:
+
+```bash
+# In path/to/tracecat
+
+# GUI mode
+docker compose up
+
+# Headless mode (no frontend)
+docker compose up api postgres_db worker
 ```
 
 ## Access Tracecat
 
 The Tracecat frontend should now be running on port `3000`.
-To access the frontend, open your browser and navigate to `http://localhost:3000`.
+To access the frontend, open your browser and navigate to [http://localhost:3000](http://localhost:3000).
 You do not need to create an account for local usage.
 
-Tracecat's API and runner servers are also accessible via ports `8000` and `8001`, respectively.
-You can view the API docs at `http://localhost:8000/docs` and the runner docs at `http://localhost:8001/docs`.
+Tracecat's API server is also accessible via port `8000`. You should see
+
+```json
+{
+  "message": "Hello world. I am the API."
+}
+```
+
+when you navigate to [http://localhost:8000](http://localhost:8000).
+
+You can also visit the Temporal Web UI (port `8080`) at [http://localhost:8080](http://localhost:8080) to monitor the workflows.
 
 <Check>
   Congratulations! You have successfully installed Tracecat. This setup includes
@@ -236,9 +272,10 @@ You can view the API docs at `http://localhost:8000/docs` and the runner docs at
 
 ## Stop Tracecat
 
-To spin down all services, run the following command:
+To spin down all services, in both the cloned `temporalio/docker-compose` and `tracecat` root directories run the following command:
 
 ```bash
+# Separately in both /path/to/some/docker-compose and /path/to/tracecat
 docker compose down --remove-orphans
 ```
 
