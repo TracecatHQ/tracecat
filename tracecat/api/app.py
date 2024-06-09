@@ -6,7 +6,16 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import polars as pl
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
@@ -538,30 +547,36 @@ def copy_workflow(
 def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    yaml_file: UploadFile = File(None),
 ) -> None:
     """Commit a workflow.
 
-    This deploys the workflow and updates its version."""
+    This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
 
-    # Grab workflow and actions
     with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+        if yaml_file:
+            # Uploaded YAML file overrides the workflow in the database
+            dsl = DSLInput.from_yaml(yaml_file.file)
+            logger.info("Commiting workflow from yaml file", role=role)
+        else:
+            # Grab workflow and actions from tables
+            statement = select(Workflow).where(
+                Workflow.owner_id == role.user_id,
+                Workflow.id == workflow_id,
+            )
+            result = session.exec(statement)
+            try:
+                workflow = result.one()
+            except NoResultFound as e:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+                ) from e
 
-        # Hydrate actions
-        _ = workflow.actions
+            # Hydrate actions
+            _ = workflow.actions
 
-        # Convert the workflow into a WorkflowDefinition
-        dsl = converters.workflow_to_dsl(workflow)
+            # Convert the workflow into a WorkflowDefinition
+            dsl = converters.workflow_to_dsl(workflow)
         _upsert_workflow_definition(session, role, workflow_id, dsl)
 
 

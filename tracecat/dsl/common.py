@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 from typing import Annotated, Any, Literal, Self
 
 import yaml
@@ -74,9 +75,16 @@ class DSLInput(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
 
     @staticmethod
-    def from_yaml(path: str | Path) -> DSLInput:
-        with Path(path).open("r") as f:
-            yaml_str = f.read()
+    def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:
+        """Read a DSL definition from a YAML file."""
+        # Handle binaryIO
+        if isinstance(path, str | Path):
+            with Path(path).open("r") as f:
+                yaml_str = f.read()
+        elif isinstance(path, SpooledTemporaryFile):
+            yaml_str = path.read().decode()
+        else:
+            raise ValueError(f"Invalid file/path type {type(path)}")
         dsl_dict = yaml.safe_load(yaml_str)
         return DSLInput.model_validate(dsl_dict)
 
