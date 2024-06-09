@@ -94,6 +94,8 @@ _FN_TABLE = {
     "div": operator.truediv,
     "mod": operator.mod,
     "pow": operator.pow,
+    # Transform
+    "join": lambda items: ", ".join(items),
 }
 
 
