@@ -16,10 +16,9 @@ if not load_dotenv(find_dotenv()):
 @dataclass(frozen=True)
 class Config:
     role: Role = field(
-        default_factory=lambda: Role(
-            type="service", user_id="default-tracecat-user", service_id="tracecat-cli"
-        )
+        default_factory=lambda: Role(type="service", user_id="default-tracecat-user")
     )
+    jwt_token: str = field(default="super-secret-jwt-token")
     docs_path: Path = field(default_factory=lambda: Path("docs"))
     docs_api_group: str = field(default="API Documentation")
     docs_api_pages_group: str = field(default="Reference")
