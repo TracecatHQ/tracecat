@@ -177,12 +177,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-    post:
+    patch:
       tags:
       - workflows
       summary: Update Workflow
       description: Update a workflow.
-      operationId: update_workflow_workflows__workflow_id__post
+      operationId: update_workflow_workflows__workflow_id__patch
       security:
       - OAuth2PasswordBearer: []
       parameters:
@@ -273,7 +273,8 @@ paths:
       description: 'Commit a workflow.
 
 
-        This deploys the workflow and updates its version.'
+        This deploys the workflow and updates its version. If a YAML file is provided,
+        it will override the workflow in the database.'
       operationId: commit_workflow_workflows__workflow_id__commit_post
       security:
       - OAuth2PasswordBearer: []
@@ -284,6 +285,13 @@ paths:
         schema:
           type: string
           title: Workflow Id
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/Body_commit_workflow_workflows__workflow_id__commit_post'
+              title: Body
       responses:
         '204':
           description: Successful Response
@@ -541,46 +549,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /workflows/{workflow_id}/webhooks:
-    get:
-      tags:
-      - triggers
-      summary: List Webhooks
-      description: List all webhooks for a workflow. Wrokflows only have one webhook
-        at the moment but this may change in the future.
-      operationId: list_webhooks_workflows__workflow_id__webhooks_get
-      security:
-      - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
-      parameters:
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/WebhookResponse'
-                title: Response List Webhooks Workflows  Workflow Id  Webhooks Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/webhook:
     post:
       tags:
       - triggers
       summary: Create Webhook
       description: Create a webhook for a workflow.
-      operationId: create_webhook_workflows__workflow_id__webhooks_post
+      operationId: create_webhook_workflows__workflow_id__webhook_post
       security:
       - OAuth2PasswordBearer: []
       - APIKeyHeader: []
@@ -609,23 +584,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /workflows/{workflow_id}/webhooks/{webhook_id}:
     get:
       tags:
       - triggers
       summary: Get Webhook
       description: Get the webhook from a workflow.
-      operationId: get_webhook_workflows__workflow_id__webhooks__webhook_id__get
+      operationId: get_webhook_workflows__workflow_id__webhook_get
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
       parameters:
-      - name: webhook_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Webhook Id
       - name: workflow_id
         in: path
         required: true
@@ -645,56 +612,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-    delete:
-      tags:
-      - triggers
-      summary: Delete Webhook
-      description: Delete the webhook from a workflow.
-      operationId: delete_webhook_workflows__workflow_id__webhooks__webhook_id__delete
-      security:
-      - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
-      parameters:
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
-      - name: webhook_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Webhook Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
     patch:
       tags:
       - triggers
       summary: Update Webhook
-      description: Update a webhook for a workflow.
-      operationId: update_webhook_workflows__workflow_id__webhooks__webhook_id__patch
+      description: Update the webhook for a workflow. We currently supprt only one
+        webhook per workflow.
+      operationId: update_webhook_workflows__workflow_id__webhook_patch
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
       parameters:
-      - name: webhook_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Webhook Id
       - name: workflow_id
         in: path
         required: true
@@ -708,11 +635,8 @@ paths:
             schema:
               $ref: '#/components/schemas/UpsertWebhookParams'
       responses:
-        '200':
+        '204':
           description: Successful Response
-          content:
-            application/json:
-              schema: {}
         '422':
           description: Validation Error
           content:
@@ -2272,6 +2196,14 @@ components:
       - ref
       - action
       title: ActionStatement
+    Body_commit_workflow_workflows__workflow_id__commit_post:
+      properties:
+        yaml_file:
+          type: string
+          format: binary
+          title: Yaml File
+      type: object
+      title: Body_commit_workflow_workflows__workflow_id__commit_post
     Body_streaming_autofill_case_fields_completions_cases_stream_post:
       properties:
         cases:

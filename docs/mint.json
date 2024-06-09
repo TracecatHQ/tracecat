@@ -102,8 +102,8 @@
                 "api-reference/reference/workflows/list-workflows",
                 "api-reference/reference/workflows/create-workflow",
                 "api-reference/reference/workflows/get-workflow",
-                "api-reference/reference/workflows/update-workflow",
                 "api-reference/reference/workflows/delete-workflow",
+                "api-reference/reference/workflows/update-workflow",
                 "api-reference/reference/workflows/copy-workflow",
                 "api-reference/reference/workflows/commit-workflow",
                 "api-reference/reference/workflows/get-workflow-definition",
@@ -118,10 +118,8 @@
             {
               "group": "triggers",
               "pages": [
-                "api-reference/reference/triggers/list-webhooks",
-                "api-reference/reference/triggers/create-webhook",
                 "api-reference/reference/triggers/get-webhook",
-                "api-reference/reference/triggers/delete-webhook",
+                "api-reference/reference/triggers/create-webhook",
                 "api-reference/reference/triggers/update-webhook",
                 "api-reference/reference/triggers/list-schedules",
                 "api-reference/reference/triggers/create-schedule",
