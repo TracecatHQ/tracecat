@@ -103,6 +103,6 @@ dotenv_replace "RESEND_API_KEY" "$resend_api_key" "$env_file"
 
 # Check if the existing value matches the default value
 if [ "$runner_url" == "https://your-ngrok-runner-url" ]; then
-    echo -e "${RED}The TRACECAT__RUNNER_URL value is missing. Please update it in the .env file.${NC}"
+    echo -e "${RED}The TRACECAT__PUBLIC_RUNNER_URL value is missing. Please update it in the .env file.${NC}"
     exit 1
 fi

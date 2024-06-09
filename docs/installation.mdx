@@ -109,13 +109,13 @@ The domain should be in the format `<some-random-phrase>.ngrok-free.app`.
 For example, if your ngrok domain is `your-grnok-domain.ngrok-free.app`, start `ngrok` by running the following command:
 
 ```bash
-ngrok http --domain=your-ngrok-domain.ngrok-free.app 8001
+ngrok http --domain=your-ngrok-domain.ngrok-free.app 8000
 ```
 
 If you don't have a static domain, you can use a free ephermeral domain by running:
 
 ```bash
-ngrok http http://localhost:8001
+ngrok http http://localhost:8000
 ```
 
 <Note>
@@ -126,7 +126,7 @@ ngrok http http://localhost:8001
 If correctly set up, your .env should contain:
 
 ```bash
-TRACECAT__RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
+TRACECAT__PUBLIC_RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
 ```
 
 ### Linux users
@@ -158,7 +158,7 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__RUNNER_URL: ${TRACECAT__RUNNER_URL}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
       # Auth
       CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}

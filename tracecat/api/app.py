@@ -107,15 +107,9 @@ def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__APP_ENV == "production":
         # NOTE: If you are using Tracecat self-hosted
         # please replace with your own domain
-        cors_origins_kwargs = {
-            "allow_origins": [
-                "https://platform.tracecat.com",
-                config.TRACECAT__RUNNER_URL,
-            ]
-        }
+        cors_origins_kwargs = {"allow_origins": ["https://platform.tracecat.com"]}
     elif config.TRACECAT__APP_ENV == "staging":
         cors_origins_kwargs = {
-            # "allow_origins": [config.TRACECAT__RUNNER_URL],
             # "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
             "allow_origins": "*"
         }

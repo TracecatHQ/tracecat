@@ -47,7 +47,6 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
     )
     monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
-    monkeysession.setenv("TRACECAT__RUNNER_URL", "http://runner:8000")
     monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", "test-service-key")
     monkeysession.setenv("TEMPORAL__DOCKER_COMPOSE_PATH", temporal_compose_file)
