@@ -20,17 +20,9 @@ export async function updateDndFlow(
   reactFlowInstance: ReactFlowInstance | null
 ) {
   try {
-    const objectContent = reactFlowInstance
-      ? reactFlowInstance.toObject()
-      : null
-    const updateFlowObjectParams = {
-      object: objectContent,
-    }
-
-    await client.post(`/workflows/${workflowId}`, updateFlowObjectParams, {
-      headers: {
-        "Content-Type": "application/json",
-      },
+    const object = reactFlowInstance ? reactFlowInstance.toObject() : null
+    await client.patch(`/workflows/${workflowId}`, {
+      object,
     })
     console.log("Updated DnD flow object")
   } catch (error) {
