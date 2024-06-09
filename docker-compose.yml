@@ -10,17 +10,18 @@ services:
       - ./tracecat:/app/tracecat
       - app-storage:/var/lib/tracecat
     environment:
-      API_MODULE: "tracecat.api.app:app"
       LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}  # Sensitive
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}  # Sensitive
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}  # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}  # Sensitive
+      # Clerk auth
+      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
@@ -28,6 +29,32 @@ services:
     restart: unless-stopped
     networks:
       - internal-network
+
+  worker:
+    build: .
+    container_name: worker
+    volumes:
+      - ./tracecat:/app/tracecat
+      - app-storage:/var/lib/tracecat
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}  # Sensitive
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}  # Sensitive
+      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}  # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}  # Sensitive
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+    restart: unless-stopped
+    networks:
+      - internal-network
+    entrypoint: ["python", "tracecat/dsl/worker.py"]
 
   frontend:
     build:
@@ -45,15 +72,15 @@ services:
       - ./frontend/.next:/app/.next
       - ./frontend/node_modules:/app/node_modules
     environment:
-      NODE_ENV: ${NODE_ENV}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-      NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL}
       NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_URL}
+      NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      NODE_ENV: ${NODE_ENV}
     restart: unless-stopped
     depends_on:
       - api
@@ -74,33 +101,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     networks:
       - internal-network
-  worker:
-    build: .
-    container_name: worker
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      # Shared
-      LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      # Auth
-      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      # Integrations
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      # Temporal
-      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
-      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-    restart: unless-stopped
-    networks:
-      - internal-network
-    entrypoint: ["python", "tracecat/dsl/worker.py"]
 
 networks:
   internal-network:
