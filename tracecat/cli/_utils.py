@@ -1,4 +1,14 @@
+import httpx
 from rich.table import Table
+
+from ._config import config
+
+
+def user_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {config.jwt_token}"},
+        base_url=config.api_url,
+    )
 
 
 def dynamic_table(data: list[dict[str, str]], title: str) -> Table:

@@ -9,17 +9,9 @@ from rich.console import Console
 
 from tracecat.types.api import WebhookResponse
 
-from ._config import config
-from ._utils import dynamic_table
+from ._utils import dynamic_table, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
-
-
-def user_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {config.jwt_token}"},
-        base_url=config.api_url,
-    )
 
 
 async def _commit_workflow(yaml_path: Path, workflow_id: str):
