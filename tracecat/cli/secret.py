@@ -59,7 +59,10 @@ def create(
     secret_name: str = typer.Argument(
         ..., help="Secret name, can have multiple key-value pairs"
     ),
-    keyvalues: list[str] = typer.Argument(..., help="Space-separated KEY-VALUE items"),
+    keyvalues: list[str] = typer.Argument(
+        ...,
+        help="Space-separated KEY-VALUE items, e.g. `KEY1=VAL1 KEY2=VAL2 ...`.",
+    ),
 ):
     """
     Create a secret.
