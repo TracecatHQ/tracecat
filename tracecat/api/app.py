@@ -437,7 +437,7 @@ def get_workflow(
         )
 
 
-@app.post(
+@app.patch(
     "/workflows/{workflow_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["workflows"],
