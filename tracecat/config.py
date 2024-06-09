@@ -27,4 +27,14 @@ TRACECAT__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 TRACECAT__SERVICE_ROLES_WHITELIST = ["tracecat-runner", "tracecat-api", "tracecat-cli"]
 
-TEMPORAL__CLUSTER_URL = os.environ.get("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
+# Temporal configs
+TEMPORAL__CLUSTER_URL = os.environ.get(
+    "TEMPORAL__CLUSTER_URL", "http://localhost:7233"
+)  # AKA Temporal target host
+TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
+    "TEMPORAL__CLUSTER_NAMESPACE", "default"
+)  # Temporal namespace
+TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
+TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
+TEMPORAL__TLS_CLIENT_CERT = os.environ.get("TEMPORAL__TLS_CLIENT_CERT")
+TEMPORAL__TLS_CLIENT_PRIVATE_KEY = os.environ.get("TEMPORAL__TLS_CLIENT_PRIVATE_KEY")

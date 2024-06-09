@@ -13,19 +13,19 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}  # Sensitive
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}  # Sensitive
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
       TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}  # Sensitive
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}  # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       # Clerk auth
       CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
       # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       # Temporal
-      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
-      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
     networks:
       - internal-network
@@ -40,21 +40,21 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}  # Sensitive
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}  # Sensitive
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
       TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}  # Sensitive
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}  # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       # Temporal
-      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
-      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
     networks:
       - internal-network
-    entrypoint: ["python", "tracecat/dsl/worker.py"]
+    entrypoint: [ "python", "tracecat/dsl/worker.py" ]
 
   frontend:
     build:
@@ -62,7 +62,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY} # Sensitive
     container_name: frontend
     env_file: .env
     ports:
@@ -72,7 +72,7 @@ services:
       - ./frontend/.next:/app/.next
       - ./frontend/node_modules:/app/node_modules
     environment:
-      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY} # Sensitive
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
@@ -104,6 +104,7 @@ services:
 
 networks:
   internal-network:
+
 
 volumes:
   app-storage:
