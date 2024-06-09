@@ -274,7 +274,6 @@ class DSLActivities:
         # 2. Load the secrets
         # 3. Inject the secrets into the task arguments using an enriched context
         secret_refs = templates.extract_templated_secrets(task.args)
-        logger.warning("Secrets", secret_refs=secret_refs)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
             # Resolve all templated arguments
             logger.info("Evaluating task arguments", secrets=sandbox.secrets)
