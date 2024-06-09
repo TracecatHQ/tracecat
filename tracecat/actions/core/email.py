@@ -145,8 +145,6 @@ async def send_email(
     body: str,
     sender: str = "mail@tracecat.com",
     provider: Literal["resend"] = "resend",
-    # Common
-    action_run_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a send email action."""
     logger.debug(
