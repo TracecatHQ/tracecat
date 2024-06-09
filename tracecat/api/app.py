@@ -365,14 +365,11 @@ def create_workflow(
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
 
-    title = (
-        datetime.now().strftime("%b %d, %Y, %H:%M:%S")
-        if params.title is None
-        else params.title
-    )
+    now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+    title = now if params.title is None else params.title
     # Create the message
     description = (
-        f"New workflow created {title}"
+        f"New workflow created {now}"
         if params.description is None
         else params.description
     )
