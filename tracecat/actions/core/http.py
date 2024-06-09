@@ -29,7 +29,7 @@ class HTTPResponse(TypedDict):
 async def http_request(
     url: Annotated[
         AnyHttpUrl,
-        Field(description="The destination of the HTTP request", max_length=100),
+        Field(description="The destination of the HTTP request"),
     ],
     headers: Annotated[
         dict[str, str],
