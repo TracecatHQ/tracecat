@@ -15,7 +15,7 @@ import {
 } from "@/types/schemas"
 import { client } from "@/lib/api"
 
-export async function updateDndFlow(
+export async function updateWorkflowGraphObject(
   workflowId: string,
   reactFlowInstance: ReactFlowInstance | null
 ) {
