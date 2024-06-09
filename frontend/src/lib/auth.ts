@@ -63,8 +63,8 @@ const __clerk = authConfig.disabled
  */
 export async function getAuthToken() {
   if (authConfig.disabled) {
-    console.warn("Auth is disabled, using test token.")
-    return "super-secret-token-32-characters-long"
+    console.warn("Auth is disabled, using test token `super-secret-jwt-token`")
+    return "super-secret-jwt-token"
   }
   let token: string | null | undefined
   if (isServer()) {

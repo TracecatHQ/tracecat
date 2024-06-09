@@ -163,8 +163,11 @@ if IS_AUTH_DISABLED:
     # Override the authentication functions with a dummy function
     logger.warning("User authentication is disabled, using default user.")
     _DEFAULT_TRACECAT_USER_ID = "default-tracecat-user"
+    _DEFAULT_TRACECAT_JWT = "super-secret-jwt-token"
 
     async def _get_role_from_jwt(token: str | bytes) -> Role:
+        if token != _DEFAULT_TRACECAT_JWT:
+            raise HTTP_EXC(f"Auth disabled, please use {_DEFAULT_TRACECAT_JWT!r}.")
         role = Role(type="user", user_id=_DEFAULT_TRACECAT_USER_ID)
         ctx_role.set(role)
         return role
