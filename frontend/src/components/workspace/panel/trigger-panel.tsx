@@ -183,13 +183,13 @@ export function GeneralControls({ entrypointRef }: { entrypointRef?: string }) {
 }
 
 export function WebhookControls({
-  webhook: { id, url, status },
+  webhook: { url, status },
   workflowId,
 }: {
   webhook: Webhook
   workflowId: string
 }) {
-  const { mutateAsync } = useUpdateWebhook(workflowId, id)
+  const { mutateAsync } = useUpdateWebhook(workflowId)
   const onCheckedChange = async (checked: boolean) => {
     await mutateAsync({
       status: checked ? "online" : "offline",

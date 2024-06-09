@@ -84,7 +84,7 @@ export async function updateWorkflow(
   values: Record<string, any>
 ) {
   try {
-    const response = await client.post(`/workflows/${workflowId}`, values)
+    const response = await client.patch(`/workflows/${workflowId}`, values)
     return response.data
   } catch (error) {
     console.error("Error updating workflow:", error)
