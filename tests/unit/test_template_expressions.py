@@ -196,6 +196,7 @@ async def test_evaluate_templated_secret(mock_api, auth_sandbox):
             {
                 "a": "Test ${{ SECRETS.my_secret.TEST_API_KEY_1 }} #A",
                 "b": "Test ${{ SECRETS.other_secret.test_api_key_2 }} #B",
+                "c": "${{ SECRETS.my_secret.NOISE_1 }}",
             },
             {
                 "a": "3",
@@ -217,6 +218,7 @@ async def test_evaluate_templated_secret(mock_api, auth_sandbox):
             {
                 "a": "Test 1234567890 #A",
                 "b": "Test @@@@@@@@@ #B",
+                "c": "asdfasdf",
             },
             {
                 "a": "3",
