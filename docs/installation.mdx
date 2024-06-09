@@ -45,12 +45,12 @@ Core infrastructure for both headless and GUI modes.
 
 ### Headless mode only
 
-You'll need these to run the Tracecat CLI.
+You can operate Tracecat directly through the REST API.
 
-- [Python 3.12+](https://www.python.org/downloads/)
-- [pip](https://pip.pypa.io/en/stable/installation/)
+It also has a CLI, though you'll need Python 3.12+ and pip to install it.
 
-<Note>Advanced users may wish to hit the API endpoints directly.</Note>
+- [Python 3.12+](https://www.python.org/downloads/) (CLI only)
+- [pip](https://pip.pypa.io/en/stable/installation/) (CLI only)
 
 ### GUI mode only
 
@@ -90,7 +90,7 @@ pnpm install
   The frontend Docker container looks for `node_modules` on the host machine.
 </Note>
 
-### Headless mode
+### Headless CLI mode (optional)
 
 To do this we'll have to install the Tracecat CLI. We recommend installing the CLI in a virtual environment with `pip`.
 
@@ -226,24 +226,27 @@ We will just use the base `docker-compose.yml` for this.
 The Tracecat stack manages services that span the application and persistence layers.
 Temporal manages the workflow orchestration layer.
 
-First, spin up the Temporal stack. From the cloned `temporalio/docker-compose` repository run:
+First, spin up the Temporal stack in the background. From the cloned `temporalio/docker-compose` repository run:
 
 ```bash
 # In path/to/some/docker-compose
-docker compose up
+docker compose up -d
 ```
 
 Finally, start Tracecat. Navigate to the `tracecat` root directory and run:
 
-```bash
+<CodeGroup>
 # In path/to/tracecat
 
-# GUI mode
-docker compose up
-
-# Headless mode (no frontend)
+```bash Headless mode
 docker compose up api postgres_db worker
 ```
+
+```bash GUI mode
+docker compose up
+```
+
+</CodeGroup>
 
 ## Access Tracecat
 
