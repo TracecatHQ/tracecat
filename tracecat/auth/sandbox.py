@@ -71,12 +71,14 @@ class AuthSandbox:
                 objs=self._secret_objs,
             )
             for secret in self._secret_objs:
-                self._context[secret.name] = {kv.key: kv.value for kv in secret.keys}
+                self._context[secret.name] = {
+                    kv.key: kv.value.get_secret_value() for kv in secret.keys
+                }
         else:
             logger.info("Setting secrets in the environment", paths=self._secret_paths)
             for secret in self._secret_objs:
                 for kv in secret.keys:
-                    os.environ[kv.key] = kv.value
+                    os.environ[kv.key] = kv.value.get_secret_value()
 
     def _unset_secrets(self):
         if self._target == "context":
