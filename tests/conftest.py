@@ -53,7 +53,7 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
     # When launching the worker directly in a test, use localhost
     # If the worker is running inside a container, use host.docker.internal
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
-    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-dsl-task-queue")
+    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-tracecat-task-queue")
     yield
     # Cleanup is automatic with monkeypatch
     logger.info("Environment variables cleaned up")

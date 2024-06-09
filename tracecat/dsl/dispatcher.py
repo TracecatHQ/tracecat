@@ -30,7 +30,7 @@ async def dispatch_workflow(dsl: DSLInput, **kwargs) -> DispatchResult:
         DSLWorkflow.run,
         DSLRunArgs(dsl=dsl, role=role),
         id=wf_id,
-        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "dsl-task-queue"),
+        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
         **kwargs,
     )
     logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")

@@ -54,7 +54,7 @@ async def main() -> None:
     # Run a worker for the activities and workflow
     async with Worker(
         client,
-        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "dsl-task-queue"),
+        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
         activities=dsl_activities,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
