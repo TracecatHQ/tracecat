@@ -23,6 +23,7 @@ services:
       CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
       # Integrations
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
