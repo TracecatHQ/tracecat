@@ -5,28 +5,39 @@ import httpx
 import orjson
 import rich
 import typer
+from rich.console import Console
 
-from tracecat.auth.clients import AuthenticatedAPIClient
-from tracecat.dsl.common import DSLInput
 from tracecat.types.api import WebhookResponse
 
 from ._config import config
+from ._utils import dynamic_table
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
 
-async def _upsert_workflow_definition(yaml_path: Path, workflow_id: str):
-    """Bypass /workflows/{workflow_id}/commit endpoint and directly upsert the definition."""
-    defn_content = DSLInput.from_yaml(yaml_path)
+def user_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {config.jwt_token}"},
+        base_url=config.api_url,
+    )
 
-    async with AuthenticatedAPIClient(role=config.role) as client:
-        content = orjson.dumps({"content": defn_content.model_dump()})
-        res = await client.post(f"/workflows/{workflow_id}/definition", content=content)
+
+async def _commit_workflow(yaml_path: Path, workflow_id: str):
+    """Commit a workflow definition to the database."""
+
+    with yaml_path.open() as f:
+        yaml_content = f.read()
+
+    async with user_client() as client:
+        res = await client.post(
+            f"/workflows/{workflow_id}/commit",
+            files={"yaml_file": (yaml_path.name, yaml_content, "application/yaml")},
+        )
         res.raise_for_status()
 
 
 async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None):
-    async with AuthenticatedAPIClient(role=config.role) as client:
+    async with user_client() as client:
         # Get the webhook url
         res = await client.get(f"/workflows/{workflow_id}/webhook")
         res.raise_for_status()
@@ -38,7 +49,7 @@ async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None)
 
 
 async def _create_workflow(title: str | None = None, description: str | None = None):
-    async with AuthenticatedAPIClient(role=config.role) as client:
+    async with user_client() as client:
         # Get the webhook url
         params = {}
         if title:
@@ -51,16 +62,21 @@ async def _create_workflow(title: str | None = None, description: str | None = N
     rich.print(res.json())
 
 
+async def _list_workflows():
+    async with user_client() as client:
+        res = await client.get("/workflows")
+        res.raise_for_status()
+    return dynamic_table(res.json(), "Workfows")
+
+
 @app.command(help="Create a workflow")
 def create(
-    file: Path = typer.Option(
-        ..., "--file", "-f", help="Path to the workflow definition YAML file"
-    ),
+    title: str = typer.Option(None, "--title", "-t", help="Title of the workflow"),
+    description: str = typer.Option(None, "--description", "-d", help="Description"),
 ):
     """Create a new workflow."""
     rich.print("Creating a new workflow")
-    defn = DSLInput.from_yaml(file)
-    asyncio.run(_create_workflow(defn.title, defn.description))
+    asyncio.run(_create_workflow(title, description))
 
 
 @app.command(help="List all workflow definitions")
@@ -73,16 +89,16 @@ def commit(
     ),
 ):
     """Commit a workflow definition to the database."""
-    asyncio.run(_upsert_workflow_definition(file, workflow_id))
+    asyncio.run(_commit_workflow(file, workflow_id))
     rich.print(f"Upserted workflow definition for {workflow_id!r}")
 
 
 @app.command(help="Commit a workflow definition")
-def list(
-    workflow_id: str = typer.Option(None, "--workflow-id", help="ID of the workflow"),
-):
+def list():
     """Commit a workflow definition to the database."""
     rich.print("Listing all workflows")
+    table = asyncio.run(_list_workflows())
+    Console().print(table)
 
 
 @app.command(help="Run a workflow", no_args_is_help=True)
