@@ -18,6 +18,7 @@ from tracecat.templates.expressions import (
     eval_jsonpath,
 )
 from tracecat.templates.patterns import FULL_TEMPLATE
+from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.secrets import SecretKeyValue
 
 
@@ -52,7 +53,7 @@ def test_eval_jsonpath():
     assert eval_jsonpath("$.webhook.result", operand) == 42
     assert eval_jsonpath("$.webhook.data.name", operand) == "John"
     assert eval_jsonpath("$.webhook.data.age", operand) == 30
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(TracecatExpressionError) as e:
         _ = eval_jsonpath("$.webhook.data.nonexistent", operand) is None
         assert "Operand has no path" in str(e.value)
 

@@ -25,5 +25,7 @@ def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:
     """Format secrets as a dict."""
     secret_dict = {}
     for secret in secrets:
-        secret_dict[secret.name] = {kv.key: kv.value for kv in secret.keys}
+        secret_dict[secret.name] = {
+            kv.key: kv.value.get_secret_value() for kv in secret.keys
+        }
     return secret_dict
