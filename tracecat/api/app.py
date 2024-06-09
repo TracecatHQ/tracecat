@@ -814,23 +814,8 @@ async def trigger_workflow_run(
 # ----- Workflow Webhooks ----- #
 
 
-@app.get("/workflows/{workflow_id}/webhooks", tags=["triggers"])
-def list_webhooks(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-) -> list[WebhookResponse]:
-    """List all webhooks for a workflow. Wrokflows only have one webhook at the moment but this may change in the future."""
-    with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        return [WebhookResponse(**webhook.model_dump()) for webhook in result.all()]
-
-
 @app.post(
-    "/workflows/{workflow_id}/webhooks",
+    "/workflows/{workflow_id}/webhook",
     status_code=status.HTTP_201_CREATED,
     tags=["triggers"],
 )
@@ -853,17 +838,15 @@ def create_webhook(
         session.refresh(webhook)
 
 
-@app.get("/workflows/{workflow_id}/webhooks/{webhook_id}", tags=["triggers"])
+@app.get("/workflows/{workflow_id}/webhook", tags=["triggers"])
 def get_webhook(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    webhook_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> WebhookResponse:
     """Get the webhook from a workflow."""
     with Session(engine) as session:
         statement = select(Webhook).where(
             Webhook.owner_id == role.user_id,
-            Webhook.id == webhook_id,
             Webhook.workflow_id == workflow_id,
         )
         result = session.exec(statement)
@@ -876,58 +859,35 @@ def get_webhook(
             ) from e
 
 
-@app.delete("/workflows/{workflow_id}/webhooks/{webhook_id}", tags=["triggers"])
-def delete_webhook(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-    webhook_id: str,
-) -> None:
-    """Delete the webhook from a workflow."""
-    with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.id == webhook_id,
-            Webhook.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            webhook = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        session.delete(webhook)
-        session.commit()
-
-
-@app.patch("/workflows/{workflow_id}/webhooks/{webhook_id}", tags=["triggers"])
+@app.patch(
+    "/workflows/{workflow_id}/webhook",
+    tags=["triggers"],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def update_webhook(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    webhook_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     params: UpsertWebhookParams,
 ) -> None:
-    """Update a webhook for a workflow."""
+    """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.id == webhook_id,
-            Webhook.workflow_id == workflow_id,
+        result = session.exec(
+            select(Workflow).where(
+                Workflow.owner_id == role.user_id, Workflow.id == workflow_id
+            )
         )
-        result = session.exec(statement)
         try:
-            webhook = result.one()
+            workflow = result.one()
         except NoResultFound as e:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        if params.entrypoint_ref is not None:
-            webhook.entrypoint_ref = params.entrypoint_ref
-        if params.method is not None:
-            webhook.method = params.method
-        if params.status is not None:
-            webhook.status = params.status
+        webhook = workflow.webhook
+
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safety: params have been validated
+            setattr(webhook, key, value)
 
         session.add(webhook)
         session.commit()

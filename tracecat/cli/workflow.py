@@ -28,10 +28,9 @@ async def _upsert_workflow_definition(yaml_path: Path, workflow_id: str):
 async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None):
     async with AuthenticatedAPIClient(role=config.role) as client:
         # Get the webhook url
-        res = await client.get(f"/workflows/{workflow_id}/webhooks")
+        res = await client.get(f"/workflows/{workflow_id}/webhook")
         res.raise_for_status()
-        # There's only 1 webhook
-        webhooks = WebhookResponse.model_validate(res.json()[0])
+        webhooks = WebhookResponse.model_validate(res.json())
     async with httpx.AsyncClient() as client:
         res = await client.post(webhooks.url, content=content)
         res.raise_for_status()

@@ -203,14 +203,14 @@ export function useActionInputs(action?: Action) {
   return { actionInputs, setActionInputs }
 }
 
-export function useUpdateWebhook(workflowId: string, webhookId: string) {
+export function useUpdateWebhook(workflowId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
     mutationFn: async (params: {
       entrypointRef?: string
       method?: "GET" | "POST"
       status?: "online" | "offline"
-    }) => await updateWebhook(workflowId, webhookId, params),
+    }) => await updateWebhook(workflowId, params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
