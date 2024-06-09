@@ -72,7 +72,12 @@ class DSLInput(BaseModel):
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
-    inputs: dict[str, Any] = Field(default_factory=dict)
+    inputs: dict[str, Any] = Field(
+        default_factory=dict, description="Statis input parameters"
+    )
+    trigger_inputs: dict[str, Any] = Field(
+        default_factory=dict, description="Dynamic input parameters"
+    )
 
     @staticmethod
     def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:

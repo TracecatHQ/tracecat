@@ -102,7 +102,7 @@ class Expression:
     i.e. `${{ <expression> -> <type> }}`
     """
 
-    _context: Literal["SECRETS", "FNS", "ACTIONS", "INPUTS", "ENV"]
+    _context: Literal["SECRETS", "FNS", "ACTIONS", "INPUTS", "ENV", "TRIGGER"]
     """The context of the expression, e.g. SECRETS, FNS, ACTIONS, INPUTS, or a jsonpath."""
 
     _expr: str

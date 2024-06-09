@@ -6,7 +6,7 @@ EXPR_PATTERN = re.compile(
     r"""
     ^\s*                                                    #  Optional whitespace
     (?P<full>                                               # Capture the full expression
-    (?P<context>INPUTS|ACTIONS|SECRETS|FNS|ENV?)            # Non-greedy capture for 'expression', any chars
+    (?P<context>INPUTS|ACTIONS|SECRETS|FNS|ENV|TRIGGER?)            # Non-greedy capture for 'expression', any chars
     \.
     (?P<expr>.+?)            # Non-greedy capture for 'expression', any chars
     (\s*->\s*(?P<rtype>int|float|str|bool))?
@@ -19,7 +19,7 @@ EXPR_PATTERN = re.compile(
 TYPED_TEMPLATE = re.compile(
     r"""
     \${{\s*                                               # Opening curly braces and optional whitespace
-    (?P<context>INPUTS|ACTIONS|SECRETS|FNS|ENV?)            # Non-greedy capture for 'expression', any chars
+    (?P<context>INPUTS|ACTIONS|SECRETS|FNS|ENV|TRIGGER?)            # Non-greedy capture for 'expression', any chars
     \.
     (?P<expr>.+?)            # Non-greedy capture for 'expression', any chars
     (\s*->\s*(?P<rtype>int|float|str|bool))?                             # Capture 'type', which must be one of 'int', 'float', 'str'

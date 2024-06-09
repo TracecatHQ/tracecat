@@ -33,10 +33,13 @@ class DSLRunArgs(BaseModel):
 
 class DSLContext(TypedDict):
     INPUTS: dict[str, Any]
-    """DSL Inputs context"""
+    """DSL Static Inputs context"""
 
     ACTIONS: dict[str, Any]
     """DSL Actions context"""
+
+    TRIGGER: dict[str, Any]
+    """DSL Trigger dynamic inputs context"""
 
 
 class DSLNodeResult(TypedDict):
@@ -183,7 +186,11 @@ class DSLWorkflow:
         ctx_logger.set(self.logger)
 
         self.dsl = args.dsl
-        self.context = DSLContext(INPUTS=self.dsl.inputs, ACTIONS={})
+        self.context = DSLContext(
+            ACTIONS={},
+            INPUTS=self.dsl.inputs,
+            TRIGGER=self.dsl.trigger_inputs,
+        )
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.logger.info("Running DSL task workflow")
 

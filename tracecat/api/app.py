@@ -330,6 +330,7 @@ async def incoming_webhook(
     # Fetch the DSL from the workflow object
     logger.info("Incoming webhook role", role=role)
     dsl_input = defn.content
+    dsl_input.trigger_inputs = payload
     logger.info(dsl_input.dump_yaml())
 
     asyncio.create_task(dispatch_workflow(dsl_input, workflow_id=path))
