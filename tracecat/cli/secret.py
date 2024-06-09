@@ -1,5 +1,6 @@
 import asyncio
 
+import orjson
 import rich
 import typer
 from rich.console import Console
@@ -22,7 +23,10 @@ async def create_secret(secret_name: str, keyvalues: list[str]):
     params = CreateSecretParams.from_strings(secret_name, keyvalues)
     async with user_client() as client:
         res = await client.put(
-            "/secrets", content=params.model_dump_json(exclude_unset=True).encode()
+            "/secrets",
+            content=orjson.dumps(
+                {**params.model_dump(exclude={"keys"}), "keys": params.reveal_keys()}
+            ),
         )
         res.raise_for_status()
 

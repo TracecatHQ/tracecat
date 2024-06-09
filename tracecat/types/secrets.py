@@ -12,6 +12,9 @@ class SecretKeyValue(BaseModel):
         key, value = kv.split("=", 1)
         return SecretKeyValue(key=key, value=value)
 
+    def reveal(self) -> dict[str, str]:
+        return {"key": self.key, "value": self.value.get_secret_value()}
+
 
 class SecretBase(BaseModel):
     pass

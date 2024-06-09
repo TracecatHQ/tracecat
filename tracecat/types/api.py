@@ -209,6 +209,9 @@ class CreateSecretParams(BaseModel):
         keys = [SecretKeyValue.from_str(kv) for kv in keyvalues]
         return CreateSecretParams(name=name, keys=keys)
 
+    def reveal_keys(self) -> dict[str, str]:
+        return [kv.reveal() for kv in self.keys]
+
     @field_validator("keys")
     def validate_keys(cls, v, values):
         if not v:
