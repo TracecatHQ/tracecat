@@ -5,6 +5,7 @@ import rich
 import typer
 from dotenv import find_dotenv, load_dotenv
 
+from tracecat import config
 from tracecat.auth.credentials import Role
 
 if not load_dotenv(find_dotenv()):
@@ -22,6 +23,7 @@ class Config:
     docs_path: Path = field(default_factory=lambda: Path("docs"))
     docs_api_group: str = field(default="API Documentation")
     docs_api_pages_group: str = field(default="Reference")
+    api_url: str = field(default=config.TRACECAT__API_URL)
 
 
 config = Config()
