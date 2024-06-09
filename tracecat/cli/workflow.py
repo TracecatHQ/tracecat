@@ -17,14 +17,16 @@ app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 async def _commit_workflow(yaml_path: Path, workflow_id: str):
     """Commit a workflow definition to the database."""
 
-    with yaml_path.open() as f:
-        yaml_content = f.read()
+    kwargs = {}
+    if yaml_path:
+        with yaml_path.open() as f:
+            yaml_content = f.read()
+        kwargs["files"] = {
+            "yaml_file": (yaml_path.name, yaml_content, "application/yaml")
+        }
 
     async with user_client() as client:
-        res = await client.post(
-            f"/workflows/{workflow_id}/commit",
-            files={"yaml_file": (yaml_path.name, yaml_content, "application/yaml")},
-        )
+        res = await client.post(f"/workflows/{workflow_id}/commit", **kwargs)
         res.raise_for_status()
 
 
@@ -35,12 +37,18 @@ async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None)
         res.raise_for_status()
         webhooks = WebhookResponse.model_validate(res.json())
     async with httpx.AsyncClient() as client:
-        res = await client.post(webhooks.url, content=content)
-        res.raise_for_status()
+        res = await client.post(
+            webhooks.url, content=orjson.dumps(content) if content else None
+        )
         rich.print(res.json())
 
 
-async def _create_workflow(title: str | None = None, description: str | None = None):
+async def _create_workflow(
+    title: str | None = None,
+    description: str | None = None,
+    activate_workflow: bool = False,
+    activate_webhook: bool = False,
+):
     async with user_client() as client:
         # Get the webhook url
         params = {}
@@ -50,8 +58,26 @@ async def _create_workflow(title: str | None = None, description: str | None = N
             params["description"] = description
         res = await client.post("/workflows", content=orjson.dumps(params))
         res.raise_for_status()
-    rich.print("Created workflow")
-    rich.print(res.json())
+        rich.print("Created workflow")
+        result = res.json()
+        rich.print(result)
+
+        if activate_workflow:
+            await _activate_workflow(result["id"], activate_webhook)
+
+
+async def _activate_workflow(workflow_id: str, with_webhook: bool = False):
+    async with user_client() as client:
+        res = await client.patch(
+            f"/workflows/{workflow_id}", content=orjson.dumps({"status": "online"})
+        )
+        res.raise_for_status()
+        if with_webhook:
+            res = await client.patch(
+                f"/workflows/{workflow_id}/webhook",
+                content=orjson.dumps({"status": "online"}),
+            )
+            res.raise_for_status()
 
 
 async def _list_workflows():
@@ -65,19 +91,25 @@ async def _list_workflows():
 def create(
     title: str = typer.Option(None, "--title", "-t", help="Title of the workflow"),
     description: str = typer.Option(None, "--description", "-d", help="Description"),
+    activate_workflow: bool = typer.Option(
+        False, "--activate", help="Activate the workflow"
+    ),
+    activate_webhook: bool = typer.Option(
+        False, "--webhook", help="Activate the webhook"
+    ),
 ):
     """Create a new workflow."""
     rich.print("Creating a new workflow")
-    asyncio.run(_create_workflow(title, description))
+    asyncio.run(
+        _create_workflow(title, description, activate_workflow, activate_webhook)
+    )
 
 
 @app.command(help="List all workflow definitions")
 def commit(
+    workflow_id: str = typer.Argument(..., help="ID of the workflow"),
     file: Path = typer.Option(
-        ..., "--file", "-f", help="Path to the workflow definition YAML file"
-    ),
-    workflow_id: str = typer.Option(
-        ..., "--workflow-id", "-w", help="ID of the workflow"
+        None, "--file", "-f", help="Path to the workflow definition YAML file"
     ),
 ):
     """Commit a workflow definition to the database."""
@@ -101,3 +133,15 @@ def run(
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r}")
     asyncio.run(_run_workflow(workflow_id, orjson.loads(data) if data else None))
+
+
+@app.command(help="Activate a workflow", no_args_is_help=True)
+def up(
+    workflow_id: str = typer.Argument(..., help="ID of the workflow to activate."),
+    with_webhook: bool = typer.Option(
+        False, "--webhook", help="Activate its webhook as well."
+    ),
+):
+    """Triggers a webhook to run a workflow."""
+    rich.print(f"Activating workflow {workflow_id!r}")
+    asyncio.run(_activate_workflow(workflow_id, with_webhook))
