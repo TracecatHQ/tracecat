@@ -60,7 +60,7 @@ function CollapsibleSection({
               {showToggleText && (
                 <span className="text-xs">{isOpen ? "Close" : "Expand"}</span>
               )}
-              <CaretSortIcon className="h-4 w-4" strokeWidth={2.5} />
+              <CaretSortIcon className="size-4" strokeWidth={2.5} />
               <span className="sr-only">Toggle</span>
             </div>
           </Button>

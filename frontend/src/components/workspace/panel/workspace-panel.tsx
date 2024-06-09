@@ -22,7 +22,7 @@ export function WorkspacePanel() {
   const selectedNode = getNode(selectedNodeId ?? "")
 
   return (
-    <div className="h-full w-full overflow-auto">
+    <div className="size-full overflow-auto">
       <Inner workflow={workflow} selectedNode={selectedNode} />
     </div>
   )

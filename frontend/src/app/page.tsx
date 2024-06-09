@@ -31,7 +31,7 @@ export default async function HomePage() {
             "absolute right-4 top-4 md:right-8 md:top-8"
           )}
         >
-          <Link href="/sign-in" className="flex flex-column">
+          <Link href="/sign-in" className="flex-column flex">
             <LogInIcon className="mr-3 size-5" />
             <span>Sign In</span>
           </Link>
@@ -44,7 +44,7 @@ export default async function HomePage() {
           </div>
         </div>
         <div className="lg:p-8">
-          <div className="mx-auto flex w-full flex-col justify-center text-center space-y-8 sm:w-[350px]">
+          <div className="mx-auto flex w-full flex-col justify-center space-y-8 text-center sm:w-[350px]">
             <Image
               src={TracecatIcon}
               alt="Tracecat"

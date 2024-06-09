@@ -7,7 +7,7 @@ interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
 }
 export default function UserAvatar({ src, alt, className }: UserAvatarProps) {
   return (
-    <Avatar className={cn("h-8 w-8", className)}>
+    <Avatar className={cn("size-8", className)}>
       <AvatarImage src={src} alt={alt} />
       <AvatarFallback>TC</AvatarFallback>
     </Avatar>

@@ -185,7 +185,7 @@ const getActivityDescription = ({
       const newStatus = (
         <StatusBadge status={statusObj?.value} className="ml-1">
           {statusObj?.icon && (
-            <statusObj.icon className="h-3 w-3 text-foreground" />
+            <statusObj.icon className="size-3 text-foreground" />
           )}
           {statusVal}
         </StatusBadge>
@@ -201,7 +201,7 @@ const getActivityDescription = ({
       const newPriority = (
         <StatusBadge status={priorityObj?.value} className="ml-1">
           {priorityObj?.icon && (
-            <priorityObj.icon className="h-3 w-3 text-muted-foreground" />
+            <priorityObj.icon className="size-3 text-muted-foreground" />
           )}
           {priorityObj?.label}
         </StatusBadge>

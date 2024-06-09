@@ -59,7 +59,7 @@ export function ComingSoonBadge({ className }: { className?: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "text-xs bg-white py-3",
+        "bg-white py-3 text-xs",
         className
       )}
     >

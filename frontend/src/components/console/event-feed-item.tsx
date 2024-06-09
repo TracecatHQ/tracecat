@@ -58,7 +58,7 @@ function WorkflowRunEvent({ id, status, created_at, updated_at }: WorkflowRun) {
         className="font-medium"
       />
       <span className="flex items-center justify-center text-xs text-muted-foreground">
-        <UpdateIcon className="mr-1 h-3 w-3" />
+        <UpdateIcon className="mr-1 size-3" />
         {updated_at.toLocaleTimeString()}
       </span>
     </Card>
@@ -110,7 +110,7 @@ function ActionRunEvent({
           className="font-medium"
         />
         <span className="flex items-center justify-center text-xs text-muted-foreground">
-          <UpdateIcon className="mr-1 h-3 w-3" />
+          <UpdateIcon className="mr-1 size-3" />
           {updated_at.toLocaleTimeString()}
         </span>
       </div>

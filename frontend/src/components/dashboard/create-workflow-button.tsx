@@ -41,7 +41,7 @@ const CreateWorkflowButton: React.FC = () => {
       className="space-x-2"
       onClick={handleCreateWorkflow}
     >
-      <PlusCircleIcon className="h-4 w-4" />
+      <PlusCircleIcon className="size-4" />
       <span>New workflow</span>
     </Button>
   )

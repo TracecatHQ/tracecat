@@ -31,31 +31,31 @@ function DashboardNav() {
       <Link
         href="/workflows"
         className={cn(
-          "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.startsWith("/workflows") && "text-primary"
         )}
       >
-        <WorkflowIcon className="mr-2 h-4 w-4" />
+        <WorkflowIcon className="mr-2 size-4" />
         <span>Workflows</span>
       </Link>
       <Link
         href="/playbooks"
         className={cn(
-          "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.startsWith("/playbooks") && "text-primary"
         )}
       >
-        <LibraryIcon className="mr-2 h-4 w-4" />
+        <LibraryIcon className="mr-2 size-4" />
         <span>Playbooks</span>
       </Link>
       <Link
         href="/integrations"
         className={cn(
-          "flex flex-cols items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.startsWith("/integrations") && "text-primary"
         )}
       >
-        <BlocksIcon className="mr-2 h-4 w-4" />
+        <BlocksIcon className="mr-2 size-4" />
         <span>Integrations</span>
       </Link>
     </nav>

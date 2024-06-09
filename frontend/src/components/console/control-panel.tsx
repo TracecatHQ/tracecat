@@ -87,7 +87,7 @@ export function ConsolePanel({
             <Badge variant="outline" className="flex gap-2">
               <span
                 className={cn(
-                  "flex h-2 w-2 rounded-full",
+                  "flex size-2 rounded-full",
                   isStreaming ? "bg-green-400" : "bg-gray-400"
                 )}
               />

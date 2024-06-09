@@ -14,7 +14,7 @@ export default function Navbar(props: NavbarProps) {
     <div className="w-full space-x-8 border-b" {...props}>
       <div className="flex h-12 w-full items-center space-x-5 px-5">
         <Link href="/workflows">
-          <Icons.logo className="h-5 w-5" />
+          <Icons.logo className="size-5" />
         </Link>
         <DynamicNavbar />
         <div className="flex flex-1 items-center justify-end space-x-6">

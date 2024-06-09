@@ -23,7 +23,7 @@ export async function WorkflowsDashboard() {
             <CreateWorkflowButton />
             <Link href="/playbooks">
               <Button variant="outline" role="combobox" className="space-x-2">
-                <ConeIcon className="h-4 w-4 text-emerald-600" />
+                <ConeIcon className="size-4 text-emerald-600" />
                 <span>Find playbook</span>
               </Button>
             </Link>
@@ -53,14 +53,14 @@ export async function WorkflowList() {
       {workflows.length === 0 ? (
         <div className="flex w-full flex-col items-center space-y-12">
           <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="size-12 rounded-full" />
             <div className="space-y-2">
               <Skeleton className="h-4 w-[250px]" />
               <Skeleton className="h-4 w-[200px]" />
             </div>
           </div>
           <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="size-12 rounded-full" />
             <div className="space-y-2">
               <Skeleton className="h-4 w-[250px]" />
               <Skeleton className="h-4 w-[200px]" />

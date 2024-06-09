@@ -100,9 +100,9 @@ export function Workspace({
                 onClick={toggleSidePanel}
               >
                 {isCollapsed ? (
-                  <ChevronsRight className="h-3 w-3" />
+                  <ChevronsRight className="size-3" />
                 ) : (
-                  <ChevronsLeft className="h-3 w-3" />
+                  <ChevronsLeft className="size-3" />
                 )}
               </Button>
             </CustomResizableHandle>

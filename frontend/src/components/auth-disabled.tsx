@@ -31,8 +31,8 @@ export function AuthDisabled() {
         Instructions for enabling auth can be found in the docs.
       </p>
       <Button className="text-xs" onClick={handleClick} disabled={isLoading}>
-        {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
-        <PawPrintIcon className="mr-2 h-4 w-4" />
+        {isLoading && <Icons.spinner className="mr-2 size-4 animate-spin" />}
+        <PawPrintIcon className="mr-2 size-4" />
         Continue to workflows
       </Button>
     </div >

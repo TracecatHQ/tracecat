@@ -67,7 +67,7 @@ export const columns: ColumnDef<Case>[] = [
       return (
         <div className="flex items-center space-x-2">
           {status.icon && (
-            <status.icon className="h-3 w-3 text-muted-foreground" />
+            <status.icon className="size-3 text-muted-foreground" />
           )}
           <span className="text-xs">{status.label}</span>
         </div>
@@ -220,7 +220,7 @@ export const columns: ColumnDef<Case>[] = [
         column={column}
         title="Tags"
         icon={
-          <Sparkles className="mr-1 h-3 w-3 animate-pulse fill-yellow-500 text-yellow-500" />
+          <Sparkles className="mr-1 size-3 animate-pulse fill-yellow-500 text-yellow-500" />
         }
       />
     ),

@@ -15,7 +15,7 @@ export const tableHeaderAuxOptions: AuxClickMenuOptionProps<TableCol>[] = [
     children: (
       <div className="flex items-center">
         <span>AI Autofill</span>
-        <Sparkles className="ml-2 h-4 w-4" />
+        <Sparkles className="ml-2 size-4" />
       </div>
     ),
     action: async ({ table, column }, client) => {

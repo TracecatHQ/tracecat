@@ -82,7 +82,7 @@ export default function CredentialsPage() {
               role="combobox"
               className="ml-auto space-x-2"
             >
-              <PlusCircle className="mr-2 h-4 w-4" />
+              <PlusCircle className="mr-2 size-4" />
               Create New Secret
             </Button>
           </NewCredentialsDialogTrigger>

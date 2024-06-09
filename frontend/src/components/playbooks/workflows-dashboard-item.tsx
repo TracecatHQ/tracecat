@@ -24,7 +24,7 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowMetadata }) {
             </span>
             <span
               className={cn(
-                "flex h-2 w-2 rounded-full",
+                "flex size-2 rounded-full",
                 workflow.status === "online" ? "bg-green-400" : "bg-gray-400"
               )}
             />

@@ -155,9 +155,9 @@ function InternalCaseTable() {
               disabled={isAutocompleting || !isCommitable}
             >
               {!isCommitting ? (
-                <GitGraph className="mr-2 h-3 w-3  fill-secondary" />
+                <GitGraph className="mr-2 size-3 fill-secondary" />
               ) : (
-                <Loader2 className="stroke-6 mr-2 h-4 w-4 animate-spin transition-all ease-in-out" />
+                <Loader2 className="stroke-6 mr-2 size-4 animate-spin transition-all ease-in-out" />
               )}
               Commit
             </Button>
@@ -168,9 +168,9 @@ function InternalCaseTable() {
             disabled={isAutocompleting}
           >
             {!isAutocompleting ? (
-              <Sparkles className="mr-2 h-3 w-3  fill-secondary" />
+              <Sparkles className="mr-2 size-3 fill-secondary" />
             ) : (
-              <Loader2 className="stroke-6 mr-2 h-4 w-4 animate-spin transition-all ease-in-out" />
+              <Loader2 className="stroke-6 mr-2 size-4 animate-spin transition-all ease-in-out" />
             )}
             Autocomplete
           </Button>

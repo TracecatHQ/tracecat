@@ -264,7 +264,7 @@ function StatusSelect({ status, onValueChange }: StatusSelectProps) {
             <SelectItem key={status.value} value={status.value}>
               <span className="flex items-center text-xs">
                 {status.icon && (
-                  <status.icon className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <status.icon className="mr-2 size-4 text-muted-foreground" />
                 )}
                 {status.label}
               </span>

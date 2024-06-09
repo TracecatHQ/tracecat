@@ -40,7 +40,7 @@ export default function OnboardingComponent() {
         <div className="flex flex-col items-center justify-center space-y-12 text-center">
           <div className="h-0">{isExploding && <ConfettiExplosion />}</div>
           <h3 className="flex text-3xl font-bold">
-            <PawPrint className="inline-block mr-5 size-8" />
+            <PawPrint className="mr-5 inline-block size-8" />
             Hello from the Tracecat team
           </h3>
           <div className="space-y-4">
@@ -61,12 +61,12 @@ export default function OnboardingComponent() {
           >
             {isLoading ? (
               <>
-                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                <Icons.spinner className="mr-2 size-4 animate-spin" />
                 Preparing your dashbaord
               </>
             ) : (
               <>
-                <WorkflowIcon className="mr-2 h-4 w-4" />
+                <WorkflowIcon className="mr-2 size-4" />
                 Continue to workflows
               </>
             )}

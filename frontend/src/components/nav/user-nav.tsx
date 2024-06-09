@@ -34,7 +34,7 @@ export default function UserNav() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+        <Button variant="ghost" className="relative size-8 rounded-full">
           <UserAvatar
             src={user?.imageUrl}
             alt={user?.fullName || userDefaults.alt}
@@ -60,24 +60,24 @@ export default function UserNav() {
             className="my-2 w-full"
           >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
-              <BookText className="mr-2 h-4 w-4" />
+              <BookText className="mr-2 size-4" />
               Read the Docs
             </DropdownMenuItem>
           </Link>
           <Link href="/settings" className="my-2 w-full">
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
-              <Settings className="mr-2 h-4 w-4" />
+              <Settings className="mr-2 size-4" />
               Settings
             </DropdownMenuItem>
           </Link>
           <Link href="/settings/credentials" className="my-2 w-full">
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
-              <KeyRound className="mr-2 h-4 w-4" />
+              <KeyRound className="mr-2 size-4" />
               <span>Credentials</span>
             </DropdownMenuItem>
           </Link>
           <DropdownMenuItem className="text-xs" disabled>
-            <UsersRound className="mr-2 h-4 w-4" />
+            <UsersRound className="mr-2 size-4" />
             <span>Manage users</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
@@ -86,7 +86,7 @@ export default function UserNav() {
           className="text-xs hover:cursor-pointer"
           onClick={handleSignOut}
         >
-          <LogOut className="mr-2 h-4 w-4" />
+          <LogOut className="mr-2 size-4" />
           <span>Logout</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -94,7 +94,7 @@ export default function UserNav() {
         <DropdownMenuGroup>
           <Link href={siteConfig.links.discord} className="mt-1 w-full">
             <Button className="w-full items-center text-xs">
-              <Icons.discord className="mr-2 h-4 w-4 fill-white" />
+              <Icons.discord className="mr-2 size-4 fill-white" />
               Join our Discord
             </Button>
           </Link>

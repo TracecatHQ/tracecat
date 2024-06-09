@@ -76,7 +76,7 @@ export default function WorkflowNav() {
           className="flex text-xs text-muted-foreground"
           htmlFor="enable-workflow"
         >
-          <RadioIcon className="mr-2 h-4 w-4" />
+          <RadioIcon className="mr-2 size-4" />
           <span>Enable workflow</span>
         </Label>
       </div>
@@ -100,7 +100,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
             className="size-full text-sm"
             passHref
           >
-            <WorkflowIcon className="mr-2 h-4 w-4" />
+            <WorkflowIcon className="mr-2 size-4" />
             <span>Workflow</span>
           </Link>
         </TabsTrigger>
@@ -110,7 +110,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
             className="size-full text-sm"
             passHref
           >
-            <ShieldAlertIcon className="mr-2 h-4 w-4" />
+            <ShieldAlertIcon className="mr-2 size-4" />
             <span>Cases</span>
           </Link>
         </TabsTrigger>

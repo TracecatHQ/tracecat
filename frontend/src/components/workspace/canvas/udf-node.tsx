@@ -87,7 +87,7 @@ export default React.memo(function UDFNode({
 
   return (
     <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
-      <CardHeader className="p-4 px-4">
+      <CardHeader className="p-4">
         <div className="flex w-full items-center space-x-4">
           {getIcon(key, {
             className: "size-10 p-2",
@@ -104,25 +104,25 @@ export default React.memo(function UDFNode({
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="m-0 h-6 w-6 p-0">
-                  <ChevronDownIcon className="m-1 h-4 w-4 text-muted-foreground" />
+                <Button variant="outline" className="m-0 size-6 p-0">
+                  <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleCopyToClipboard}>
-                  <Copy className="mr-2 h-4 w-4" />
+                  <Copy className="mr-2 size-4" />
                   <span className="text-xs">Copy JSONPath</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
-                  <ScanSearchIcon className="mr-2 h-4 w-4" />
+                  <ScanSearchIcon className="mr-2 size-4" />
                   <span className="text-xs">Search events</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
-                  <EyeIcon className="mr-2 h-4 w-4" />
+                  <EyeIcon className="mr-2 size-4" />
                   <span className="text-xs">View logs</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleDeleteNode}>
-                  <Delete className="mr-2 h-4 w-4 text-red-600" />
+                  <Delete className="mr-2 size-4 text-red-600" />
                   <span className="text-xs text-red-600">Delete</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -142,7 +142,7 @@ export default React.memo(function UDFNode({
             <span className="text-xs capitalize">{isConfiguredMessage}</span>
           </div>
           <div className="flex items-center justify-end">
-            <BellDotIcon className="mr-2 h-3 w-3" />
+            <BellDotIcon className="mr-2 size-3" />
             <span>{numberOfEvents}</span>
           </div>
         </div>

@@ -44,7 +44,7 @@ export function AlertNotification({
       )}
     >
       <div className="flex items-center justify-start space-x-4">
-        <Icon className="h-4 w-4" />
+        <Icon className="size-4" />
         <NotificationDescription>{message}</NotificationDescription>
       </div>
     </Notification>

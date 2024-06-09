@@ -59,7 +59,7 @@ export function TriggerPanel({
     <div className="size-full overflow-auto">
       <div className="grid grid-cols-3">
         <div className="col-span-2 overflow-hidden">
-          <h3 className="p-4 px-4">
+          <h3 className="p-4">
             <div className="flex w-full items-center space-x-4">
               {getIcon(TriggerTypename, {
                 className: "size-10 p-2",

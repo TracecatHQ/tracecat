@@ -217,7 +217,7 @@ export function NewCredentialsDialog({
                         onClick={() => append({ key: "", value: "" })}
                         className="space-x-2 text-xs"
                       >
-                        <PlusCircle className="mr-2 h-4 w-4" />
+                        <PlusCircle className="mr-2 size-4" />
                         Add Item
                       </Button>
                     </div>
@@ -232,7 +232,7 @@ export function NewCredentialsDialog({
                     className="ml-auto space-x-2"
                     onClick={onSubmit}
                   >
-                    <KeyRoundIcon className="mr-2 h-4 w-4" />
+                    <KeyRoundIcon className="mr-2 size-4" />
                     Create Secret
                   </Button>
                 </DialogClose>
