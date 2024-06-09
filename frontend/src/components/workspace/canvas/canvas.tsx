@@ -26,7 +26,7 @@ import {
   createAction,
   deleteAction,
   fetchWorkflow,
-  updateDndFlow,
+  updateWorkflowGraphObject,
 } from "@/lib/workflow"
 import { useToast } from "@/components/ui/use-toast"
 import triggerNode, {
@@ -272,7 +272,7 @@ export function WorkflowCanvas() {
       setNodes((nds) =>
         nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
       )
-      await updateDndFlow(workflowId, reactFlowInstance)
+      await updateWorkflowGraphObject(workflowId, reactFlowInstance)
       console.log("Nodes deleted successfully")
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
@@ -338,7 +338,7 @@ export function WorkflowCanvas() {
   // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      updateDndFlow(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workflowId, reactFlowInstance)
     }
   }, [edges])
 
@@ -348,7 +348,7 @@ export function WorkflowCanvas() {
     nodes: UDFNodeType[]
   ) => {
     if (workflowId && reactFlowInstance) {
-      updateDndFlow(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workflowId, reactFlowInstance)
     }
   }
 

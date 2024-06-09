@@ -18,7 +18,7 @@ import {
 } from "reactflow"
 
 import { slugify } from "@/lib/utils"
-import { updateDndFlow } from "@/lib/workflow"
+import { updateWorkflowGraphObject } from "@/lib/workflow"
 import { NodeType } from "@/components/workspace/canvas/canvas"
 
 interface ReactFlowContextType {
@@ -53,14 +53,14 @@ export const WorkflowBuilderProvider: React.FC<
   const setReactFlowNodes = useCallback(
     (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
       reactFlowInstance.setNodes(nodes)
-      updateDndFlow(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workflowId, reactFlowInstance)
     },
     [workflowId, reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
     (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
       reactFlowInstance.setEdges(edges)
-      updateDndFlow(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workflowId, reactFlowInstance)
     },
     [workflowId, reactFlowInstance]
   )
