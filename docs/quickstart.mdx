@@ -1,36 +1,207 @@
 ---
 title: Quickstart
-description: Automate a phishing email investigation in 15 minutes
+description: Set up a VirusTotal email reporting workflow in 15 minutes.
 ---
 
-Let's build a security automation that:
-- Receives a suspicious email using a webhook
-- Extracts URLs from the email using ChatGPT
-- Requests a phishing report from URL scan
-- Labels the email as malicious or not based on AI sentiment analysis
-- Dumps the collected evidence in a [case](/core/case-management) for further investigation
+Tracecat can operate in **headless** (no UI) and **GUI** modes.
+The fastest way to get started with Tracecat is to run it locally in headless mode, in which the main interface will be the REST API.
 
-This is what the final workflow looks like:
+We'll build a simple workflow that does the following:
 
-<img height="100%" src="/img/branching.png" />
+<Steps>
+  <Step title="Receive an incoming webhook request">
+    We'll send a HTTP request to the webhook with a malicious hash.
+  </Step>
+  <Step title="Upload malicious hash to VirusTotal">
+    Make a HTTP request to the VirusTotal API to check the hash.
+  </Step>
+  <Step title="Send an email with VirusTotal findings">
+    Send an email to yourself with the VirusTotal findings.
+  </Step>
+</Steps>
 
-## Video Tutorial
+## Setup
+
+We'll be running Tracecat without authentication for this quickstart.
+
+## Step 1: Install Tracecat and prerequisites
+
+Follow the [installation guide](/installation) to install Tracecat and its dependencies (Temporal + ngrok).
+
+### Additional prerequisites
+
+- [VirusTotal API key](https://www.virustotal.com/gui/sign-in) (free tier)
+- [Resend API key](https://www.resend.com/) (free tier)
+
+### Set convenience environment variables (optional)
+
+This is done for convenience, so you can copy and paste the commands in the quickstart without modification.
+
+If you ran `env.sh` during installation, you can copy this from your `.env` file:
+
+```bash
+# Replace 'your-ngrok-url' with the actual URL
+export TRACECAT__PUBLIC_RUNNER_URL=https://your-ngrok-url.ngrok-free.app
+```
+
+## Step 2: Create a new workflow
+
+With Tracecat running, create a new workflow using the following `curl` command from your terminal:
+
+```bash
+curl -X POST "$TRACECAT__PUBLIC_RUNNER_URL/workflows" \
+  -H "Authorization: Bearer super-secret-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"My first workflow"}'
+```
+
+Take note of the workflow ID (some `wf-xxxxxxxxxxxxxx`) returned. We'll refer to this as `$WORKFLOW_ID`.
+We recommend exporting this as an environment variable for convenience:
+
+```bash
+export WORKFLOW_ID=wf-... # Replace with the actual ID
+```
 
 <Note>
-Need help with the tutorial? We're doing live walkthroughs on [Discord](https://discord.gg/8KvA3J9)
-every Tuesday at 9am PST and every Thursday at 4pm PST!
+  Please replace `$WORKFLOW_ID` with the actual ID in the following steps if you
+  choose not to export it.
 </Note>
 
-<iframe
-  width="100%"
-  height="430"
-  autoplay
-  muted
-  loop
-  playsinline
-  allowfullscreen
-  src="https://www.youtube.com/embed/xl2qxce8Xw8"
-  title="YouTube video player"
-  frameborder="0"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-></iframe>
+## Step 3: Build the workflow using YAML
+
+Create a file called `send_aws_guardduty_alerts_to_slack.yml` and paste the following contents:
+
+```yaml virustotal_email.yml
+title: Send Virustotal report to email
+description: Scan a malicious hash on Virustotal and send the results to an email address
+
+entrypoint: call_virustotal
+triggers:
+  - type: webhook
+    ref: my_webhook
+    entrypoint: call_virustotal
+
+actions:
+  - ref: call_virustotal
+    action: core.http_request
+    args:
+      url: https://www.virustotal.com/api/v3/files/${{ TRIGGER.hash }}
+      method: GET
+      headers:
+        x-apikey: ${{ SECRETS.virustotal.VT_API_KEY }}
+        #             ^^^ (1) To use virustotal, create a secret called `virustotal`
+        #             with key `VT_API_KEY` and your API key as the value. This
+        #             template expression pulls the secret from the secret manager.
+
+  - ref: send_email_with_virustotal_results
+    action: core.send_email
+    #         ^^^ (2) To send emails, create a secret called `resend_api_key` with
+    #         your key `RESEND_API_KEY` and your API key as the value.
+    depends_on:
+      - call_virustotal
+    args:
+      recipients:
+        - hello@world.com # <<< (3) Replace with your email!!
+      subject: Malware report for ${{ TRIGGER.hash }}
+      body: |
+        Hello!
+
+        Below is the daily malware report summary for the file.
+
+        1. File Identification
+
+        SHA256: ${{ ACTIONS.call_virustotal.result.data.data.attributes.sha256 }}
+        File Names: ${{ FNS.join(ACTIONS.call_virustotal.result.data.data.attributes.names) -> str }}
+
+        2. Submission Dates
+
+        First Submission: ${{ ACTIONS.call_virustotal.result.data.data.attributes.first_submission_date }}
+        Last Analysis: ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_date }}
+
+        3. Analysis Results
+
+        Malicious Detections:
+        ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_results }}
+
+        4. Detection Tags
+
+        ${{ FNS.join(ACTIONS.call_virustotal.result.data.data.attributes.tags) -> str }}
+        5. File Details
+
+        ~Tracecat
+```
+
+<Warning>
+
+This step isn't done yet! Tasks (1), (2), and (3) in the YAML above aren't done.
+
+</Warning>
+
+Create secrets for the VirusTotal (1) and Resend (2) API keys:
+
+<CodeGroup>
+```bash VirusTotal
+curl -X PUT  "$TRACECAT__PUBLIC_RUNNER_URL/secrets" \
+  -H "Authorization: Bearer super-secret-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"custom", "name":"virustotal", "keys":[{"key":"VT_API_KEY", "value": "your-virustotal-api-key"}] }'
+# Replace "your-virustotal-api-key" with your actual VirusTotal API key
+```
+
+```bash Resend
+curl -X PUT  "$TRACECAT__PUBLIC_RUNNER_URL/secrets" \
+  -H "Authorization: Bearer super-secret-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"custom", "name":"fake_api_key", "keys":[{"key":"RESEND_API_KEY", "value": "your-resend-api-key"}] }'
+# Replace "your-resend-api-key" with your actual Resend API key
+```
+
+</CodeGroup>
+
+Finally, replace the email address in the YAML file at (3) with your email address:
+
+```bash
+...
+args:
+      recipients:
+        - hello@world.com # <<< (3) Replace with your email!!
+...
+```
+
+## Step 4: Commit changes to the workflow
+
+We now run the following command to convert the YAML file into a [Workflow Definition](/workflow-definition), meaning it can now be executed by Tracecat workflow runners.
+
+```bash
+curl -X POST "$TRACECAT__PUBLIC_RUNNER_URL/workflows/$WORKFLOW_ID/commit" \
+  -H "Authorization: Bearer super-secret-jwt-token" \
+  -F "yaml_file=@/path/to/slack_notifications_for_aws_guardduty.yml"
+```
+
+## Step 5: Activate workflow and webhook
+
+On creation, workflows and their webhooks are deactivated by default. You need to enable them before they can be triggered.
+
+```bash
+curl -X PATCH  "$TRACECAT__PUBLIC_RUNNER_URL/workflows/$WORKFLOW_ID/webhook" \
+  -H "Authorization: Bearer super-secret-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"online"}'
+curl -X PATCH  "$TRACECAT__PUBLIC_RUNNER_URL/workflows/$WORKFLOW_ID" \
+  -H "Authorization: Bearer super-secret-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"online"}'
+```
+
+## Step 6: Trigger the workflow
+
+Grab the webhook URL, then trigger the workflow by sending a POST request to the webhook URL:
+
+```bash Get the webhook URL
+curl -X GET "$TRACECAT__PUBLIC_RUNNER_URL/workflows/$WORKFLOW_ID/webhook" -H "Authorization: Bearer super-secret-jwt-token"
+```
+
+```bash Trigger the workflow
+# Replace $WEBHOOK_URL with the actual URL
+curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d '{"hash":"your-malicious-hash"}'
+```
