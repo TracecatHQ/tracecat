@@ -29,7 +29,7 @@ type WorkflowContextType = {
   isOnline: boolean
   setIsOnline: (isOnline: boolean) => void
   commit: MutateFunction<unknown, Error, void, unknown>
-  update: MutateFunction<unknown, Error, any, unknown>
+  update: MutateFunction<unknown, Error, Record<string, any>, unknown>
 }
 type TracecatErrorMessage = {
   type?: string

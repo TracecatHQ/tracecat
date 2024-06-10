@@ -4,6 +4,7 @@ import {
   getConnectedEdges,
   Handle,
   Node,
+  NodeInternals,
   useNodeId,
   useStore,
   type HandleProps,
@@ -18,15 +19,27 @@ interface CustomHandleProps
     | ((args: { node: Node; connectedEdges: Edge[] }) => boolean)
 }
 export function CustomHandle(props: CustomHandleProps) {
-  const { nodeInternals, edges } = useStore((s: any) => ({
+  const { nodeInternals, edges } = useStore<{
+    nodeInternals: NodeInternals
+    edges: Edge[]
+  }>((s) => ({
     nodeInternals: s.nodeInternals,
     edges: s.edges,
   }))
   const nodeId = useNodeId()
 
+  if (!nodeInternals || !edges || !nodeId) {
+    return null
+  }
   const isHandleConnectable = useMemo(() => {
     if (typeof props.isConnectable === "function") {
       const node = nodeInternals.get(nodeId)
+      if (!node) {
+        console.error(
+          `Node with id ${nodeId} not found in nodeInternals. Make sure you are using the latest version of react-flow.`
+        )
+        return false
+      }
       const connectedEdges = getConnectedEdges([node], edges)
 
       return props.isConnectable({ node, connectedEdges })
@@ -34,6 +47,12 @@ export function CustomHandle(props: CustomHandleProps) {
 
     if (typeof props.isConnectable === "number") {
       const node = nodeInternals.get(nodeId)
+      if (!node) {
+        console.error(
+          `Node with id ${nodeId} not found in nodeInternals. Make sure you are using the latest version of react-flow.`
+        )
+        return false
+      }
       const connectedEdges = getConnectedEdges([node], edges)
 
       return connectedEdges.length < props.isConnectable
