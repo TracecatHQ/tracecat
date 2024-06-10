@@ -201,7 +201,9 @@ Grab the webhook URL, then trigger the workflow by sending a POST request to the
 curl -X GET "$TRACECAT__PUBLIC_RUNNER_URL/workflows/$WORKFLOW_ID/webhook" -H "Authorization: Bearer super-secret-jwt-token"
 ```
 
+Finally, copy a malicious hash from [MalwareBazaar](https://bazaar.abuse.ch/verify-ua/) and send a POST request to the webhook URL:
+
 ```bash Trigger the workflow
-# Replace $WEBHOOK_URL with the actual URL
+# Replace $WEBHOOK_URL and 'your-malicious-hash' with the actual URL
 curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d '{"hash":"your-malicious-hash"}'
 ```
