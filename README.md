@@ -20,13 +20,13 @@
 
 </div>
 
-[Tracecat](https://tracecat.com) is an open source Tines / Splunk SOAR alternative for security engineers. We're building the features of Tines using enterprise-grade open source tools.
+[Tracecat](https://tracecat.com) is an open-source Tines / Splunk SOAR alternative for security engineers. We're building the features of Tines using enterprise-grade open-source tools.
 
 - [x] Hosted [Temporal](https://github.com/temporalio/temporal) workflows
 - [x] No-code workflow builder
 - [x] Automations-as-code
   - [x] GitHub Actions-like YAML syntax
-  - [x] Python-to-no-code complier
+  - [x] Python-to-no-code compiler
   - [x] Version control
   - [ ] VSCode extension (coming soon)
 - [x] Actions (HTTP requests, if-else, etc.)
@@ -36,18 +36,18 @@
 - [x] Integrations
 
 Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent.
-It's the simpliest way for security engineers to build scalable workflow applications in code.
+It's the simplest way for security engineers to build scalable workflow applications in code.
 Every automation in code is synced into the no-code frontend, and vice-versa.
 Tracecat allows security teams to standardize workflow development and deployment across the organization.
 
 <table>
   <tr>
     <td align="center" width="50%">
-      <h3>Automate security workflows</h3>
+      <h4>Automate security workflows</h4>
       <img src="img/workflow.png" alt="Build security workflows" width="100%" />
     </td>
     <td align="center" width="50%">
-      <h3>Close security cases fast with AI</h3>
+      <h4>Close security cases fast with AI</h4>
       <img src="img/cases.gif" alt="Manage security cases with AI" width="100%" />
     </td>
   </tr>
@@ -55,7 +55,7 @@ Tracecat allows security teams to standardize workflow development and deploymen
 
 ## Getting Started
 
-The easiest way to get started is to meet one of our cofounders on an [open-source onboarding call]. We'll help you install Tracecat self-hosted via `docker compose` and run you first workflow in 30 minutes.
+The easiest way to get started is to meet one of our cofounders on an open-source [onboarding call](https://calendly.com/d/cpfn-rsm-4t7/tracecat-onboarding). We'll help you install Tracecat self-hosted via `docker compose` and run your first workflow in 30 minutes.
 
 More of a DIY hacker? Check out the self-serve [installation guide here](https://docs.tracecat.com/installation).
 
@@ -73,4 +73,4 @@ More of a DIY hacker? Check out the self-serve [installation guide here](https:/
 
 ## Partner With Us
 
-Tracecat is now open to MDRs and MSSPs. [Sign-up](https://tracecat.com/#deal) over at our website or [book a call](https://calendly.com/meet-tracecat) with one of our cofounders.
+Tracecat is now open to MDRs and MSSPs. [Sign up](https://tracecat.com/#deal) over at our website or [book a call](https://calendly.com/meet-tracecat) with one of our cofounders.
