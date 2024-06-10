@@ -43,7 +43,7 @@ Tracecat allows security teams to standardize workflow development and deploymen
 <table>
   <tr>
     <td align="center" width="50%">
-      <h3>Automate security with code and no-code</h3>
+      <h3>Automate security workflows</h3>
       <img src="img/workflow.png" alt="Build security workflows" width="100%" />
     </td>
     <td align="center" width="50%">
