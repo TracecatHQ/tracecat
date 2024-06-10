@@ -29,7 +29,7 @@ async def get_temporal_client() -> Client:
     return await Client.connect(
         target_host=config.TEMPORAL__CLUSTER_URL,
         namespace=config.TEMPORAL__CLUSTER_NAMESPACE,
-        tls_config=tls_config,
+        tls=tls_config,
         data_converter=pydantic_data_converter,
     )
 
