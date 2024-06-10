@@ -4,11 +4,11 @@ import { type Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { LogInIcon } from "lucide-react"
 import TracecatIcon from "public/icon.png"
 
 import { auth } from "@/lib/auth"
 import { cn } from "@/lib/utils"
-import { LogInIcon } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
 import PrivacyPolicy from "@/components/privacy-policy"
@@ -50,9 +50,9 @@ export default async function HomePage() {
               alt="Tracecat"
               className="mx-auto size-16"
             />
-            <h2 className="text-md text-muted-foreground">
-              The modern security automation platform
-              designed to reduce noise.
+            <h2 className="text-md flex flex-col gap-2 text-muted-foreground">
+              <span className="text-lg font-semibold">Welcome back</span>
+              <span className="text-sm">Log in to your account</span>
             </h2>
             <PrivacyPolicy />
           </div>
