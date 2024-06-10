@@ -181,11 +181,11 @@ export function WorkflowCanvas() {
           label: "⚡ Trigger",
         }
         // 1. Find the trigger node
-        let triggerNode = nodes.find(
+        const triggerNode = nodes.find(
           (node) => node.type === "trigger"
         ) as TriggerNodeType
         // 2. Find the entrypoint node
-        let entrypointNode = getNode(
+        const entrypointNode = getNode(
           params.target! /* Target is non-null as we are in a connect callback */
         )
         if (!triggerNode || !entrypointNode) {
@@ -284,11 +284,11 @@ export function WorkflowCanvas() {
       edgesToDelete.forEach(async (params: Edge) => {
         if (params.source?.startsWith("trigger")) {
           // 1. Find the trigger node
-          let triggerNode = nodes.find(
+          const triggerNode = nodes.find(
             (node) => node.type === "trigger"
           ) as TriggerNodeType
           // 2. Find the entrypoint node
-          let entrypointNode = getNode(
+          const entrypointNode = getNode(
             params.target! /* Target is non-null as we are in a connect callback */
           )
           if (!triggerNode || !entrypointNode) {

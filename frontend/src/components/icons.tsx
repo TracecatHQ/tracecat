@@ -16,7 +16,6 @@ import {
   ShieldAlert,
   Sparkles,
   Tags,
-  Webhook,
   ZapIcon,
 } from "lucide-react"
 
