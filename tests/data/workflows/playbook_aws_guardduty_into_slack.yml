@@ -18,7 +18,6 @@ triggers:
 actions:
   - ref: pull_aws_guardduty_findings
     action: core.http_request
-    version: "0.1.0"
     args:
       url: ${{ INPUTS.uim_url }}/cdr/alerts
       method: GET
@@ -29,7 +28,6 @@ actions:
 
   - ref: smaccify_guardduty_findings
     action: core.http_request
-    version: "0.1.0"
     depends_on:
       - pull_aws_guardduty_findings
     args:
@@ -41,7 +39,6 @@ actions:
 
   - ref: send_slack_notifications
     action: core.http_request
-    version: "0.1.0"
     depends_on:
       - smaccify_guardduty_findings
     args:
