@@ -1,8 +1,5 @@
 <div align="center">
-  <h2>
-    Open source Tines / Splunk SOAR alternative
-  </h2>
-  <img src="img/banner.svg" alt="tracecat">
+  <img src="img/banner.svg" alt="The workflow orchestration platform for security engineers.">
 </div>
 
 </br>
@@ -20,119 +17,61 @@
 ![Next.js](https://img.shields.io/badge/next.js-%23000000.svg?style=for-the-badge&logo=next.js&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
 [![Pydantic v2](https://img.shields.io/endpoint?style=for-the-badge&url=https://raw.githubusercontent.com/pydantic/pydantic/main/docs/badge/v2.json)](https://docs.pydantic.dev/latest/contributing/#badges)
-[![Discord](https://img.shields.io/discord/1212548097624903681.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/n3GF4qxFU8)
 
 </div>
 
-_Disclaimer: Tracecat is currently in public beta. If you'd like to use Tracecat in production, please reach out to us on Discord or founders@tracecat.com!_
-_Want to take Tracecat for a spin? Try out our [tutorials](https://docs.tracecat.com/quickstart) with [Tracecat Cloud](https://platform.tracecat.com) or [self-hosted](https://docs.tracecat.com/installation)._
+[Tracecat](https://tracecat.com) is an open source Tines / Splunk SOAR alternative for security engineers. We're building the features of Tines using enterprise-grade open source tools.
 
-[Tracecat](https://tracecat.com) is an open source automation platform for security teams. We're building the features of Tines / Splunk SOAR with enterprise-grade open source tools.
-
-It's designed to be simple but powerful. Security automation should be accessible to everyone, ~~including~~ especially understaffed small-to-mid sized teams.
-
-Check out our [quickstart](https://docs.tracecat.com/quickstart) and build your first AI workflow in 15 minutes.
-The easiest way to get started is to sign-up for [Tracecat Cloud](https://platform.tracecat.com).
-We also support [self-hosted](https://docs.tracecat.com/installation) Tracecat.
+- [x] Hosted [Temporal](https://github.com/temporalio/temporal) workflows
+- [x] No-code workflow builder
+- [x] Automations-as-code
+  - [x] GitHub Actions-like YAML syntax
+  - [x] Python-to-no-code complier
+  - [x] Version control
+  - [ ] VSCode extension (coming soon)
+- [x] Actions (HTTP requests, if-else, etc.)
+- [x] Case Management
+- [x] Dashboard UI
+- [x] Command-line interface
+- [x] Integrations
 
 > [!NOTE]
-> SOAR [(Security Orchestration, Automation and Response)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) refers to technologies that enable organizations to automatically collect and respond to alerts across different security tooling (e.g. Crowdstrike, Microsoft Defender, SIEM) and data sources (e.g. AWS CloudTrail, Okta system logs).
+> Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent.
+> It's the simpliest way for security engineers to build scalable workflow applications in code. Every automation in code is synced into the no-code frontend, and vice-versa.
+> Tracecat allows security teams to standardize workflow development and deployment across the organization.
 
-### Build SecOps Automations
-<img src="https://github.com/TracecatHQ/tracecat/blob/main/img/workflow.png" width="100%" />
+<div style="display: flex; justify-content: center; align-items: center;">
+  <div style="flex: 1; text-align: center;">
+    <h3>Automate security with code and no-code</h3>
+  </div>
+  <div style="flex: 1; text-align: center;">
+    <h3>Close security cases fast with AI</h3>
+  </div>
+</div>
 
-### Manage Cases with AI Tagging
-<img src="https://github.com/TracecatHQ/tracecat/blob/main/img/cases.gif" width="100%" />
+<p align="center">
+  <img src="img/workflow.png" alt="Build security workflows" width="49%" />
+  <img src="img/cases.gif" alt="Manage security cases with AI" width="49%" />
+</p>
 
-## Getting started
+## Getting Started
 
-Let's automate a phishing email investigation, collect evidence, and generate a remediation plan using AI.
-You can follow the [tutorial here](https://docs.tracecat.com/quickstart).
+The easiest way to get started is to meet one of our cofounders on an [open-source onboarding call]. We'll help you install Tracecat self-hosted via `docker compose` and run you first workflow in 30 minutes.
 
-https://github.com/TracecatHQ/tracecat/assets/46541035/580149cf-624b-4815-a62a-e59bbf61280e
-
-## Features
-
-Build AI-assisted workflows, enrich alerts, and close cases fast.
-
-- Workflows
-  - [x] Drag-and-drop builder
-  - [x] Core primitives (webhook, HTTP, if-else, send email, etc.)
-  - [x] AI Actions (label, summarize, enrich etc.)
-  - [x] Secrets
-  - [x] Integrations
-  - [ ] Playbooks
-  - [ ] Formulas (expected May 2024)
-  - [ ] Versioning (expected June 2024)
-- Case management
-  - [x] [SMAC (status, malice, action, context)](https://www.rapid7.com/blog/post/2021/02/12/talkin-smac-alert-labeling-and-why-it-matters/)
-  - [x] Suppression
-  - [x] Deduplication
-  - [x] AI-assisted labelling (e.g. MITRE ATT&CK)
-  - [ ] Metrics dashboard
-- Data validation
-  - [x] [Pydantic V2](https://github.com/pydantic/pydantic) for fast data model and input / output validation in the backend
-  - [x] [Zod](https://github.com/colinhacks/zod) for fast form and input / output validation in the frontend
-- Teams
-  - [x] Single-tenancy
-  - [ ] Collaboration
-- AI infrastructure
-  - [x] VectorDB for alert contextualization / enrichment
-  - [ ] LLM evaluation  security
-  - [ ] Bring-your-own LLM (OpenAI, Mistral, Anthropic etc.)
-
-Tracecat is **not** a 1-to-1 mapping of Tines / Splunk SOAR. Our aim is to give technical teams a Tines-like experience, but with a focus on open source, alerts triage, unified APIs, and AI features.
-
-## Installation
-
-Tracecat is Cloud agnostic and deploys anywhere that supports Docker.
-Learn how to [install Tracecat locally](https://docs.tracecat.com/installation).
-
-- [x] Docker Compose
-- [x] AWS
-- [ ] Azure
-- [ ] GCP
-
-## Status
-
-- [x] Public Alpha: Anyone can sign up over at [tracecat.com](https://tracecat.com) but go easy on us, there are kinks and we are just getting started.
-- [x] Public Beta: Stable enough for most non-enteprise use-cases
-- [ ] Public: Production-ready
-
-We're currently in Public Alpha.
+More of a DIY hacker? Check out the self-serve [installation guide here](https://docs.tracecat.com/installation).
 
 ## Community & Support
 
-Join us in building a newer, more open, kind of security automation platform.
+- [Discord:](https://discord.gg/n3GF4qxFU8) seeking support, sharing new feature or integration ideas, and hanging out with the community.
+- [GitHub issues:](https://github.com/TracecatHQ/tracecat/issues) bugs and errors you encounter with Tracecat.
+- [Security:](https://github.com/TracecatHQ/tracecat?tab=security-ov-file) reporting security concerns and vulnerabilities.
 
-- [Tracecat Discord](https://discord.gg/n3GF4qxFU8) for hanging out with the community
-- [GitHub issues](https://github.com/TracecatHQ/tracecat/issues)
+## Documentation
 
-## Unified Integrations Model
+- For full documentation, visit [https://docs.tracecat.com](https://docs.tracecat.com).
+- For developers looking to create custom security apps, check out our [API Reference](https://docs.tracecat.com/api-reference/introduction).
+- [Quickstart](https://docs.tracecat.com/quickstart): Deploy the classic threat intel workflow with VirusTotal in 15 minutes.
 
-New integrations and out-of-the-box playbooks will be prioritized according to user feedback. If you've got any suggestions, please let us know on [Discord](https://discord.gg/n3GF4qxFU8) 🦾.
+## Partner With Us
 
-## Security
-
-Please do not file GitHub issues or post on our public forum for security vulnerabilities, as they are public!
-
-Tracecat takes security issues very seriously. If you have any concerns about Tracecat or believe you have uncovered a vulnerability, please get in touch via the e-mail address security@tracecat.com. In the message, try to provide a description of the issue and ideally a way of reproducing it. The security team will get back to you as soon as possible.
-
-Note that this security address should be used only for undisclosed vulnerabilities. Please report any security problems to us before disclosing it publicly.
-
-## License
-
-Copyright (c) 2024 Tracecat
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-[GNU Affero General Public License](LICENSE) for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+Tracecat is now open to MDRs and MSSPs. [Sign-up](https://tracecat.com/#deal) over at our website or [book a call](https://calendly.com/meet-tracecat) with one of our cofounders.
