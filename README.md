@@ -35,24 +35,23 @@
 - [x] Command-line interface
 - [x] Integrations
 
-> [!NOTE]
-> Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent.
-> It's the simpliest way for security engineers to build scalable workflow applications in code. Every automation in code is synced into the no-code frontend, and vice-versa.
-> Tracecat allows security teams to standardize workflow development and deployment across the organization.
+Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent.
+It's the simpliest way for security engineers to build scalable workflow applications in code.
+Every automation in code is synced into the no-code frontend, and vice-versa.
+Tracecat allows security teams to standardize workflow development and deployment across the organization.
 
-<div style="display: flex; justify-content: center; align-items: center;">
-  <div style="flex: 1; text-align: center;">
-    <h3>Automate security with code and no-code</h3>
-  </div>
-  <div style="flex: 1; text-align: center;">
-    <h3>Close security cases fast with AI</h3>
-  </div>
-</div>
-
-<p align="center">
-  <img src="img/workflow.png" alt="Build security workflows" width="49%" />
-  <img src="img/cases.gif" alt="Manage security cases with AI" width="49%" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <h3>Automate security with code and no-code</h3>
+      <img src="img/workflow.png" alt="Build security workflows" width="100%" />
+    </td>
+    <td align="center" width="50%">
+      <h3>Close security cases fast with AI</h3>
+      <img src="img/cases.gif" alt="Manage security cases with AI" width="100%" />
+    </td>
+  </tr>
+</table>
 
 ## Getting Started
 
