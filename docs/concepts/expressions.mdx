@@ -5,6 +5,8 @@ description: Powerful expression syntax and templating engine.
 
 The concepts explained in this section are all very interdependent on one another, so we've added a [cheatsheet](/concepts/expressions#cheatsheet) to help you get started.
 
+## Expressions Overview
+
 Expressions are a powerful feature in Tracecat that gives you fine-grained control over your action logic.
 They are strings that can be evaluated into a value or data/object reference, prefixed with a [context](#expression-contexts) and wrapped in [template](#template-syntax) `${{ ... }}` syntax.
 We use [JSONPath](https://www.ietf.org/archive/id/draft-goessner-dispatch-jsonpath-00.html) expressions (dot notation) to access data, objects, or functions inside JSON-like data structures.
@@ -40,7 +42,7 @@ For example, this expression will return the integer literal 3:
 ${{ FNS.add(1, 2) -> int }}
 ```
 
-### Expression Contexts
+## Expression Contexts
 
 An expression context is a top-level namespace that changes the behavior of an expression.
 Tracecat expression contexts are all uppercase qualifiers, e.g. `SECRETS`.
@@ -128,7 +130,9 @@ actions:
       value: "An inline template ${{ FNS.add(1, 2) }} looks ${{ FNS.add(1, 2) -> str }} like this."
 ```
 
-## Action Expressions
+## Expression Types
+
+### Action Expressions
 
 Action expressions are JSONPaths that target the `ACTIONS` context. It references data or objects that are returned from completed actions.
 
@@ -190,15 +194,116 @@ Action expressions always contain the following predefined keys:
 | `result`          | Contains the action's result.                      |
 | `result_typename` | The Python type annotation of the action's result. |
 
-## Input Expressions
+### Input Expressions
+
+Input expressions are JSONPath expressions that target the `INPUTS` context.
 
 ```css
 ${{ INPUTS.<jsonpath> }}
 ```
 
-## Trigger Expressions
+Given the following static workflow inputs:
 
-## Secret Expressions
+```yaml
+inputs:
+  company: Tracecat
+  url: https://tracecat.com
+  contact:
+    email: founders@tracecat.com
+    location: San Francisco, CA
+```
+
+Some valid input expressions would look like:
+
+```css
+${{ INPUTS.company }}
+${{ INPUTS.url }}
+${{ INPUTS.contact.email -> str }}
+${{ INPUTS.contact.location }}
+```
+
+### Trigger Expressions
+
+Trigger expressions are JSONPath expressions that target the `TRIGGER` context.
+
+```css
+${{ TRIGGER.<jsonpath> }}
+```
+
+Given the following webhook call:
+
+```sh
+curl -X POST $WEBHOOK_URL -H "Content-Type: application/json" -d '{
+    "event_type": "update",
+    "source": "http://data-source.com",
+    "metadata": {
+      "time":"Thursday, May 20th 11:40pm",
+      "platform":"cool_platform"
+    }
+  }'
+```
+
+Some valid input expressions would look like:
+
+```css
+${{ TRIGGER.event_type }}
+${{ TRIGGER.metadata.time }}
+```
+
+### Secret Expressions
+
+Secret expressions are JSONPath expressions that target the `SECRETS` context.
+They allow you to pull created secrets from the Secrets Manager at runtime.
+
+```css
+${{ SECRETS.<name>.<key> }}
+```
+
+Given the following secrets created like such:
+
+```sh
+curl -X PUT $TRACECAT__API_URL/secrets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type":"custom",
+    "name":"some_secret",
+    "keys":[
+      {
+        "key":"SOME_API_KEY",
+        "value": "SOME_SECRET_VALUE"
+      }
+    ]
+  }'
+```
+
+To use `SOME_SECRET_VALUE` in your workflow, you would use the following expression:
+
+```css
+${{ SECRETS.my_secret.SOME_API_KEY }}
+```
+
+For instance, to make an API call:
+
+```yaml
+actions:
+  - ref: my_action
+    action: core.http_request
+    args:
+      url: https://api.some-example.com
+      headers:
+        Authorization: Bearer ${{ SECRETS.some_secret.SOME_API_KEY }}
+        ...
+```
+
+## Evaluation Steps
+
+Before an action runs, Tracecat performs the following steps to evaluate the expressions in the action:
+
+1. Find all secrets that are declared in secret expressions
+2. Pull these into the execution context
+3. Evaluate all types of expressions in one pass
+
+After doing the above it then proceeds to run the action's associated UDF.
 
 ## Cheatsheet
 
