@@ -60,19 +60,25 @@
       ]
     },
     {
-      "group": "Core Features",
+      "group": "Concepts",
       "pages": [
-        "core/workflows",
-        "core/actions",
-        "core/event-logs",
-        "core/case-management",
-        "core/integrations"
+        "concepts/workflows",
+        "concepts/workflow-definitions",
+        "concepts/actions",
+        "concepts/user-defined-functions",
+        "concepts/expressions",
+        "concepts/webhooks",
+        "concepts/schedules",
+        "concepts/case-management",
+        "concepts/user-interface",
+        "concepts/secrets"
       ]
     },
     {
       "group": "Tutorials",
       "pages": [
-        "tutorials/phishing"
+        "tutorials/workflows-tutorial",
+        "tutorials/actions-tutorial"
       ]
     },
     {
