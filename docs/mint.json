@@ -62,15 +62,15 @@
     {
       "group": "Concepts",
       "pages": [
+        "concepts/user-interface",
         "concepts/workflows",
-        "concepts/workflow-definitions",
         "concepts/actions",
+        "concepts/workflow-definitions",
         "concepts/user-defined-functions",
         "concepts/expressions",
         "concepts/webhooks",
         "concepts/schedules",
         "concepts/case-management",
-        "concepts/user-interface",
         "concepts/secrets"
       ]
     },
