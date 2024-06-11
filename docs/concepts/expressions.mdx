@@ -78,6 +78,12 @@ A full template is a sstring that only contains a single template with no surrou
 "${{ ... }}"
 ```
 
+It follow that when a full template wraps an expression, we call this a **full expression**:
+
+```php
+"${{ <expression> }}"
+```
+
 The final datatype of the above expression depends on the return type of the expression and whether there is a typecast.
 
 This expression will return integer literal `3` because `FNS.add(1, 2)` returns an integer:
@@ -92,7 +98,7 @@ In contrast, this expression will return string literal `"3"` because `FNS.add(1
 "${{ FNS.add(1, 2) -> str}}"
 ```
 
-In YAML, by convention we omit the quotes around full template expressions:
+In YAML, by convention we omit the quotes around full expressions:
 
 ```yaml
 actions:
@@ -110,6 +116,12 @@ An inline template is a string where all templates are in the string body:
 "An inline template ${{ ... }} looks ${{ ... }} like this."
 ```
 
+As you'd expect, the following is called an **inline expression**:
+
+```php
+"An inline template ${{ <expression-1> }} looks ${{ <expression-2> }} like this."
+```
+
 The final datatype of the above expression is always a string.
 
 For example, this expression:
@@ -120,7 +132,7 @@ For example, this expression:
 
 will return string literal `"An inline template 3 looks 3 like this."`:
 
-In YAML, by convention we wrap quotes around inline template expressions:
+In YAML, by convention we wrap quotes around inline expressions:
 
 ```yaml
 actions:
@@ -309,13 +321,15 @@ After doing the above it then proceeds to run the action's associated UDF.
 
 ### Terminology
 
-| Term            | Description                                                                                          |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| Context         | A top-level namespace that changes the behavior of an expression, e.g. `SECRETS` or `ACTIONS`        |
-| Expression      | A string that can be evaluated into a value or data/object reference, often involving a `context`.   |
-| Template        | A string holding an expression `${{ <expr> }}` that evaluates into a value or data/object reference. |
-| Full template   | A string that only contains a templated expression: `"${{ <expr> }}"`                                |
-| Inline template | All templated expressions are inline, e.g. `"An inline ${{ <expr> }} looks like this."`              |
+| Term              | Description                                                                                                 |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| Context           | A top-level namespace that changes the behavior of an expression, e.g. `SECRETS` or `ACTIONS`               |
+| Expression        | A string that can be evaluated into a value or data/object reference, often involving a `context`.          |
+| Template          | A string holding an expression `${{ <expr> }}` that evaluates into a value or data/object reference.        |
+| Full template     | A string that only contains one template: `"${{ ... }}"`                                                    |
+| Full expression   | A full template string with an expression: `"${{ <expr> }}"`                                                |
+| Inline template   | All templates are inline, e.g. `"An inline template ${{ ... }} looks like this."`                           |
+| Inline expression | All templates have expressions and are inline, e.g. `"An inline expression ${{ <expr> }} looks like this."` |
 
 ### Contexts
 
