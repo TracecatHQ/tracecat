@@ -1,0 +1,15 @@
+---
+title: Workflow Definitions
+description: Source of truth for defining workflows.
+---
+
+A workflow is the more central Tracecat object.
+It is a collection of actions that are executed in a specific order.
+Workflows can be triggered by a variety of events, such as a schedule or an external event.
+
+Workflows can be expressed as a directed acyclic graph (DAG).
+
+### Modes of operation
+
+1. **No-code mode**: You can interact with the workflow canvas to add, remove, and connect actions.
+2. **Code mode**: You can use a YAML domain-specific language (DSL) to define and edit workflows.

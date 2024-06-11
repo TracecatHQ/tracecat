@@ -1,6 +1,6 @@
 ---
-title: Workflows
-description: Powerful automation made easy
+title: Creating workflows
+description: Learn how to create a workflow in Tracecat.
 ---
 
 Workflows are a series of steps called [Actions](/core/actions).
@@ -39,12 +39,14 @@ Prefer learning through examples? Watch this video to see how to build a simple 
 
     Connect the actions together.
     This creates a sequence of actions that run in order.
+
   </Step>
   <Step title="⚒️ Configure actions">
     Click on an action in the workflow canvas.
     The right panel will now show the action's configuration options.
 
     Check out the docs on [Actions](/core/actions) to learn more.
+
   </Step>
   <Step title="🪝 Call the webhook to run your workflow">
     Go to the `Send Payload` control in the bottom right panel.
@@ -53,6 +55,7 @@ Prefer learning through examples? Watch this video to see how to build a simple 
     ![Trigger Workflow](/img/trigger-workflow.png)
 
     Select a webhook action from the dropdown, input a JSON object to send to that webhook, and click `Send`.
+
   </Step>
   <Step title="🎉 View workflow run status">
     You can view the status of the workflow run under `Past Runs` in the bottom right panel.
@@ -68,7 +71,10 @@ Prefer learning through examples? Watch this video to see how to build a simple 
 
 You can deploy your workflow using the `Publish` button in the top right corner of the workflow view.
 
-<Info>Deployed workflows runs automatically whenever a starting [Webhook action](/core/actions#action-types) receives new data.</Info>
+<Info>
+  Deployed workflows runs automatically whenever a starting [Webhook
+  action](/core/actions#action-types) receives new data.
+</Info>
 
 ### Schedule
 
