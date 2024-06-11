@@ -12,6 +12,19 @@ Tracecat's flexible user interface that allows you to build workflows in **headl
 | GUI (graphical UI) | React+NextJS frontend | No-code drag-and-drop builder |
 | Headless (no GUI)  | REST API or CLI       | IDE or text editor + YAML DSL |
 
+Actions taken and edits made in either mode are reflected in the other. A workflow created in headless mode will show up in the GUI, and vice versa.
+
+<Warning>
+This two-way sync functionality is a work in progress. It's missing:
+
+- Workflow changes in headless mode should update the GUI graph object.
+
+**What this means for you now**:
+
+- For each workflow you create, please use its respective mode to edit it.
+
+</Warning>
+
 ## Headless mode
 
 In headless mode, workflows are built and edited using your IDE or text editor with a YAML-like DSL. More on this in the [workflows](/concepts/workflows) section.
