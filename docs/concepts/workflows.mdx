@@ -3,12 +3,45 @@ title: Workflows
 description: Powerful automation made easy
 ---
 
-A workflow is the more central Tracecat object.
+A workflow is the most central Tracecat object.
 It is a collection of actions that are executed in a specific order.
 Workflows can be triggered by a variety of events, such as a schedule or an external event.
 
-Workflows can be expressed as a directed acyclic graph (DAG).
+## Overview
 
-### Writing workflows in YAML
+Workflows can be thought of as a special class of functions that run smaller functions.
 
-### Using the UI
+- Workflows can be committed in either operating mode into a [Workflow Definition](/concepts/workflow-definitions).
+
+## Triggers
+
+We support:
+
+- **Webhooks**: Trigger a workflow by sending an HTTP request to a webhook URL.
+- **Schedules**: Trigger a workflow at a specific time or interval.
+
+Each workflow has only one entrypoint, which is the first action to run when the workflow is triggered.
+
+## Orchestration Layer
+
+You could very well run an entire workflow inside a single action, but in exchange you would be giving up:
+
+1. **Resilience**: If an action fails, the entire workflow fails.
+2. **Observability**: It's hard to see what's happening inside a single action.
+
+- Decouple the orchestration logic from the execution logic
+
+### Durable execution with Temporal
+
+- Temporal allows us to reliably execute long-running workflows
+- Temporal resumes the workflow's local state (including variables and memory) when a Temporal activity fails
+
+## Child Workflows
+
+Workflows can trigger other workflows through a simple HTTP request. This allows you to create complex workflows by composing together simpler workflows.
+
+<Note>
+  We are working towards better design and implementation of child workflows.
+  Currently child workflows don't inherit the parent workflow's execution
+  context.
+</Note>

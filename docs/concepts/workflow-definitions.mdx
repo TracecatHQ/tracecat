@@ -11,6 +11,8 @@ When a workflow is triggered, Tracecat looks for the latest version of its workf
 
 ## Workflow Definition Schema
 
+Top level attributes for a workflow definition `DSLInput` object.
+
 | Attribute        | Type                    | Description                                                       |
 | ---------------- | ----------------------- | ----------------------------------------------------------------- |
 | `title`          | `str`                   | The title of the DSL workflow.                                    |
@@ -24,6 +26,8 @@ When a workflow is triggered, Tracecat looks for the latest version of its workf
 | `model_config`   | `ConfigDict`            | Configuration allowing arbitrary types.                           |
 
 ## Action Statement
+
+An `ActionStatement` is the configuration for single action in a workflow.
 
 | Attribute    | Type             | Description                                                                   |
 | ------------ | ---------------- | ----------------------------------------------------------------------------- |
