@@ -29,3 +29,62 @@ See [Quickstart](/quickstart) for a worked example.
     Open and prepopulate a case in the case management system.
   </Card>
 </CardGroup>
+
+### Extending Actions
+
+Actions are built on top of our [user-defined functions](/concepts/user-defined-functions) (UDF) framework.
+You can add your own UDFs if you self-host Tracecat and even change the core actions!
+
+<Tip>
+  In Tracecat enterprise, users will eventually be able to create their own
+  private UDFs for any custom actions or integrations they wish to run.
+</Tip>
+
+## Control Flow
+
+Every action manages its own control flow logic.
+
+### Conditional logic
+
+Every action has a `run_if` clause that can be used to conditionally run the action.
+Any [full expression](/concepts/expressions#full-templates) that evaluates to a `boolean` can be passed to the `run_if` clause.
+
+```yaml example_run_if.yaml
+actions:
+  - ref: check_virustotal
+    action: core.http_request
+    run_if: ${{ FNS.non_null(TRIGGER.hash) }} # TRIGGER.hash != null
+    args:
+      url: https://www.virustotal.com/api/v3/files/${{ TRIGGER.hash }}
+      method: GET
+```
+
+### Loops (WIP)
+
+<Warning>
+  This feature is still in the design phase, but we plan to support loops in the
+  future.
+</Warning>
+Every action will have a `loop` clause that can be used to run the action multiple
+times.
+
+```yaml example_for_each.yaml
+inputs:
+  hashes:
+    - "1234567890"
+    - "0987654321"
+    - "5678901234"
+actions:
+  - ref: check_virustotal
+    action: core.http_request
+    for_each: ${{ for ENV.curr_hash in INPUTS.hashes }} # Assigns each hash to ENV.curr_hash
+    args:
+      url: https://www.virustotal.com/api/v3/files/${{ ENV.curr_hash }}
+      method: GET
+```
+
+This will hit the urls:
+
+- `https://www.virustotal.com/api/v3/files/1234567890`
+- `https://www.virustotal.com/api/v3/files/0987654321`
+- `https://www.virustotal.com/api/v3/files/5678901234`
