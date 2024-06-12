@@ -16,7 +16,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel
 
-    from tracecat.expressions.engine import ExprContext
+    from tracecat.expressions import ExprContext
     from tracecat.auth.credentials import Role
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat import expressions

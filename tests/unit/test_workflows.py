@@ -29,7 +29,7 @@ from tracecat.dsl.workflow import (
     DSLWorkflow,
     dsl_activities,
 )
-from tracecat.expressions.engine import ExprContext
+from tracecat.expressions import ExprContext
 from tracecat.types.exceptions import TracecatExpressionError
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
