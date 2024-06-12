@@ -32,15 +32,15 @@ SECRET_SCAN_TEMPLATE = re.compile(r"\${{\s*SECRETS\.(?P<secret>.+?)\s*}}")
 FULL_TEMPLATE = re.compile(r"^\${{\s*[^{}]*\s*}}$")
 
 
-_DEFAULT_CONTEXTS = ("INPUTS", "ACTIONS", "SECRETS", "FNS", "ENV", "TRIGGER")
-_ExprContext = Literal["INPUTS", "ACTIONS", "SECRETS", "FNS", "ENV", "TRIGGER"]
+_DEFAULT_CONTEXTS = ("INPUTS", "ACTIONS", "SECRETS", "FN", "ENV", "TRIGGER")
+_ExprContext = Literal["INPUTS", "ACTIONS", "SECRETS", "FN", "ENV", "TRIGGER"]
 
 
 @functools.lru_cache
 def EXPR_CONTEXT_PATTERN(*contexts: _ExprContext):
     """Create a pattern that matches a subset of expressions.
 
-    Default contexts are `INPUTS`, `ACTIONS`, `SECRETS`, `FNS`, `ENV`, `TRIGGER`.
+    Default contexts are `INPUTS`, `ACTIONS`, `SECRETS`, `FN`, `ENV`, `TRIGGER`.
 
     If no contexts are provided, the pattern will match all contexts.
     """
