@@ -17,12 +17,14 @@ from .edr import (
 from .enrichment import (
     abuseipdb,
     alienvault,
+    emailrep,
     hybrid_analysis,
     malwarebazaar,
     pulsedive,
     urlscan,
     virustotal,
 )
+from .extraction import extract_emails
 from .siem import (
     list_datadog_alerts,
     list_elastic_alerts,
@@ -44,8 +46,10 @@ EDR_CAPABILITIES = {
     }
 }
 
-
 ENRICHMENT_CAPABILITIES = {
+    "analyze_email": {
+        "emailrep": emailrep,
+    },
     "analyze_url": {
         "alienvault": alienvault.analyze_url,
         "pulsedive": pulsedive.analyze_url,
@@ -64,6 +68,8 @@ ENRICHMENT_CAPABILITIES = {
         "virustotal": virustotal.analyze_malware_sample,
     },
 }
+
+EXTRACTION_CAPABILITIES = {"extract_emails": extract_emails}
 
 SIEM_CAPABILITIES = {
     "list_alerts": {

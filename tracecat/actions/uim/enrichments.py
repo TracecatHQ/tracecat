@@ -1,6 +1,7 @@
 """Unified API for enrichemnts.
 
 Supported Capabilities:
+- `analyze_email`: `email` required.
 - `analyze_url`: `url` required.
 - `analyze_ip_address`: `ip_address` required.
 - `analyze_malware_sample`: `file_hash` required.
@@ -9,6 +10,15 @@ Supported Capabilities:
 import os
 
 from tracecat.actions.integrations import get_capability
+
+
+async def analyze_email(email: str, vendor: str) -> list[dict]:
+    secret = os.getenv(vendor)
+    analyze = get_capability(
+        category="enrichment", capability="analyze_email", vendor=vendor
+    )
+    alerts = await analyze(email=email, **secret)
+    return alerts
 
 
 async def analyze_url(url: str, vendor: str) -> list[dict]:
