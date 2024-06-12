@@ -39,7 +39,7 @@ def eval_templated_object(
     obj: Any,
     *,
     operand: OperandType | None = None,
-    pattern: re.Pattern[str] = patterns.TEMPLATED_OBJ,
+    pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
 ) -> dict[str, Any]:
     """Populate templated fields with actual values."""
 
@@ -77,7 +77,7 @@ def _is_template_only(template: str) -> bool:
 def extract_templated_secrets(
     templated_obj: Any,
     *,
-    pattern: re.Pattern[str] = patterns.SECRET_TEMPLATE,
+    pattern: re.Pattern[str] = patterns.SECRET_SCAN_TEMPLATE,
 ) -> list[str]:
     """Extract secrets from templated objects."""
     secrets: set[str] = set()
