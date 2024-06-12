@@ -3,7 +3,7 @@ from typing import TypeVar
 from pydantic import ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
 
-from tracecat.templates.patterns import FULL_TEMPLATE
+from tracecat.expressions.patterns import FULL_TEMPLATE
 
 
 def is_full_template(template: str) -> bool:

@@ -51,7 +51,7 @@ from typing import Any, TypeVar
 import jsonpath_ng
 from jsonpath_ng.exceptions import JsonPathParserError
 
-from tracecat.templates import patterns
+from tracecat.expressions import patterns
 from tracecat.types.exceptions import TracecatExpressionError
 
 T = TypeVar("T")

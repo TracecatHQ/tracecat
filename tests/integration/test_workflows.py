@@ -22,7 +22,7 @@ from temporalio.common import RetryPolicy
 
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.dispatcher import dispatch_workflow
-from tracecat.templates.expressions import ExprContext
+from tracecat.expressions.engine import ExprContext
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))

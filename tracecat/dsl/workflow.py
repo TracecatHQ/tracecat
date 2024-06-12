@@ -16,10 +16,10 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel
 
-    from tracecat.templates.expressions import ExprContext
+    from tracecat.expressions.engine import ExprContext
     from tracecat.auth.credentials import Role
     from tracecat.auth.sandbox import AuthSandbox
-    from tracecat import templates
+    from tracecat import expressions
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.common import ActionStatement, DSLInput
     from tracecat.logging import logger
@@ -237,7 +237,7 @@ class DSLWorkflow:
             return True
         # Evaluate the `run_if` condition
         if task.run_if is not None:
-            expr = templates.TemplateExpression(task.run_if, operand=self.context)
+            expr = expressions.TemplateExpression(task.run_if, operand=self.context)
             self.logger.debug("`run_if` condition", task_run_if=task.run_if)
             if not bool(expr.result()):
                 self.logger.info("Task `run_if` condition did not pass, skipped")
@@ -283,10 +283,10 @@ class DSLActivities:
         # 2. Load the secrets
         # 3. Inject the secrets into the task arguments using an enriched context
         # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
-        secret_refs = templates.extract_templated_secrets(task.args)
+        secret_refs = expressions.extract_templated_secrets(task.args)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
             logger.info("Evaluating task arguments", secrets=sandbox.secrets)
-            args = templates.eval_templated_object(
+            args = expressions.eval_templated_object(
                 task.args,
                 operand={**input.exec_context, ExprContext.SECRETS: sandbox.secrets},
             )
