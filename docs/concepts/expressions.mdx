@@ -18,7 +18,7 @@ Some examples of expressions:
 ```css
 ${{ SECRETS.my_secret.SUPER_SECRET }}
 ${{ ACTIONS.my_action.result }}
-${{ FNS.add(1, 2) }}
+${{ FN.add(1, 2) }}
 ${{ INPUTS.my_input }}
 ${{ TRIGGER.my_trigger }}
 ```
@@ -39,7 +39,7 @@ Types we currently support are `int`, `str`, `bool`, and `float`.
 For example, this expression will return the integer literal 3:
 
 ```css
-${{ FNS.add(1, 2) -> int }}
+${{ FN.add(1, 2) -> int }}
 ```
 
 ## Expression Contexts
@@ -50,13 +50,13 @@ Tracecat expression contexts are all uppercase qualifiers, e.g. `SECRETS`.
 We use dot notation or JSONPath expressions to access data, objects, or functions in a particular context.
 We currently support the following contexts:
 
-| Qualifier | Expression syntax                    | Description                             |
-| --------- | ------------------------------------ | --------------------------------------- |
-| `SECRETS` | `SECRETS.<name>.<key>`               | Secrets manager                         |
-| `ACTIONS` | `ACTIONS.<jsonpath>.result`          | The active workflow's execution results |
-| `FNS`     | `FNS.<fn_name>(<arg1>, <arg2>, ...)` | Inline functions                        |
-| `INPUTS`  | `INPUTS.<jsonpath>`                  | The active workflow's static inputs     |
-| `TRIGGER` | `TRIGGER.<jsonpath>`                 | The active workflow's trigger inputs    |
+| Qualifier | Expression syntax                   | Description                             |
+| --------- | ----------------------------------- | --------------------------------------- |
+| `SECRETS` | `SECRETS.<name>.<key>`              | Secrets manager                         |
+| `ACTIONS` | `ACTIONS.<jsonpath>.result`         | The active workflow's execution results |
+| `FN`      | `FN.<fn_name>(<arg1>, <arg2>, ...)` | Inline functions                        |
+| `INPUTS`  | `INPUTS.<jsonpath>`                 | The active workflow's static inputs     |
+| `TRIGGER` | `TRIGGER.<jsonpath>`                | The active workflow's trigger inputs    |
 
 ## Template syntax
 
@@ -86,16 +86,16 @@ It follow that when a full template wraps an expression, we call this a **full e
 
 The final datatype of the above expression depends on the return type of the expression and whether there is a typecast.
 
-This expression will return integer literal `3` because `FNS.add(1, 2)` returns an integer:
+This expression will return integer literal `3` because `FN.add(1, 2)` returns an integer:
 
 ```php
-"${{ FNS.add(1, 2) }}"
+"${{ FN.add(1, 2) }}"
 ```
 
-In contrast, this expression will return string literal `"3"` because `FNS.add(1, 2)` was cast to a string:
+In contrast, this expression will return string literal `"3"` because `FN.add(1, 2)` was cast to a string:
 
 ```php
-"${{ FNS.add(1, 2) -> str}}"
+"${{ FN.add(1, 2) -> str}}"
 ```
 
 In YAML, by convention we omit the quotes around full expressions:
@@ -105,7 +105,7 @@ actions:
   - ref: my_action
     action: example.action
     args:
-      value: ${{ FNS.add(1, 2) }}
+      value: ${{ FN.add(1, 2) }}
 ```
 
 ### Inline templates
@@ -127,7 +127,7 @@ The final datatype of the above expression is always a string.
 For example, this expression:
 
 ```php
-"An inline template ${{ FNS.add(1, 2) }} looks ${{ FNS.add(1, 2) -> str }} like this."
+"An inline template ${{ FN.add(1, 2) }} looks ${{ FN.add(1, 2) -> str }} like this."
 ```
 
 will return string literal `"An inline template 3 looks 3 like this."`:
@@ -139,7 +139,7 @@ actions:
   - ref: my_action
     action: example.action
     args:
-      value: "An inline template ${{ FNS.add(1, 2) }} looks ${{ FNS.add(1, 2) -> str }} like this."
+      value: "An inline template ${{ FN.add(1, 2) }} looks ${{ FN.add(1, 2) -> str }} like this."
 ```
 
 ## Expression Types
@@ -337,6 +337,6 @@ After doing the above it then proceeds to run the action's associated UDF.
 | --------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `SECRETS` | Secrets manager context. The expression `SECRETS.my_secret.SUPER_SECRET` will return `my_secret.SUPER_SECRET`'s stored value. |
 | `ACTIONS` | The active workflow's execution context. Lets you access results from completed actions.                                      |
-| `FNS`     | Inline functions. The expression `FNS.add(1, 2)` will return `3`.                                                             |
+| `FN`      | Inline functions. The expression `FN.add(1, 2)` will return `3`.                                                              |
 | `INPUTS`  | The active workflow's static inputs. Lets you access static inputs from the workflow definition.                              |
 | `TRIGGER` | The active workflow's trigger inputs. Lets you access dynamic inputs from a webhook.                                          |
