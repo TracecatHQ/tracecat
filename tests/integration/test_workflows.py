@@ -22,6 +22,7 @@ from temporalio.common import RetryPolicy
 
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.dispatcher import dispatch_workflow
+from tracecat.templates.expressions import ExprContext
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
@@ -47,4 +48,4 @@ async def test_workflow_can_be_dispatched(
     dsl, temporal_cluster, tracecat_worker, auth_sandbox
 ):
     result = await dispatch_workflow(dsl, retry_policy=RetryPolicy(maximum_attempts=1))
-    assert len(result.final_context["ACTIONS"]) == len(dsl.actions)
+    assert len(result.final_context[ExprContext.ACTIONS]) == len(dsl.actions)

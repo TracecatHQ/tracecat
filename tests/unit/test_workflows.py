@@ -29,6 +29,7 @@ from tracecat.dsl.workflow import (
     DSLWorkflow,
     dsl_activities,
 )
+from tracecat.templates.expressions import ExprContext
 from tracecat.types.exceptions import TracecatExpressionError
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
@@ -130,7 +131,7 @@ async def test_workflow_can_run_from_yaml(
         )
 
     logger.info(result)
-    assert len(result["ACTIONS"]) == len(dsl.actions)
+    assert len(result[ExprContext.ACTIONS]) == len(dsl.actions)
 
 
 @pytest.mark.asyncio
@@ -157,7 +158,7 @@ async def test_workflow_udf_registry_async_function_can_be_called(mock_registry)
 
 
 def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
-    act_outputs = final_context["ACTIONS"]
+    act_outputs = final_context[ExprContext.ACTIONS]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:

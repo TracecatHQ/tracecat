@@ -16,6 +16,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel
 
+    from tracecat.templates.expressions import ExprContext
     from tracecat.auth.credentials import Role
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat import templates
@@ -225,7 +226,7 @@ class DSLWorkflow:
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
             )
-            self.context["ACTIONS"][task.ref] = DSLNodeResult(
+            self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
                 result=activity_result,
                 result_typename=type(activity_result).__name__,
             )
@@ -250,7 +251,7 @@ class DSLWorkflow:
 class UDFActionInput(BaseModel):
     task: ActionStatement
     role: Role
-    exec_context: dict[str, Any]
+    exec_context: dict[ExprContext, Any]
     run_context: RunContext
 
 
@@ -269,16 +270,25 @@ class DSLActivities:
             task_ref=task.ref, wf_id=input.run_context.wf_id, role=input.role
         )
 
+        # Multi-phase expression resolution
+        # ---------------------------------
+        # 1. Resolve all expressions in all shared (non action-local) contexts
+        # 2. Enter loop iteration (if any)
+        # 3. Resolve all action-local expressions
+
+        # Evaluate `SECRETS` context
+        # --------------------------
         # Securely inject secrets into the task arguments
         # 1. Find all secrets in the task arguments
         # 2. Load the secrets
         # 3. Inject the secrets into the task arguments using an enriched context
+        # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
         secret_refs = templates.extract_templated_secrets(task.args)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
-            # Resolve all templated arguments
             logger.info("Evaluating task arguments", secrets=sandbox.secrets)
             args = templates.eval_templated_object(
-                task.args, operand={**input.exec_context, "SECRETS": sandbox.secrets}
+                task.args,
+                operand={**input.exec_context, ExprContext.SECRETS: sandbox.secrets},
             )
         type = task.action
         ctx_logger.set(act_logger)
