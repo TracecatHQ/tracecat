@@ -44,7 +44,7 @@ actions:
     depends_on:
       - a
     # This expression returns false and the task should not run, as a.result is "1"
-    run_if: ${{ FNS.is_equal(ACTIONS.a.result, str(2)) }}
+    run_if: ${{ FN.is_equal(ACTIONS.a.result, str(2)) }}
 
   # This task should not run, as C does not run
   - ref: d

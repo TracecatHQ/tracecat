@@ -103,7 +103,8 @@ def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
     path: Path = request.param
     with path.open() as f:
         yaml_data = f.read()
-    return yaml.safe_load(yaml_data)
+    data = yaml.safe_load(yaml_data)
+    return {key: (value or {}) for key, value in data.items()}
 
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
