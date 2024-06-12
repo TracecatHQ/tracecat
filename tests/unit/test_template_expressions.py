@@ -14,6 +14,8 @@ from tracecat.templates.eval import (
     extract_templated_secrets,
 )
 from tracecat.templates.expressions import (
+    ExprContext,
+    ExpressionParser,
     TemplateExpression,
     eval_jsonpath,
 )
@@ -68,7 +70,7 @@ def test_eval_jsonpath():
         ("${{ ACTIONS.webhook.result -> str }}", "1"),
         ("${{ ACTIONS.path_A_first.result.path.nested.value -> int }}", 9999),
         (
-            "${{ FNS.add(INPUTS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
+            "${{ FN.add(INPUTS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
             10000,
         ),
     ],
@@ -97,19 +99,19 @@ def test_templated_expression_result(expression, expected_result):
     "expression, expected_result",
     [
         (
-            "${{ FNS.is_equal(bool(True), bool(1)) -> bool }}",
+            "${{ FN.is_equal(bool(True), bool(1)) -> bool }}",
             True,
         ),
         (
-            "${{ FNS.add(int(1234), float(0.5)) -> float }}",
+            "${{ FN.add(int(1234), float(0.5)) -> float }}",
             1234.5,
         ),
         (
-            "${{ FNS.less_than(INPUTS.arg1, INPUTS.arg2) -> bool }}",
+            "${{ FN.less_than(INPUTS.arg1, INPUTS.arg2) -> bool }}",
             True,
         ),
         (
-            "${{ FNS.is_equal(INPUTS.arg1, ACTIONS.webhook.result) -> bool }}",
+            "${{ FN.is_equal(INPUTS.arg1, ACTIONS.webhook.result) -> bool }}",
             True,
         ),
     ],
@@ -326,3 +328,73 @@ def test_eval_templated_object_inline_fails_if_not_str():
         operand=data,
     )
     assert actual2 == "   42 3   "
+
+
+@pytest.mark.parametrize(
+    "expr, expected",
+    [
+        # Action expressions
+        ("ACTIONS.action_test.bar -> str", "1"),
+        ("str(ACTIONS.action_test.bar)", "1"),
+        ("ACTIONS.action_test.bar", 1),
+        ("       ACTIONS.action_test.baz    ", 2),
+        ("ACTIONS.action_test", {"bar": 1, "baz": 2}),
+        ("   ACTIONS.action_test", {"bar": 1, "baz": 2}),
+        # Secret expressions
+        ("SECRETS.secret_test.KEY", "SECRET"),
+        ("   SECRETS.secret_test.KEY    ", "SECRET"),
+        # Function expressions
+        ("FN.concat(ENV.item, '5')", "ITEM5"),
+        ("FN.add(5, 2)", 7),
+        ("  FN.is_null(None)   ", True),
+        ("FN.contains('a', INPUTS.my.module.items)", True),
+        # Ternary expressions
+        (
+            "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
+            "It contains 1",
+        ),
+        # Typecast expressions
+        ("int(5)", 5),
+        ("float(5.0)", 5.0),
+        ("str('hello')", "hello"),
+        # Literals
+        ("'hello'", "hello"),
+        ("True", True),
+        ("False", False),
+        ("None", None),
+        ("5", 5),
+        ("5.0", 5.0),
+        ("5000", 5000),
+        ("'500'", "500"),
+        ("bool(True)", True),
+        ("bool(1)", True),
+    ],
+)
+def test_expression_parser(expr, expected):
+    context = {
+        ExprContext.ACTIONS: {
+            "action_test": {
+                "bar": 1,
+                "baz": 2,
+            },
+        },
+        ExprContext.SECRETS: {
+            "secret_test": {
+                "KEY": "SECRET",
+            },
+        },
+        ExprContext.INPUTS: {
+            "list": [1, 2, 3],
+            "my": {
+                "module": {
+                    "items": ["a", "b", "c"],
+                },
+            },
+        },
+        ExprContext.ENV: {
+            "item": "ITEM",
+            "var": "VAR",
+        },
+    }
+    parser = ExpressionParser(context=context)
+    assert parser.parse_expr(expr) == expected
