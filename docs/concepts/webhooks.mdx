@@ -46,12 +46,12 @@ triggers:
     filters:
       - kind: all # all conditions must be satisfied
         conditions:
-          - ${{ FNS.not_null(TRIGGER.value) }}
-          - ${{ FNS.equals(TRIGGER.value, "123456") }}
+          - ${{ FN.not_null(TRIGGER.value) }}
+          - ${{ FN.equals(TRIGGER.value, "123456") }}
       - kind: any # any condition must be satisfied
         conditions:
-          - ${{ FNS.not_null(TRIGGER.value) }}
-          - ${{ FNS.contains([1, 2, 3], TRIGGER.value) }}
+          - ${{ FN.not_null(TRIGGER.value) }}
+          - ${{ FN.contains([1, 2, 3], TRIGGER.value) }}
 ```
 
 Filters are always evaluated in the order they are defined, and likewise for the conditions within each filter.

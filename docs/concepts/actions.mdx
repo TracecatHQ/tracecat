@@ -53,7 +53,7 @@ Any [full expression](/concepts/expressions#full-templates) that evaluates to a 
 actions:
   - ref: check_virustotal
     action: core.http_request
-    run_if: ${{ FNS.not_null(TRIGGER.hash) }} # TRIGGER.hash != null
+    run_if: ${{ FN.not_null(TRIGGER.hash) }} # TRIGGER.hash != null
     args:
       url: https://www.virustotal.com/api/v3/files/${{ TRIGGER.hash }}
       method: GET
