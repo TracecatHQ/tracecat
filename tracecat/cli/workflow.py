@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -30,7 +31,7 @@ async def _commit_workflow(yaml_path: Path, workflow_id: str):
         res.raise_for_status()
 
 
-async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None):
+async def _run_workflow(workflow_id: str, payload: dict[str, str] | None = None):
     async with user_client() as client:
         # Get the webhook url
         res = await client.get(f"/workflows/{workflow_id}/webhook")
@@ -38,9 +39,18 @@ async def _run_workflow(workflow_id: str, content: dict[str, str] | None = None)
         webhooks = WebhookResponse.model_validate(res.json())
     async with httpx.AsyncClient() as client:
         res = await client.post(
-            webhooks.url, content=orjson.dumps(content) if content else None
+            webhooks.url, content=orjson.dumps(payload) if payload else None
         )
-        rich.print(res.json())
+        try:
+            res.raise_for_status()
+            rich.print(res.json())
+        except json.JSONDecodeError:
+            rich.print(res.text)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                rich.print(
+                    "Webhook not found. Either you entered it incorrectly or haven't exposed it yet (through ngrok)."
+                )
 
 
 async def _create_workflow(
