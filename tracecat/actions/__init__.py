@@ -7,14 +7,7 @@ Do not add `from __future__ import annotations` to any action module. This will 
 # Bring all actions into the namespace to be registered
 import os
 
-from tracecat.actions.core import (
-    cases,
-    condition,
-    email,
-    example,
-    http,
-    llm,
-)
+from tracecat.actions.core import cases, condition, email, example, http, llm, transform
 
 __all__ = [
     # Core
@@ -24,6 +17,7 @@ __all__ = [
     "llm",
     "condition",
     "cases",
+    "transform",
 ]
 
 
