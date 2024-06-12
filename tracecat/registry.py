@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from pydantic_core import ValidationError
 from typing_extensions import Doc
 
-from tracecat import templates
+from tracecat import expressions
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.types.exceptions import TracecatException
 
@@ -191,7 +191,7 @@ class _Registry:
                 raise ValueError("Provided object is not a callable function.")
             # Store function and decorator arguments in a dict
 
-            _attach_validators(fn, templates.TemplateValidator())
+            _attach_validators(fn, expressions.TemplateValidator())
             args_cls, rtype_cls, rtype_adapter = _generate_model_from_function(
                 fn, namespace=namespace
             )

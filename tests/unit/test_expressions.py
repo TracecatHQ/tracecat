@@ -9,17 +9,17 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.helpers import batch_get_secrets, format_secrets_as_json
 from tracecat.db.schemas import Secret
-from tracecat.templates.eval import (
-    eval_templated_object,
-    extract_templated_secrets,
-)
-from tracecat.templates.expressions import (
+from tracecat.expressions.engine import (
     ExprContext,
     ExpressionParser,
     TemplateExpression,
     eval_jsonpath,
 )
-from tracecat.templates.patterns import FULL_TEMPLATE
+from tracecat.expressions.eval import (
+    eval_templated_object,
+    extract_templated_secrets,
+)
+from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.secrets import SecretKeyValue
 

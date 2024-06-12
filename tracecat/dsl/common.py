@@ -12,7 +12,7 @@ from temporalio.client import Client, TLSConfig
 
 from tracecat import config
 from tracecat.dsl._converter import pydantic_data_converter
-from tracecat.templates import TemplateValidator
+from tracecat.expressions import TemplateValidator
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -52,6 +52,10 @@ class ActionStatement(BaseModel):
     """Task dependencies"""
 
     run_if: Annotated[str | None, Field(default=None), TemplateValidator()]
+    """Condition to run the task"""
+
+    for_each: Annotated[str | None, Field(default=None), TemplateValidator()]
+    """Run the task over an iterable"""
 
 
 class DSLConfig(BaseModel):

@@ -3,8 +3,8 @@ from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any, TypeVar
 
-from tracecat.templates import patterns
-from tracecat.templates.expressions import TemplateExpression
+from tracecat.expressions import patterns
+from tracecat.expressions.engine import TemplateExpression
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
