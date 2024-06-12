@@ -23,8 +23,8 @@ The type to cast the result to, e.g. "int" or "str" or "float". This is expresse
 
 Context
 -------
-The root level namespace of the expression, e.g. "SECRETS" or "$" or "FNS".
-Anything that isn't a global context like SECRETS/FNS is assumed to be a jsonpath, e.g. "$.webhook.result"
+The root level namespace of the expression, e.g. "SECRETS" or "$" or "FN".
+Anything that isn't a global context like SECRETS/FN is assumed to be a jsonpath, e.g. "$.webhook.result"
 
 Operand
 -------
