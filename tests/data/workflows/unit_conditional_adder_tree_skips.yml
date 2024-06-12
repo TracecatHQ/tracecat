@@ -42,4 +42,4 @@ actions:
     depends_on:
       - a
     # This task should not run, as a.result is "1"
-    run_if: ${{ FNS.is_equal(ACTIONS.a.result, str(2)) }}
+    run_if: ${{ FN.is_equal(ACTIONS.a.result, str(2)) }}

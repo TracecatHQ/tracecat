@@ -38,7 +38,7 @@ actions:
         1. File Identification
 
         SHA256: ${{ ACTIONS.call_virustotal.result.data.data.attributes.sha256 }}
-        File Names: ${{ FNS.join(ACTIONS.call_virustotal.result.data.data.attributes.names) -> str }}
+        File Names: ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.names) -> str }}
 
         2. Submission Dates
 
@@ -52,7 +52,7 @@ actions:
 
         4. Detection Tags
 
-        ${{ FNS.join(ACTIONS.call_virustotal.result.data.data.attributes.tags) -> str }}
+        ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.tags) -> str }}
         5. File Details
 
         ~Tracecat
