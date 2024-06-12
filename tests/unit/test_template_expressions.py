@@ -77,11 +77,11 @@ def test_eval_jsonpath():
 )
 def test_templated_expression_result(expression, expected_result):
     exec_vars = {
-        "INPUTS": {
+        ExprContext.INPUTS: {
             "arg1": 1,
             "arg2": 2,
         },
-        "ACTIONS": {
+        ExprContext.ACTIONS: {
             "webhook": {"result": 1},
             "path_A_first": {"result": {"path": {"nested": {"value": 9999}}}},
             "path_A_second": {"result": 3},
@@ -118,11 +118,11 @@ def test_templated_expression_result(expression, expected_result):
 )
 def test_templated_expression_function(expression, expected_result):
     exec_vars = {
-        "INPUTS": {
+        ExprContext.INPUTS: {
             "arg1": 1,
             "arg2": 2,
         },
-        "ACTIONS": {
+        ExprContext.ACTIONS: {
             "webhook": {"result": 1},
             "path_A_first": {"result": {"path": {"nested": {"value": 9999}}}},
             "path_A_second": {"result": 3},
@@ -252,21 +252,21 @@ async def test_evaluate_templated_secret(mock_api, auth_sandbox):
         secret_paths = extract_templated_secrets(mock_templated_kwargs)
         secret_names = [path.split(".")[0] for path in secret_paths]
         secrets = await batch_get_secrets(ctx_role.get(), secret_names)
-        secret_ctx = {"SECRETS": format_secrets_as_json(secrets)}
+        secret_ctx = {ExprContext.SECRETS: format_secrets_as_json(secrets)}
         actual = eval_templated_object(obj=mock_templated_kwargs, operand=secret_ctx)
     assert actual == exptected
 
 
 def test_eval_templated_object():
     data = {
-        "ACTIONS": {
+        ExprContext.ACTIONS: {
             "webhook": {
                 "result": 42,
                 "url": "https://example.com",
                 "count": 3,
             }
         },
-        "SECRETS": {
+        ExprContext.SECRETS: {
             "my_secret": "@@@",
         },
     }
@@ -307,14 +307,14 @@ def test_eval_templated_object():
 
 def test_eval_templated_object_inline_fails_if_not_str():
     data = {
-        "ACTIONS": {
+        ExprContext.ACTIONS: {
             "webhook": {
                 "result": 42,
                 "url": "https://example.com",
                 "count": 3,
             }
         },
-        "SECRETS": {
+        ExprContext.SECRETS: {
             "my_secret": "@@@",
         },
     }
