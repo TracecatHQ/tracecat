@@ -1,13 +1,21 @@
 ---
 title: Workflow Definitions
-description: Ground truth for workflow execution.
+description: Ground truth configuration data for workflows.
 ---
 
-You can think of a workflow defintion as an instruction manual that tells Tracecat how to execute a workflow.
-When a workflow is triggered, Tracecat looks for the latest version of its workflow definition to execute.
+A workflow definition is the configuration data that defines and controls how a workflow executes.
+It is the source of truth when reasoning about any workflow's execution.
 
-- Definitions are the osurce of truth for a workflow
-- One workflow can have many different workflow definitions due to versioning
+## Overview
+
+A workflow defintion is analagous to an instruction manual or blueprint that tells Tracecat runners how to execute a workflow.
+Workflow definitions are created when a workflow is committed from the UI, and are immutable once created.
+You can think of them as a snapshot of the workflow (that you view and edit in the UI) at a specific point in time.
+
+These snapshots becomes deployed workflow instances (workflow runs) at runtime.
+When a workflow is triggered, Tracecat will find and execute its latest workflow definition version.
+
+One workflow can have many different workflow definitions due to versioning
 
 ## Workflow Definition Schema
 
@@ -150,7 +158,7 @@ actions:
                 value: "click_me_123"
 ```
 
-## Committing workflow changes
+## Committing Workflow changes
 
 A new workflow definition is created for a workflow when:
 
@@ -168,3 +176,9 @@ A new workflow definition is created for a workflow when:
 - Our versioning system is intentionally extremely simple
 - You can checkout a specific version of a workflow definition, but to promote it to the exe
 - Tracecat will always look for the latest version of the workflow definition to execute
+- Workflow versions are monotonically increasing integers
+
+## Immutability
+
+We do not allow editing of workflow definitions after they are created, nor do we allow deletion of workflow definitions.
+This ensures that for any compliance or audit purposes, you can always trace back to the exact configuration that was used to execute a workflow.

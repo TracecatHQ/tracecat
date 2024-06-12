@@ -9,32 +9,24 @@ Workflows can be triggered by a variety of events, such as a schedule or an exte
 
 ## Overview
 
-Workflows can be thought of as a special class of functions that run smaller functions.
+Workflows can be thought of as a special class of functions that manage the running of actions.
 
 - Workflows can be committed in either operating mode into a [Workflow Definition](/concepts/workflow-definitions).
 
 ## Triggers
 
-We support:
-
-- **Webhooks**: Trigger a workflow by sending an HTTP request to a webhook URL.
-- **Schedules**: Trigger a workflow at a specific time or interval.
-
 Each workflow has only one entrypoint, which is the first action to run when the workflow is triggered.
+A workflow with more than one entrypoint will fail at commit time.
+
+Kinds of triggers we support:
+
+- [**Webhooks**](/concepts/webhooks): Trigger a workflow by sending an HTTP request to a webhook URL.
+- [**Schedules**](/concepts/schedules): Trigger a workflow at a specific time or interval.
 
 ## Orchestration Layer
 
-You could very well run an entire workflow inside a single action, but in exchange you would be giving up:
-
-1. **Resilience**: If an action fails, the entire workflow fails.
-2. **Observability**: It's hard to see what's happening inside a single action.
-
-- Decouple the orchestration logic from the execution logic
-
-### Durable execution with Temporal
-
-- Temporal allows us to reliably execute long-running workflows
-- Temporal resumes the workflow's local state (including variables and memory) when a Temporal activity fails
+Tracecat's workflow orchestration layer is built on top of Temporal, an open-source, stateful, and resilient orchestration engine.
+By offloading the orchestation logic to Temporal, we can fully focus on the execution logic here at Tracecat.
 
 ## Child Workflows
 

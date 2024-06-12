@@ -36,7 +36,7 @@ Actions are built on top of our [user-defined functions](/concepts/user-defined-
 You can add your own UDFs if you self-host Tracecat and even change the core actions!
 
 <Tip>
-  In Tracecat enterprise, users will eventually be able to create their own
+  In Tracecat enterprise, users will eventually be able to host their own
   private UDFs for any custom actions or integrations they wish to run.
 </Tip>
 
@@ -49,11 +49,11 @@ Every action manages its own control flow logic.
 Every action has a `run_if` clause that can be used to conditionally run the action.
 Any [full expression](/concepts/expressions#full-templates) that evaluates to a `boolean` can be passed to the `run_if` clause.
 
-```yaml example_run_if.yaml
+```yaml
 actions:
   - ref: check_virustotal
     action: core.http_request
-    run_if: ${{ FNS.non_null(TRIGGER.hash) }} # TRIGGER.hash != null
+    run_if: ${{ FNS.not_null(TRIGGER.hash) }} # TRIGGER.hash != null
     args:
       url: https://www.virustotal.com/api/v3/files/${{ TRIGGER.hash }}
       method: GET
@@ -61,14 +61,11 @@ actions:
 
 ### Loops (WIP)
 
-<Warning>
-  This feature is still in the design phase, but we plan to support loops in the
-  future.
-</Warning>
+<Warning>This feature is a work in progress</Warning>
 Every action will have a `loop` clause that can be used to run the action multiple
 times.
 
-```yaml example_for_each.yaml
+```yaml
 inputs:
   hashes:
     - "1234567890"
