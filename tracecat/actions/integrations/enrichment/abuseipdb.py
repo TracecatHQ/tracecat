@@ -19,14 +19,22 @@ analyze_ip_address = {
 """
 
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
+
+from tracecat.registry import Field, registry
 
 ABUSEIPDB_BASE_URL = "https://api.abuseipdb.com/api"
 
 
-async def analyze_ip_address(ip_address: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze an IP address using AbuseIPDB.",
+    namespace="abuseipdb",
+)
+async def analyze_ip_address(
+    ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
+) -> dict[str, Any]:
     headers = {
         "Accept": "application/json",
         "Key": os.environ["ABUSEIPDB_API_KEY"],
