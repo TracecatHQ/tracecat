@@ -83,11 +83,13 @@ class AuthSandbox:
     def _unset_secrets(self):
         if self._target == "context":
             for secret in self._secret_objs:
-                del self._context[secret.name]
+                if secret.name in self._context:
+                    del self._context[secret.name]
         else:
             for secret in self._secret_objs:
                 for kv in secret.keys:
-                    del os.environ[kv.key]
+                    if kv.key in os.environ:
+                        del os.environ[kv.key]
 
     async def _get_secrets(self) -> list[Secret]:
         """Retrieve secrets from the secrets API."""
