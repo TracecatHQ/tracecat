@@ -25,20 +25,31 @@
 - [x] Hosted [Temporal](https://github.com/temporalio/temporal) workflows
 - [x] No-code workflow builder
 - [x] Automations-as-code
-  - [x] GitHub Actions-like YAML syntax
-  - [x] Python-to-no-code compiler
+  - [x] GitHub Actions-like YAML syntax. [Docs](https://docs.tracecat.com/concepts/workflow-definitions)
+  - [x] Python-to-no-code compiler. [Docs](https://docs.tracecat.com/concepts/user-defined-functions)
   - [x] Version control
   - [ ] VSCode extension (coming soon)
-- [x] Actions (HTTP requests, if-else, etc.)
-- [x] Case Management
+- [x] Actions (HTTP requests, if-else, etc.). [Docs](https://docs.tracecat.com/concepts/actions)
+- [x] Case Management. [Docs]()
 - [x] Dashboard UI
 - [x] Command-line interface
 - [x] Integrations
 
-Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent.
-It's the simplest way for security engineers to build scalable workflow applications in code.
-Every automation in code is synced into the no-code frontend, and vice-versa.
-Tracecat allows security teams to standardize workflow development and deployment across the organization.
+Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simpliest way for modern security teams to build, scale, and maintain workflows.
+
+With Tracecat, security teams builds automations using both:
+
+- No-code drag-and-drop UI
+- Configuration-as-code (e.g. Ansible / GitHub Actions)
+
+Tracecat extends the classic no-code [SOAR (Security Orchestration, Automation and Response)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) experience with modern DevOps practices. No-code workflows are automatically synced into code, and vice versa.
+
+## Why choose Tracecat?
+
+- Security Operations (SecOps): Unify workflow development across security engineering and SOC teams
+- Managed Detection & Response (MDR): Rapidly build scalable workflow applications into any security product
+
+## Feature Highlights
 
 <table>
   <tr>
