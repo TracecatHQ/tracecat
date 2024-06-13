@@ -1,0 +1,14 @@
+title: Forwarder loop
+description: Test that we can loop
+entrypoint: a
+inputs:
+  first: 1
+  second: 2
+  list: [1, 2, 3]
+
+actions:
+  - ref: a
+    action: core.transform.forward
+    for_each: ${{ for var.x in INPUTS.list }}
+    args:
+      value: I received ${{ var.x }} from you

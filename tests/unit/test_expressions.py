@@ -269,6 +269,10 @@ def test_eval_templated_object():
         ExprContext.SECRETS: {
             "my_secret": "@@@",
         },
+        ExprContext.LOCAL_VARS: {
+            "x": 5,
+            "y": "100",
+        },
     }
     templates = [
         {
@@ -285,6 +289,9 @@ def test_eval_templated_object():
         "${{ ACTIONS.webhook.url}}",
         "            Again, inline substitution ${{ SECRETS.my_secret }} like this   ",
         "Multiple inline substitutions ${{ ACTIONS.webhook.result }} and ${{ ACTIONS.webhook.url }}",
+        " ignore local vars ${{ var.y }}",
+        "${{ var.x }}",
+        "${{ FN.add(5, var.x) }}",
     ]
     expected_result = [
         {
@@ -300,8 +307,75 @@ def test_eval_templated_object():
         "https://example.com",
         "            Again, inline substitution @@@ like this   ",
         "Multiple inline substitutions 42 and https://example.com",
+        " ignore local vars 100",
+        5,
+        10,
     ]
     processed_templates = eval_templated_object(templates, operand=data)
+    assert processed_templates == expected_result
+
+
+def test_eval_templated_object_exclusion():
+    data = {
+        ExprContext.ACTIONS: {
+            "webhook": {
+                "result": 42,
+                "url": "https://example.com",
+                "count": 3,
+            }
+        },
+        ExprContext.SECRETS: {
+            "my_secret": "@@@",
+        },
+        ExprContext.LOCAL_VARS: {
+            "x": 5,
+            "y": "100",
+        },
+    }
+    templates = [
+        {
+            "test": {
+                "data": "INLINE: ${{ ACTIONS.webhook.result -> str }}",
+                "url": "${{ ACTIONS.webhook.url}}",
+                "number": "${{ ACTIONS.webhook.result -> int }}",
+                "number_whitespace": "${{ ACTIONS.webhook.result -> int }}",
+                # Inline substitution resulting in a string cannot cast to int
+                "number_whitespace_multi_string": " ${{ ACTIONS.webhook.result }} ${{ ACTIONS.webhook.count }}  ",
+            }
+        },
+        "Inline substitution ${{ ACTIONS.webhook.result}} like this",
+        "${{ ACTIONS.webhook.url}}",
+        "            Again, inline substitution ${{ SECRETS.my_secret }} like this   ",
+        "Multiple inline substitutions ${{ ACTIONS.webhook.result }} and ${{ ACTIONS.webhook.url }}",
+        " ignore local vars ${{ var.y }}",
+        "${{ var.x }}",
+        "${{ FN.add(5, 2) }}",
+        "${{ FN.add(5, var.x) }}",
+    ]
+    expected_result = [
+        {
+            "test": {
+                "data": "INLINE: 42",
+                "url": "https://example.com",
+                "number": 42,
+                "number_whitespace": 42,
+                "number_whitespace_multi_string": " 42 3  ",
+            }
+        },
+        "Inline substitution 42 like this",
+        "https://example.com",
+        "            Again, inline substitution ${{ SECRETS.my_secret }} like this   ",
+        "Multiple inline substitutions 42 and https://example.com",
+        " ignore local vars ${{ var.y }}",
+        "${{ var.x }}",
+        7,
+        "${{ FN.add(5, var.x) }}",
+    ]
+    processed_templates = eval_templated_object(
+        templates,
+        operand=data,
+        exclude={ExprContext.SECRETS, ExprContext.LOCAL_VARS},
+    )
     assert processed_templates == expected_result
 
 

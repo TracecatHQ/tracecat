@@ -219,11 +219,15 @@ async def test_workflow_ordering_is_correct(
             DATA_PATH
             / "unit_conditional_adder_diamond_skip_with_join_weak_dep_expected.yml",
         ),
+        (
+            DATA_PATH / "unit_transform_forwarder_loop.yml",
+            DATA_PATH / "unit_transform_forwarder_loop_expected.yml",
+        ),
     ],
     indirect=True,
 )
 @pytest.mark.asyncio
-async def test_conditional_execution_completes(
+async def test_workflow_completes_and_correct(
     dsl, expected, temporal_cluster, mock_registry, auth_sandbox
 ):
     """We need to test that the ordering of the workflow tasks is correct."""

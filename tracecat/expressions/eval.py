@@ -4,7 +4,7 @@ from functools import partial
 from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
-from tracecat.expressions.engine import TemplateExpression
+from tracecat.expressions.engine import ExprContext, TemplateExpression
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
@@ -26,9 +26,9 @@ def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:
             return obj
 
 
-def _eval_expression_op(match: re.Match[str], operand: dict[str, Any]) -> str:
+def _eval_expression_op(match: re.Match[str], operand: dict[str, Any], **kwargs) -> str:
     expr = match.group("template")
-    result = TemplateExpression(expr, operand=operand).result()
+    result = TemplateExpression(expr, operand=operand, **kwargs).result()
     try:
         return str(result)
     except Exception as e:
@@ -40,10 +40,14 @@ def eval_templated_object(
     *,
     operand: OperandType | None = None,
     pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
-) -> dict[str, Any]:
+    include: set[ExprContext] | None = None,
+    exclude: set[ExprContext] | None = None,
+    raise_on_stop: bool = False,
+) -> Any:
     """Populate templated fields with actual values."""
+    kwargs = {"raise_on_stop": raise_on_stop, "include": include, "exclude": exclude}
 
-    evaluator = partial(_eval_expression_op, operand=operand)
+    evaluator = partial(_eval_expression_op, operand=operand, **kwargs)
 
     def operator(line: str) -> Any:
         """Evaluate the templated string.
@@ -60,7 +64,7 @@ def eval_templated_object(
             # Non-inline template
             # If the template expression isn't given a reolve type, its underlying
             # value is returned as is.
-            return TemplateExpression(line, operand=operand).result()
+            return TemplateExpression(line, operand=operand, **kwargs).result()
         # Inline template
         # If the template expression is inline, we evaluate the result
         # and attempt to cast each underlying value into a string.
