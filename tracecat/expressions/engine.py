@@ -91,9 +91,12 @@ _FN_TABLE = {
     # Regex
     "regex_match": lambda pattern, text: bool(re.match(pattern, text)),
     "regex_not_match": lambda pattern, text: not bool(re.match(pattern, text)),
-    # Membership
+    # Collections
     "contains": lambda item, container: item in container,
     "does_not_contain": lambda item, container: item not in container,
+    "length": len,
+    "is_empty": lambda x: len(x) == 0,
+    "not_empty": lambda x: len(x) > 0,
     # Math
     "add": operator.add,
     "sub": operator.sub,
