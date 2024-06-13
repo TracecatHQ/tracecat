@@ -56,6 +56,8 @@ def create_virustotal_client() -> httpx.AsyncClient:
     description="Analyze a URL using VirusTotal.",
     namespace="integrations.enrich.virustotal",
     secrets=["virustotal"],
+    default_title="VirusTotal",
+    display_group="Enrichment",
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],

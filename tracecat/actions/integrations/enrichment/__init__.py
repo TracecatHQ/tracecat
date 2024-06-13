@@ -7,3 +7,7 @@ Supported Capabilities:
 
 Base OCSF Object Schema: https://schema.ocsf.io/1.2.0/objects/observable
 """
+
+from . import virustotal
+
+__all__ = ["virustotal"]
