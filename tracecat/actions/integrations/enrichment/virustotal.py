@@ -2,7 +2,7 @@
 
 Authentication method: Token-based
 
-Requires: VT_API_KEY
+Requires: A secret named `virustotal` with key `VT_API_KEY`.
 
 References: https://docs.virustotal.com/reference/overview#most-popular-api-endpoints
 
@@ -54,7 +54,8 @@ def create_virustotal_client() -> httpx.AsyncClient:
 
 @registry.register(
     description="Analyze a URL using VirusTotal.",
-    namespace="virustotal",
+    namespace="integrations.enrich.virustotal",
+    secrets=["virustotal"],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
