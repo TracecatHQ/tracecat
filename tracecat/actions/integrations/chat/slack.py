@@ -31,8 +31,6 @@ list_users = {
 Note: Slack accepts more complex message payloads using [Blocks](https://app.slack.com/block-kit-builder).
 """
 
-from __future__ import annotations
-
 import asyncio
 from typing import Annotated, Any
 
@@ -45,7 +43,9 @@ from tracecat.registry import Field, registry
 # MESSAGES API
 @registry.register(
     description="Send Slack messages to channel.",
-    namespace="slack",
+    namespace="integrations.chat.slack",
+    default_title="Post Slack Messages",
+    display_group="ChatOps",
 )
 async def post_slack_messages(
     bot_token: Annotated[str, Field(..., description="The bot token for Slack API")],

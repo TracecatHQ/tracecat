@@ -9,7 +9,9 @@ MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForCloud"
 
 @registry.register(
     description="Fetch Microsoft Defender for Cloud alerts.",
-    namespace="microsoft_defender",
+    namespace="integrations.cdr.microsoft.defender",
+    default_title="List Microsoft Defender Cloud Alerts",
+    display_group="Cloud D&R",
 )
 async def list_defender_cloud_alerts(
     client_id: Annotated[

@@ -18,7 +18,9 @@ def pl_extract_emails(texts: pl.Expr) -> pl.Expr:
 
 @registry.register(
     description="Extract unique emails from a list of strings.",
-    namespace="email_extractor",
+    namespace="core.extraction",
+    default_title="Email Extractor",
+    display_group="Data Extraction",
 )
 def extract_emails(
     texts: Annotated[
