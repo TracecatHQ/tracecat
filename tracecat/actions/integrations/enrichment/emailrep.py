@@ -16,9 +16,11 @@ analyze_email = {
 """
 
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
+
+from tracecat.registry import Field, registry
 
 EMAILREP_BASE_URL = "https://emailrep.io"
 
@@ -28,10 +30,16 @@ def create_emailrep_client() -> httpx.AsyncClient:
     if EMAILREP_API_KEY is None:
         raise ValueError("EMAILREP_API_KEY is not set")
     headers = {"User-Agent": "tracecat-client", "Key": EMAILREP_API_KEY}
-    return httpx.Client(base_url=EMAILREP_BASE_URL, headers=headers)
+    return httpx.AsyncClient(base_url=EMAILREP_BASE_URL, headers=headers)
 
 
-async def analyze_email(email: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze an email address using EmailRep.",
+    namespace="emailrep",
+)
+async def analyze_email(
+    email: Annotated[str, Field(..., description="The email address to analyze")],
+) -> dict[str, Any]:
     async with create_emailrep_client() as client:
         response = await client.get(f"/email/{email}")
         response.raise_for_status()
