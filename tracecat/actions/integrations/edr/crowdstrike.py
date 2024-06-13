@@ -27,23 +27,42 @@ list_detections = {
 """
 
 import datetime
+from typing import Annotated, Any
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
+
+from tracecat.registry import Field, registry
 
 TOKEN_ENDPOINT = "/oauth2/token"
 ALERTS_ENDPOINT = "/alerts/queries/alerts/v2"
 DETECTS_ENDPOINT = "/detects/queries/detects/v1"
 
 
+@registry.register(
+    description="Fetch all Crowdstrike alerts from Falcon SIEM.",
+    namespace="crowdstrike",
+)
 async def list_crowdstrike_alerts(
-    base_url: str,
-    client_id: str,
-    client_secret: str,
-    start_time: datetime,
-    end_time: datetime,
-    limit: int = 9999,
-):
+    base_url: Annotated[
+        str, Field(..., description="The base URL for the CrowdStrike API")
+    ],
+    client_id: Annotated[
+        str, Field(..., description="The client ID for CrowdStrike API")
+    ],
+    client_secret: Annotated[
+        str, Field(..., description="The client secret for CrowdStrike API")
+    ],
+    start_time: Annotated[
+        datetime.datetime, Field(..., description="The start time for the alerts")
+    ],
+    end_time: Annotated[
+        datetime.datetime, Field(..., description="The end time for the alerts")
+    ],
+    limit: Annotated[
+        int, Field(default=9999, description="The maximum number of alerts to return")
+    ] = 9999,
+) -> list[dict[str, Any]]:
     async with AsyncOAuth2Client(
         client_id=client_id, client_secret=client_secret
     ) as client:
@@ -70,14 +89,31 @@ async def list_crowdstrike_alerts(
             return response.json()
 
 
+@registry.register(
+    description="Fetch all Crowdstrike detections from Falcon SIEM.",
+    namespace="crowdstrike",
+)
 async def list_crowdstrike_detections(
-    base_url: str,
-    client_id: str,
-    client_secret: str,
-    start_time: datetime,
-    end_time: datetime,
-    limit: int = 9999,
-):
+    base_url: Annotated[
+        str, Field(..., description="The base URL for the CrowdStrike API")
+    ],
+    client_id: Annotated[
+        str, Field(..., description="The client ID for CrowdStrike API")
+    ],
+    client_secret: Annotated[
+        str, Field(..., description="The client secret for CrowdStrike API")
+    ],
+    start_time: Annotated[
+        datetime.datetime, Field(..., description="The start time for the detections")
+    ],
+    end_time: Annotated[
+        datetime.datetime, Field(..., description="The end time for the detections")
+    ],
+    limit: Annotated[
+        int,
+        Field(default=9999, description="The maximum number of detections to return"),
+    ] = 9999,
+) -> list[dict[str, Any]]:
     async with AsyncOAuth2Client(
         client_id=client_id, client_secret=client_secret
     ) as client:
