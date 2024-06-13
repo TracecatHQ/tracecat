@@ -35,19 +35,18 @@
 - [x] Command-line interface
 - [x] Integrations
 
-Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simpliest way for modern security teams to build, scale, and maintain workflows.
-
-With Tracecat, security teams builds automations using both:
+Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simpliest way for modern security teams to build, scale, and maintain workflows. Tracecat enables security practitioners to build automations using both:
 
 - No-code drag-and-drop UI
 - Configuration-as-code (e.g. Ansible / GitHub Actions)
 
-Tracecat extends the classic no-code [SOAR (Security Orchestration, Automation and Response)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) experience with modern DevOps practices. No-code workflows are automatically synced into code, and vice versa.
+No-code workflows are automatically synced into code, and vice versa. Tracecat extends the classic no-code [Security Orchestration, Automation and Response (SOAR)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) experience with DevOps best-practices.
 
 ## Why choose Tracecat?
 
-- Security Operations (SecOps): Unify workflow development across security engineering and SOC teams
-- Managed Detection & Response (MDR): Rapidly build scalable workflow applications into any security product
+- *Security Operations (SecOps):* Unify workflow development across security engineering and SOC teams
+- *Security Engineers (SecEng):* Build and maintain complex automations using open source integrations, configuration-as-code, and a powerful templating language
+- *Managed Detection & Response (MDR):* Rapidly build scalable workflow applications into any security product
 
 ## Feature Highlights
 
