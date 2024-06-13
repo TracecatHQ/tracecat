@@ -71,7 +71,8 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
         # Note that we've added TemplateValidator to the list of validators
         # so template expressions will pass args model validation
         try:
-            self.args_cls.model_validate(kwargs, strict=True)
+            # Allow type coercion for the input arguments
+            self.args_cls.model_validate(kwargs)
         except ValidationError as e:
             logger.error(f"Validation error for UDF {self.key!r}. {e.errors()!r}")
             raise e
