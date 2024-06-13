@@ -31,53 +31,54 @@ list_users = {
 Note: Slack accepts more complex message payloads using [Blocks](https://app.slack.com/block-kit-builder).
 """
 
-import asyncio
+import os
 from typing import Annotated, Any
 
-from slack_sdk.web.async_client import AsyncSlackResponse, AsyncWebClient
+from slack_sdk.web.async_client import AsyncWebClient
 
-from tracecat.actions.schemas.messages import SlackMessage
 from tracecat.registry import Field, registry
+from tracecat.types.exceptions import TracecatCredentialsError
 
 
 # MESSAGES API
 @registry.register(
     description="Send Slack messages to channel.",
     namespace="integrations.chat.slack",
-    default_title="Post Slack Messages",
+    default_title="Post Slack Message",
     display_group="ChatOps",
+    secrets=["slack"],
 )
 async def post_slack_messages(
-    bot_token: Annotated[str, Field(..., description="The bot token for Slack API")],
     channel: Annotated[
-        str, Field(..., description="The Slack channel ID to send messages to")
+        str, Field(..., description="The Slack channel ID to send a message to")
     ],
-    messages: Annotated[
-        list[SlackMessage], Field(..., description="The list of messages to send")
-    ],
-) -> list[dict[str, Any]]:
+    text: Annotated[str | None, Field(description="The message text")] = None,
+    blocks: Annotated[
+        list[dict[str, Any]] | None, Field(description="Slack blocks definition")
+    ] = None,
+) -> dict[str, Any]:
+    if (bot_token := os.environ.get("SLACK_BOT_TOKEN")) is None:
+        raise TracecatCredentialsError("Credential `slack.SLACK_BOT_TOKEN` is not set")
     client = AsyncWebClient(token=bot_token)
-    tasks: list[asyncio.Task[AsyncSlackResponse]] = []
-    async with asyncio.TaskGroup() as tg:
-        for msg in messages:
-            task = client.chat_postMessage(
-                channel=channel,
-                text=msg.text,
-                blocks=msg.blocks,
-            )
-            tasks.append(tg.create_task(task))
 
     # Exiting the TaskGroup block will automatically gather all tasks
-    return [task.result()["message"] for task in tasks]
+    result = await client.chat_postMessage(
+        channel=channel,
+        text=text,
+        blocks=blocks,
+    )
+    return result["message"]
 
 
 # USERS API
 @registry.register(
     description="Fetch Slack users by team ID or email.",
-    namespace="slack",
+    inamespace="integrations.chat.slack",
+    default_title="List Slack Users",
+    display_group="ChatOps",
+    secrets=["slack"],
 )
 async def list_slack_users(
-    bot_token: Annotated[str, Field(..., description="The bot token for Slack API")],
     team_id: Annotated[
         str | None,
         Field(default=None, description="The Slack team ID to filter users by"),
@@ -86,6 +87,8 @@ async def list_slack_users(
         str | None, Field(default=None, description="The email to filter users by")
     ] = None,
 ) -> list[dict[str, str]]:
+    if (bot_token := os.environ.get("SLACK_BOT_TOKEN")) is None:
+        raise TracecatCredentialsError("Credential `slack.SLACK_BOT_TOKEN` is not set")
     client = AsyncWebClient(token=bot_token)
     users = []
     # NOTE: Slack client API calls returns a AsyncSlackResponse,
