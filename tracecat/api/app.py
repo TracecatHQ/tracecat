@@ -1890,7 +1890,7 @@ def search_secrets(
 def list_udfs(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     limit: int | None = None,
-    namespace: str = Query(None),
+    ns: list[str] | None = Query(None),
 ) -> list[UDFSpec]:
     """List all user-defined function specifications for a user."""
     with Session(engine) as session:
@@ -1900,8 +1900,9 @@ def list_udfs(
                 UDFSpec.owner_id == role.user_id,
             )
         )
-        if namespace:
-            statement = statement.where(UDFSpec.key.startswith(namespace))
+        if ns:
+            ns_conds = [UDFSpec.key.startswith(n) for n in ns]
+            statement = statement.where(or_(*ns_conds))
         if limit:
             statement = statement.limit(limit)
         result = session.exec(statement)

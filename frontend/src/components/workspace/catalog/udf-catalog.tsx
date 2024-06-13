@@ -3,6 +3,7 @@
 import { DragEvent, useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 
+import { udfConfig } from "@/config/udfs"
 import { UDF, useUDFs } from "@/lib/udf"
 import { cn } from "@/lib/utils"
 import { createAction } from "@/lib/workflow"
@@ -53,7 +54,7 @@ const onDragStart = (event: DragEvent<HTMLDivElement>, udf: UDF) => {
 }
 
 export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
-  const { udfs, isLoading: udfsLoading, error } = useUDFs("core")
+  const { udfs, isLoading: udfsLoading, error } = useUDFs(udfConfig.namespaces)
   const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
     useWorkflowBuilder()
 
