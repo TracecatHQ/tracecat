@@ -28,9 +28,11 @@ Note: the explore endpoint is a general search API. However, to keep unified API
 
 import ipaddress
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
+
+from tracecat.registry import Field, registry
 
 PULSEDIVE_BASE_URL = "https://pulsedive.com/api/"
 
@@ -45,7 +47,13 @@ def create_pulsedive_client() -> httpx.AsyncClient:
     return client
 
 
-async def analyze_url(url: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze a URL using Pulsedive.",
+    namespace="pulsedive",
+)
+async def analyze_url(
+    url: Annotated[str, Field(..., description="The URL to analyze")],
+) -> dict[str, Any]:
     params = {"q": url, "type": "url", "limit": 1}
     async with create_pulsedive_client() as client:
         response = await client.get("/explore.php", params=params)
@@ -53,7 +61,13 @@ async def analyze_url(url: str) -> dict[str, Any]:
         return response.json()
 
 
-async def analyze_ip_address(ip_address: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze an IP address using Pulsedive.",
+    namespace="pulsedive",
+)
+async def analyze_ip_address(
+    ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
+) -> dict[str, Any]:
     try:
         ip_obj = ipaddress.ip_address(ip_address)
     except ValueError as err:
@@ -63,6 +77,6 @@ async def analyze_ip_address(ip_address: str) -> dict[str, Any]:
         params = {"q": ip_address, "type": ioc_type, "limit": 1}
 
     async with create_pulsedive_client() as client:
-        response = await client.get("/explore.php?", params=params)
+        response = await client.get("/explore.php", params=params)
         response.raise_for_status()
         return response.json()
