@@ -1,17 +1,35 @@
 from datetime import datetime
+from typing import Annotated
 
-from uim.integrations.common import list_microsoft_graph_alerts
+from tracecat.actions.integrations.common import list_microsoft_graph_alerts
+from tracecat.registry import Field, registry
 
 MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForEndpoint"
 
 
+@registry.register(
+    description="Fetch all alerts from Microsoft Defender for Endpoints.",
+    namespace="microsoft_defender",
+)
 async def list_defender_endpoint_alerts(
-    client_id: str,
-    client_secret: str,
-    tenant_id: str,
-    start_time: datetime,
-    end_time: datetime,
-    limit: int = 1000,
+    client_id: Annotated[
+        str, Field(..., description="The client ID for Microsoft Graph API")
+    ],
+    client_secret: Annotated[
+        str, Field(..., description="The client secret for Microsoft Graph API")
+    ],
+    tenant_id: Annotated[
+        str, Field(..., description="The tenant ID for Microsoft Graph API")
+    ],
+    start_time: Annotated[
+        datetime, Field(..., description="The start time for the alerts")
+    ],
+    end_time: Annotated[
+        datetime, Field(..., description="The end time for the alerts")
+    ],
+    limit: Annotated[
+        int, Field(default=1000, description="The maximum number of alerts to return")
+    ] = 1000,
 ):
     return await list_microsoft_graph_alerts(
         client_id=client_id,
