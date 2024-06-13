@@ -63,7 +63,13 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
             metadata=self.metadata,
         )
 
-    def validate_args(self, *args, **kwargs) -> None:
+    def validate_args(self, *args, **kwargs) -> dict[str, Any]:
+        """Validate the input arguments for a UDF.
+
+        Checks:
+        1. The UDF must be called with keyword arguments only.
+        2. The input arguments must be validated against the UDF's model.
+        """
         if len(args) > 0:
             raise RegistryValidationError("UDF must be called with keyword arguments.")
 
@@ -71,8 +77,11 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
         # Note that we've added TemplateValidator to the list of validators
         # so template expressions will pass args model validation
         try:
-            # Allow type coercion for the input arguments
-            self.args_cls.model_validate(kwargs)
+            # Note that we're allowing type coercion for the input arguments
+            # Use cases would be transforming a UTC string to a datetime object
+            # We return the validated input arguments as a dictionary
+            validated: BaseModel = self.args_cls.model_validate(kwargs)
+            return validated.model_dump()
         except ValidationError as e:
             logger.error(f"Validation error for UDF {self.key!r}. {e.errors()!r}")
             raise e
@@ -180,18 +189,18 @@ class _Registry:
                     3. Clean up the environment after the function has executed.
                     """
 
-                    self[key].validate_args(*args, **kwargs)
+                    validated_kwargs = self[key].validate_args(*args, **kwargs)
                     async with AuthSandbox(secrets=secrets):
-                        return await fn(**kwargs)
+                        return await fn(**validated_kwargs)
             else:
 
                 @functools.wraps(fn)
                 def wrapped_fn(*args, **kwargs) -> Any:
                     """Sync version of the wrapper function for the udf."""
 
-                    self[key].validate_args(*args, **kwargs)
+                    validated_kwargs = self[key].validate_args(*args, **kwargs)
                     with AuthSandbox(secrets=secrets):
-                        return fn(**kwargs)
+                        return fn(**validated_kwargs)
 
             if key in self:
                 raise ValueError(f"UDF {key!r} is already registered.")
