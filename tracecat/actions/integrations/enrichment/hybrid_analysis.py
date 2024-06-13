@@ -17,9 +17,11 @@ analyze_malware_sample = {
 """
 
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
+
+from tracecat.registry import Field, registry
 
 HA_BASE_URL = "https://www.hybrid-analysis.com/api/v2/"
 
@@ -35,7 +37,15 @@ def create_hybrid_analysis_client() -> httpx.AsyncClient:
     return client
 
 
-async def analyze_malware_sample(file_hash: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze a malware sample using Hybrid Analysis.",
+    namespace="hybrid_analysis",
+)
+async def analyze_malware_sample(
+    file_hash: Annotated[
+        str, Field(..., description="The hash of the malware sample to analyze")
+    ],
+) -> dict[str, Any]:
     async with create_hybrid_analysis_client() as client:
         response = await client.get("/v2/search/hash", params={"hash": file_hash})
         response.raise_for_status()
