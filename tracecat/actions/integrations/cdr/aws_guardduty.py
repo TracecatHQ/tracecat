@@ -5,6 +5,11 @@ Authentication method:
 - Cross-account AWS Role
 - IAM credentials (not recommended)
 
+Requires: A secret named `aws_secret` with the following keys:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+
 Secret Values:
 ```json
 {
@@ -63,15 +68,16 @@ list_alerts = {
 ```
 """
 
+import os
 from datetime import datetime
 from typing import Annotated, Any
 
 import aioboto3
-from loguru import logger
 from tqdm.asyncio import tqdm, trange
 from types_aiobotocore_guardduty.client import GuardDutyClient
 
 from tracecat.actions.io import retry
+from tracecat.logging import logger
 from tracecat.registry import Field, registry
 
 GUARDDUTY_MAX_RESULTS = 50
@@ -129,6 +135,7 @@ async def _get_findings(
     namespace="integrations.aws.guardduty",
     default_title="List AWS GuardDuty Alerts",
     display_group="Cloud D&R",
+    secrets=["aws_secret"],
 )
 async def list_guardduty_alerts(
     start_time: Annotated[
@@ -150,15 +157,6 @@ async def list_guardduty_alerts(
     profile_name: Annotated[
         str | None, Field(default=None, description="The AWS profile name to use")
     ] = None,
-    aws_access_key_id: Annotated[
-        str | None, Field(default=None, description="The AWS access key ID")
-    ] = None,
-    aws_secret_access_key: Annotated[
-        str | None, Field(default=None, description="The AWS secret access key")
-    ] = None,
-    aws_region: Annotated[
-        str | None, Field(default=None, description="The AWS region to use")
-    ] = None,
 ) -> list[dict[str, Any]]:
     if role_arn:
         # Assume process is running in an environment with
@@ -176,7 +174,7 @@ async def list_guardduty_alerts(
             aws_access_key_id=credentials["AccessKeyId"],
             aws_secret_access_key=credentials["SecretAccessKey"],
             aws_session_token=credentials["SessionToken"],
-            region_name=aws_region,
+            region_name=os.environ["AWS_REGION"],
         )
 
     else:
@@ -185,9 +183,9 @@ async def list_guardduty_alerts(
         )
         guardduty_session = aioboto3.Session(
             profile_name=profile_name,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=aws_region,
+            aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+            region_name=os.environ["AWS_REGION"],
         )
 
     # Get findings from GuardDuty
