@@ -64,7 +64,7 @@ list_alerts = {
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 import aioboto3
 from loguru import logger
@@ -72,6 +72,7 @@ from tqdm.asyncio import tqdm, trange
 from types_aiobotocore_guardduty.client import GuardDutyClient
 
 from tracecat.actions.io import retry
+from tracecat.registry import Field, registry
 
 GUARDDUTY_MAX_RESULTS = 50
 
@@ -123,16 +124,39 @@ async def _get_findings(
     return findings
 
 
+@registry.register(
+    description="Fetch AWS GuardDuty alerts.",
+    namespace="aws_guardduty",
+)
 async def list_guardduty_alerts(
-    start_time: datetime,
-    end_time: datetime,
-    limit: int = 5000,
-    role_arn: str | None = None,
-    role_session_name: str | None = None,
-    profile_name: str | None = None,
-    aws_access_key_id: str | None = None,
-    aws_secret_access_key: str | None = None,
-    aws_region: str | None = None,
+    start_time: Annotated[
+        datetime, Field(..., description="The start time for the alerts")
+    ],
+    end_time: Annotated[
+        datetime, Field(..., description="The end time for the alerts")
+    ],
+    limit: Annotated[
+        int, Field(default=5000, description="The maximum number of alerts to return")
+    ] = 5000,
+    role_arn: Annotated[
+        str | None, Field(default=None, description="The ARN of the role to assume")
+    ] = None,
+    role_session_name: Annotated[
+        str | None,
+        Field(default=None, description="The session name for the assumed role"),
+    ] = None,
+    profile_name: Annotated[
+        str | None, Field(default=None, description="The AWS profile name to use")
+    ] = None,
+    aws_access_key_id: Annotated[
+        str | None, Field(default=None, description="The AWS access key ID")
+    ] = None,
+    aws_secret_access_key: Annotated[
+        str | None, Field(default=None, description="The AWS secret access key")
+    ] = None,
+    aws_region: Annotated[
+        str | None, Field(default=None, description="The AWS region to use")
+    ] = None,
 ) -> list[dict[str, Any]]:
     if role_arn:
         # Assume process is running in an environment with
