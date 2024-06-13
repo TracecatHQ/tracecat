@@ -188,7 +188,12 @@ export function getIcon(
   }
 
   // return default icon
-  return <Bolt {...props} />
+  const { className, ...rest } = props ?? {}
+  return (
+    <div className={cn("bg-slate-200/50", basicIconsCommon, className)}>
+      <Bolt {...rest} />
+    </div>
+  )
 }
 export const basicIconsCommon =
   "flex p-1 shrink-0 rounded-full items-center justify-center"
