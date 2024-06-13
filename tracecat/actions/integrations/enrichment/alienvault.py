@@ -32,9 +32,11 @@ analyze_malware_sample = {
 
 import ipaddress
 import os
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
+
+from tracecat.registry import Field, registry
 
 # Base URL for AlienVault OTX API
 OTX_BASE_URL = "https://otx.alienvault.com/api"
@@ -52,16 +54,26 @@ def create_alienvault_client() -> httpx.AsyncClient:
     return client
 
 
-# Function to analyze a URL
-async def analyze_url(url: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze a URL using AlienVault OTX.",
+    namespace="alienvault",
+)
+async def analyze_url(
+    url: Annotated[str, Field(..., description="The URL to analyze")],
+) -> dict[str, Any]:
     async with create_alienvault_client() as client:
         response = await client.get(f"/v1/indicators/url/{url}")
         response.raise_for_status()
         return response.json()
 
 
-# Function to analyze an IP address (both IPv4 and IPv6)
-async def analyze_ip_address(ip_address: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze an IP address using AlienVault OTX.",
+    namespace="alienvault",
+)
+async def analyze_ip_address(
+    ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
+) -> dict[str, Any]:
     try:
         ip_obj = ipaddress.ip_address(ip_address)
         version = "v4" if ip_obj.version == 4 else "v6"
@@ -74,8 +86,15 @@ async def analyze_ip_address(ip_address: str) -> dict[str, Any]:
         return response.json()
 
 
-# Function to analyze a malware sample by file hash
-async def analyze_malware_sample(file_hash: str) -> dict[str, Any]:
+@registry.register(
+    description="Analyze a malware sample using AlienVault OTX.",
+    namespace="alienvault",
+)
+async def analyze_malware_sample(
+    file_hash: Annotated[
+        str, Field(..., description="The hash of the malware sample to analyze")
+    ],
+) -> dict[str, Any]:
     async with create_alienvault_client() as client:
         response = await client.get(f"/v1/indicators/file/{file_hash}/general")
         response.raise_for_status()
