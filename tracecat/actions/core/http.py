@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
 from loguru import logger
-from pydantic import AnyHttpUrl, Field
+from pydantic import Field, UrlConstraints
 
 from tracecat.registry import registry
 
@@ -28,8 +28,9 @@ class HTTPResponse(TypedDict):
 )
 async def http_request(
     url: Annotated[
-        AnyHttpUrl,
+        str,
         Field(description="The destination of the HTTP request"),
+        UrlConstraints(),
     ],
     headers: Annotated[
         dict[str, str],
