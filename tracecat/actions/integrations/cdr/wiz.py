@@ -23,7 +23,8 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from uim.io import retry
+
+from tracecat.actions.io import retry
 
 QUERY_STRING = """
 query IssuesTable($filterBy: IssueFilters, $first: Int, $after: String, $orderBy: IssueOrder) {
