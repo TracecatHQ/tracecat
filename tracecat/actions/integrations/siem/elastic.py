@@ -17,18 +17,31 @@ list_alerts = {
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 
+from tracecat.registry import Field, registry
 
+
+@registry.register(
+    description="Fetch all alerts from Elastic Security (SIEM).",
+    namespace="elastic_security",
+)
 async def list_elastic_alerts(
-    api_key: str,
-    api_url: str,
-    start_date: datetime,
-    end_date: datetime,
-    # TODO: Missing pagination, we assume that the limit is enough for now
-    limit: int = 1000,  # Technically, the limit is 10000, but we set it to 1000 for now
+    api_key: Annotated[str, Field(..., description="The API key for Elastic Security")],
+    api_url: Annotated[
+        str, Field(..., description="The base URL for the Elastic Security API")
+    ],
+    start_date: Annotated[
+        datetime, Field(..., description="The start date for the alerts")
+    ],
+    end_date: Annotated[
+        datetime, Field(..., description="The end date for the alerts")
+    ],
+    limit: Annotated[
+        int, Field(default=1000, description="The maximum number of alerts to return")
+    ] = 1000,
 ) -> list[dict[str, Any]]:
     url = f"{api_url}/api/detection_engine/signals/search"
     headers = {
