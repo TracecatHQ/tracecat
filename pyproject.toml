@@ -83,6 +83,8 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 88
 fix = true
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -97,6 +99,7 @@ ignore = [
     "B008", # do not perform function calls in argument defaults
     "W191", # indentation contains tabs
 ]
+
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers", "-vvrP"]
