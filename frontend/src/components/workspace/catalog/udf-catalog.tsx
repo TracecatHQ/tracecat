@@ -21,19 +21,20 @@ import {
   UDFNodeType,
 } from "@/components/workspace/canvas/udf-node"
 
+const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
+
 const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
   const groups = {} as Record<string, UDF[]>
   udfs.forEach((udf) => {
     const displayGroup = (
-      udf.metadata?.["display_group"] ||
-      udf.metadata?.["default_title"] ||
-      udf.key
+      udf.metadata?.["display_group"] || TOP_LEVEL_GROUP
     ).toString()
     if (!groups[displayGroup]) {
       groups[displayGroup] = []
     }
     groups[displayGroup].push(udf)
   })
+  console.log("groups", groups)
   return groups
 }
 
@@ -126,27 +127,19 @@ export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
         {Object.entries(groupByDisplayGroup(udfs))
           .sort(([groupA], [groupB]) => groupA.localeCompare(groupB))
           .map(([group, udfs], groupIndex) => {
-            if (udfs.length === 1) {
-              return (
-                <UDFCatalogItem
-                  key={groupIndex}
-                  udf={udfs[0]}
-                  isCollapsed={isCollapsed}
-                  handleTileClick={handleTileClick}
-                />
-              )
-            }
             return (
               <div key={groupIndex}>
-                <UDFCatalogGroup
-                  key={groupIndex}
-                  displayName={group}
-                  isCollapsed={isCollapsed}
-                />
+                {group !== TOP_LEVEL_GROUP && (
+                  <UDFCatalogGroup
+                    key={groupIndex}
+                    displayName={group}
+                    isCollapsed={isCollapsed}
+                  />
+                )}
                 {udfs.map((udf, index) => (
                   <UDFCatalogItem
                     key={index}
-                    indent={1}
+                    indent={group === TOP_LEVEL_GROUP ? 0 : 1}
                     udf={udf}
                     isCollapsed={isCollapsed}
                     handleTileClick={handleTileClick}
