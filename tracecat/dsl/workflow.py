@@ -251,7 +251,7 @@ class DSLWorkflow:
 class UDFActionInput(BaseModel):
     task: ActionStatement
     role: Role
-    exec_context: dict[ExprContext, Any]
+    exec_context: dict[ExprContext, dict[str, Any]]
     run_context: RunContext
 
 
@@ -276,6 +276,9 @@ class DSLActivities:
         # 2. Enter loop iteration (if any)
         # 3. Resolve all action-local expressions
 
+        # Set
+        # If there's a for loop, we need to process this action in parallel
+
         # Evaluate `SECRETS` context
         # --------------------------
         # Securely inject secrets into the task arguments
@@ -286,10 +289,14 @@ class DSLActivities:
         secret_refs = expressions.extract_templated_secrets(task.args)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
             logger.info("Evaluating task arguments", secrets=sandbox.secrets)
+
+            # Skip evaluation of action-local expressions
             args = expressions.eval_templated_object(
                 task.args,
                 operand={**input.exec_context, ExprContext.SECRETS: sandbox.secrets},
+                exclude={ExprContext.LOCAL_VARS},
             )
+        # When we're here, we've populated the task arguments with shared context values
         type = task.action
         ctx_logger.set(act_logger)
 
@@ -297,12 +304,53 @@ class DSLActivities:
         act_logger.info(
             "Run udf", task_ref=task.ref, type=type, is_async=udf.is_async, args=args
         )
-        if udf.is_async:
-            result = await udf.fn(**args)
+
+        # If there's a loop, we need to process this action in parallel
+        if task.for_each:
+            # Evaluate the loop expression
+            iterable_expr: expressions.IterableExpr = expressions.eval_templated_object(
+                task.for_each, operand=input.exec_context
+            )
+            logger.debug("Loop iteration", iter_expr=iterable_expr)
+
+            tasks: list[asyncio.Task] = []
+
+            async with asyncio.TaskGroup() as tg:
+                for item in iterable_expr.collection:
+                    act_logger.info("Loop iteration", item=item)
+                    # Patch the context with the loop item and evaluate the action-local expressions
+                    # We're copying this so that we don't pollute the original context
+                    # Currently, the only source of action-local expressions is the loop iteration
+                    # In the future, we may have other sources of action-local expressions
+                    patched_context = input.exec_context.copy()
+                    act_logger.debug(
+                        "Context before patch", patched_context=patched_context
+                    )
+                    patch_object(
+                        patched_context, path=iterable_expr.iterator, value=item
+                    )
+                    act_logger.debug("Patched context", patched_context=patched_context)
+                    patched_args = expressions.eval_templated_object(
+                        args, operand=patched_context, exclude={ExprContext.SECRETS}
+                    )
+                    act_logger.debug("Patched args", patched_args=patched_args)
+                    task = tg.create_task(udf.run_async(patched_args))
+                    tasks.append(task)
+
+            result = [task.result() for task in tasks]
+
         else:
-            result = await asyncio.to_thread(udf.fn, **args)
+            result = await udf.run_async(args)
+
         act_logger.info("Result", result=result)
         return result
+
+
+def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
+    *stem, leaf = path.split(sep=sep)
+    for key in stem:
+        obj = obj.setdefault(key, {})
+    obj[leaf] = value
 
 
 # Dynamically register all static methods as activities
