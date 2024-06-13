@@ -24,3 +24,9 @@ class TracecatExpressionError(TracecatException):
     """Tracecat user-facing expression error"""
 
     pass
+
+
+class TracecatCredentialsError(TracecatException):
+    """Tracecat user-facing credentials error"""
+
+    pass
