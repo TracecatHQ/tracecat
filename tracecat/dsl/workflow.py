@@ -311,13 +311,14 @@ class DSLActivities:
             iterable_expr: expressions.IterableExpr = expressions.eval_templated_object(
                 task.for_each, operand=input.exec_context
             )
-            logger.debug("Loop iteration", iter_expr=iterable_expr)
+            act_logger.info("Running in loop")
+            act_logger.debug("Iterable", iter_expr=iterable_expr)
 
             tasks: list[asyncio.Task] = []
 
             async with asyncio.TaskGroup() as tg:
-                for item in iterable_expr.collection:
-                    act_logger.info("Loop iteration", item=item)
+                for i, item in enumerate(iterable_expr.collection):
+                    act_logger.debug("Loop iteration", iteration=i)
                     # Patch the context with the loop item and evaluate the action-local expressions
                     # We're copying this so that we don't pollute the original context
                     # Currently, the only source of action-local expressions is the loop iteration
