@@ -46,6 +46,7 @@ dependencies = [
     "pydantic==2.6.1",
     "python-jose[cryptography]",
     "python-slugify",
+    "slack-sdk==3.28.0",
     "sqlmodel==0.0.18",
     "temporalio==1.6.0",
     "tenacity==8.3.0",
