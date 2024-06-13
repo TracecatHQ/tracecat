@@ -26,10 +26,12 @@ list_alerts = {
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 from fastapi.exceptions import HTTPException
+
+from tracecat.registry import Field, registry
 
 DD_REGION_TO_API_URL = {
     "us1": "https://api.datadoghq.com",
@@ -40,15 +42,27 @@ DD_REGION_TO_API_URL = {
 }
 
 
+@registry.register(
+    description="Fetch all alerts from Datadog.",
+    namespace="datadog",
+)
 async def list_datadog_alerts(
-    app_key: str,
-    api_key: str,
-    region: str,
-    start_time: datetime,
-    end_time: datetime,
-    # NOTE: Should be 1000 (mentioned in another endpoint "List Findings")
-    # but there's no clear documentation on the limit for "List Signals"
-    limit: int = 1000,
+    app_key: Annotated[
+        str, Field(..., description="The application key for Datadog API")
+    ],
+    api_key: Annotated[str, Field(..., description="The API key for Datadog API")],
+    region: Annotated[
+        str, Field(..., description="The Datadog region (e.g., us1, us3, us5, eu, ap1)")
+    ],
+    start_time: Annotated[
+        datetime, Field(..., description="The start time for the alerts")
+    ],
+    end_time: Annotated[
+        datetime, Field(..., description="The end time for the alerts")
+    ],
+    limit: Annotated[
+        int, Field(default=1000, description="The maximum number of alerts to return")
+    ] = 1000,
 ) -> list[dict[str, Any]]:
     dt_format = "%Y-%m-%dT%H:%M:%S+00:00"
     headers = {
