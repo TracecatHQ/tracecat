@@ -10,9 +10,8 @@ import rich
 import typer
 import yaml
 
-from tracecat.auth.clients import AuthenticatedAPIClient
-
 from ._config import config
+from ._utils import user_client
 
 app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 
@@ -20,7 +19,7 @@ app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 async def hit_api_endpoint(
     method: str, endpoint: str, payload: dict[str, str] | None
 ) -> dict[str, Any]:
-    async with AuthenticatedAPIClient(role=config.role) as client:
+    async with user_client() as client:
         content = orjson.dumps(payload) if payload else None
         res = await client.request(method=method, url=endpoint, content=content)
         res.raise_for_status()
