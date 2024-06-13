@@ -199,40 +199,47 @@ async def test_workflow_ordering_is_correct(
     assert_respectful_exec_order(dsl, result)
 
 
+def _get_expected(path: Path) -> dict[str, Any]:
+    with path.open() as f:
+        yaml_data = f.read()
+    data = yaml.safe_load(yaml_data)
+    return {key: (value or {}) for key, value in data.items()}
+
+
+# Get the paths from the test name
+@pytest.fixture
+def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
+    test_name = request.param
+    data_path = DATA_PATH / f"{test_name}.yml"
+    expected_path = DATA_PATH / f"{test_name}_expected.yml"
+    dsl = DSLInput.from_yaml(data_path)
+    expected = _get_expected(expected_path)
+    return dsl, expected
+
+
+correctness_test_cases = [
+    "unit_conditional_adder_tree_skips",
+    "unit_conditional_adder_tree_continues",
+    "unit_conditional_adder_tree_skip_propagates",
+    "unit_conditional_adder_diamond_skip_with_join_weak_dep",
+    "unit_transform_forwarder_loop",
+    "unit_transform_forwarder_loop_chained",
+    "unit_transform_forwarder_arrange",
+    "unit_transform_forwarder_arrange_loop",
+]
+
+
 @pytest.mark.parametrize(
-    "dsl,expected",
-    [
-        (
-            DATA_PATH / "unit_conditional_adder_tree_skips.yml",
-            DATA_PATH / "unit_conditional_adder_tree_skips_expected.yml",
-        ),
-        (
-            DATA_PATH / "unit_conditional_adder_tree_continues.yml",
-            DATA_PATH / "unit_conditional_adder_tree_continues_expected.yml",
-        ),
-        (
-            DATA_PATH / "unit_conditional_adder_tree_skip_propagates.yml",
-            DATA_PATH / "unit_conditional_adder_tree_skip_propagates_expected.yml",
-        ),
-        (
-            DATA_PATH / "unit_conditional_adder_diamond_skip_with_join_weak_dep.yml",
-            DATA_PATH
-            / "unit_conditional_adder_diamond_skip_with_join_weak_dep_expected.yml",
-        ),
-        (
-            DATA_PATH / "unit_transform_forwarder_loop.yml",
-            DATA_PATH / "unit_transform_forwarder_loop_expected.yml",
-        ),
-    ],
+    "dsl_with_expected",
+    correctness_test_cases,
     indirect=True,
+    ids=correctness_test_cases,
 )
 @pytest.mark.asyncio
 async def test_workflow_completes_and_correct(
-    dsl, expected, temporal_cluster, mock_registry, auth_sandbox
+    dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox
 ):
-    """We need to test that the ordering of the workflow tasks is correct."""
-
-    # Connect client
+    dsl, expected = dsl_with_expected
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
@@ -246,7 +253,7 @@ async def test_workflow_completes_and_correct(
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get()),
-            id=gen_id(f"test_conditional_execution-{dsl.title}"),
+            id=gen_id(f"test_correctness_execution-{dsl.title}"),
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

@@ -1,0 +1,29 @@
+ACTIONS:
+  flatten:
+    result:
+      name: John Doe
+      age: 30
+      job_title: Software Engineer
+      job_company: Acme Inc.
+      job_city: Sometown
+      residence_street_address: 123 Main St.
+      residence_city: Anytown
+      contact_email: john@acme.com
+      contact_phone: 123-456-7890
+    result_typename: "dict"
+
+INPUTS:
+  details:
+    name: John Doe
+    age: 30
+    job:
+      title: Software Engineer
+      company: Acme Inc.
+      city: Sometown
+    residence:
+      street_address: 123 Main St.
+      city: Anytown
+    contact:
+      email: john@acme.com
+      phone: 123-456-7890
+TRIGGER:

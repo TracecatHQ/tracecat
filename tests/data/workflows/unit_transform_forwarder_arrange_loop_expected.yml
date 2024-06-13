@@ -1,0 +1,71 @@
+ACTIONS:
+  flatten:
+    result:
+      - name: John Doe
+        age: 30
+        job_title: Software Engineer
+        job_company: Acme Inc.
+        job_city: Sometown
+        residence_street_address: 123 Main St.
+        residence_city: Anytown
+        contact_email: john@acme.com
+        contact_phone: 123-456-7890
+      - name: Jane Doe
+        age: 25
+        job_title: Data Scientist
+        job_company: Beta Corp.
+        job_city: Othertown
+        residence_street_address: 456 Elm St.
+        residence_city: Anothertown
+        contact_email: janed@datacorp.com
+        contact_phone: 987-654-3210
+      - name: Jim Doe
+        age: 35
+        job_title: DevOps Engineer
+        job_company: Gamma LLC
+        job_city: Yetanothertown
+        residence_street_address: 789 Oak St.
+        residence_city: Yetanothercity
+        contact_email: jim@gamma.com
+        contact_phone: 456-789-0123
+    result_typename: "list"
+
+INPUTS:
+  contacts:
+    - name: John Doe
+      age: 30
+      job:
+        title: Software Engineer
+        company: Acme Inc.
+        city: Sometown
+      residence:
+        street_address: 123 Main St.
+        city: Anytown
+      contact:
+        email: john@acme.com
+        phone: 123-456-7890
+    - name: Jane Doe
+      age: 25
+      job:
+        title: Data Scientist
+        company: Beta Corp.
+        city: Othertown
+      residence:
+        street_address: 456 Elm St.
+        city: Anothertown
+      contact:
+        email: janed@datacorp.com
+        phone: 987-654-3210
+    - name: Jim Doe
+      age: 35
+      job:
+        title: DevOps Engineer
+        company: Gamma LLC
+        city: Yetanothertown
+      residence:
+        street_address: 789 Oak St.
+        city: Yetanothercity
+      contact:
+        email: jim@gamma.com
+        phone: 456-789-0123
+TRIGGER:

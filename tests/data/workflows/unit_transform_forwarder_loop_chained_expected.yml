@@ -1,0 +1,19 @@
+ACTIONS:
+  a:
+    result:
+      - 2
+      - 3
+      - 4
+    result_typename: "list"
+  b:
+    result:
+      - 4
+      - 5
+      - 6
+    result_typename: "list"
+
+INPUTS:
+  first: 1
+  second: 2
+  list: [1, 2, 3]
+TRIGGER:
