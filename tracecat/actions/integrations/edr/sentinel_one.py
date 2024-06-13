@@ -17,19 +17,36 @@ list_alerts: {
 """
 
 import datetime
+from typing import Annotated, Any
 
 import httpx
+
+from tracecat.registry import Field, registry
 
 ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
 
 
+@registry.register(
+    description="Fetch all Sentinel One alerts.",
+    namespace="sentinelone",
+)
 async def list_sentinelone_alerts(
-    base_url: str,
-    api_token: str,
-    start_time: datetime,
-    end_time: datetime,
-    limit: int = 1000,
-):
+    base_url: Annotated[
+        str, Field(..., description="The base URL for the Sentinel One API")
+    ],
+    api_token: Annotated[
+        str, Field(..., description="The API token for Sentinel One API")
+    ],
+    start_time: Annotated[
+        datetime.datetime, Field(..., description="The start time for the alerts")
+    ],
+    end_time: Annotated[
+        datetime.datetime, Field(..., description="The end time for the alerts")
+    ],
+    limit: Annotated[
+        int, Field(default=1000, description="The maximum number of alerts to return")
+    ] = 1000,
+) -> list[dict[str, Any]]:
     headers = {
         "Authorization": f"ApiToken {api_token}",
         "Accept": "application/json",
