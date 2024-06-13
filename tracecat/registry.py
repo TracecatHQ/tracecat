@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from types import FunctionType, GenericAlias
 from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
 
@@ -78,6 +79,12 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
             raise RegistryValidationError(
                 f"Error when validating input arguments for UDF {self.key!r}. {e}"
             ) from e
+
+    async def run_async(self, args: dict[str, Any]) -> Coroutine[Any, Any, Any]:
+        """Run a UDF async."""
+        if self.is_async:
+            return await self.fn(**args)
+        return await asyncio.to_thread(self.fn, **args)
 
 
 class _Registry:
