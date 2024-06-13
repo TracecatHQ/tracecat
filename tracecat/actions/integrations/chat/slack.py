@@ -34,17 +34,27 @@ Note: Slack accepts more complex message payloads using [Blocks](https://app.sla
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Annotated, Any
 
 from slack_sdk.web.async_client import AsyncSlackResponse, AsyncWebClient
-from uim.schemas.messages import SlackMessage
+
+from tracecat.actions.schemas.messages import SlackMessage
+from tracecat.registry import Field, registry
 
 
 # MESSAGES API
+@registry.register(
+    description="Send Slack messages to channel.",
+    namespace="slack",
+)
 async def post_slack_messages(
-    bot_token: str,
-    channel: str,
-    messages: list[SlackMessage],
+    bot_token: Annotated[str, Field(..., description="The bot token for Slack API")],
+    channel: Annotated[
+        str, Field(..., description="The Slack channel ID to send messages to")
+    ],
+    messages: Annotated[
+        list[SlackMessage], Field(..., description="The list of messages to send")
+    ],
 ) -> list[dict[str, Any]]:
     client = AsyncWebClient(token=bot_token)
     tasks: list[asyncio.Task[AsyncSlackResponse]] = []
@@ -62,10 +72,19 @@ async def post_slack_messages(
 
 
 # USERS API
+@registry.register(
+    description="Fetch Slack users by team ID or email.",
+    namespace="slack",
+)
 async def list_slack_users(
-    bot_token: str,
-    team_id: str | None = None,
-    email: str | None = None,
+    bot_token: Annotated[str, Field(..., description="The bot token for Slack API")],
+    team_id: Annotated[
+        str | None,
+        Field(default=None, description="The Slack team ID to filter users by"),
+    ] = None,
+    email: Annotated[
+        str | None, Field(default=None, description="The email to filter users by")
+    ] = None,
 ) -> list[dict[str, str]]:
     client = AsyncWebClient(token=bot_token)
     users = []
