@@ -16,10 +16,15 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel
 
-    from tracecat.expressions import ExprContext
+    from tracecat.expressions import (
+        ExprContext,
+        IterableExpr,
+        TemplateExpression,
+        eval_templated_object,
+        extract_templated_secrets,
+    )
     from tracecat.auth.credentials import Role
     from tracecat.auth.sandbox import AuthSandbox
-    from tracecat import expressions
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.common import ActionStatement, DSLInput
     from tracecat.logging import logger
@@ -237,7 +242,7 @@ class DSLWorkflow:
             return True
         # Evaluate the `run_if` condition
         if task.run_if is not None:
-            expr = expressions.TemplateExpression(task.run_if, operand=self.context)
+            expr = TemplateExpression(task.run_if, operand=self.context)
             self.logger.debug("`run_if` condition", task_run_if=task.run_if)
             if not bool(expr.result()):
                 self.logger.info("Task `run_if` condition did not pass, skipped")
@@ -286,12 +291,12 @@ class DSLActivities:
         # 2. Load the secrets
         # 3. Inject the secrets into the task arguments using an enriched context
         # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
-        secret_refs = expressions.extract_templated_secrets(task.args)
+        secret_refs = extract_templated_secrets(task.args)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
             logger.info("Evaluating task arguments", secrets=sandbox.secrets)
 
             # Skip evaluation of action-local expressions
-            args = expressions.eval_templated_object(
+            args = eval_templated_object(
                 task.args,
                 operand={**input.exec_context, ExprContext.SECRETS: sandbox.secrets},
                 exclude={ExprContext.LOCAL_VARS},
@@ -308,16 +313,34 @@ class DSLActivities:
         # If there's a loop, we need to process this action in parallel
         if task.for_each:
             # Evaluate the loop expression
-            iterable_expr: expressions.IterableExpr = expressions.eval_templated_object(
+
+            iterable_exprs: IterableExpr | list[IterableExpr] = eval_templated_object(
                 task.for_each, operand=input.exec_context
             )
+            if isinstance(iterable_exprs, IterableExpr):
+                iterable_exprs = [iterable_exprs]
+            elif not (
+                isinstance(iterable_exprs, list)
+                and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
+            ):
+                raise ValueError(
+                    "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
+                )
+
             act_logger.info("Running in loop")
-            act_logger.debug("Iterable", iter_expr=iterable_expr)
+            act_logger.debug("Iterables", iter_expr=iterable_exprs)
+
+            # Assert that all length of the iterables are the same
+            # This is a requirement for parallel processing
+            if len({len(expr.collection) for expr in iterable_exprs}) != 1:
+                raise ValueError("All iterables must be of the same length")
 
             tasks: list[asyncio.Task] = []
 
+            # Create a generator that zips the iterables together
+
             async with asyncio.TaskGroup() as tg:
-                for i, item in enumerate(iterable_expr.collection):
+                for i, items in enumerate(zip(*iterable_exprs, strict=False)):
                     act_logger.debug("Loop iteration", iteration=i)
                     # Patch the context with the loop item and evaluate the action-local expressions
                     # We're copying this so that we don't pollute the original context
@@ -327,11 +350,12 @@ class DSLActivities:
                     act_logger.debug(
                         "Context before patch", patched_context=patched_context
                     )
-                    patch_object(
-                        patched_context, path=iterable_expr.iterator, value=item
-                    )
+                    for iterator_path, iterator_value in items:
+                        patch_object(
+                            patched_context, path=iterator_path, value=iterator_value
+                        )
                     act_logger.debug("Patched context", patched_context=patched_context)
-                    patched_args = expressions.eval_templated_object(
+                    patched_args = eval_templated_object(
                         args, operand=patched_context, exclude={ExprContext.SECRETS}
                     )
                     act_logger.debug("Patched args", patched_args=patched_args)
