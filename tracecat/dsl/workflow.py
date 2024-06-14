@@ -319,6 +319,13 @@ class DSLActivities:
             )
             if isinstance(iterable_exprs, IterableExpr):
                 iterable_exprs = [iterable_exprs]
+            elif not (
+                isinstance(iterable_exprs, list)
+                and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
+            ):
+                raise ValueError(
+                    "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
+                )
 
             act_logger.info("Running in loop")
             act_logger.debug("Iterables", iter_expr=iterable_exprs)
