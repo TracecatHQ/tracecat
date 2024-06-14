@@ -339,8 +339,11 @@ class ExpressionParser:
         if ExprContext.FN in self._exclude_contexts:
             return expr
         resolved_args = self._parse_parameter_pack(args, depth + 1)
-        result = FUNCTION_MAPPING[qualname](*resolved_args)
-        return result
+        if qualname.endswith(".map"):
+            qualname = qualname.rsplit(".", 1)[0]
+            fn = FUNCTION_MAPPING[qualname]
+            return fn.map(*resolved_args)
+        return FUNCTION_MAPPING[qualname](*resolved_args)
 
     def _parse_parameter_pack(self, expr: str, depth: int = 0) -> tuple:
         parts = _split_arguments(expr)

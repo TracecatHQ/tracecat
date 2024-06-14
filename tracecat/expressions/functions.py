@@ -1,10 +1,13 @@
-from __future__ import annotations
-
+import itertools
 import json
 import operator
 import re
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from functools import wraps
+from typing import Any, ParamSpec, TypeVar
+
+from tracecat.expressions.validators import is_iterable
 
 
 def _bool(x: Any) -> bool:
@@ -24,9 +27,9 @@ def _from_timestamp(x: int, unit: str) -> datetime:
     return dt
 
 
-def _format_string(template: str, *args: Any) -> str:
+def _format_string(template: str, *values: Any) -> str:
     """Format a string with the given arguments."""
-    return template.format(*args)
+    return template.format(*values)
 
 
 BUILTIN_TYPE_NAPPING = {
@@ -38,7 +41,7 @@ BUILTIN_TYPE_NAPPING = {
 }
 
 # Supported Formulas / Functions
-FUNCTION_MAPPING = {
+_FUNCTION_MAPPING = {
     # Comparison
     "less_than": operator.lt,
     "less_than_or_equal": operator.le,
@@ -65,6 +68,7 @@ FUNCTION_MAPPING = {
     "div": operator.truediv,
     "mod": operator.mod,
     "pow": operator.pow,
+    "sum": sum,
     # Transform
     "join": lambda items, sep: sep.join(items),
     "concat": lambda *items: "".join(items),
@@ -79,3 +83,26 @@ FUNCTION_MAPPING = {
     # Convert timestamp to datetime
     "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
 }
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def mappable(func: Callable[P, R]) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    def broadcast_map(*args: Any) -> list[Any]:
+        iterables = (arg if is_iterable(arg) else itertools.repeat(arg) for arg in args)
+
+        # Zip the iterables together and call the function for each set of arguments
+        zipped_args = zip(*iterables, strict=False)
+        return [func(*zipped) for zipped in zipped_args]
+
+    wrapper.map = broadcast_map
+    return wrapper
+
+
+FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}

@@ -1,0 +1,14 @@
+ACTIONS:
+  a:
+    result:
+      - ["Got user_1!", "Got user_2!", "Got user_3!"]
+      - ["Got user_4!", "Got user_5!", "Got user_6!"]
+      - ["Got user_7!", "Got user_8!", "Got user_9!"]
+    result_typename: list
+
+INPUTS:
+  nested:
+    - ["user_1", "user_2", "user_3"]
+    - ["user_4", "user_5", "user_6"]
+    - ["user_7", "user_8", "user_9"]
+TRIGGER:

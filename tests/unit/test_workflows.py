@@ -227,6 +227,7 @@ correctness_test_cases = [
     "unit_transform_forwarder_arrange",
     "unit_transform_forwarder_arrange_loop",
     "unit_transform_forwarder_zip",
+    "unit_transform_forwarder_map_loop",
 ]
 
 
