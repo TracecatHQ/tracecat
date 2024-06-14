@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
@@ -9,6 +9,16 @@ from tracecat.expressions.patterns import FULL_TEMPLATE
 def is_full_template(template: str) -> bool:
     # return template.startswith("${{") and template.endswith("}}")
     return FULL_TEMPLATE.match(template) is not None
+
+
+def is_iterable(value: Any, *, container_only: bool = True) -> bool:
+    try:
+        iter(value)
+        if container_only:
+            return not isinstance(value, str | bytes)
+        return True
+    except TypeError:
+        return False
 
 
 T = TypeVar("T")
