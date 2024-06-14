@@ -175,7 +175,6 @@ TRACECAT__PUBLIC_RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
 ### Linux users
 
 If you are using Linux, you may encounter issues around being unable to resolve `host.docker.internal` from within the Docker containers.
-
 To resolve this, you can add the following parameter to each of the services in the `docker-compose.yaml` file, as suggested by this [StackOverflow post](https://stackoverflow.com/a/67158212).
 
 For example:
@@ -222,6 +221,10 @@ services:
 Visit [temporalio/docker-compose](https://github.com/temporalio/docker-compose) and follow their installation guide to clone this into a separate directory.
 We will just use the base `docker-compose.yml` for this.
 
+<Tip>
+  Using the `env.sh` script will automatically set the environment variables required to connect to the local Temporal cluster.
+</Tip>
+
 ## Start Tracecat
 
 The Tracecat stack manages services that span the application and persistence layers.
@@ -237,9 +240,9 @@ docker compose up -d
 Finally, start Tracecat. Navigate to the `tracecat` root directory and run:
 
 <CodeGroup>
-# In path/to/tracecat
 
 ```bash Headless mode
+# In path/to/tracecat
 docker compose up api postgres_db worker
 ```
 
