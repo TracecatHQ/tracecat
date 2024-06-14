@@ -1,9 +1,11 @@
 import os
+from typing import Annotated, Any
 
 import pytest
 import respx
 from fastapi.testclient import TestClient
 from httpx import Response
+from pydantic import BaseModel, ValidationError
 
 from tracecat import config
 from tracecat.contexts import ctx_role
@@ -20,6 +22,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
 )
 from tracecat.expressions.patterns import FULL_TEMPLATE
+from tracecat.expressions.validators import TemplateValidator
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.secrets import SecretKeyValue
 
@@ -472,3 +475,65 @@ def test_expression_parser(expr, expected):
     }
     parser = ExpressionParser(context=context)
     assert parser.parse_expr(expr) == expected
+
+
+TemplateString = Annotated[str, TemplateValidator()]
+
+
+class IntModel(BaseModel):
+    template: int | TemplateString
+
+
+class ListStrModel(BaseModel):
+    data: Annotated[list[str], TemplateValidator()]
+
+
+class ListNumberModel(BaseModel):
+    data: Annotated[list[int | float], TemplateValidator()]
+
+
+def validate_result(cls: type[BaseModel], obj: Any) -> bool:
+    try:
+        cls(**obj)
+        return True
+    except ValidationError:
+        return False
+
+
+@pytest.mark.parametrize(
+    "cls, obj, passes",
+    [
+        (
+            IntModel,
+            {"template": "${{ valid_template }}"},
+            True,
+        ),
+        (
+            IntModel,
+            {"template": 12345},
+            True,
+        ),
+        (
+            IntModel,
+            {"template": [1, 2, 3]},
+            False,  # Invalid case: list passed into IntModel
+        ),
+        (
+            ListStrModel,
+            {"data": ["${{ valid_template }}", "12345"]},
+            True,
+        ),
+        (
+            ListNumberModel,
+            {"data": [123, 456, 789.0]},
+            True,
+        ),
+        (
+            ListNumberModel,
+            {"data": [123, 456.7, "${{ valid_template }}"]},
+            True,
+        ),
+    ],
+)
+def test_template_validator_success(cls, obj, passes):
+    assert validate_result(cls, obj) == passes
