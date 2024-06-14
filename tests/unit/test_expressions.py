@@ -426,6 +426,19 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
         ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
         ("FN.contains('A', ['A', 'B', 'C'])", True),
+        ("FN.format('Formatted: {} !', 'yay')", "Formatted: yay !"),
+        (
+            "FN.format.map('Hey {}!', ['Alice', 'Bob', 'Charlie'])",
+            ["Hey Alice!", "Hey Bob!", "Hey Charlie!"],
+        ),
+        (
+            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], INPUTS.adjectives)",
+            [
+                "Hello, Alice! You are cool.",
+                "Hello, Bob! You are awesome.",
+                "Hello, Charlie! You are happy.",
+            ],
+        ),
         # Ternary expressions
         (
             "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
@@ -469,6 +482,7 @@ def test_expression_parser(expr, expected):
                     "items": ["a", "b", "c"],
                 },
             },
+            "adjectives": ["cool", "awesome", "happy"],
         },
         ExprContext.ENV: {
             "item": "ITEM",
