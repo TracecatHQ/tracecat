@@ -83,6 +83,7 @@ def generate_spec(
 
     oas_relpath = outpath.relative_to(config.docs_path)
 
+    # NOTE: If this hands, likely the mintlify scraping package is trying to update (reading stdin)
     # Define the command that generates the output
     cmd = (
         f"cd {config.docs_path!s} &&"
@@ -151,3 +152,5 @@ def generate_spec(
     # Save the updated JSON back to 'mint.json'
     with mint_cfg.open("w") as file:
         json.dump(mint_data, file, indent=2)
+    # Green
+    rich.print(f"[green]API reference paths updated in {config.docs_path!s}[/green]")
