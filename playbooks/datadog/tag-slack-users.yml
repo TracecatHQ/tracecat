@@ -2,7 +2,7 @@ title: Send Slack notifications for Datadog SIEM signals
 description: |
   Pulls Datadog SIEM signals (alerts), extracts emails contains within the signal,
   finds Slack users associated with the emails, and tags the Slack users in a notification.
-entrypoint: pull_datadog_siem_signals
+entrypoint: pull_datadog_signals
 inputs:
   dd_region: us5
   dd_api_url: https://api.us5.datadoghq.com
@@ -15,7 +15,7 @@ triggers:
     entrypoint: pull_datadog_siem_signals
 
 actions:
-  - ref: pull_datadog_siem_signals
+  - ref: pull_datadog_signals
     action: integrations.datadog.siem.list_datadog_alerts
     args:
       start_time: ${{ TRIGGER.start_time }}
@@ -35,18 +35,20 @@ actions:
         status: ${{ var.signal.attributes.status }}
         first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
         last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
-        log_samples: ${{ FN. }}
+        samples: ${{ var.signal.attributes.attributes.samples }}
         link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.EventID }}
 
   - ref: extract_emails
+    # Returns a list of list of emails per alert
     action: integrations.extraction.extract_emails
     depends_on:
       - reshape_signals
     for_each: ${{ for var.signal in ACTIONS.reshape_signals.result }}
     args:
-      text: ${{ var.signal.log_samples }}
+      text: ${{ FN.serialize_json(var.signal.samples) }}
 
   - ref: find_slack_users
+    # Returns a list of list of Slack users per alert
     action: integrations.slack.find_slack_users
     depends_on:
       - extract_emails
@@ -55,15 +57,23 @@ actions:
       emails: ${{ var.emails }}
 
   - ref: extract_slack_user_ids
+    # Returns a list of list of Slack user IDs per alert
     action: core.transform.forward
     depends_on:
       - find_slack_users
-    for_each: ${{ for var.users in ACTIONS.find_slack_users.result }}
+    for_each: ${{ for var.user_ids in ACTIONS.find_slack_users.result }}
     args:
       # TODO: Implement nested for loops nd ability to apply function to each member...
-      ids: ${{ for <@{{ var.user.id }}> for var.user in var.users}}
+      ids:
+        ${{ FN.format.map(['test', 'tests'], '<@{}>') }} # Returns a list
+        # {% for user_id in var.user_ids %}
+        # <@{{ user_id }}>
+        # {% endfor %}
+        # ${{ if var.user_id not in DB.table }}
 
-  - ref: send_slack_notifications
+        # https://docs.prefect.io/latest/concepts/tasks/#map
+
+  - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
     depends_on:
       - find_slack_users
@@ -74,7 +84,7 @@ actions:
       - ${{ for var.user_ids in ACTIONS.extract_slack_user_ids.result }}
     args:
       channel: ${{ INPUTS.slack_channel }}
-      text: GuardDuty findings for past 24h
+      text: Datadog alerts (last )
       blocks:
         - type: header
           text:
