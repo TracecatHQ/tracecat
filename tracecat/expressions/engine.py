@@ -405,10 +405,13 @@ class ExpressionParser:
     def _parse_function_expr(self, expr: str, qualname: str, args: str, depth: int = 0):
         if ExprContext.FN in self._exclude_contexts:
             return expr
-        iter_args = (s for s in re.split(r",\s*", args) if s.strip())
-        resolved_args = tuple(self.parse_expr(arg, depth + 1) for arg in iter_args)
+        resolved_args = self._parse_parameter_pack(args, depth + 1)
         result = _FN_TABLE[qualname](*resolved_args)
         return result
+
+    def _parse_parameter_pack(self, expr: str, depth: int = 0) -> tuple:
+        parts = _split_arguments(expr)
+        return tuple(self.parse_expr(arg, depth + 1) for arg in parts)
 
     def _parse_iterator_expr(self, iter_var_expr: str, iter_collection_expr: str):
         # Mark that we're inside a loop
@@ -441,9 +444,13 @@ class ExpressionParser:
         inner = self.parse_expr(expr)
         return self._cast_result(inner, typename)
 
-    def _parse_literal_expr(self, expr: str):
+    def _parse_literal_expr(self, expr: str, depth: int = 0):
         if (match := re.match(patterns.STRING_LITERAL, expr)) is not None:
-            return match.group("str_literal")
+            return match.group("str_literal").strip()
+        if (match := re.match(patterns.LIST_LITERAL, expr)) is not None:
+            param_pack_str = match.group("list_literal").strip()
+            args = self._parse_parameter_pack(param_pack_str, depth + 1)
+            return list(args)
         if expr in ("True", "False"):
             # Boolean literal
             return expr == "True"
@@ -455,6 +462,39 @@ class ExpressionParser:
 
 
 T = TypeVar("T")
+
+
+def _split_arguments(arguments: str):
+    """Split arguments by commas, but ignore commas inside nested structures or quoted strings."""
+    parts = []
+    bracket_level = 0
+    in_quotes = False
+    quote_char = ""
+    current_part = []
+
+    for char in arguments:
+        if char in "\"'":
+            if in_quotes:
+                if char == quote_char:
+                    in_quotes = False
+                    quote_char = ""
+            else:
+                in_quotes = True
+                quote_char = char
+            current_part.append(char)
+        elif char == "," and bracket_level == 0 and not in_quotes:
+            parts.append("".join(current_part).strip())
+            current_part = []
+        else:
+            if not in_quotes:
+                if char in "([{":
+                    bracket_level += 1
+                elif char in ")]}":
+                    bracket_level -= 1
+            current_part.append(char)
+
+    parts.append("".join(current_part).strip())  # Add the last part
+    return parts
 
 
 @dataclass

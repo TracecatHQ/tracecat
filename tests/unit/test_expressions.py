@@ -422,6 +422,10 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.add(5, 2)", 7),
         ("  FN.is_null(None)   ", True),
         ("FN.contains('a', INPUTS.my.module.items)", True),
+        ("FN.length([1, 2, 3])", 3),
+        ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
+        ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
+        ("FN.contains('A', ['A', 'B', 'C'])", True),
         # Ternary expressions
         (
             "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
@@ -442,6 +446,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("'500'", "500"),
         ("bool(True)", True),
         ("bool(1)", True),
+        ("[1, 2, 3]", [1, 2, 3]),
     ],
 )
 def test_expression_parser(expr, expected):
