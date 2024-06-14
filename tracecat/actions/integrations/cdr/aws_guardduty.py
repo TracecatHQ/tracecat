@@ -131,10 +131,10 @@ async def _get_findings(
 
 
 @registry.register(
-    description="Fetch AWS GuardDuty alerts.",
-    namespace="integrations.aws.guardduty",
-    default_title="List AWS GuardDuty Alerts",
+    default_title="List alerts",
+    description="List AWS GuardDuty alerts",
     display_group="Cloud D&R",
+    namespace="integrations.aws.guardduty",
     secrets=["aws_secret"],
 )
 async def list_guardduty_alerts(
