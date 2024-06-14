@@ -54,7 +54,9 @@ class ActionStatement(BaseModel):
     run_if: Annotated[str | None, Field(default=None), TemplateValidator()]
     """Condition to run the task"""
 
-    for_each: Annotated[str | None, Field(default=None), TemplateValidator()]
+    for_each: Annotated[
+        str | list[str] | None, Field(default=None), TemplateValidator()
+    ]
     """Run the task over an iterable"""
 
 
