@@ -1,3 +1,3 @@
-from . import cdr, chat, enrichment, extraction
+from . import cdr, chat, enrichment, extraction, siem
 
-__all__ = ["extraction", "cdr", "chat", "enrichment"]
+__all__ = ["cdr", "chat", "enrichment", "extraction", "siem"]
