@@ -44,7 +44,7 @@ from __future__ import annotations
 import json
 import operator
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum, StrEnum, auto
@@ -459,5 +459,11 @@ T = TypeVar("T")
 
 @dataclass
 class IterableExpr(Generic[T]):
+    """An expression that represents an iterable collection."""
+
     iterator: str
     collection: Iterable[T]
+
+    def __iter__(self) -> Iterator[tuple[str, T]]:
+        for item in self.collection:
+            yield self.iterator, item
