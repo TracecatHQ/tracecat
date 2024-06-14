@@ -37,7 +37,7 @@ def gen_id(prefix: str):
 class Resource(SQLModel):
     """Base class for all resources in the system."""
 
-    surrogate_id: int | None = Field(default=None, primary_key=True)
+    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: str
     created_at: datetime = Field(
         sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
