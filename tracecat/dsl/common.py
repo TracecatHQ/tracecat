@@ -89,7 +89,7 @@ class DSLInput(BaseModel):
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(
-        default_factory=dict, description="Statis input parameters"
+        default_factory=dict, description="Static input parameters"
     )
     trigger_inputs: dict[str, Any] = Field(
         default_factory=dict, description="Dynamic input parameters"
