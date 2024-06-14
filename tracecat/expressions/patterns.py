@@ -84,9 +84,14 @@ LOCAL_VARS_BASE = r"var\.(?P<vars_expr>[a-zA-Z0-9_\-\.]+?)"
 """Match the `var` action-local context. e.g.`var.some_variable` or `var.some.variable`."""
 
 STRING_LITERAL = r"'(?P<str_literal>[^']*)'"
+LIST_LITERAL = r"\[(?P<list_literal>.*?)\]"
+NUMERIC_LITERAL = r"(?P<num_literal>\d+(?:\.\d+)?)"
+BOOL_LITERAL = r"(?P<bool_literal>True|False)"
+NONE_LITERAL = r"(?P<none_literal>None)"
 
-LITERAL_BASE = r"(?P<literal_expr>('[^']*')|True|False|None|(\d+(?:\.\d+)?))"
-"""Match `'hello'` or `True` or `False` or `None` or `5` or `5.0`."""
+LITERAL_BASE = rf"(?P<literal_expr>({STRING_LITERAL})|({BOOL_LITERAL})|({NUMERIC_LITERAL})|({LIST_LITERAL})|({NONE_LITERAL}))"
+"""Match `'hello'` or `True` or `False` or `None` or `5` or `5.0` or `[1, 2, 3]` or `[]`."""
+
 
 TYPECAST_BASE = (
     rf"(?P<cast_type>{TYPE_SPECIFIER_PATTERN})"  # Match one of 'int', 'float', 'str', 'bool'
