@@ -33,11 +33,11 @@ from fastapi.exceptions import HTTPException
 from tracecat.registry import Field, registry
 
 DD_REGION_TO_API_URL = {
-    "us1": "https://api.datadoghq.com",
-    "us3": "https://api.us3.datadoghq.com",
-    "us5": "https://api.us5.datadoghq.com",
-    "eu": "https://api.datadoghq.eu",
-    "ap1": "https://api.ap1.datadoghq.com",
+    "us1": "https://api.datadoghq.com/api",
+    "us3": "https://api.us3.datadoghq.com/api",
+    "us5": "https://api.us5.datadoghq.com/api",
+    "eu": "https://api.datadoghq.eu/api",
+    "ap1": "https://api.ap1.datadoghq.com/api",
 }
 
 
@@ -79,9 +79,9 @@ async def list_datadog_alerts(
         ) from err
 
     # TODO: Add support for pagination
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(base_url=api_url, allow_redirects=True) as client:
         response = await client.get(
-            url=api_url,
+            "/v2/security_monitoring/signals",
             headers=headers,
             params={
                 "filter[from]": start_time.strftime(dt_format),
