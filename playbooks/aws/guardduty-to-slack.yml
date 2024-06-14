@@ -61,7 +61,7 @@ actions:
           created_at: ${{ var.finding.CreatedAt }}
 
   - ref: send_slack_notifications
-    action: integrations.chat.slack.post_slack_messages
+    action: integrations.chat.slack.post_slack_message
     depends_on:
       - reshape_findings_into_smac
     # Assign each SMAC finding to a variable named `smac`

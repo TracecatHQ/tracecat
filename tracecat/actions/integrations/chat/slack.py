@@ -43,12 +43,12 @@ from tracecat.types.exceptions import TracecatCredentialsError
 # MESSAGES API
 @registry.register(
     default_title="Post Slack Message",
-    description="Send Slack messages to channel.",
+    description="Send Slack message to channel.",
     display_group="ChatOps",
     namespace="integrations.chat.slack",
     secrets=["slack"],
 )
-async def post_slack_messages(
+async def post_slack_message(
     channel: Annotated[
         str, Field(..., description="The Slack channel ID to send a message to")
     ],
