@@ -42,10 +42,10 @@ from tracecat.types.exceptions import TracecatCredentialsError
 
 # MESSAGES API
 @registry.register(
-    description="Send Slack messages to channel.",
-    namespace="integrations.chat.slack",
     default_title="Post Slack Message",
+    description="Send Slack messages to channel.",
     display_group="ChatOps",
+    namespace="integrations.chat.slack",
     secrets=["slack"],
 )
 async def post_slack_messages(
@@ -72,10 +72,10 @@ async def post_slack_messages(
 
 # USERS API
 @registry.register(
-    description="Fetch Slack users by team ID or email.",
-    inamespace="integrations.chat.slack",
     default_title="List Slack Users",
+    description="Fetch Slack users by team ID or email.",
     display_group="ChatOps",
+    inamespace="integrations.chat.slack",
     secrets=["slack"],
 )
 async def list_slack_users(
