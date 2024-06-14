@@ -1,6 +1,4 @@
-import functools
 import re
-from typing import Literal
 
 
 # Function to create the base pattern with optional type specifier
@@ -32,34 +30,6 @@ SECRET_SCAN_TEMPLATE = re.compile(r"\${{\s*SECRETS\.(?P<secret>.+?)\s*}}")
 FULL_TEMPLATE = re.compile(r"^\${{\s*[^{}]*\s*}}$")
 
 
-_DEFAULT_CONTEXTS = ("INPUTS", "ACTIONS", "SECRETS", "FN", "ENV", "TRIGGER")
-_ExprContext = Literal["INPUTS", "ACTIONS", "SECRETS", "FN", "ENV", "TRIGGER"]
-
-
-@functools.lru_cache
-def EXPR_CONTEXT_PATTERN(*contexts: _ExprContext):
-    """Create a pattern that matches a subset of expressions.
-
-    Default contexts are `INPUTS`, `ACTIONS`, `SECRETS`, `FN`, `ENV`, `TRIGGER`.
-
-    If no contexts are provided, the pattern will match all contexts.
-    """
-    if any(context not in _DEFAULT_CONTEXTS for context in contexts):
-        raise ValueError(f"Invalid context. Must be one of {_DEFAULT_CONTEXTS}")
-    if len(contexts) == 0:
-        contexts = _DEFAULT_CONTEXTS
-    combined = "|".join(contexts)
-    return (
-        r"^\s*"
-        r"(?P<full>"  # Full expression start
-        rf"(?P<context>{combined}?)"
-        r"\.(?P<expr>.+?)"
-        r"(\s*->\s*(?P<rtype>\bint\b|\bfloat\b|\bstr\b|\bbool\b))?"
-        r")"  # Full expression end
-        r"(?=\s*$)"  # Negative lookahead for optional whitespace and end of string
-    )
-
-
 TYPE_SPECIFIERS = ("int", "float", "str", "bool")
 
 TYPE_SPECIFIER_PATTERN = "|".join(rf"\b{type}\b" for type in TYPE_SPECIFIERS)
@@ -71,7 +41,7 @@ ACTION_BASE = r"ACTIONS\.(?P<action_expr>[a-zA-Z0-9_\-\.]+?)"
 SECRET_BASE = r"SECRETS\.(?P<secret_expr>[a-zA-Z0-9_\-\.]+?)"
 """Match `SECRETS.secret`."""
 
-FUNCTION_BASE = r"FN\.(?P<fn_expr>(?P<fn_name>[a-zA-Z0-9_]+?)\((?P<fn_args>.*?)\))"
+FUNCTION_BASE = r"FN\.(?P<fn_expr>(?P<fn_name>[a-zA-Z0-9_\.]+?)\((?P<fn_args>.*?)\))"
 """Match `FN.func(arg1, arg2)`."""
 
 INPUTS_BASE = r"INPUTS\.(?P<input_expr>[a-zA-Z0-9_\-\.]+?)"
