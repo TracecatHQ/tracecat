@@ -73,7 +73,7 @@ async def post_slack_message(
 # USERS API
 @registry.register(
     default_title="List Slack Users",
-    description="Fetch Slack users by team ID or email.",
+    description="Fetch Slack users by team ID or list of emails.",
     display_group="ChatOps",
     inamespace="integrations.chat.slack",
     secrets=["slack"],
@@ -83,8 +83,9 @@ async def list_slack_users(
         str | None,
         Field(default=None, description="The Slack team ID to filter users by"),
     ] = None,
-    email: Annotated[
-        str | None, Field(default=None, description="The email to filter users by")
+    emails: Annotated[
+        list[str] | None,
+        Field(default=None, description="List of emails to filter users by"),
     ] = None,
 ) -> list[dict[str, str]]:
     if (bot_token := os.environ.get("SLACK_BOT_TOKEN")) is None:
@@ -96,8 +97,8 @@ async def list_slack_users(
     async for page in await client.users_list(team_id=team_id):
         users.extend(page["members"])
 
-    if email:
+    if emails:
         # Filter for users with matching email
-        users = [user for user in users if user["profile"]["email"] == email]
+        users = [user for user in users if user["profile"]["email"] in emails]
 
     return users
