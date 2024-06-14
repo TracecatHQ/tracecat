@@ -1839,12 +1839,16 @@ paths:
           - type: integer
           - type: 'null'
           title: Limit
-      - name: namespace
+      - name: ns
         in: query
         required: false
         schema:
-          type: string
-          title: Namespace
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          title: Ns
       responses:
         '200':
           description: Successful Response
@@ -2031,11 +2035,6 @@ components:
       title: ActionResponse
     ActionRun:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -2191,6 +2190,14 @@ components:
           - type: string
           - type: 'null'
           title: Run If
+        for_each:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: For Each
       type: object
       required:
       - ref
@@ -2379,11 +2386,6 @@ components:
       description: Case model used in the API and runner.
     CaseAction:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -2469,11 +2471,6 @@ components:
       title: CaseContextParams
     CaseEvent:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -2810,6 +2807,11 @@ components:
         inputs:
           type: object
           title: Inputs
+          description: Static input parameters
+        trigger_inputs:
+          type: object
+          title: Trigger Inputs
+          description: Dynamic input parameters
       type: object
       required:
       - title
@@ -2942,11 +2944,6 @@ components:
       title: ListModel[Tag]
     Schedule:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -2997,11 +2994,6 @@ components:
       title: SearchSecretsParams
     Secret:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -3195,11 +3187,6 @@ components:
       title: UDFArgsValidationResponse
     UDFSpec:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -3358,11 +3345,6 @@ components:
       title: UpsertWorkflowDefinitionParams
     User:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -3415,11 +3397,6 @@ components:
       title: ValidationError
     WebhookResponse:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -3478,11 +3455,6 @@ components:
       title: WebhookResponse
     WorkflowDefinition:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
@@ -3699,11 +3671,6 @@ components:
       title: WorkflowRunResponse
     tracecat__db__schemas__CaseContext:
       properties:
-        surrogate_id:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Surrogate Id
         owner_id:
           type: string
           title: Owner Id
