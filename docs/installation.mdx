@@ -172,50 +172,6 @@ If correctly set up, your .env should contain:
 TRACECAT__PUBLIC_RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
 ```
 
-### Linux users
-
-If you are using Linux, you may encounter issues around being unable to resolve `host.docker.internal` from within the Docker containers.
-To resolve this, you can add the following parameter to each of the services in the `docker-compose.yaml` file, as suggested by this [StackOverflow post](https://stackoverflow.com/a/67158212).
-
-For example:
-
-```yaml
-# See the comments (1) and (2) below
-services:
-  api:
-    build: .
-    container_name: api
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      # Tracecat configs
-      LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      # Clerk auth
-      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
-      # Integrations
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    restart: unless-stopped
-    networks:
-      - tracecat-network
-    ###### (1) Add this section here ######
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    #######################################
-# (2) Repeat this change for ALL of the services
-# ...
-```
-
 ### Setup Temporal
 
 Visit [temporalio/docker-compose](https://github.com/temporalio/docker-compose) and follow their installation guide to clone this into a separate directory.
@@ -312,4 +268,50 @@ This allows Docker containers to reference the Docker host machine.
 
 For example, if you have a service `api` running in a container with port mapping `1234:8000` (mapping of port 1234 on the Docker host and 8000 in the container), from inside the Docker network you should be able to reference it using `http://api:8000`.
 
-If you're using Linux, please refer to the [Linux users](#linux-users) section. On MacOS and Windows WSL, you shouldn't have this issue. If you do, please refer to the [Docker networking docs](https://docs.docker.com/network/) or reach out to us on [Discord](https://discord.gg/n3GF4qxFU8) for help.
+### Linux DNS resolution
+
+If you are using Linux, you may encounter issues around being unable to resolve `host.docker.internal` from within the Docker containers.
+To resolve this, you can add the following parameter to each of the services in the `docker-compose.yaml` file, as suggested by this [StackOverflow post](https://stackoverflow.com/a/67158212).
+
+For example:
+
+```yaml
+# See the comments (1) and (2) below
+services:
+  api:
+    build: .
+    container_name: api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./tracecat:/app/tracecat
+      - app-storage:/var/lib/tracecat
+    environment:
+      # Tracecat configs
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      # Clerk auth
+      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      # Integrations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    restart: unless-stopped
+    networks:
+      - tracecat-network
+    ###### (1) Add this section here ######
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    #######################################
+# (2) Repeat this change for ALL of the services
+# ...
+```
+
+On MacOS and Windows WSL, you shouldn't have this issue.
+If you do, please refer to the [Docker networking docs](https://docs.docker.com/network/)
+or reach out to us on [Discord](https://discord.gg/n3GF4qxFU8) for help.
