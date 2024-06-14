@@ -2,8 +2,7 @@
 
 Authentication method: Token-based
 
-Requires:
-
+Requires: secret named `datadog` with the following keys:
 - DD_APP_KEY: Datadog application key
 - DD_API_KEY: Datadog API key
 
@@ -43,8 +42,11 @@ DD_REGION_TO_API_URL = {
 
 
 @registry.register(
-    description="Fetch all alerts from Datadog.",
-    namespace="datadog",
+    default_title="List Datadog SIEM alerts",
+    description="List Datadog SIEM alerts (signals)",
+    display_group="SIEM",
+    namespace="integrations.datadog.siem.list_datadog_alerts",
+    secrets=["datadog"],
 )
 async def list_datadog_alerts(
     app_key: Annotated[
