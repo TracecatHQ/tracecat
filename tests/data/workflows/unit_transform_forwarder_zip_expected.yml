@@ -1,0 +1,14 @@
+ACTIONS:
+  a:
+    result:
+      - I received 1one from you
+      - I received 2two from you
+      - I received 3three from you
+    result_typename: "list"
+
+INPUTS:
+  first: 1
+  second: 2
+  list_one: [1, 2, 3]
+  list_two: ["one", "two", "three"]
+TRIGGER:
