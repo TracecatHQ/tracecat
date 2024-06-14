@@ -46,6 +46,7 @@ import operator
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from enum import IntEnum, StrEnum, auto
 from typing import Any, Generic, TypeVar
 
@@ -67,6 +68,14 @@ def _bool(x: Any) -> bool:
     return bool(x)
 
 
+def _from_timestamp(x: int, unit: str) -> datetime:
+    if unit == "ms":
+        dt = datetime.fromtimestamp(x / 1000)
+    else:
+        dt = datetime.fromtimestamp(x)
+    return dt
+
+
 _BUILTIN_TYPE_NAP = {
     "int": int,
     "float": float,
@@ -78,6 +87,7 @@ ExprStr = str
 """An annotated template string that can be resolved into a type T."""
 
 OperandType = dict[str, Any]
+# Supported Formulas / Functions
 _FN_TABLE = {
     # Comparison
     "less_than": operator.lt,
@@ -89,6 +99,7 @@ _FN_TABLE = {
     "not_null": lambda x: x is not None,
     "is_null": lambda x: x is None,
     # Regex
+    "regex_extract": lambda pattern, text: re.search(pattern, text).group(0),
     "regex_match": lambda pattern, text: bool(re.match(pattern, text)),
     "regex_not_match": lambda pattern, text: not bool(re.match(pattern, text)),
     # Collections
@@ -111,6 +122,11 @@ _FN_TABLE = {
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
     "not": lambda a: not a,
+    # Type conversion
+    # Convert JSON to string
+    "serialize_json": json.dumps,
+    # Convert timestamp to datetime
+    "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
 }
 
 
