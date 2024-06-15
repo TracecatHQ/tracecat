@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Generator
 from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, Self, TypeVar
 
@@ -147,10 +146,22 @@ class RFGraph(TSObject):
                 "Trigger node should not have edges in the main graph"
             )
 
-        if self.logical_entrypoint_id != self.node_map[self.entrypoint.id].ref:
-            lhs = self.logical_entrypoint_id
-            rhs = self.node_map[self.entrypoint.id].ref
-            logger.error(f"Entrypoint doesn't match: {lhs!r} != {rhs!r}")
+        # Can't have one of the entrypoints as None
+        if (self.logical_entrypoint is None) ^ (self.entrypoint is None):
+            raise TracecatValidationError(
+                "One of the logical and physical entrypoints are None:"
+                f"({self.logical_entrypoint=}) != ({self.entrypoint=})",
+            )
+
+        # Check if the logical entrypoint matches the physical entrypoint
+        if (
+            self.logical_entrypoint
+            and self.entrypoint
+            and self.logical_entrypoint.ref != self.entrypoint.ref
+        ):
+            logger.error(
+                f"Entrypoint doesn't match: {self.logical_entrypoint.ref!r} != {self.entrypoint.ref!r}"
+            )
             raise TracecatValidationError("Entrypoint doesn't match")
         return self
 
@@ -189,40 +200,44 @@ class RFGraph(TSObject):
         return indegree
 
     @property
-    def entrypoint(self) -> UDFNode:
-        """The entrypoint is the node with the trigger as the source"""
+    def entrypoint(self) -> UDFNode | None:
+        """The physical entrypoint of the graph. It is the node with the trigger as the source."""
+        if len(self.action_nodes()) == 0:
+            return None
         entrypoints = {
             edge.target for edge in self.edges if edge.source == self.trigger.id
         }
         if (n := len(entrypoints)) != 1:
             raise TracecatValidationError(
-                f"Expected 1 entrypoint, got {n}: {entrypoints!r}"
+                f"Expected 1 physical entrypoint, got {n}: {entrypoints!r}"
             )
         return self.node_map[entrypoints.pop()]
 
     @property
-    def logical_entrypoint_id(self) -> str:
-        """The logical entrypoint ID of the graph."""
-        entrypoints = [
-            node.ref for node in self.action_nodes() if self.indegree[node.id] == 0
-        ]
-        if len(entrypoints) != 1:
+    def logical_entrypoint(self) -> UDFNode | None:
+        """The logical entrypoint of the graph. It is the node with no incoming edges when the
+        graph is considered only with `udf` nodes."""
+        act_nodes = self.action_nodes()
+        if len(act_nodes) == 0:
+            return None
+        entrypoints = [node for node in act_nodes if self.indegree[node.id] == 0]
+        if (n := len(entrypoints)) != 1:
             raise TracecatValidationError(
-                f"Expected 1 logical entrypoint, got {len(entrypoints)}: {entrypoints!r}"
+                f"Expected 1 logical entrypoint, got {n}: {entrypoints!r}"
             )
         return entrypoints[0]
 
-    def action_edges(self) -> Generator[RFEdge, None, None]:
+    def action_edges(self) -> list[RFEdge]:
         """Return all edges that are not connected to the trigger node."""
-        return (
+        return [
             edge
             for edge in self.edges
             if self.trigger.id not in (edge.source, edge.target)
-        )
+        ]
 
-    def action_nodes(self) -> Generator[RFNode, None, None]:
+    def action_nodes(self) -> list[UDFNode]:
         """Return all `udf` (action) type nodes."""
-        return (node for node in self.nodes if node.type == "udf")
+        return [node for node in self.nodes if node.type == "udf"]
 
     def action_statements(self, workflow: Workflow) -> list[ActionStatement]:
         """Create ActionStatements by combining RFGraph.nodes and Workflow.actions."""
@@ -266,30 +281,28 @@ class RFGraph(TSObject):
         ts = TopologicalSorter(self.dep_list)
         return list(ts.static_order())
 
-
-def create_graph_object(
-    workflow: Workflow, webhook: Webhook, initial_pos: dict[str, Any] = None
-):
-    initial_pos = initial_pos or {"x": 0, "y": 0}
-    return {
-        "nodes": [
-            {
-                "id": f"trigger-{workflow.id}",
-                "type": "trigger",
-                "position": initial_pos,
-                "data": {
+    @staticmethod
+    def with_defaults(workflow: Workflow, webhook: Webhook):
+        # Create a default graph object with only the webhook
+        initial_data = {
+            "nodes": [
+                {
+                    "id": f"trigger-{workflow.id}",
                     "type": "trigger",
-                    "title": "Trigger",
-                    "status": "online",
-                    "isConfigured": True,
-                    "webhook": webhook.model_dump(),
-                    "schedules": workflow.schedules or [],
-                },
-            }
-        ],
-        "edges": [],
-        "viewport": {"x": 0, "y": 0, "zoom": 1},
-    }
+                    "data": {
+                        "type": "trigger",
+                        "title": "Trigger",
+                        "status": "online",
+                        "isConfigured": True,
+                        "webhook": webhook,
+                        "schedules": workflow.schedules or [],
+                    },
+                }
+            ],
+            "edges": [],
+            "viewport": {"x": 0, "y": 0, "zoom": 1},
+        }
+        return RFGraph.model_validate(initial_data)
 
 
 def update_graph_object(graph, workflow: Workflow, webhook: Webhook):
