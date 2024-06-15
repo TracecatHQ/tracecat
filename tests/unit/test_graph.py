@@ -1,11 +1,32 @@
-from tracecat.dsl.common import ActionStatement, DSLInput
-from tracecat.dsl.graph import RFGraph
+from pydantic import BaseModel
 
-metadata = {
-    "title": "TEST_WORKFLOW",
-    "description": "TEST_DESCRIPTION",
-    "entrypoint": "action_a",
-}
+from tracecat.dsl.common import ActionStatement, DSLInput
+from tracecat.dsl.graph import RFGraph, TriggerNode
+
+
+class TestMetadata(BaseModel):
+    title: str
+    description: str
+    entrypoint: str
+    trigger: TriggerNode
+
+
+metadata = TestMetadata(
+    title="TEST_WORKFLOW",
+    description="TEST_DESCRIPTION",
+    entrypoint="action_a",
+    trigger={
+        "id": "trigger-TEST_WORKFLOW_ID",
+        "type": "trigger",
+        "data": {
+            "type": "trigger",
+            "title": "Trigger",
+            "status": "online",
+            "isConfigured": True,
+            "webhook": {},
+        },
+    },
+)
 
 
 def build_actions(graph: RFGraph) -> list[ActionStatement]:
@@ -18,14 +39,14 @@ def build_actions(graph: RFGraph) -> list[ActionStatement]:
                 graph.node_map[nid].ref for nid in graph.dep_list[node.id]
             ),
         )
-        for node in graph.nodes
+        for node in graph.action_nodes()
     ]
 
 
 def test_parse_dag_simple_sequence():
     """Simple sequence
 
-    A -> B -> C
+    trigger -> A -> B -> C
 
     Checks:
     1. The sequence is correctly parsed
@@ -35,35 +56,37 @@ def test_parse_dag_simple_sequence():
 
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
+                "type": "udf",
                 "data": {
-                    "type": "core.action",
+                    "type": "udf",
                     "title": "Action A",
                     "args": {"test": 1},
                 },
             },
             {
                 "id": "b",
-                "type": "core.action",
+                "type": "udf",
                 "data": {
-                    "type": "core.action",
+                    "type": "udf",
                     "title": "Action B",
                     "args": {"test": 2},
                 },
             },
             {
                 "id": "c",
-                "type": "core.action",
+                "type": "udf",
                 "data": {
-                    "type": "core.action",
+                    "type": "udf",
                     "title": "Action C",
                     "args": {"test": 3},
                 },
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "b_c", "source": "b", "target": "c"},
         ],
@@ -72,80 +95,83 @@ def test_parse_dag_simple_sequence():
     expected_wf_ir = [
         ActionStatement(
             ref="action_a",
-            action="core.action",
+            action="udf",
             args={"test": 1},
         ),
         ActionStatement(
             ref="action_b",
-            action="core.action",
+            action="udf",
             args={"test": 2},
             depends_on=["action_a"],
         ),
         ActionStatement(
             ref="action_c",
-            action="core.action",
+            action="udf",
             args={"test": 3},
             depends_on=["action_b"],
         ),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
 def test_kite():
     r"""Kite shape:
 
-       A
-       /\
-      B  D
-      |  |
-      C  E
-       \/
-        F
-        |
-        G
+       trigger -> A
+                  /\
+                 B  D
+                 |  |
+                 C  E
+                  \/
+                   F
+                   |
+                   G
 
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "b_c", "source": "b", "target": "c"},
             {"id": "c_f", "source": "c", "target": "f"},
@@ -157,124 +183,117 @@ def test_kite():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_e", action="core.action", args={}, depends_on=["action_d"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_d"]),
         ActionStatement(
             ref="action_f",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_c", "action_e"],
         ),
-        ActionStatement(
-            ref="action_g", action="core.action", args={}, depends_on=["action_f"]
-        ),
+        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
 def test_double_kite():
     r"""Double kite shape:
 
-       A
-       /\
-      B  D
-      |  |
-      C  E
-       \/
-        F
-        |
-        G
-       / \
-      H   I
-      |   |
-      |   J     # Note H-K and i-J-K different lengths
-      |   |
-      K   L
-       \ /
-        M
+       trigger -> A
+                   /\
+                  B  D
+                  |  |
+                  C  E
+                   \/
+                    F
+                    |
+                    G
+                   / \
+                  H   I
+                  |   |
+                  |   J     # Note H-K and i-J-K different lengths
+                  |   |
+                  K   L
+                   \ /
+                    M
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
             {
                 "id": "h",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_h"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_h"},
             },
             {
                 "id": "i",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_i"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_i"},
             },
             {
                 "id": "j",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_j"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_j"},
             },
             {
                 "id": "k",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_k"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_k"},
             },
             {
                 "id": "l",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_l"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_l"},
             },
             {
                 "id": "m",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_m"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_m"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "b_c", "source": "b", "target": "c"},
             {"id": "c_f", "source": "c", "target": "f"},
@@ -293,104 +312,87 @@ def test_double_kite():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_e", action="core.action", args={}, depends_on=["action_d"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_d"]),
         ActionStatement(
             ref="action_f",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_c", "action_e"],
         ),
-        ActionStatement(
-            ref="action_g", action="core.action", args={}, depends_on=["action_f"]
-        ),
-        ActionStatement(
-            ref="action_h", action="core.action", args={}, depends_on=["action_g"]
-        ),
-        ActionStatement(
-            ref="action_i", action="core.action", args={}, depends_on=["action_g"]
-        ),
-        ActionStatement(
-            ref="action_j", action="core.action", args={}, depends_on=["action_i"]
-        ),
-        ActionStatement(
-            ref="action_k", action="core.action", args={}, depends_on=["action_h"]
-        ),
-        ActionStatement(
-            ref="action_l", action="core.action", args={}, depends_on=["action_j"]
-        ),
+        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
+        ActionStatement(ref="action_h", action="udf", args={}, depends_on=["action_g"]),
+        ActionStatement(ref="action_i", action="udf", args={}, depends_on=["action_g"]),
+        ActionStatement(ref="action_j", action="udf", args={}, depends_on=["action_i"]),
+        ActionStatement(ref="action_k", action="udf", args={}, depends_on=["action_h"]),
+        ActionStatement(ref="action_l", action="udf", args={}, depends_on=["action_j"]),
         ActionStatement(
             ref="action_m",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_k", "action_l"],
         ),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
 def test_tree_1():
     r"""Tree 1 shape:
 
-       A
-       /\
-      B  c
-     /|  |\
-    D E  F G
+       trigger -> A
+                  /\
+                 B  C
+                /|  |\
+               D E  F G
 
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "a_c", "source": "a", "target": "c"},
             {"id": "b_d", "source": "b", "target": "d"},
@@ -401,81 +403,72 @@ def test_tree_1():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_e", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_f", action="core.action", args={}, depends_on=["action_c"]
-        ),
-        ActionStatement(
-            ref="action_g", action="core.action", args={}, depends_on=["action_c"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
+        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_c"]),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
 def test_tree_2():
     r"""Tree 2 shape:
 
-         A
-        / \
-       B   E
-      /|   |
-     C D   F
-           |
-           G
+         trigger -> A
+                    / \
+                   B   E
+                  /|   |
+                 C D   F
+                       |
+                       G
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "a_e", "source": "a", "target": "e"},
             {"id": "b_c", "source": "b", "target": "c"},
@@ -486,83 +479,74 @@ def test_tree_2():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_e", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_f", action="core.action", args={}, depends_on=["action_e"]
-        ),
-        ActionStatement(
-            ref="action_g", action="core.action", args={}, depends_on=["action_f"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_e"]),
+        ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
 def test_complex_dag_1():
     r"""Complex DAG shape:
 
-         A
-        / \
-       B   C
-      / \ / \
-     D   E   F
-      \  |  /
-       \ | /
-         G
+         trigger -> A
+                    / \
+                   B   C
+                  / \ / \
+                 D   E   F
+                  \  |  /
+                   \ | /
+                     G
 
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "a_c", "source": "a", "target": "c"},
             {"id": "b_d", "source": "b", "target": "d"},
@@ -576,100 +560,95 @@ def test_complex_dag_1():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_b"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
         ActionStatement(
             ref="action_e",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_b", "action_c"],
         ),
-        ActionStatement(
-            ref="action_f", action="core.action", args={}, depends_on=["action_c"]
-        ),
+        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
         ActionStatement(
             ref="action_g",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_d", "action_e", "action_f"],
         ),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
 def test_complex_dag_2():
     r"""Complex DAG shape:
 
-         A
-        / \
-       B   C
-      / \ / \
-     D   E   F
-      \ / \ /
-       G   H
-        \ /
-         I
+         trigger -> A
+                    / \
+                   B   C
+                  / \ / \
+                 D   E   F
+                  \ / \ /
+                   G   H
+                    \ /
+                     I
 
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
             {
                 "id": "h",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_h"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_h"},
             },
             {
                 "id": "i",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_i"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_i"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "a_c", "source": "a", "target": "c"},
             {"id": "b_d", "source": "b", "target": "d"},
@@ -686,127 +665,122 @@ def test_complex_dag_2():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_b"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
         ActionStatement(
             ref="action_e",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_b", "action_c"],
         ),
-        ActionStatement(
-            ref="action_f", action="core.action", args={}, depends_on=["action_c"]
-        ),
+        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
         ActionStatement(
             ref="action_g",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_d", "action_e"],
         ),
         ActionStatement(
             ref="action_h",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_e", "action_f"],
         ),
         ActionStatement(
             ref="action_i",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_g", "action_h"],
         ),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
 
 
-def complex_dag_3():
+def test_complex_dag_3():
     r"""Complex DAG shape:
 
-         A
-        / \
-       B   \
-      / \   \
-     C   D   E - F
-      \ /   / \   \
-       G   H   I - J
-        \ /        |
-         K         L
+         trigger -> A
+                    / \
+                   B   \
+                  / \   \
+                 C   D   E - F
+                  \ /   / \   \
+                   G   H   I - J
+                    \ /        |
+                     K         L
 
     """
     rf_obj = {
         "nodes": [
+            metadata.trigger,
             {
                 "id": "a",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_a"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_a"},
             },
             {
                 "id": "b",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_b"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_b"},
             },
             {
                 "id": "c",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_c"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_c"},
             },
             {
                 "id": "d",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_d"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_d"},
             },
             {
                 "id": "e",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_e"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_e"},
             },
             {
                 "id": "f",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_f"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_f"},
             },
             {
                 "id": "g",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_g"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_g"},
             },
             {
                 "id": "h",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_h"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_h"},
             },
             {
                 "id": "i",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_i"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_i"},
             },
             {
                 "id": "j",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_j"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_j"},
             },
             {
                 "id": "k",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_k"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_k"},
             },
             {
                 "id": "l",
-                "type": "core.action",
-                "data": {"type": "core.action", "title": "action_l"},
+                "type": "udf",
+                "data": {"type": "udf", "title": "action_l"},
             },
         ],
         "edges": [
+            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
             {"id": "a_b", "source": "a", "target": "b"},
             {"id": "a_e", "source": "a", "target": "e"},
             {"id": "b_c", "source": "b", "target": "c"},
@@ -815,6 +789,7 @@ def complex_dag_3():
             {"id": "d_g", "source": "d", "target": "g"},
             {"id": "e_f", "source": "e", "target": "f"},
             {"id": "e_i", "source": "e", "target": "i"},
+            {"id": "e_h", "source": "e", "target": "h"},
             {"id": "f_j", "source": "f", "target": "j"},
             {"id": "g_k", "source": "g", "target": "k"},
             {"id": "h_k", "source": "h", "target": "k"},
@@ -824,50 +799,35 @@ def complex_dag_3():
     }
 
     expected_wf_ir = [
-        ActionStatement(ref="action_a", action="core.action", args={}),
-        ActionStatement(
-            ref="action_b", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_c", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_d", action="core.action", args={}, depends_on=["action_b"]
-        ),
-        ActionStatement(
-            ref="action_e", action="core.action", args={}, depends_on=["action_a"]
-        ),
-        ActionStatement(
-            ref="action_f", action="core.action", args={}, depends_on=["action_e"]
-        ),
+        ActionStatement(ref="action_a", action="udf", args={}),
+        ActionStatement(ref="action_b", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_c", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_d", action="udf", args={}, depends_on=["action_b"]),
+        ActionStatement(ref="action_e", action="udf", args={}, depends_on=["action_a"]),
+        ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_e"]),
         ActionStatement(
             ref="action_g",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_c", "action_d"],
         ),
-        ActionStatement(
-            ref="action_h", action="core.action", args={}, depends_on=["action_e"]
-        ),
-        ActionStatement(
-            ref="action_i", action="core.action", args={}, depends_on=["action_e"]
-        ),
+        ActionStatement(ref="action_h", action="udf", args={}, depends_on=["action_e"]),
+        ActionStatement(ref="action_i", action="udf", args={}, depends_on=["action_e"]),
         ActionStatement(
             ref="action_j",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_f", "action_i"],
         ),
         ActionStatement(
             ref="action_k",
-            action="core.action",
+            action="udf",
             args={},
             depends_on=["action_g", "action_h"],
         ),
-        ActionStatement(
-            ref="action_l", action="core.action", args={}, depends_on=["action_j"]
-        ),
+        ActionStatement(ref="action_l", action="udf", args={}, depends_on=["action_j"]),
     ]
-    graph = RFGraph.from_dict(rf_obj)
-    dsl = DSLInput(actions=build_actions(graph), **metadata)
+    graph = RFGraph(**rf_obj)
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
