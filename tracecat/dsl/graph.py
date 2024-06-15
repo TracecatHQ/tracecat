@@ -1,77 +1,105 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Generator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, Self, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic.alias_generators import to_camel
 from slugify import slugify
 
 from tracecat.dsl.common import ActionStatement
 from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
-    from tracecat.db.schemas import Workflow
+    from tracecat.db.schemas import Webhook, Workflow
 
 
 def get_ref(text: str) -> str:
     return slugify(text, separator="_")
 
 
-class RFNodeData(BaseModel):
-    """React Flow Graph Node Data."""
-
-    type: str
-    """Namespaced action type."""
-
-    title: str
-    """Action title. Used to generate the action ref."""
-
-    args: dict[str, Any] = Field(default_factory=dict)
-    """Action arguments."""
+class Position(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
 
 
-class RFNode(BaseModel):
-    """React Flow Graph Node."""
+class TSObject(BaseModel):
+    """A model that holds a TypeScript Object information.
 
-    id: str
-    """RF Graph Node ID. Different from action ref."""
+    Perks
+    -----
+    - Automatically serde to camelCase
 
-    type: Literal["udf"]
-    """UDF type."""
+    Important
+    ---------
+    - You must serialize with `by_alias=True` to get the camelCase keys.
+    """
 
-    data: RFNodeData
+    model_config: ConfigDict = ConfigDict(
+        extra="allow",
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
+
+class UDFNodeData(TSObject):
+    is_configured: bool = False
+    number_of_events: int = 0
+    status: Literal["online", "offline"] = Field(default="offline")
+    title: str = Field(description="Action title, used to generate the action ref")
+    type: str = Field(description="UDF type")
+    args: dict[str, Any] = Field(default_factory=dict, description="Action arguments")
+
+
+class TriggerNodeData(TSObject):
+    is_configured: bool
+    status: Literal["online", "offline"] = Field(default="offline")
+    title: str = Field(description="Action title, used to generate the action ref")
+    webhook: dict[str, Any]
+    schedules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+T = TypeVar("T", UDFNodeData, TriggerNodeData)
+
+
+class RFNode(TSObject, Generic[T]):
+    """Base React Flow Graph Node."""
+
+    id: str = Field(..., description="RF Graph Node ID, not to confuse with action ref")
+    type: Literal["trigger", "udf"]
+    position: Position = Field(default_factory=Position)
+    position_absolute: Position = Field(default_factory=Position)
+    data: T
 
     @property
     def ref(self) -> str:
         return get_ref(self.data.title)
 
 
-class RFTriggerNodeData(BaseModel):
-    """React Flow Trigger Node Data."""
+class TriggerNode(RFNode):
+    """React Flow Graph Trigger Node."""
 
-    title: str
-    """Node title. Used to generate the action ref."""
-
-
-class RFTriggerNode(BaseModel):
-    """React Flow Trigger Node."""
-
-    id: str
-    """RF Graph Node ID. Different from action ref."""
-
-    type: Literal["trigger"]
-    """Namespaced action type."""
-
-    data: RFTriggerNodeData
-
-    @property
-    def ref(self) -> str:
-        return get_ref(self.data.title)
+    type: Literal["trigger"] = Field(default="trigger", frozen=True)
+    data: TriggerNodeData
 
 
-class RFEdge(BaseModel):
+class UDFNode(RFNode):
+    """React Flow Graph Trigger Node."""
+
+    type: Literal["udf"] = Field(default="udf", frozen=True)
+    data: UDFNodeData
+
+
+NodeVariant = TriggerNode | UDFNode
+AnnotatedNodeVariant = Annotated[NodeVariant, Field(discriminator="type")]
+NodeValidator: TypeAdapter[NodeVariant] = TypeAdapter(AnnotatedNodeVariant)
+
+
+class RFEdge(TSObject):
     """React Flow Graph Edge."""
 
     id: str
@@ -84,7 +112,7 @@ class RFEdge(BaseModel):
     """Target node ID."""
 
 
-class RFGraph(BaseModel):
+class RFGraph(TSObject):
     """React Flow Graph Object.
 
     Only used for workflow DSL construction.
@@ -92,10 +120,8 @@ class RFGraph(BaseModel):
     Has a bunch of helper methods to manipulate the graph.
     """
 
-    nodes: list[RFNode]
-    edges: list[RFEdge]
-    trigger: RFTriggerNode
-    entrypoint_id: str
+    nodes: list[RFNode] = Field(default_factory=list)
+    edges: list[RFEdge] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_graph(self) -> Self:
@@ -104,24 +130,36 @@ class RFGraph(BaseModel):
             raise TracecatValidationError(
                 "Graph must have at least one node excluding trigger"
             )
-        if not self.trigger:
-            raise TracecatValidationError("Graph must have a trigger node")
+        try:
+            _ = self.trigger
+        except TracecatValidationError as e:
+            raise e
 
         # Complex validations
         # No trigger edges in the main graph
         if not all(
-            self.trigger.id not in (edge.source, edge.target) for edge in self.edges
+            self.trigger.id not in (edge.source, edge.target)
+            for edge in self.action_edges()
         ):
+            # NOTE: We should not consider the trigger node as a source or target
+            # in the main graph.
             raise TracecatValidationError(
                 "Trigger node should not have edges in the main graph"
             )
 
-        if self.entrypoint != self.node_map[self.entrypoint_id].ref:
-            lhs = self.entrypoint
-            rhs = self.node_map[self.entrypoint_id].ref
+        if self.logical_entrypoint_id != self.node_map[self.entrypoint.id].ref:
+            lhs = self.logical_entrypoint_id
+            rhs = self.node_map[self.entrypoint.id].ref
             logger.error(f"Entrypoint doesn't match: {lhs!r} != {rhs!r}")
             raise TracecatValidationError("Entrypoint doesn't match")
         return self
+
+    @property
+    def trigger(self) -> TriggerNode:
+        try:
+            return next(node for node in self.nodes if node.type == "trigger")
+        except StopIteration as e:
+            raise TracecatValidationError("Graph must have a trigger node") from e
 
     @cached_property
     def node_map(self) -> dict[str, RFNode]:
@@ -129,35 +167,65 @@ class RFGraph(BaseModel):
 
     @cached_property
     def adj_list(self) -> dict[str, list[str]]:
+        """Return an adjacency list (node IDs) of the graph."""
         adj_list: dict[str, list[str]] = {node.id: [] for node in self.nodes}
-        for edge in self.edges:
+        for edge in self.action_edges():
             adj_list[edge.source].append(edge.target)
         return adj_list
 
     @cached_property
     def dep_list(self) -> dict[str, set[str]]:
+        """Return a dependency list (node IDs) of the graph."""
         dep_list = defaultdict(set)
-        for edge in self.edges:
+        for edge in self.action_edges():
             dep_list[edge.target].add(edge.source)
         return dep_list
 
     @cached_property
     def indegree(self) -> dict[str, int]:
         indegree: dict[str, int] = defaultdict(int)
-        for edge in self.edges:
+        for edge in self.action_edges():
             indegree[edge.target] += 1
         return indegree
 
     @property
-    def entrypoint(self) -> str:
-        entrypoints = [node.ref for node in self.nodes if self.indegree[node.id] == 0]
+    def entrypoint(self) -> UDFNode:
+        """The entrypoint is the node with the trigger as the source"""
+        entrypoints = {
+            edge.target for edge in self.edges if edge.source == self.trigger.id
+        }
+        if (n := len(entrypoints)) != 1:
+            raise TracecatValidationError(
+                f"Expected 1 entrypoint, got {n}: {entrypoints!r}"
+            )
+        return self.node_map[entrypoints.pop()]
+
+    @property
+    def logical_entrypoint_id(self) -> str:
+        """The logical entrypoint ID of the graph."""
+        entrypoints = [
+            node.ref for node in self.action_nodes() if self.indegree[node.id] == 0
+        ]
         if len(entrypoints) != 1:
             raise TracecatValidationError(
-                f"Expected 1 entrypoint, got {len(entrypoints)}: {entrypoints!r}"
+                f"Expected 1 logical entrypoint, got {len(entrypoints)}: {entrypoints!r}"
             )
         return entrypoints[0]
 
+    def action_edges(self) -> Generator[RFEdge, None, None]:
+        """Return all edges that are not connected to the trigger node."""
+        return (
+            edge
+            for edge in self.edges
+            if self.trigger.id not in (edge.source, edge.target)
+        )
+
+    def action_nodes(self) -> Generator[RFNode, None, None]:
+        """Return all `udf` (action) type nodes."""
+        return (node for node in self.nodes if node.type == "udf")
+
     def action_statements(self, workflow: Workflow) -> list[ActionStatement]:
+        """Create ActionStatements by combining RFGraph.nodes and Workflow.actions."""
         if len(self.nodes) != len(workflow.actions):
             raise ValueError("Mismatch between graph nodes and workflow actions")
 
@@ -165,7 +233,7 @@ class RFGraph(BaseModel):
         action_map = {action.ref: action for action in actions}
 
         statements = []
-        for node in self.nodes:
+        for node in self.action_nodes():
             dependencies = sorted(
                 self.node_map[nid].ref for nid in self.dep_list[node.id]
             )
@@ -181,44 +249,6 @@ class RFGraph(BaseModel):
         return statements
 
     @classmethod
-    def from_dict(cls, obj: dict[str, Any], /) -> Self:
-        triggers, nodes = [], []
-        for node in obj["nodes"]:
-            t = node["type"]
-            if t == "trigger":
-                triggers.append(RFTriggerNode(**node))
-            elif t == "udf":
-                nodes.append(RFNode(**node))
-            else:
-                raise ValueError(f"Unknown node type: {t!r}")
-
-        if len(triggers) != 1:
-            raise TracecatValidationError(
-                f"Expected 1 trigger node, got {len(triggers)}"
-            )
-
-        trigger = triggers[0]
-        entrypoint = []
-        edges = []
-        for edge in obj["edges"]:
-            if trigger.id in (edge["source"], edge["target"]):
-                entrypoint.append(edge)
-            else:
-                edges.append(RFEdge(**edge))
-
-        if len(entrypoint) != 1:
-            raise TracecatValidationError(
-                f"Expected 1 trigger edge, got {len(entrypoint)}"
-            )
-
-        return cls(
-            nodes=nodes,
-            edges=edges,
-            trigger=trigger,
-            entrypoint_id=entrypoint[0]["target"],
-        )
-
-    @classmethod
     def from_workflow(cls, workflow: Workflow) -> Self:
         if not workflow.object:
             raise ValueError("Empty response object")
@@ -227,10 +257,57 @@ class RFGraph(BaseModel):
                 "Empty actions list. Please hydrate the workflow by "
                 "calling `workflow.actions` inside an open db session."
             )
-        return cls.from_dict(workflow.object)
+        # This will accept either RFGraph or dict
+        return cls.model_validate(workflow.object)
 
     def topsort_order(self) -> list[str]:
         from graphlib import TopologicalSorter
 
         ts = TopologicalSorter(self.dep_list)
         return list(ts.static_order())
+
+
+def create_graph_object(
+    workflow: Workflow, webhook: Webhook, initial_pos: dict[str, Any] = None
+):
+    initial_pos = initial_pos or {"x": 0, "y": 0}
+    return {
+        "nodes": [
+            {
+                "id": f"trigger-{workflow.id}",
+                "type": "trigger",
+                "position": initial_pos,
+                "data": {
+                    "type": "trigger",
+                    "title": "Trigger",
+                    "status": "online",
+                    "isConfigured": True,
+                    "webhook": webhook.model_dump(),
+                    "schedules": workflow.schedules or [],
+                },
+            }
+        ],
+        "edges": [],
+        "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+
+
+def update_graph_object(graph, workflow: Workflow, webhook: Webhook):
+    trigger = graph["nodes"][0]
+    trigger["data"]["webhook"] = webhook.model_dump()
+    trigger["data"]["schedules"] = workflow.schedules or []
+    return graph
+
+
+if __name__ == "__main__":
+    import json
+    from pathlib import Path
+
+    p = "/Users/daryllim/dev/org/tracecat/tests/data/graph_object/kite.json"
+    path = Path(p)
+
+    with path.open("r") as f:
+        data = json.load(f)
+
+    graph = RFGraph(**data)
+    print(graph.model_dump_json(indent=2, by_alias=True))
