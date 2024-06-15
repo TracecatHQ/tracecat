@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
-from uuid import uuid4
 
 import orjson
 from pydantic import BaseModel, Field
 
 from tracecat.types.api import CaseContext, CaseParams, ListModel, Suppression, Tag
+from tracecat.utils import gen_id
 
 CaseEvent = Literal[
     "changed_status",
@@ -18,20 +18,11 @@ CaseEvent = Literal[
 ]
 
 
-def _gen_id(prefix: str):
-    separator = "-"
-
-    def wrapper():
-        return prefix + separator + uuid4().hex
-
-    return wrapper
-
-
 class Case(BaseModel):
     """Case model used in the API and runner."""
 
     # Required inputs
-    id: str = Field(default_factory=_gen_id("case"))  # Action run id
+    id: str = Field(default_factory=gen_id("case"))  # Action run id
     owner_id: str  # NOTE: Ideally this would inherit form db.Resource
     workflow_id: str
     case_title: str
