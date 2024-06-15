@@ -61,6 +61,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.dsl.dispatcher import dispatch_workflow
 
 # from loguru import logger
+from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
@@ -396,6 +397,8 @@ def create_workflow(
             owner_id=role.user_id,
             workflow_id=workflow.id,
         )
+        graph = RFGraph.with_defaults(workflow, webhook)
+        workflow.object = graph.model_dump(by_alias=True)
         session.add(workflow)
         session.add(webhook)
         session.commit()

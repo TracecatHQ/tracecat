@@ -93,39 +93,6 @@ async function createNewNode(
   }
 }
 
-function getInitialState(
-  workflow: Workflow,
-  containerRef: React.RefObject<HTMLDivElement>
-) {
-  const rect = containerRef.current?.getBoundingClientRect()
-  const width = rect?.width || 0
-  const height = rect?.height || 0
-  const graphInitialState = {
-    nodes: [
-      {
-        id: `trigger-${workflow.id}`,
-        type: "trigger",
-        position: { x: width / 2, y: height / 2 },
-        data: {
-          type: "trigger",
-          title: "Trigger",
-          status: "online",
-          isConfigured: true,
-          webhook: workflow.webhook,
-          schedules: workflow.schedules,
-        },
-      },
-    ],
-    edges: [],
-    viewport: {
-      x: 0,
-      y: 0,
-      zoom: 1,
-    },
-  }
-  return graphInitialState
-}
-
 export function WorkflowCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -148,22 +115,14 @@ export function WorkflowCanvas() {
       try {
         const workflow = await fetchWorkflow(workflowId)
         const flow = workflow.object as ReactFlowJsonObject
-        if (flow) {
-          // If there is a saved React Flow configuration, load it
-          setNodes(flow.nodes || [])
-          setEdges(flow.edges || [])
-          setViewport({
-            x: flow.viewport.x,
-            y: flow.viewport.y,
-            zoom: flow.viewport.zoom,
-          })
-        } else {
-          // Otherwise, load the default nodes
-          const initialState = getInitialState(workflow, containerRef)
-          setNodes(initialState.nodes)
-          setEdges(initialState.edges)
-          setViewport(initialState.viewport)
-        }
+        if (!flow) throw new Error("No workflow data found")
+        setNodes(flow.nodes || [])
+        setEdges(flow.edges || [])
+        setViewport({
+          x: flow.viewport.x,
+          y: flow.viewport.y,
+          zoom: flow.viewport.zoom,
+        })
       } catch (error) {
         console.error("Failed to fetch workflow data:", error)
       }
