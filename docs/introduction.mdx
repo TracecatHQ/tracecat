@@ -3,14 +3,26 @@ title: Welcome to Tracecat
 description: Workflow orchestration platform for security engineers
 ---
 
-[Tracecat](https://github.com/TracecatHQ/tracecat) is an open-source Tines / Splunk SOAR alternative for security engineers.
-We're building the features of Tines using enterprise-grade open-source tools.
+[Tracecat](https://tracecat.com) is an open-source Tines / Splunk SOAR alternative for security engineers. We're building the features of Tines using enterprise-grade open-source tools.
+
+## Who uses Tracecat?
+
+- **Security Operations (SecOps):** Unify workflow development across security engineering and SOC teams
+- **Security Engineers (SecEng):** Build and maintain complex automations using open source integrations, configuration-as-code, and a powerful templating language
+- **Managed Detection & Response (MDR):** Rapidly embed scalable workflow applications into any security product
 
 ## New to Tracecat?
 
 Book an open-source [onboarding call](https://calendly.com/d/cpfn-rsm-4t7/tracecat-onboarding) with one of our cofounders to get started.
 
 <CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="plug"
+    href="/installation"
+  >
+    Learn how to install Tracecat locally
+  </Card>
   <Card
     title="Quickstart"
     icon="bolt"
@@ -25,37 +37,58 @@ Book an open-source [onboarding call](https://calendly.com/d/cpfn-rsm-4t7/tracec
 <CardGroup cols={2}>
   <Card
     title="Workflows"
-    icon="network-wired"
-    href="/core/workflows"
+    icon="diagram-project"
+    href="/concepts/workflows"
   >
     Automated event-driven workflows
   </Card>
   <Card
+    title="Workflow Definitions"
+    icon="file-code"
+    href="/concepts/workflow-definitions"
+  >
+    Configuration-as-code for workflows
+  </Card>
+  <Card
     title="Actions"
-    icon="code"
+    icon="shapes"
     href="/core/actions"
   >
-    Customizable building blocks for your workflows
+    Core building blocks for automations
+  </Card>
+  <Card
+    title="User-Defined Functions"
+    icon="code"
+    href="/core/user-defined-functions"
+  >
+    Write custom integrations using Python
+  </Card>
+  <Card
+    title="Expressions"
+    icon="divide"
+    href="/concepts/expressions"
+  >
+    Powerful templating language and formulas
+  </Card>
+  <Card
+    title="Secrets"
+    icon="key"
+    href="/core/secrets"
+  >
+    Built-in secrets manager
   </Card>
   <Card
     title="Case Management"
     icon="bell"
-    href="core/events"
+    href="/concepts/case-management"
   >
     AI-assisted case management
   </Card>
 </CardGroup>
 
-## Self-hosted
+## Tracecat in Production
 
 <CardGroup cols={2}>
-  <Card
-    title="Installation"
-    icon="plug"
-    href="/installation"
-  >
-    Learn how to install Tracecat locally
-  </Card>
   <Card
     title="Deployment"
     icon="cloud"
