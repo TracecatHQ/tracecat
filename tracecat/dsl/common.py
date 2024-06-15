@@ -39,25 +39,47 @@ class DSLError(ValueError):
 
 
 class ActionStatement(BaseModel):
-    ref: str = Field(pattern=SLUG_PATTERN)
-    """Unique reference for the task"""
+    id: str | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "The action ID. If this is populated means there is a corresponding action"
+            "in the database `Action` table."
+        ),
+    )
 
-    action: str = Field(pattern=ACTION_TYPE_PATTERN)
-    """Namespaced action type"""
+    ref: str = Field(pattern=SLUG_PATTERN, description="Unique reference for the task")
 
-    args: dict[str, Any] = Field(default_factory=dict)
-    """Arguments for the action"""
+    description: str = ""
 
-    depends_on: list[str] = Field(default_factory=list)
-    """Task dependencies"""
+    action: str = Field(
+        pattern=ACTION_TYPE_PATTERN, description="Action type / UDF key"
+    )
 
-    run_if: Annotated[str | None, Field(default=None), TemplateValidator()]
-    """Condition to run the task"""
+    args: dict[str, Any] = Field(
+        default_factory=dict, description="Arguments for the action"
+    )
+
+    depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
+
+    run_if: Annotated[
+        str | None,
+        Field(default=None, description="Condition to run the task"),
+        TemplateValidator(),
+    ]
 
     for_each: Annotated[
-        str | list[str] | None, Field(default=None), TemplateValidator()
+        str | list[str] | None,
+        Field(
+            default=None,
+            description="Iterate over a list of items and run the task for each item.",
+        ),
+        TemplateValidator(),
     ]
-    """Run the task over an iterable"""
+
+    @property
+    def title(self) -> str:
+        return self.ref.capitalize().replace("_", " ")
 
 
 class DSLConfig(BaseModel):
