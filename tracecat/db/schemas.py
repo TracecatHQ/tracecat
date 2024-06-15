@@ -144,7 +144,7 @@ class CaseEvent(Resource, table=True):
         default_factory=gen_id("case-evt"), nullable=False, unique=True, index=True
     )
     type: str  # The CaseEvent type
-    workflow_id: str | None = Field(foreign_key="workflow.id")
+    workflow_id: str
     case_id: str
     # Tells us what kind of role modified the case
     initiator_role: str  # "user", "service"
