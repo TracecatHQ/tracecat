@@ -21,6 +21,7 @@
   "dependencies": {
     "@clerk/clerk-js": "^5.4.0",
     "@clerk/nextjs": "^5.0.12",
+    "@dagrejs/dagre": "^1.1.2",
     "@hookform/resolvers": "^3.4.0",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.5",
