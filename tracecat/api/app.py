@@ -20,8 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
 from pydantic_core import ValidationError
-from sqlalchemy import Engine, or_
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy import Engine, delete, or_
+from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
 from tracecat import config
@@ -92,7 +92,6 @@ from tracecat.types.api import (
     UpdateUserParams,
     UpdateWorkflowParams,
     UpsertWebhookParams,
-    UpsertWorkflowDefinitionParams,
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
@@ -101,6 +100,7 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.utils import action_key
 
 engine: Engine
 
@@ -179,8 +179,8 @@ app = create_app(lifespan=lifespan, default_response_class=ORJSONResponse)
 @app.exception_handler(Exception)
 async def custom_exception_handler(request: Request, exc: Exception):
     logger.error(
-        "Unexpected error: {!s}",
-        exc,
+        "Unexpected error",
+        exc=exc,
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
@@ -558,12 +558,10 @@ def commit_workflow(
 
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
 
-    with Session(engine) as session:
-        if yaml_file:
-            # Uploaded YAML file overrides the workflow in the database
-            dsl = DSLInput.from_yaml(yaml_file.file)
-            logger.info("Commiting workflow from yaml file", role=role)
-        else:
+    # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
+
+    with Session(engine) as session, logger.contextualize(role=role):
+        try:
             # Grab workflow and actions from tables
             statement = select(Workflow).where(
                 Workflow.owner_id == role.user_id,
@@ -576,13 +574,86 @@ def commit_workflow(
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
                 ) from e
-
             # Hydrate actions
             _ = workflow.actions
+            if yaml_file:
+                # Uploaded YAML file overrides the workflow in the database
+                dsl = DSLInput.from_yaml(yaml_file.file)
+                logger.info("Commiting workflow from yaml file")
+            else:
+                # Convert the workflow into a WorkflowDefinition
+                dsl = converters.workflow_to_dsl(workflow)
+                logger.info("Commiting workflow from database")
+            # Phase 1: Commit
+            defn = _create_wf_definition(session, role, workflow_id, dsl)
+            # Phase 2: Backpropagate
+            new_graph = converters.dsl_to_graph(workflow, dsl)
 
-            # Convert the workflow into a WorkflowDefinition
-            dsl = converters.workflow_to_dsl(workflow)
-        _upsert_workflow_definition(session, role, workflow_id, dsl)
+            # Replace Actions
+            del_stmt = delete(Action).where(
+                Action.workflow_id == workflow_id, Action.owner_id == role.user_id
+            )
+            session.exec(del_stmt)
+            logger.info(result)
+
+            session.flush()  # Ensure deletions are flushed
+            session.refresh(workflow)
+
+            for act_stmt in dsl.actions:
+                new_action = Action(
+                    id=action_key(workflow_id, act_stmt.ref),
+                    owner_id=role.user_id,
+                    workflow_id=workflow_id,
+                    type=act_stmt.action,
+                    inputs=act_stmt.args,
+                    title=act_stmt.title,
+                    description=act_stmt.description,
+                )
+                session.add(new_action)
+
+            # Update Workflow
+            workflow.object = new_graph.model_dump(by_alias=True)
+            workflow.version = defn.version
+            workflow.title = dsl.title
+            workflow.description = dsl.description
+
+            session.add(workflow)
+            session.add(defn)
+            session.commit()
+            session.refresh(workflow)
+            session.refresh(defn)
+
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.opt(exception=e).error("Error committing workflow", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while committing the workflow.",
+            ) from e
+
+
+def _create_wf_definition(
+    session: Session, role: Role, workflow_id: str, dsl: DSLInput
+) -> WorkflowDefinition:
+    statement = (
+        select(WorkflowDefinition)
+        .where(
+            WorkflowDefinition.owner_id == role.user_id,
+            WorkflowDefinition.workflow_id == workflow_id,
+        )
+        .order_by(WorkflowDefinition.version.desc())
+    )
+    result = session.exec(statement)
+    latest_defn = result.first()
+
+    version = latest_defn.version + 1 if latest_defn else 1
+    defn = WorkflowDefinition(
+        owner_id=role.user_id,
+        workflow_id=workflow_id,
+        content=dsl.model_dump(),
+        version=version,
+    )
+    return defn
 
 
 # ----- Workflow Definitions ----- #
@@ -633,54 +704,6 @@ def get_workflow_definition(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
             ) from e
-
-
-@app.post(
-    "/workflows/{workflow_id}/definition",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def upsert_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-    params: UpsertWorkflowDefinitionParams,
-) -> None:
-    """Upsert a workflow definition."""
-
-    with Session(engine) as session:
-        _upsert_workflow_definition(session, role, workflow_id, params.content)
-
-
-def _upsert_workflow_definition(
-    session: Session, role: Role, workflow_id: str, content: DSLInput
-) -> WorkflowDefinition:
-    statement = (
-        select(WorkflowDefinition)
-        .where(
-            WorkflowDefinition.owner_id == role.user_id,
-            WorkflowDefinition.workflow_id == workflow_id,
-        )
-        .order_by(WorkflowDefinition.version.desc())
-    )
-    result = session.exec(statement)
-    latest_defn = result.first()
-
-    version = latest_defn.version + 1 if latest_defn else 1
-    defn = WorkflowDefinition(
-        owner_id=role.user_id,
-        workflow_id=workflow_id,
-        content=content.model_dump(),
-        version=version,
-    )
-    session.add(defn)
-    session.commit()
-    session.refresh(defn)
-
-    workflow = defn.workflow  # Hydrate relationship attr
-    workflow.version = version
-    session.add(workflow)
-    session.commit()
-    session.refresh(workflow)
 
 
 # ----- Workflow Runs ----- #
@@ -1045,6 +1068,18 @@ def create_action(
             title=params.title,
             description="",  # Default to empty string
         )
+        # Check if a clashing action ref exists
+        statement = select(Action).where(
+            Action.owner_id == role.user_id,
+            Action.workflow_id == action.workflow_id,
+            Action.ref == action.ref,
+        )
+        if session.exec(statement).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Action ref already exists in the workflow",
+            )
+
         session.add(action)
         session.commit()
         session.refresh(action)

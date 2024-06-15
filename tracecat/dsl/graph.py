@@ -4,20 +4,23 @@ from collections import defaultdict
 from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, Self, TypeVar
 
-from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    model_validator,
+    root_validator,
+)
 from pydantic.alias_generators import to_camel
-from slugify import slugify
 
 from tracecat.dsl.common import ActionStatement
+from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.utils import get_ref
 
 if TYPE_CHECKING:
     from tracecat.db.schemas import Webhook, Workflow
-
-
-def get_ref(text: str) -> str:
-    return slugify(text, separator="_")
 
 
 class Position(BaseModel):
@@ -55,10 +58,12 @@ class UDFNodeData(TSObject):
 
 
 class TriggerNodeData(TSObject):
-    is_configured: bool
+    is_configured: bool = False
     status: Literal["online", "offline"] = Field(default="offline")
-    title: str = Field(description="Action title, used to generate the action ref")
-    webhook: dict[str, Any]
+    title: str = Field(
+        default="Trigger", description="Action title, used to generate the action ref"
+    )
+    webhook: dict[str, Any] = Field(default_factory=dict)
     schedules: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -83,7 +88,7 @@ class TriggerNode(RFNode):
     """React Flow Graph Trigger Node."""
 
     type: Literal["trigger"] = Field(default="trigger", frozen=True)
-    data: TriggerNodeData
+    data: TriggerNodeData = Field(default_factory=TriggerNodeData)
 
 
 class UDFNode(RFNode):
@@ -101,7 +106,7 @@ NodeValidator: TypeAdapter[NodeVariant] = TypeAdapter(AnnotatedNodeVariant)
 class RFEdge(TSObject):
     """React Flow Graph Edge."""
 
-    id: str
+    id: str = Field(default=None)
     """RF Graph Edge ID. Not used in this context."""
 
     source: str
@@ -109,6 +114,18 @@ class RFEdge(TSObject):
 
     target: str
     """Target node ID."""
+
+    label: str | None = Field(default=None, description="Edge label")
+
+    @root_validator(pre=True)
+    def generate_id(cls, values):
+        """Generate the ID as a concatenation of source and target with a prefix."""
+        source = values.get("source")
+        target = values.get("target")
+        prefix = "reactflow__edge"
+        if source and target:
+            values["id"] = "-".join((prefix, source, target))
+        return values
 
 
 class RFGraph(TSObject):
@@ -167,10 +184,12 @@ class RFGraph(TSObject):
 
     @property
     def trigger(self) -> TriggerNode:
-        try:
-            return next(node for node in self.nodes if node.type == "trigger")
-        except StopIteration as e:
-            raise TracecatValidationError("Graph must have a trigger node") from e
+        triggers = [node for node in self.nodes if node.type == "trigger"]
+        if len(triggers) != 1:
+            raise TracecatValidationError(
+                f"Expected 1 trigger node, got {len(triggers)}"
+            )
+        return triggers[0]
 
     @cached_property
     def node_map(self) -> dict[str, RFNode]:
@@ -267,11 +286,6 @@ class RFGraph(TSObject):
     def from_workflow(cls, workflow: Workflow) -> Self:
         if not workflow.object:
             raise ValueError("Empty response object")
-        if not workflow.actions:
-            raise ValueError(
-                "Empty actions list. Please hydrate the workflow by "
-                "calling `workflow.actions` inside an open db session."
-            )
         # This will accept either RFGraph or dict
         return cls.model_validate(workflow.object)
 
@@ -303,24 +317,3 @@ class RFGraph(TSObject):
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
         return RFGraph.model_validate(initial_data)
-
-
-def update_graph_object(graph, workflow: Workflow, webhook: Webhook):
-    trigger = graph["nodes"][0]
-    trigger["data"]["webhook"] = webhook.model_dump()
-    trigger["data"]["schedules"] = workflow.schedules or []
-    return graph
-
-
-if __name__ == "__main__":
-    import json
-    from pathlib import Path
-
-    p = "/Users/daryllim/dev/org/tracecat/tests/data/graph_object/kite.json"
-    path = Path(p)
-
-    with path.open("r") as f:
-        data = json.load(f)
-
-    graph = RFGraph(**data)
-    print(graph.model_dump_json(indent=2, by_alias=True))

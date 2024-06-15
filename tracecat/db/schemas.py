@@ -2,11 +2,9 @@
 
 from datetime import datetime
 from typing import Any, Self
-from uuid import uuid4
 
 import pyarrow as pa
 from pydantic import computed_field, field_validator
-from slugify import slugify
 from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -14,6 +12,7 @@ from tracecat import config, registry
 from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
 from tracecat.dsl.common import DSLInput
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
+from tracecat.utils import action_key, gen_id, get_ref
 
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
@@ -23,15 +22,6 @@ DEFAULT_CASE_ACTIONS = [
     "Quarantined",
     "Sinkholed",
 ]
-
-
-def gen_id(prefix: str):
-    separator = "-"
-
-    def wrapper():
-        return prefix + separator + uuid4().hex
-
-    return wrapper
 
 
 class Resource(SQLModel):
@@ -351,7 +341,7 @@ class Action(Resource, table=True):
     id: str = Field(
         default_factory=gen_id("act"), nullable=False, unique=True, index=True
     )
-    type: str
+    type: str = Field(..., description="The action type, i.e. UDF key")
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
@@ -366,12 +356,13 @@ class Action(Resource, table=True):
     @computed_field
     @property
     def key(self) -> str:
-        slug = slugify(self.title, separator="_")
-        return f"{self.id}.{slug}"
+        """Workflow-relative key for an Action."""
+        return action_key(self.workflow_id, self.id)
 
     @property
     def ref(self) -> str:
-        return slugify(self.title, separator="_")
+        """Slugified title of the action. Used for references."""
+        return get_ref(self.title)
 
 
 class ActionRun(Resource, table=True):
