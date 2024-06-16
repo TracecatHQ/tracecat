@@ -106,7 +106,6 @@ services:
 networks:
   internal-network:
 
-
 volumes:
   app-storage:
   db-storage:
