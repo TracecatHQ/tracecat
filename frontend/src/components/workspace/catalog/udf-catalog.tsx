@@ -34,7 +34,6 @@ const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
     }
     groups[displayGroup].push(udf)
   })
-  console.log("groups", groups)
   return groups
 }
 
