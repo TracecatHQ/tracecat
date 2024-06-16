@@ -1,34 +1,46 @@
-<!--
-Thanks for contributing a pull request! Please ensure you have taken a look at
-the contribution guidelines: https://github.com/functime-org/functime/blob/main/CONTRIBUTING.md
+## Description
 
-👋 The best way to engage with us is to join our Discord channel:
-https://discord.com/invite/JKMrZKjEwN
+<!--
+Please do not leave this blank.
+What does this PR implement/fix? Explain your changes.
+E.g. This PR [adds/removes/fixes/replaces] the [feature/bug/etc].
 -->
 
-## Reference Issues/PRs
+## Related Tickets & Documents
+
 <!--
-Example: Fixes #1234. See also #3456.
-Please use keywords (e.g., Fixes) to create link to the issues or pull requests
-you resolved, so that they will automatically be closed when your pull request
-is merged. See https://github.com/blog/1506-closing-issues-via-pull-requests
+Please use this format link issue numbers: Fixes #123
+https://docs.github.com/en/free-pro-team@latest/github/managing-your-work-on-github/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword
 -->
 
+## Screenshots/Recordings
 
-## What does this implement/fix? Explain your changes.
+<!-- Visual changes require screenshots -->
 
-
-## Any other comments?
-
+## Steps to QA
 
 <!--
-Please be aware that we are a loose team of volunteers so patience is
-necessary; assistance handling other issues is very welcome. We value
-all user contributions, no matter how minor they are.
+Please provide some steps for the reviewer to test your change. If you have wrote tests, you can mention that here instead.
 
-If we are slow to review, either the pull request needs some benchmarking, tinkering,
-convincing, etc. or more likely the reviewers are simply busy. In either
-case, we ask for your understanding during the review process.
+1. Click a link
+2. Do this thing
+3. Validate you see the thing working
+-->
 
-Thanks for contributing!
+## [optional] What gif best describes this PR?
+
+<!-- note: PRs with deleted sections will be marked invalid -->
+
+<!--
+  For Work In Progress Pull Requests, please use the Draft PR feature,
+  see https://github.blog/2019-02-14-introducing-draft-pull-requests/ for further details.
+
+  For a timely review/response, please avoid force-pushing additional
+  commits if your PR already received reviews or comments.
+
+  Before submitting a Pull Request, please ensure you've done the following:
+  - 👷‍♀️ Create small PRs. In most cases, this will be possible.
+  - ✅ Provide tests for your changes.
+  - 📝 Use descriptive commit messages.
+  - 📗 Update any related documentation and include any relevant screenshots.
 -->
