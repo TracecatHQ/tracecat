@@ -30,11 +30,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.db.schemas import Secret  # noqa
+    from tracecat.identifiers import WorkflowID
 
 
 class DSLRunArgs(BaseModel):
     role: Role
     dsl: DSLInput
+    wf_id: WorkflowID
 
 
 class DSLContext(TypedDict):
