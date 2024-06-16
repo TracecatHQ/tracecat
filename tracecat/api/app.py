@@ -1,5 +1,4 @@
 import asyncio
-import textwrap
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -128,11 +127,10 @@ def create_app(**kwargs) -> FastAPI:
         }
     app = FastAPI(
         title="Tracecat API",
-        description=textwrap.dedent("""
-        Tracecat is the security automation platform built for builders.
-
-        You can operate Tracecat in headless mode by using the API to create, manage, and run workflows.
-        """),
+        description=(
+            "Tracecat is the security automation platform built for builders."
+            " You can operate Tracecat in headless mode by using the API to create, manage, and run workflows."
+        ),
         summary="Tracecat API",
         version="0.1.0",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
