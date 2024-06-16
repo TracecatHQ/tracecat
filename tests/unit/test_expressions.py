@@ -63,6 +63,7 @@ def test_eval_jsonpath():
 @pytest.mark.parametrize(
     "expression, expected_result",
     [
+        ("${{ACTIONS.webhook.result}}", 1),
         ("${{ ACTIONS.webhook.result -> int }}", 1),
         ("${{ INPUTS.arg1 -> int }}", 1),
         ("${{ INPUTS.arg1 }}", 1),  # Doesn't cast

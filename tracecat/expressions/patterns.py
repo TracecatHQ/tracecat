@@ -20,7 +20,7 @@ def _compile_combined_pattern(*patterns: str):
     return re.compile(padded_template)
 
 
-TEMPLATE_STRING = re.compile(r"(?P<template>\${{\s(?P<expr>.+?)\s*}})")  # Lazy match
+TEMPLATE_STRING = re.compile(r"(?P<template>\${{\s*(?P<expr>.+?)\s*}})")  # Lazy match
 """Pattern that matches a template and its expression."""
 
 
