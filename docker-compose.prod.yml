@@ -1,8 +1,6 @@
 # Non-development docker compose extension file
 # - Removes all volume bindings
 # -
-version: "3.8"
-
 services:
   api:
     volumes: []
