@@ -23,12 +23,7 @@ from temporalio.worker import Worker
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput, get_temporal_client
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import (
-    DSLContext,
-    DSLRunArgs,
-    DSLWorkflow,
-    dsl_activities,
-)
+from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLRunArgs, DSLWorkflow
 from tracecat.expressions import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
@@ -128,7 +123,7 @@ async def test_workflow_can_run_from_yaml(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -193,7 +188,7 @@ async def test_workflow_ordering_is_correct(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -262,7 +257,7 @@ async def test_workflow_completes_and_correct(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -292,7 +287,7 @@ async def test_conditional_execution_fails(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):

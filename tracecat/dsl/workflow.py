@@ -229,7 +229,7 @@ class DSLWorkflow:
             self.logger.info("Executing task")
             # TODO: Set a retry policy for the activity
             activity_result = await workflow.execute_activity(
-                "run_udf",
+                _udf_key_to_activity_name(task.action),
                 arg=UDFActionInput(
                     task=task,
                     role=self.role,
@@ -267,12 +267,47 @@ class UDFActionInput(BaseModel):
     run_context: RunContext
 
 
+def _udf_key_to_activity_name(key: str) -> str:
+    return key.replace(".", "__")
+
+
 class DSLActivities:
+    """Container for all UDFs registered in the registry."""
+
     def __new__(cls):  # type: ignore
         raise RuntimeError("This class should not be instantiated")
 
-    @staticmethod
-    @activity.defn
+    @classmethod
+    def init(cls):
+        """Create activity methods from the UDF registry and attach them to DSLActivities."""
+        global registry
+        for key in registry.keys:
+            # path.to.method_name -> path__to__method_name
+            method_name = _udf_key_to_activity_name(key)
+
+            async def async_wrapper(input: UDFActionInput):
+                return await cls.run_udf(input)
+
+            fn = activity.defn(name=method_name)(async_wrapper)
+            setattr(cls, method_name, staticmethod(fn))
+
+        return cls
+
+    @classmethod
+    def get_activities(cls) -> list[Callable[[UDFActionInput], Any]]:
+        """Get all loaded UDFs in the class."""
+        return [
+            getattr(cls, method_name)
+            for method_name in dir(cls)
+            if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
+        ]
+
+    @classmethod
+    def load(cls) -> list[Callable[[UDFActionInput], Any]]:
+        """Load and return all UDFs in the class."""
+        cls.init()
+        return cls.get_activities()
+
     async def run_udf(input: UDFActionInput) -> Any:
         ctx_run.set(input.run_context)
         ctx_role.set(input.role)
@@ -385,9 +420,8 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
     obj[leaf] = value
 
 
-# Dynamically register all static methods as activities
-dsl_activities = [
-    getattr(DSLActivities, method_name)
-    for method_name in dir(DSLActivities)
-    if hasattr(getattr(DSLActivities, method_name), "__temporal_activity_definition")
-]
+if __name__ == "__main__":
+    print(DSLActivities.load())
+    registry.init()
+    DSLActivities.init()
+    print(DSLActivities.load())
