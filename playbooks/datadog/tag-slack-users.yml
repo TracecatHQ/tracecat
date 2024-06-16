@@ -7,7 +7,6 @@ inputs:
   dd_region: us5
   dd_api_url: https://api.us5.datadoghq.com
   slack_channel: CXXXXXXXXXXXX
-  slack_webhook: http://your-slack-webhook-url.com
 
 triggers:
   - type: webhook
