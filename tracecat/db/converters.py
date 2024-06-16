@@ -1,7 +1,7 @@
+from tracecat import identifiers
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
-from tracecat.identifiers import action_key
 from tracecat.logging import logger
 
 
@@ -53,7 +53,7 @@ def dsl_to_graph(workflow: Workflow, dsl: DSLInput) -> RFGraph:
     try:
         for action in dsl.actions:
             # Get updated nodes
-            dst_key = action_key(wf_id, action.ref)
+            dst_key = identifiers.action.key(wf_id, action.ref)
             node = UDFNode(
                 id=dst_key,
                 data=UDFNodeData(
@@ -64,10 +64,10 @@ def dsl_to_graph(workflow: Workflow, dsl: DSLInput) -> RFGraph:
             nodes.append(node)
 
             for src_ref in action.depends_on:
-                src_key = action_key(wf_id, src_ref)
+                src_key = identifiers.action.key(wf_id, src_ref)
                 edges.append(RFEdge(source=src_key, target=dst_key))
 
-        entrypoint_id = action_key(wf_id, dsl.entrypoint)
+        entrypoint_id = identifiers.action.key(wf_id, dsl.entrypoint)
         # Add trigger edge
         edges.append(
             RFEdge(source=trigger.id, target=entrypoint_id, label="⚡ Trigger")
@@ -78,16 +78,4 @@ def dsl_to_graph(workflow: Workflow, dsl: DSLInput) -> RFGraph:
         raise e
 
 
-# Since a Workflow object always has a graph now, we really only need to have an update function.
-
-if __name__ == "__main__":
-    from pydantic import BaseModel
-
-    class Test(BaseModel):
-        a: int
-
-        def asdf(self):
-            return self.a
-
-    t = Test.model_construct(a="zxcm,nxcmvn")
-    print(t.asdf())
+#

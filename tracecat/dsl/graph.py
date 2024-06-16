@@ -15,7 +15,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.common import ActionStatement
-from tracecat.identifiers import get_ref
+from tracecat.identifiers import action
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatValidationError
 
@@ -81,7 +81,7 @@ class RFNode(TSObject, Generic[T]):
 
     @property
     def ref(self) -> str:
-        return get_ref(self.data.title)
+        return action.ref(self.data.title)
 
 
 class TriggerNode(RFNode):

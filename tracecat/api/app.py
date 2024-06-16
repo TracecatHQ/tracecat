@@ -24,7 +24,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config
+from tracecat import config, identifiers
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -62,7 +62,6 @@ from tracecat.dsl.dispatcher import dispatch_workflow
 
 # from loguru import logger
 from tracecat.dsl.graph import RFGraph
-from tracecat.identifiers import action_key
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
@@ -601,7 +600,7 @@ def commit_workflow(
 
             for act_stmt in dsl.actions:
                 new_action = Action(
-                    id=action_key(workflow_id, act_stmt.ref),
+                    id=identifiers.action.key(workflow_id, act_stmt.ref),
                     owner_id=role.user_id,
                     workflow_id=workflow_id,
                     type=act_stmt.action,
