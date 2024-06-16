@@ -330,7 +330,7 @@ async def incoming_webhook(
         dsl_input.trigger_inputs = payload
     logger.info(dsl_input.dump_yaml())
 
-    asyncio.create_task(dispatch_workflow(dsl_input, workflow_id=path))
+    asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
     return {"status": "ok"}
 
 
