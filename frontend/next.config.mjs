@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: false,
+
+const nextConfig = {};
+
+if (process.env.NODE_ENV !== 'production') {
+  nextConfig.reactStrictMode = false;
+} else {
+  nextConfig.reactStrictMode = true;
+  nextConfig.output = 'standalone';
 }
 
-export default nextConfig
+export default nextConfig;
