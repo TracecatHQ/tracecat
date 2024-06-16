@@ -2,6 +2,7 @@ title: Send Slack notifications for Datadog SIEM signals
 description: |
   Pulls Datadog SIEM signals (alerts), extracts emails contains within the signal,
   finds Slack users associated with the emails, and tags the Slack users in a notification.
+  Requires `datadog` and `slack` secrets.
 entrypoint: pull_datadog_signals
 inputs:
   dd_region: us5
