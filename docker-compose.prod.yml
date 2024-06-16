@@ -1,0 +1,22 @@
+# Non-development docker compose extension file
+# - Removes all volume bindings
+# -
+version: "3.8"
+
+services:
+  api:
+    volumes: []
+
+  worker:
+    volumes: []
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    volumes: []
+
+  postgres_db:
+    volumes: []
+
+volumes: null
