@@ -1,8 +1,8 @@
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
+from tracecat.identifiers import action_key
 from tracecat.logging import logger
-from tracecat.utils import action_key
 
 
 def workflow_to_dsl(workflow: Workflow) -> DSLInput:

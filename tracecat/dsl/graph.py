@@ -15,9 +15,9 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.common import ActionStatement
+from tracecat.identifiers import get_ref
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.utils import get_ref
 
 if TYPE_CHECKING:
     from tracecat.db.schemas import Webhook, Workflow
