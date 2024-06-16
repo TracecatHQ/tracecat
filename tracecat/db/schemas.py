@@ -11,8 +11,8 @@ from sqlmodel import Field, Relationship, SQLModel
 from tracecat import config, registry
 from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
 from tracecat.dsl.common import DSLInput
+from tracecat.identifiers import action_key, gen_id, get_ref
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
-from tracecat.utils import action_key, gen_id, get_ref
 
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",

@@ -62,6 +62,7 @@ from tracecat.dsl.dispatcher import dispatch_workflow
 
 # from loguru import logger
 from tracecat.dsl.graph import RFGraph
+from tracecat.identifiers import action_key
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
@@ -100,7 +101,6 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.utils import action_key
 
 engine: Engine
 

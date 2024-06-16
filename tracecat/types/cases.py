@@ -6,8 +6,8 @@ from typing import Any, Literal, Self
 import orjson
 from pydantic import BaseModel, Field
 
+from tracecat.identifiers import gen_id
 from tracecat.types.api import CaseContext, CaseParams, ListModel, Suppression, Tag
-from tracecat.utils import gen_id
 
 CaseEvent = Literal[
     "changed_status",
