@@ -2,32 +2,35 @@ import asyncio
 import json
 import os
 import sys
-import uuid
+from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel
 
+from tracecat import identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput, get_temporal_client
 from tracecat.dsl.workflow import DSLContext, DSLRunArgs, DSLWorkflow
 
 
 class DispatchResult(BaseModel):
-    wf_id: str
+    wf_id: identifiers.WorkflowID
     final_context: DSLContext
 
 
-async def dispatch_workflow(dsl: DSLInput, **kwargs) -> DispatchResult:
+async def dispatch_workflow(
+    dsl: DSLInput, wf_id: identifiers.WorkflowID, **kwargs: Any
+) -> DispatchResult:
     # Connect client
     role = ctx_role.get()
-    logger.info(f"Executing DSL workflow: {dsl.title!r} {role=}")
-    wf_id = kwargs.pop("workflow_id", f"wf-{uuid.uuid4().hex}")
+    wf_run_id = identifiers.workflow.run_id(wf_id)
+    logger.info(f"Executing DSL workflow: {dsl.title}", role=role, wf_run_id=wf_run_id)
     client = await get_temporal_client()
     # Run workflow
     result = await client.execute_workflow(
         DSLWorkflow.run,
-        DSLRunArgs(dsl=dsl, role=role),
-        id=wf_id,
+        DSLRunArgs(dsl=dsl, role=role, wf_id=wf_id),
+        id=wf_run_id,
         task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
         **kwargs,
     )
