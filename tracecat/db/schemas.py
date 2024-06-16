@@ -11,7 +11,7 @@ from sqlmodel import Field, Relationship, SQLModel
 from tracecat import config, registry
 from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers import action, gen_id
+from tracecat.identifiers import action, id_factory
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 DEFAULT_CASE_ACTIONS = [
@@ -49,7 +49,7 @@ class Resource(SQLModel):
 class User(Resource, table=True):
     # The id is also the JWT 'sub' claim
     id: str = Field(
-        default_factory=gen_id("user"), nullable=False, unique=True, index=True
+        default_factory=id_factory("user"), nullable=False, unique=True, index=True
     )
     tier: str = "free"  # "free" or "premium"
     settings: str | None = None  # JSON-serialized String of settings
@@ -67,7 +67,7 @@ class User(Resource, table=True):
 
 class Secret(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("secret"), nullable=False, unique=True, index=True
+        default_factory=id_factory("secret"), nullable=False, unique=True, index=True
     )
     type: str = "custom"  # "custom", "token", "oauth2"
     name: str = Field(
@@ -111,7 +111,7 @@ class Secret(Resource, table=True):
 
 class CaseAction(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("case-act"), nullable=False, unique=True, index=True
+        default_factory=id_factory("case-act"), nullable=False, unique=True, index=True
     )
     tag: str
     value: str
@@ -121,7 +121,7 @@ class CaseAction(Resource, table=True):
 
 class CaseContext(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("case-ctx"), nullable=False, unique=True, index=True
+        default_factory=id_factory("case-ctx"), nullable=False, unique=True, index=True
     )
     tag: str
     value: str
@@ -131,7 +131,7 @@ class CaseContext(Resource, table=True):
 
 class CaseEvent(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("case-evt"), nullable=False, unique=True, index=True
+        default_factory=id_factory("case-evt"), nullable=False, unique=True, index=True
     )
     type: str  # The CaseEvent type
     workflow_id: str
@@ -157,7 +157,7 @@ class UDFSpec(Resource, table=True):
     """
 
     id: str = Field(
-        default_factory=gen_id("udf"), nullable=False, unique=True, index=True
+        default_factory=id_factory("udf"), nullable=False, unique=True, index=True
     )
     description: str
     namespace: str
@@ -206,7 +206,7 @@ class WorkflowDefinition(Resource, table=True):
 
     # Metadata
     id: str = Field(
-        default_factory=gen_id("wf-defn"), nullable=False, unique=True, index=True
+        default_factory=id_factory("wf-defn"), nullable=False, unique=True, index=True
     )
     version: int = Field(..., index=True, description="DSL spec version")
     workflow_id: str = Field(
@@ -234,7 +234,7 @@ class Workflow(Resource, table=True):
     """
 
     id: str = Field(
-        default_factory=gen_id("wf"), nullable=False, unique=True, index=True
+        default_factory=id_factory("wf"), nullable=False, unique=True, index=True
     )
     title: str
     description: str
@@ -276,7 +276,7 @@ class Workflow(Resource, table=True):
 
 class WorkflowRun(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("wf-run"), nullable=False, unique=True, index=True
+        default_factory=id_factory("wf-run"), nullable=False, unique=True, index=True
     )
     status: str = "pending"  # "online" or "offline"
     workflow_id: str | None = Field(foreign_key="workflow.id")
@@ -286,7 +286,7 @@ class WorkflowRun(Resource, table=True):
 
 class Webhook(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("wh"), nullable=False, unique=True, index=True
+        default_factory=id_factory("wh"), nullable=False, unique=True, index=True
     )
     status: str = "offline"  # "online" or "offline"
     method: str = "POST"
@@ -311,7 +311,7 @@ class Webhook(Resource, table=True):
 
 class Schedule(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("sch"), nullable=False, unique=True, index=True
+        default_factory=id_factory("sch"), nullable=False, unique=True, index=True
     )
     status: str = "offline"  # "online" or "offline"
     cron: str
@@ -339,7 +339,7 @@ class Action(Resource, table=True):
     """The workspace action state."""
 
     id: str = Field(
-        default_factory=gen_id("act"), nullable=False, unique=True, index=True
+        default_factory=id_factory("act"), nullable=False, unique=True, index=True
     )
     type: str = Field(..., description="The action type, i.e. UDF key")
     title: str
@@ -367,7 +367,7 @@ class Action(Resource, table=True):
 
 class ActionRun(Resource, table=True):
     id: str = Field(
-        default_factory=gen_id("act-run"), nullable=False, unique=True, index=True
+        default_factory=id_factory("act-run"), nullable=False, unique=True, index=True
     )
     status: str = "pending"  # "online" or "offline"
     # TODO: This allows action/action_id to be None, which may be undesirable.

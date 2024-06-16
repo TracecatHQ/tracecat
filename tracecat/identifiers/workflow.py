@@ -2,21 +2,56 @@
 
 from typing import Annotated
 
-from pydantic import StringConstraints
+from pydantic import UUID4, StringConstraints
 
-from tracecat.identifiers.resource import gen_resource_id
+from tracecat.identifiers.resource import ResourcePrefix, generate_resource_id
 
 WorkflowID = Annotated[str, StringConstraints(pattern=r"wf-[0-9a-f]{32}")]
-"""A unique ID for a workflow. e.g. 'wf-77932a0b140a4465a1a25a5c95edcfb8'"""
+"""A unique ID for a workflow.
 
-WorkflowRunID = Annotated[str, StringConstraints(pattern=r"wf-[0-9a-f]{32}:run-[\w-]+")]
-"""A unique ID for a workflow run.
-    Examples:
-     - 'wf-1234567890abcdef1234567890abcdef:run-140a425a577932a0c95edcfb8465a1a'
+This is the logical equivalent of a workflow definition ID in Temporal.
+
+Exapmles
+--------
+- 'wf-77932a0b140a4465a1a25a5c95edcfb8'
+
+
+References
+----------
+See Temporal docs: https://docs.temporal.io/workflows#workflow-id
 """
 
 
-def run_id(workflow_id: str) -> WorkflowRunID:
+WorkflowExecutionID = Annotated[
+    str, StringConstraints(pattern=r"wf-[0-9a-f]{32}:exec-[\w-]+")
+]
+"""A unique ID for a workflow execution.
+
+Not to be confused with the run ID, which is a UUID for each run/retry of the execution.
+
+Examples
+--------
+- 'wf-1234567890abcdef1234567890abcdef:run-140a425a577932a0c95edcfb8465a1a'
+
+References
+----------
+See Temporal docs: https://docs.temporal.io/workflows#workflow-id
+"""
+
+WorkflowRunID = UUID4
+"""A UUID4 identifier for each try of a workflow execution.
+
+References
+----------
+See the Temporal equivalent: https://docs.temporal.io/workflows#run-id
+"""
+
+
+def exec_id(workflow_id: str) -> WorkflowExecutionID:
     """Inner workflow ID for a run, using the workflow ID and run ID."""
-    run_id = gen_resource_id("run")
-    return f"{workflow_id}:{run_id}"
+    exec_id = generate_resource_id(ResourcePrefix.WORKFLOW_EXECUTION)
+    return f"{workflow_id}:{exec_id}"
+
+
+if __name__ == "__main__":
+    print(exec_id("wf-1234567890abcdef1234567890abcdef"))
