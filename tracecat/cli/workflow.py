@@ -115,7 +115,7 @@ def create(
     )
 
 
-@app.command(help="List all workflow definitions")
+@app.command(help="Commit a workflow definition")
 def commit(
     workflow_id: str = typer.Argument(..., help="ID of the workflow"),
     file: Path = typer.Option(
@@ -127,7 +127,7 @@ def commit(
     rich.print(f"Upserted workflow definition for {workflow_id!r}")
 
 
-@app.command(help="Commit a workflow definition")
+@app.command(help="List all workflow definitions")
 def list():
     """Commit a workflow definition to the database."""
     rich.print("Listing all workflows")
