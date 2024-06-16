@@ -11,7 +11,7 @@ from sqlmodel import Field, Relationship, SQLModel
 from tracecat import config, registry
 from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers import action_key, gen_id, get_ref
+from tracecat.identifiers import action, gen_id
 from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 DEFAULT_CASE_ACTIONS = [
@@ -357,12 +357,12 @@ class Action(Resource, table=True):
     @property
     def key(self) -> str:
         """Workflow-relative key for an Action."""
-        return action_key(self.workflow_id, self.id)
+        return action.key(self.workflow_id, self.id)
 
     @property
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
-        return get_ref(self.title)
+        return action.ref(self.title)
 
 
 class ActionRun(Resource, table=True):
