@@ -58,8 +58,6 @@ from tracecat.dsl.common import DSLInput
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
-
-# from loguru import logger
 from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
