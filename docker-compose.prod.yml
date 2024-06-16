@@ -6,15 +6,21 @@ version: "3.8"
 services:
   api:
     volumes: []
+    environment:
+      TRACECAT__APP_ENV: production
 
   worker:
     volumes: []
+    environment:
+      TRACECAT__APP_ENV: production
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
     volumes: []
+    environment:
+      NEXT_PUBLIC_APP_ENV: production
 
   postgres_db:
     volumes: []
