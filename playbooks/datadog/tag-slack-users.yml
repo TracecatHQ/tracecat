@@ -63,15 +63,7 @@ actions:
       - find_slack_users
     for_each: ${{ for var.user_ids in ACTIONS.find_slack_users.result }}
     args:
-      # TODO: Implement nested for loops nd ability to apply function to each member...
-      ids:
-        ${{ FN.format.map(['test', 'tests'], '<@{}>') }} # Returns a list
-        # {% for user_id in var.user_ids %}
-        # <@{{ user_id }}>
-        # {% endfor %}
-        # ${{ if var.user_id not in DB.table }}
-
-        # https://docs.prefect.io/latest/concepts/tasks/#map
+      tags: ${{ FN.format.map('<@{}>', var.user_ids) }}
 
   - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
@@ -99,7 +91,7 @@ actions:
         - type: context
           elements:
             - type: plain_text
-              text: "*Tagged users:* ${{ var.user_ids.ids }}"
+              text: "*Tagged users:* ${{ var.user_ids.tags }}"
         - type: context
           elements:
             - type: plain_text
