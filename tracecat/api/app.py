@@ -616,6 +616,9 @@ def commit_workflow(
             workflow.version = defn.version
             workflow.title = dsl.title
             workflow.description = dsl.description
+            workflow.entrypoint = (
+                new_graph.entrypoint.id if new_graph.entrypoint else None
+            )
 
             session.add(workflow)
             session.add(defn)
