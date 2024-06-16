@@ -23,14 +23,16 @@ async def dispatch_workflow(
 ) -> DispatchResult:
     # Connect client
     role = ctx_role.get()
-    wf_run_id = identifiers.workflow.run_id(wf_id)
-    logger.info(f"Executing DSL workflow: {dsl.title}", role=role, wf_run_id=wf_run_id)
+    wf_exec_id = identifiers.workflow.exec_id(wf_id)
+    logger.info(
+        f"Executing DSL workflow: {dsl.title}", role=role, wf_exec_id=wf_exec_id
+    )
     client = await get_temporal_client()
     # Run workflow
     result = await client.execute_workflow(
         DSLWorkflow.run,
         DSLRunArgs(dsl=dsl, role=role, wf_id=wf_id),
-        id=wf_run_id,
+        id=wf_exec_id,
         task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
         **kwargs,
     )

@@ -186,11 +186,16 @@ class DSLWorkflow:
     async def run(self, args: DSLRunArgs) -> DSLContext:
         # Setup
         self.role = args.role
+        self.tracecat_wf_id = args.wf_id
+        # Temporal workflow execution ID == Tracecat workflow run ID
+        self.tracecat_wf_run_id = workflow.info().workflow_id
+
         self.run_ctx = RunContext(
-            wf_id=workflow.info().workflow_id,
+            wf_id=args.wf_id,
+            wf_exec_id=workflow.info().workflow_id,
             wf_run_id=workflow.info().run_id,
         )
-        self.logger = logger.bind(wf_id=self.run_ctx.wf_id, role=self.role)
+        self.logger = logger.bind(run_ctx=self.run_ctx, role=self.role)
         ctx_logger.set(self.logger)
 
         self.dsl = args.dsl

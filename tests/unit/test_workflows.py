@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 import yaml
 from loguru import logger
+from slugify import slugify
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
@@ -29,6 +30,7 @@ from tracecat.dsl.workflow import (
     dsl_activities,
 )
 from tracecat.expressions import ExprContext
+from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
@@ -39,9 +41,12 @@ ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
 TEST_WF_ID = "wf-00000000000000000000000000000000"
 
 
-def gen_test_run_id(name: str) -> str:
-    run_id = TEST_WF_ID + ":run-" + name
-    return run_id
+def generate_test_exec_id(name: str) -> str:
+    return (
+        TEST_WF_ID
+        + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
+        + slugify(name, separator="_")
+    )
 
 
 @pytest.fixture
@@ -117,7 +122,7 @@ async def test_workflow_can_run_from_yaml(
     dsl, temporal_cluster, mock_registry, auth_sandbox
 ):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
-    run_id = gen_test_run_id(test_name)
+    wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
     # Run workflow
     async with Worker(
@@ -130,7 +135,7 @@ async def test_workflow_can_run_from_yaml(
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-            id=run_id,
+            id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -182,7 +187,7 @@ async def test_workflow_ordering_is_correct(
     # Connect client
 
     test_name = f"test_workflow_ordering_is_correct-{dsl.title}"
-    run_id = gen_test_run_id(test_name)
+    wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
     async with Worker(
@@ -195,7 +200,7 @@ async def test_workflow_ordering_is_correct(
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-            id=run_id,
+            id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -250,7 +255,7 @@ async def test_workflow_completes_and_correct(
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
-    run_id = gen_test_run_id(test_name)
+    wf_exec_id = generate_test_exec_id(test_name)
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
@@ -264,7 +269,7 @@ async def test_workflow_completes_and_correct(
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-            id=run_id,
+            id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -282,7 +287,7 @@ async def test_conditional_execution_fails(
     dsl, temporal_cluster, mock_registry, auth_sandbox
 ):
     test_name = f"test_conditional_execution-{dsl.title}"
-    run_id = gen_test_run_id(test_name)
+    wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
     async with Worker(
         client,
@@ -298,7 +303,7 @@ async def test_conditional_execution_fails(
             await client.execute_workflow(
                 DSLWorkflow.run,
                 DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-                id=run_id,
+                id=wf_exec_id,
                 task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
                 retry_policy=RetryPolicy(
                     maximum_attempts=0,

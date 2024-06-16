@@ -5,6 +5,8 @@ from typing import Annotated
 from pydantic import StringConstraints
 from slugify import slugify
 
+from tracecat.identifiers.resource import ResourcePrefix
+
 ActionID = Annotated[str, StringConstraints(pattern=r"act-[0-9a-f]{32}")]
 """A unique ID for an action. e.g. 'act-77932a0b140a4465a1a25a5c95edcfb8'"""
 
@@ -22,4 +24,4 @@ def ref(text: str) -> ActionRef:
 
 def key(workflow_id: str, action_ref: str) -> ActionKey:
     """Identifier key for an action, using the workflow ID and action ref."""
-    return f"act:{workflow_id}:{action_ref}"
+    return f"{ResourcePrefix.ACTION}:{workflow_id}:{action_ref}"
