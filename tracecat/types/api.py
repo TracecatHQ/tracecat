@@ -338,3 +338,11 @@ class CreateScheduleParams(BaseModel):
     entrypoint_ref: str
     entrypoint_payload: dict[str, Any] | None = None
     cron: str
+
+
+class CommitWorkflowResponse(BaseModel):
+    workflow_id: str
+    status: Literal["success", "failure"]
+    message: str
+    errors: list[UDFArgsValidationResponse] | None = None
+    metadata: dict[str, Any] | None = None
