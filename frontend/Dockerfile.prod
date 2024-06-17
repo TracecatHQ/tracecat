@@ -1,32 +1,33 @@
-# Multi-stage production Dockerfile for next.js
-
-### Stage: Dependencies
 FROM node:18-alpine AS deps
 WORKDIR /app
 
 RUN apk add --no-cache libc6-compat
 
 # Copy only the files needed to install dependencies
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 
 # Install dependencies with pnpm
 RUN corepack enable pnpm && pnpm i --frozen-lockfile
 
-### Stage: Build
+
 FROM node:18-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 
-COPY . /app
+# Copy the rest of the files
+COPY . .
 
-### Stage: Final
+# Run build with the preferred package manager
+RUN corepack enable pnpm && pnpm build
+
+
 FROM node:18-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
 
-# Create non-admin nextjs user
+# Add nextjs user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
@@ -37,9 +38,13 @@ COPY --from=builder /app/public ./public
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
 
-# Switch into non-admin user
+# Automatically leverage output traces to reduce image size
+# https://nextjs.org/docs/advanced-features/output-file-tracing
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
 USER nextjs
 
 EXPOSE 3000
 
-CMD ["pnpm", "start"]
+CMD ["node", "server.js"]
