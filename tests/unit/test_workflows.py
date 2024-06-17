@@ -273,6 +273,46 @@ async def test_workflow_completes_and_correct(
 
 @pytest.mark.parametrize(
     "dsl",
+    [DATA_PATH / "stress_adder_tree.yml"],
+    indirect=True,
+)
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_stress_workflow(dsl, temporal_cluster, mock_registry, auth_sandbox):
+    """Test that we can have multiple executions of the same workflow running at the same time."""
+    test_name = f"test_stress_workflow-{dsl.title}"
+    client = await get_temporal_client()
+
+    tasks: list[asyncio.Task] = []
+    async with (
+        Worker(
+            client,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            activities=DSLActivities.load(),
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ),
+    ):
+        async with asyncio.TaskGroup() as tg:
+            # We can have multiple executions of the same workflow running at the same time
+            for i in range(100):
+                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
+                task = tg.create_task(
+                    client.execute_workflow(
+                        DSLWorkflow.run,
+                        DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+                        id=wf_exec_id,
+                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                )
+                tasks.append(task)
+
+    assert all(task.done() for task in tasks)
+
+
+@pytest.mark.parametrize(
+    "dsl",
     [DATA_PATH / "unit_conditional_adder_diamond_skip_with_join_strong_dep_fails.yml"],
     indirect=True,
 )
