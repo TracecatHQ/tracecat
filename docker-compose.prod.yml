@@ -6,11 +6,15 @@ services:
     volumes: []
     environment:
       TRACECAT__APP_ENV: production
+      # NOTE: Postgres SSL mode is disabled in local deployments
+      TRACECAT__DB_SSLMODE: disable
 
   worker:
     volumes: []
     environment:
       TRACECAT__APP_ENV: production
+      # NOTE: Postgres SSL mode is disabled in local deployments
+      TRACECAT__DB_SSLMODE: disable
 
   frontend:
     build:

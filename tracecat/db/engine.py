@@ -35,10 +35,11 @@ _engine: Engine = None
 def create_db_engine() -> Engine:
     if config.TRACECAT__APP_ENV == "production":
         # Postgres
+        sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
         engine_kwargs = {
             "pool_timeout": 30,
             "pool_recycle": 3600,
-            "connect_args": {"sslmode": "require"},
+            "connect_args": {"sslmode": sslmode},
         }
     elif config.TRACECAT__APP_ENV == "local":
         # SQLite disk-based database
