@@ -23,7 +23,7 @@ triggers:
 
 actions:
   - ref: a
-    action: example.passthrough
+    action: example.passthrough # NOTE: THIS IS DEFINED IN A PYTEST FIXTURE
     args:
       value: "1"
 
