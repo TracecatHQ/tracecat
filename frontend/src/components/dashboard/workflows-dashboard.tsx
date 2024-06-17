@@ -68,9 +68,6 @@ export async function WorkflowList() {
           </div>
           <div className="space-y-4 text-center">
             <p className="text-sm">Welcome to Tracecat 👋</p>
-            <p className="max-w-lg text-center text-xs text-muted-foreground">
-              The modern security automation platform designed to reduce noise.
-            </p>
           </div>
         </div>
       ) : (
