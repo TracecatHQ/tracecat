@@ -13,7 +13,7 @@ def workflow_to_dsl(workflow: Workflow) -> DSLInput:
     # NOTE: Must only call inside a db session
     # Check that we're inside an open
     if not workflow.object:
-        raise ValueError("Empty response object")
+        raise ValueError("Empty workflow graph object. Is `workflow.object` set?")
     if not workflow.actions:
         raise ValueError(
             "Empty actions list. Please hydrate the workflow by "
