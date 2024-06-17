@@ -50,18 +50,18 @@ export default function WorkflowNav() {
         </BreadcrumbList>
       </Breadcrumb>
       <TabSwitcher workflowId={workflow.id} />
-      <div className="flex flex-1 items-center justify-end space-x-3">
+      <div className="flex flex-1 items-center justify-end space-x-6">
         <Button
           variant="outline"
           onClick={handleCommit}
-          className="delay-50 h-7 text-xs text-muted-foreground transition duration-200 ease-in-out hover:-translate-y-0.5 hover:scale-105 hover:bg-emerald-500 hover:text-white"
+          className="h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
         >
           <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
           Commit
         </Button>
         <Badge
           variant="outline"
-          className="text-xs font-normal text-muted-foreground hover:cursor-default"
+          className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
         >
           {workflow.version ? `v${workflow.version}` : "Not Committed"}
         </Badge>
