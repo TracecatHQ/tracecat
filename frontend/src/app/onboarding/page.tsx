@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { PawPrint, WorkflowIcon } from "lucide-react"
+import { WorkflowIcon } from "lucide-react"
 import ConfettiExplosion from "react-confetti-explosion"
 
 import { useUser } from "@/lib/auth"
