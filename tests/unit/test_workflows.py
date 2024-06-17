@@ -10,26 +10,22 @@ Objectives
 
 import asyncio
 import os
-import uuid
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from loguru import logger
+from slugify import slugify
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput, get_temporal_client
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import (
-    DSLContext,
-    DSLRunArgs,
-    DSLWorkflow,
-    dsl_activities,
-)
+from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLRunArgs, DSLWorkflow
 from tracecat.expressions import ExprContext
+from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
@@ -37,8 +33,15 @@ SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
 ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
 
 
-def gen_id(name: str) -> str:
-    return f"{name}-{uuid.uuid4()!s}"
+TEST_WF_ID = "wf-00000000000000000000000000000000"
+
+
+def generate_test_exec_id(name: str) -> str:
+    return (
+        TEST_WF_ID
+        + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
+        + slugify(name, separator="_")
+    )
 
 
 @pytest.fixture
@@ -113,19 +116,21 @@ def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
 async def test_workflow_can_run_from_yaml(
     dsl, temporal_cluster, mock_registry, auth_sandbox
 ):
+    test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
     # Run workflow
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
         result = await client.execute_workflow(
             DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=ctx_role.get()),
-            id=gen_id(f"test_workflow_can_run_from_yaml-{dsl.title}"),
+            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -176,19 +181,21 @@ async def test_workflow_ordering_is_correct(
 
     # Connect client
 
+    test_name = f"test_workflow_ordering_is_correct-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
         result = await client.execute_workflow(
             DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=ctx_role.get()),
-            id=gen_id(f"test_workflow_ordering_is_correct-{dsl.title}"),
+            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
@@ -242,24 +249,66 @@ async def test_workflow_completes_and_correct(
     dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox
 ):
     dsl, expected = dsl_with_expected
+    test_name = f"test_correctness_execution-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
         result = await client.execute_workflow(
             DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=ctx_role.get()),
-            id=gen_id(f"test_correctness_execution-{dsl.title}"),
+            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "dsl",
+    [DATA_PATH / "stress_adder_tree.yml"],
+    indirect=True,
+)
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_stress_workflow(dsl, temporal_cluster, mock_registry, auth_sandbox):
+    """Test that we can have multiple executions of the same workflow running at the same time."""
+    test_name = f"test_stress_workflow-{dsl.title}"
+    client = await get_temporal_client()
+
+    tasks: list[asyncio.Task] = []
+    async with (
+        Worker(
+            client,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            activities=DSLActivities.load(),
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ),
+    ):
+        async with asyncio.TaskGroup() as tg:
+            # We can have multiple executions of the same workflow running at the same time
+            for i in range(100):
+                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
+                task = tg.create_task(
+                    client.execute_workflow(
+                        DSLWorkflow.run,
+                        DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+                        id=wf_exec_id,
+                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                )
+                tasks.append(task)
+
+    assert all(task.done() for task in tasks)
 
 
 @pytest.mark.parametrize(
@@ -272,11 +321,13 @@ async def test_workflow_completes_and_correct(
 async def test_conditional_execution_fails(
     dsl, temporal_cluster, mock_registry, auth_sandbox
 ):
+    test_name = f"test_conditional_execution-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -286,8 +337,8 @@ async def test_conditional_execution_fails(
         with pytest.raises(TracecatExpressionError) as e:
             await client.execute_workflow(
                 DSLWorkflow.run,
-                DSLRunArgs(dsl=dsl, role=ctx_role.get()),
-                id=gen_id(f"test_conditional_execution-{dsl.title}"),
+                DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+                id=wf_exec_id,
                 task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
                 retry_policy=RetryPolicy(
                     maximum_attempts=0,

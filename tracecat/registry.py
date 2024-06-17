@@ -84,7 +84,9 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
             return validated.model_dump()
         except ValidationError as e:
             logger.error(f"Validation error for UDF {self.key!r}. {e.errors()!r}")
-            raise e
+            raise RegistryValidationError(
+                f"Validation error for UDF {self.key!r}. {e.errors()!r}"
+            ) from e
         except Exception as e:
             raise RegistryValidationError(
                 f"Error when validating input arguments for UDF {self.key!r}. {e}"

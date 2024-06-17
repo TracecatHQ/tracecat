@@ -1,5 +1,4 @@
 import asyncio
-import textwrap
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +23,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config
+from tracecat import config, identifiers
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -59,8 +58,6 @@ from tracecat.dsl.common import DSLInput
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.dsl.dispatcher import dispatch_workflow
-
-# from loguru import logger
 from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
@@ -100,7 +97,6 @@ from tracecat.types.api import (
 )
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.utils import action_key
 
 engine: Engine
 
@@ -129,11 +125,10 @@ def create_app(**kwargs) -> FastAPI:
         }
     app = FastAPI(
         title="Tracecat API",
-        description=textwrap.dedent("""
-        Tracecat is the security automation platform built for builders.
-
-        You can operate Tracecat in headless mode by using the API to create, manage, and run workflows.
-        """),
+        description=(
+            "Tracecat is the security automation platform built for builders."
+            " You can operate Tracecat in headless mode by using the API to create, manage, and run workflows."
+        ),
         summary="Tracecat API",
         version="0.1.0",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
@@ -335,7 +330,7 @@ async def incoming_webhook(
         dsl_input.trigger_inputs = payload
     logger.info(dsl_input.dump_yaml())
 
-    asyncio.create_task(dispatch_workflow(dsl_input, workflow_id=path))
+    asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
     return {"status": "ok"}
 
 
@@ -364,6 +359,9 @@ def list_workflows(
             description=workflow.description,
             status=workflow.status,
             icon_url=workflow.icon_url,
+            created_at=workflow.created_at,
+            updated_at=workflow.updated_at,
+            version=workflow.version,
         )
         for workflow in workflows
     ]
@@ -601,7 +599,7 @@ def commit_workflow(
 
             for act_stmt in dsl.actions:
                 new_action = Action(
-                    id=action_key(workflow_id, act_stmt.ref),
+                    id=identifiers.action.key(workflow_id, act_stmt.ref),
                     owner_id=role.user_id,
                     workflow_id=workflow_id,
                     type=act_stmt.action,

@@ -113,7 +113,6 @@
                 "api-reference/reference/workflows/copy-workflow",
                 "api-reference/reference/workflows/commit-workflow",
                 "api-reference/reference/workflows/get-workflow-definition",
-                "api-reference/reference/workflows/upsert-workflow-definition",
                 "api-reference/reference/workflows/list-workflow-runs",
                 "api-reference/reference/workflows/create-workflow-run",
                 "api-reference/reference/workflows/get-workflow-run",

@@ -58,6 +58,9 @@ class WorkflowMetadataResponse(BaseModel):
     description: str
     status: str
     icon_url: str | None
+    created_at: datetime
+    updated_at: datetime
+    version: int | None
 
 
 class WorkflowRunResponse(BaseModel):

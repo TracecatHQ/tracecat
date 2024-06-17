@@ -4,33 +4,27 @@ title: Adder tree Workflow
 #   B  c
 #  /|  |\
 # D E  F G
-description: Tests correctness, templates + type casting, context passing.
+description: Use this for stress testing the workflow engine.
 config:
   scheduler: dynamic
 entrypoint: a
 inputs:
-  another_url: "http://api:8000"
   value: 1
 
 triggers:
   - type: webhook
     ref: my_webhook
-    id: wh-XXXXXX
     entrypoint: a # This can be any
-    args:
-      url: http://api:8000/test/items/1
-      method: GET
 
 actions:
   - ref: a
-    action: example.passthrough # NOTE: THIS IS DEFINED IN A PYTEST FIXTURE
+    action: core.transform.forward
     args:
-      value: "1"
+      value: ${{ INPUTS.value }}
 
   - ref: b
     action: example.add
     args:
-      # Demonstrate casting
       lhs: ${{ ACTIONS.a.result -> int }}
       rhs: 1
     depends_on:

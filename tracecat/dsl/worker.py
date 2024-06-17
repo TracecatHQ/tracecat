@@ -14,7 +14,7 @@ from temporalio.worker.workflow_sandbox import (
 # are safe for workflow use
 with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import get_temporal_client
-    from tracecat.dsl.workflow import DSLWorkflow, dsl_activities
+    from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
     from tracecat.registry import registry
 
 
@@ -52,10 +52,11 @@ async def main() -> None:
     client = await get_temporal_client()
 
     # Run a worker for the activities and workflow
+    DSLActivities.init()
     async with Worker(
         client,
         task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
-        activities=dsl_activities,
+        activities=DSLActivities.load(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
