@@ -26,9 +26,14 @@ async def _commit_workflow(yaml_path: Path, workflow_id: str):
             "yaml_file": (yaml_path.name, yaml_content, "application/yaml")
         }
 
-    async with user_client() as client:
-        res = await client.post(f"/workflows/{workflow_id}/commit", **kwargs)
-        res.raise_for_status()
+    try:
+        async with user_client() as client:
+            res = await client.post(f"/workflows/{workflow_id}/commit", **kwargs)
+            res.raise_for_status()
+            rich.print(f"Successfully committed to workflow {workflow_id!r}!")
+    except httpx.HTTPStatusError as e:
+        rich.print(f"[red]Failed to commit to workflow {workflow_id!r}![/red]")
+        rich.print(e.response.json())
 
 
 async def _run_workflow(workflow_id: str, payload: dict[str, str] | None = None):
@@ -124,7 +129,6 @@ def commit(
 ):
     """Commit a workflow definition to the database."""
     asyncio.run(_commit_workflow(file, workflow_id))
-    rich.print(f"Upserted workflow definition for {workflow_id!r}")
 
 
 @app.command(help="List all workflow definitions")
