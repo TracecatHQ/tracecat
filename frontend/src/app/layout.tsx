@@ -3,6 +3,7 @@ import "@/styles/globals.css"
 import React from "react"
 import { type Metadata } from "next"
 import dynamic from "next/dynamic"
+import { type PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { ClerkProvider } from "@clerk/nextjs"
 
@@ -12,6 +13,21 @@ import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 import { Toaster } from "@/components/ui/toaster"
 
+let PostHogPageView: React.ComponentType | undefined = undefined
+let PHProvider: PHProviderType | undefined = undefined
+
+if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
+  PostHogPageView = dynamic(
+    () => import("@/components/analytics/PostHogPageView"),
+    {
+      ssr: false,
+    }
+  )
+  // Remark: Is there a more elegant way to do this?
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  PHProvider = require("@/providers/posthog").PHProvider
+  console.log("PostHog initialized for production environment.")
+}
 export const metadata: Metadata = {
   description: siteConfig.description,
   icons: {
@@ -23,20 +39,6 @@ export const metadata: Metadata = {
 
 interface RootLayoutProps {
   children: React.ReactNode
-}
-
-let PostHogPageView: any
-let PHProvider: any
-
-if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
-  PostHogPageView = dynamic(
-    () => import("@/components/analytics/PostHogPageView"),
-    {
-      ssr: false,
-    }
-  )
-  PHProvider = require("@/providers/posthog").PHProvider
-  console.log("PostHog initialized for production environment.")
 }
 
 export default async function RootLayout({ children }: RootLayoutProps) {

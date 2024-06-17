@@ -1,28 +1,32 @@
-import { JSONSchema7 } from "json-schema"
+import {
+  JSONSchema7,
+  JSONSchema7Definition,
+  JSONSchema7Type,
+} from "json-schema"
 
 export interface JSONSchemaTableRow {
   parameter: string
   type: string
-  default: any
+  default: JSONSchema7Type
   description: string
   constraints: string
 }
 
-export function generateSchemaDefault(schema: JSONSchema7): any {
+export function generateSchemaDefault(schema: JSONSchema7): JSONSchema7Type {
   if (schema.default !== undefined && schema.default !== null) {
     return schema.default
   }
   switch (schema.type) {
     case "object": {
-      const obj: { [key: string]: any } = {}
+      const obj: { [key: string]: JSONSchema7 } = {}
       if (schema.properties) {
         for (const key in schema.properties) {
           obj[key] = generateSchemaDefault(
             schema.properties[key] as JSONSchema7
-          )
+          ) as JSONSchema7
         }
       }
-      return obj
+      return obj as JSONSchema7Type
     }
     case "array": {
       if (Array.isArray(schema.items)) {
@@ -66,26 +70,28 @@ export function transformJsonSchemaToTableRows(
   const rows: JSONSchemaTableRow[] = Object.entries(properties).map(
     ([key, value]) => ({
       parameter: `${key}${required.includes(key) ? " *" : ""}`,
-      type: getType(value),
-      default: (value as any).default ?? "-",
-      description: (value as any).description ?? "",
-      constraints: getConstraints(value),
+      type: getType(value as JSONSchema7),
+      default: (value as JSONSchema7).default ?? "-",
+      description: (value as JSONSchema7).description ?? "",
+      constraints: getConstraints(value as JSONSchema7),
     })
   )
   return rows
 }
 
-export function getType(value: any): string {
+export function getType(value: JSONSchema7): string {
   if (value.anyOf) {
-    return value.anyOf.map((item: any) => item.type).join(" | ")
+    return value.anyOf
+      .map((item: JSONSchema7Definition) => (item as JSONSchema7).type)
+      .join(" | ")
   }
   if (value.enum) {
     return value.enum.join(" | ")
   }
-  return value.type || "unknown"
+  return (value.type || "unknown") as string
 }
 
-export function getConstraints(value: any): string {
+export function getConstraints(value: JSONSchema7): string {
   const constraints = []
 
   // Exclude these standard keys from constraints
@@ -94,9 +100,9 @@ export function getConstraints(value: any): string {
   // Iterate through the keys of the value object
   for (const key in value) {
     if (excludeKeys.includes(key)) continue
-    const cons = value[key]
+    const cons = value[key as keyof JSONSchema7]
     if (key === "additionalProperties") {
-      constraints.push(`additionalProperties: ${getType(cons)}`)
+      constraints.push(`additionalProperties: ${getType(cons as JSONSchema7)}`)
     } else if (Array.isArray(cons)) {
       constraints.push(`${key}: [${cons.join(", ")}]`)
     } else if (typeof cons === "object" && cons !== null) {

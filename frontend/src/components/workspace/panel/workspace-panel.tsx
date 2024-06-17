@@ -51,13 +51,7 @@ function Inner({
   )
 }
 
-function NodePanel<T>({
-  node,
-  workflow,
-}: {
-  node: NodeType
-  workflow: Workflow
-}) {
+function NodePanel({ node, workflow }: { node: NodeType; workflow: Workflow }) {
   switch (node.type) {
     case "udf":
       return (

@@ -5,7 +5,6 @@ import { useEffect } from "react"
 import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import TracecatIcon from "public/icon.png"
 
@@ -15,8 +14,7 @@ import { AlertLevel, AlertNotification } from "@/components/notifications"
 type ErrorProps = Error & { digest?: string }
 
 export default function Error({ error }: { error: ErrorProps | AxiosError }) {
-  const router = useRouter()
-  const { headline, level, message, action } = refineError(error, router)
+  const { headline, level, message, action } = refineError(error)
   useEffect(() => {
     // Log the error to an error reporting service
     console.error("log error", error)
@@ -55,10 +53,7 @@ type CustomError = {
   message: string
   action: React.ReactNode | boolean
 }
-function refineError(
-  error: ErrorProps | AxiosError,
-  router: AppRouterInstance
-): CustomError {
+function refineError(error: ErrorProps | AxiosError): CustomError {
   console.log("HANDLING ERROR", error)
   return {
     headline: "Oh no! An error occurred :(",

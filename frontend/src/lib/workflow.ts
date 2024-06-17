@@ -73,7 +73,7 @@ export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
 
 export async function updateWorkflow(
   workflowId: string,
-  values: Record<string, any>
+  values: Record<string, unknown>
 ) {
   try {
     const response = await client.patch(`/workflows/${workflowId}`, values)
@@ -111,7 +111,7 @@ export async function getActionById(
 // Form submission
 export async function updateAction(
   actionId: string,
-  actionProps: Record<string, any>
+  actionProps: Record<string, unknown>
 ): Promise<Action> {
   const { title, description, inputs } = actionProps
   const updateActionParams = {
@@ -174,7 +174,7 @@ export async function createAction(
 export async function triggerWorkflow(
   workflowId: string,
   actionKey: string,
-  payload: Record<string, any>
+  payload: Record<string, unknown>
 ) {
   try {
     const response = await client.post(

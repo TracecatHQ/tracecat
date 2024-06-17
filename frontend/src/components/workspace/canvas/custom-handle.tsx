@@ -28,10 +28,11 @@ export function CustomHandle(props: CustomHandleProps) {
   }))
   const nodeId = useNodeId()
 
-  if (!nodeInternals || !edges || !nodeId) {
-    return null
-  }
   const isHandleConnectable = useMemo(() => {
+    if (!nodeId) {
+      return false
+    }
+
     if (typeof props.isConnectable === "function") {
       const node = nodeInternals.get(nodeId)
       if (!node) {
@@ -60,6 +61,10 @@ export function CustomHandle(props: CustomHandleProps) {
 
     return props.isConnectable
   }, [nodeInternals, edges, nodeId, props.isConnectable])
+
+  if (!nodeInternals || !edges || !nodeId) {
+    return null
+  }
 
   return <Handle {...props} isConnectable={isHandleConnectable}></Handle>
 }

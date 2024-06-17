@@ -40,7 +40,7 @@ export async function newUserFlow(): Promise<void> {
 }
 
 export async function completeOnboarding(): Promise<{
-  message?: any
+  message?: string | Record<string, unknown>
   error?: string
 }> {
   const { userId } = auth()
