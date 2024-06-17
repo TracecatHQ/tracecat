@@ -2,15 +2,9 @@ openapi: 3.1.0
 info:
   title: Tracecat API
   summary: Tracecat API
-  description: '
-
-    Tracecat is the security automation platform built for builders.
-
-
-    You can operate Tracecat in headless mode by using the API to create, manage,
-    and run workflows.
-
-    '
+  description: Tracecat is the security automation platform built for builders. You
+    can operate Tracecat in headless mode by using the API to create, manage, and
+    run workflows.
   termsOfService: https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub
   contact:
     name: Tracecat Founders
@@ -333,37 +327,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkflowDefinition'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - workflows
-      summary: Upsert Workflow Definition
-      description: Upsert a workflow definition.
-      operationId: upsert_workflow_definition_workflows__workflow_id__definition_post
-      security:
-      - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
-      parameters:
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpsertWorkflowDefinitionParams'
-      responses:
-        '204':
-          description: Successful Response
         '422':
           description: Validation Error
           content:
@@ -2173,23 +2136,32 @@ components:
           type: string
           pattern: ^[a-z0-9_]+$
           title: Ref
+          description: Unique reference for the task
+        description:
+          type: string
+          title: Description
+          default: ''
         action:
           type: string
           pattern: ^[a-z0-9_.]+$
           title: Action
+          description: Action type / UDF key
         args:
           type: object
           title: Args
+          description: Arguments for the action
         depends_on:
           items:
             type: string
           type: array
           title: Depends On
+          description: Task dependencies
         run_if:
           anyOf:
           - type: string
           - type: 'null'
           title: Run If
+          description: Condition to run the task
         for_each:
           anyOf:
           - type: string
@@ -2198,6 +2170,7 @@ components:
             type: array
           - type: 'null'
           title: For Each
+          description: Iterate over a list of items and run the task for each item.
       type: object
       required:
       - ref
@@ -2489,9 +2462,7 @@ components:
           type: string
           title: Type
         workflow_id:
-          anyOf:
-          - type: string
-          - type: 'null'
+          type: string
           title: Workflow Id
         case_id:
           type: string
@@ -3335,14 +3306,6 @@ components:
           title: Method
       type: object
       title: UpsertWebhookParams
-    UpsertWorkflowDefinitionParams:
-      properties:
-        content:
-          $ref: '#/components/schemas/DSLInput'
-      type: object
-      required:
-      - content
-      title: UpsertWorkflowDefinitionParams
     User:
       properties:
         owner_id:
@@ -3538,6 +3501,19 @@ components:
           - type: string
           - type: 'null'
           title: Icon Url
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
       type: object
       required:
       - id
@@ -3545,6 +3521,9 @@ components:
       - description
       - status
       - icon_url
+      - created_at
+      - updated_at
+      - version
       title: WorkflowMetadataResponse
     WorkflowResponse:
       properties:
