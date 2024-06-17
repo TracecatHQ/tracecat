@@ -59,7 +59,7 @@ export async function createWorkflow(
   return workflowMetadataSchema.parse(response.data)
 }
 
-export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
+export async function fetchAllWorkflows(): Promise<WorkflowMetadata[] | null> {
   try {
     const response = await client.get<WorkflowMetadata[]>("/workflows")
     const workflows = response.data
@@ -67,7 +67,7 @@ export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
     return z.array(workflowMetadataSchema).parse(workflows)
   } catch (error) {
     console.error("Error fetching workflows:", error)
-    throw error
+    return null
   }
 }
 
@@ -252,13 +252,13 @@ export async function copyPlaybook(workflowId: string) {
  * @param maybeToken
  * @returns
  */
-export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
+export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[] | null> {
   try {
     const response = await client.get("/workflows?library=true")
     return response.data
   } catch (error) {
     console.error("Error fetching playbooks:", error)
-    throw error
+    return null
   }
 }
 
