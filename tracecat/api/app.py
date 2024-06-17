@@ -359,6 +359,9 @@ def list_workflows(
             description=workflow.description,
             status=workflow.status,
             icon_url=workflow.icon_url,
+            created_at=workflow.created_at,
+            updated_at=workflow.updated_at,
+            version=workflow.version,
         )
         for workflow in workflows
     ]
