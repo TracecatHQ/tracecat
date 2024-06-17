@@ -24,7 +24,11 @@ export interface BaseAuxClickMenuOption<TData> {
   type: "item" | "sub" | "radio" | "checkbox" | "separator"
   children?: React.ReactNode
   shortcut?: React.ReactNode
-  action?: (data: TData, client?: Client, context?: Record<string, any>) => void
+  action?: (
+    data: TData,
+    client?: Client,
+    context?: Record<string, unknown>
+  ) => void
   data?: TData
 }
 

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/tooltip"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   RFGraphUDFNodeType,
   UDFNodeData,
@@ -113,6 +114,9 @@ export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
     [selectedNodeId]
   )
 
+  if (error) {
+    return <AlertNotification level="error" message="Failed to load UDFs" />
+  }
   if (!udfs || udfsLoading) {
     return <CenteredSpinner />
   }
@@ -213,7 +217,7 @@ function UDFCatalogItem({
           >
             {getIcon(udf.key, {
               className: "size-5",
-              flairSize: "sm",
+              flairsize: "sm",
             })}
             {!isCollapsed && <span>{defaultTitle}</span>}
           </div>

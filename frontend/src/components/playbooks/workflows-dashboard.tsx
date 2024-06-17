@@ -5,7 +5,8 @@ import { InfoIcon } from "lucide-react"
 import { fetchAllPlaybooks } from "@/lib/workflow"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
+import { AlertNotification } from "@/components/notifications"
+import { WorkflowItem } from "@/components/playbooks/workflows-dashboard-item"
 
 export async function WorkflowsDashboard() {
   return (
@@ -49,6 +50,11 @@ export async function WorkflowsDashboard() {
 
 export async function WorkflowList() {
   const workflows = await fetchAllPlaybooks()
+  if (workflows === null) {
+    return (
+      <AlertNotification level="error" message="Error fetching playbooks" />
+    )
+  }
   return (
     <div className="flex flex-col space-y-4">
       {workflows.length === 0 ? (

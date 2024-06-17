@@ -13,7 +13,6 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   Row,
-  RowData,
   SortingState,
   useReactTable,
   VisibilityState,
@@ -35,8 +34,9 @@ import { DataTablePagination, DataTableToolbar } from "@/components/table"
 import { DataTableToolbarProps } from "./toolbar"
 
 declare module "@tanstack/react-table" {
+  // eslint-disable-next-line  @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  interface TableMeta<TData extends RowData> {
+  interface TableMeta {
     isProcessing: boolean
   }
 }

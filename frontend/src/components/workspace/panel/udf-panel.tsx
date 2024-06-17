@@ -45,7 +45,7 @@ import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
-export function UDFActionPanel({
+export function UDFActionPanel<T extends Record<string, unknown>>({
   panelAction: {
     action,
     isLoading: actionLoading,
@@ -55,7 +55,7 @@ export function UDFActionPanel({
   },
   type: key,
 }: {
-  panelAction: PanelAction<any>
+  panelAction: PanelAction<T>
   type: string
   actionId: string
   workflowId: string
@@ -104,12 +104,12 @@ export function UDFActionPanel({
     setJSONViewErrors([])
 
     const params = {
-      title: values.title,
-      description: values.description,
+      title: values.title as string,
+      description: values.description as string,
       inputs: actionInputs,
-    }
+    } as FieldValues & { inputs: Record<string, unknown> }
     console.log("Submitting action form", params)
-    await mutateAsync(params)
+    await mutateAsync(params as T)
   }
 
   return (
@@ -125,7 +125,7 @@ export function UDFActionPanel({
                 <div className="flex w-full items-center space-x-4">
                   {getIcon(udf.key, {
                     className: "size-10 p-2",
-                    flairSize: "md",
+                    flairsize: "md",
                   })}
                   <div className="flex w-full flex-1 justify-between space-x-12">
                     <div className="flex flex-col">
@@ -248,8 +248,8 @@ export function ActionInputs({
   setInputs,
   errors,
 }: {
-  inputs: any
-  setInputs: (obj: any) => void
+  inputs: Record<string, unknown>
+  setInputs: (obj: Record<string, unknown>) => void
   errors?: ErrorDetails[]
 }) {
   return (

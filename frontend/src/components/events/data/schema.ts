@@ -1,6 +1,5 @@
 import { z } from "zod"
 
-
 export const eventSchema = z.object({
   published_at: z.string().datetime(),
   workflow_run_id: z.string(),

@@ -29,7 +29,7 @@ type WorkflowContextType = {
   isOnline: boolean
   setIsOnline: (isOnline: boolean) => void
   commit: MutateFunction<unknown, Error, void, unknown>
-  update: MutateFunction<unknown, Error, Record<string, any>, unknown>
+  update: MutateFunction<unknown, Error, Record<string, unknown>, unknown>
 }
 type TracecatErrorMessage = {
   type?: string
@@ -83,7 +83,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   })
 
   const { mutateAsync: update } = useMutation({
-    mutationFn: async (values: Record<string, any>) =>
+    mutationFn: async (values: Record<string, unknown>) =>
       await updateWorkflow(workflowId, values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })

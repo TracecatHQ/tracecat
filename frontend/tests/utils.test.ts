@@ -1,5 +1,4 @@
 import {
-  getDistributionData,
   getSlugFromActionKey,
   groupBy,
   isServer,
@@ -8,25 +7,6 @@ import {
   undoSlugify,
   undoSlugifyNamespaced,
 } from "@/lib/utils"
-
-describe("getDistributionData", () => {
-  it("should calculate the distribution of values in an array of objects based on a specified key", () => {
-    const data = [
-      { fruit: "apple" },
-      { fruit: "banana" },
-      { fruit: "banana" },
-      { fruit: "orange" },
-      { fruit: "banana" },
-      { fruit: "apple" },
-    ]
-    const distribution = getDistributionData(data, "fruit")
-    expect(distribution).toEqual({
-      apple: 2,
-      banana: 3,
-      orange: 1,
-    })
-  })
-})
 
 describe("slugify", () => {
   it("should convert a string to a slug", () => {

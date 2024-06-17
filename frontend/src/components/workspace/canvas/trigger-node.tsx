@@ -1,5 +1,4 @@
 import React from "react"
-import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import {
   BellDotIcon,
@@ -11,7 +10,7 @@ import {
   ScanSearchIcon,
   WebhookIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position, useNodeId } from "reactflow"
+import { Node, NodeProps, Position } from "reactflow"
 
 import { Schedule, Webhook } from "@/types/schemas"
 import { cn } from "@/lib/utils"
@@ -34,7 +33,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -59,8 +57,6 @@ export default React.memo(function TriggerNode({
   data: { title, isConfigured, type },
   selected,
 }: NodeProps<TriggerNodeData>) {
-  const id = useNodeId()
-  const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
 
   if (!workflow) {
@@ -146,13 +142,13 @@ export default React.memo(function TriggerNode({
                   </TableRow>
                 ))}
               </TableBody>
-              <TableFooter>
-                <NoContent
-                  className="min-h-8 text-xs text-muted-foreground/70"
-                  message="No schedules"
-                />
-              </TableFooter>
             </Table>
+            {workflow.schedules.length === 0 && (
+              <NoContent
+                className="min-h-8 text-xs text-muted-foreground/70"
+                message="No schedules"
+              />
+            )}
           </div>
         </div>
       </div>

@@ -29,7 +29,11 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
           >
             <TableCell className="col-span-1">{row.parameter}</TableCell>
             <TableCell className="col-span-1">{row.type}</TableCell>
-            <TableCell className="col-span-1">{row.default}</TableCell>
+            <TableCell className="col-span-1">
+              {typeof row.default === "object"
+                ? JSON.stringify(row.default)
+                : row.default}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>

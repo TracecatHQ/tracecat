@@ -73,7 +73,7 @@ function InternalCaseTable() {
   const { setPanelCase: setSidePanelCase, setIsOpen } = useCasePanelContext()
   const [isAutocompleting, setIsAutocompleting] = useState(false)
 
-  const memoizedColumns = useMemo(() => columns, [columns])
+  const memoizedColumns = useMemo(() => columns, [])
 
   /**
    * Perform autocompletions for the cases

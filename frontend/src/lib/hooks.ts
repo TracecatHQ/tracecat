@@ -112,18 +112,18 @@ export function useCaseEvents(workflowId: string, caseId: string) {
   }
 }
 
-export type PanelAction<T extends Record<string, any>> = {
+export type PanelAction<T extends Record<string, unknown>> = {
   action?: Action
   isLoading: boolean
   error: Error | null
-  mutateAsync: (values: T) => Promise<any>
+  mutateAsync: (values: T) => Promise<unknown>
   queryClient: ReturnType<typeof useQueryClient>
   queryKeys: {
     selectedAction: [string, string, string]
     workflow: [string, string]
   }
 }
-export function usePanelAction<T extends Record<string, any>>(
+export function usePanelAction<T extends Record<string, unknown>>(
   actionId: string,
   workflowId: string
 ): PanelAction<T> {
@@ -190,7 +190,7 @@ export function usePanelAction<T extends Record<string, any>>(
 }
 
 export function useActionInputs(action?: Action) {
-  const [actionInputs, setActionInputs] = useState<Record<string, any>>(
+  const [actionInputs, setActionInputs] = useState<Record<string, unknown>>(
     action?.inputs || {}
   )
 

@@ -350,11 +350,7 @@ export function WorkflowCanvas() {
     }
   }, [edges])
 
-  const onNodesDragStop = (
-    event: React.MouseEvent,
-    node: UDFNodeType,
-    nodes: UDFNodeType[]
-  ) => {
+  const onNodesDragStop = () => {
     if (workflowId && reactFlowInstance) {
       updateWorkflowGraphObject(workflowId, reactFlowInstance)
     }

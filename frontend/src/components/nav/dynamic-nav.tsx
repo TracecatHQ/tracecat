@@ -4,9 +4,9 @@ import React from "react"
 import { type Params } from "next/dist/shared/lib/router/utils/route-matcher"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
+import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
 import WorkflowNav from "@/components/nav/workflow-nav"
 
 export default function DynamicNavbar() {

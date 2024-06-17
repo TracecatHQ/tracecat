@@ -8,7 +8,7 @@ import { CommunityNav } from "@/components/nav/community"
 import DynamicNavbar from "@/components/nav/dynamic-nav"
 import UserNav from "@/components/nav/user-nav"
 
-interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> { }
+interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {}
 export default function Navbar(props: NavbarProps) {
   return (
     <div className="w-full space-x-8 border-b" {...props}>

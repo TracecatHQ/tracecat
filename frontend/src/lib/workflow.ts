@@ -59,7 +59,7 @@ export async function createWorkflow(
   return workflowMetadataSchema.parse(response.data)
 }
 
-export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
+export async function fetchAllWorkflows(): Promise<WorkflowMetadata[] | null> {
   try {
     const response = await client.get<WorkflowMetadata[]>("/workflows")
     const workflows = response.data
@@ -67,13 +67,13 @@ export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
     return z.array(workflowMetadataSchema).parse(workflows)
   } catch (error) {
     console.error("Error fetching workflows:", error)
-    throw error
+    return null
   }
 }
 
 export async function updateWorkflow(
   workflowId: string,
-  values: Record<string, any>
+  values: Record<string, unknown>
 ) {
   try {
     const response = await client.patch(`/workflows/${workflowId}`, values)
@@ -111,7 +111,7 @@ export async function getActionById(
 // Form submission
 export async function updateAction(
   actionId: string,
-  actionProps: Record<string, any>
+  actionProps: Record<string, unknown>
 ): Promise<Action> {
   const { title, description, inputs } = actionProps
   const updateActionParams = {
@@ -174,7 +174,7 @@ export async function createAction(
 export async function triggerWorkflow(
   workflowId: string,
   actionKey: string,
-  payload: Record<string, any>
+  payload: Record<string, unknown>
 ) {
   try {
     const response = await client.post(
@@ -252,13 +252,13 @@ export async function copyPlaybook(workflowId: string) {
  * @param maybeToken
  * @returns
  */
-export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
+export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[] | null> {
   try {
     const response = await client.get("/workflows?library=true")
     return response.data
   } catch (error) {
     console.error("Error fetching playbooks:", error)
-    throw error
+    return null
   }
 }
 
