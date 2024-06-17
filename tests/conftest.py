@@ -8,12 +8,25 @@ from cryptography.fernet import Fernet
 from loguru import logger
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
         "--temporal-compose-file",
         action="store",
         default="../temporal/docker-compose/docker-compose.yml",
         help="Path to Temporal's docker-compose.yml file",
+    )
+    parser.addoption(
+        "--temporal-no-restart",
+        action="store_true",
+        default=False,
+        help="Do not restart the Temporal cluster if it is already running",
+    )
+
+    parser.addoption(
+        "--tracecat-no-restart",
+        action="store_true",
+        default=False,
+        help="Do not restart the Tracecat stack if it is already running",
     )
 
 
@@ -79,42 +92,55 @@ def create_mock_secret():
 
 
 @pytest.fixture(scope="session")
-def temporal_cluster(env_sandbox):
+def temporal_cluster(pytestconfig: pytest.Config, env_sandbox):
     compose_file = os.environ["TEMPORAL__DOCKER_COMPOSE_PATH"]
     logger.info(
         "Setting up Temporal cluster",
         compose_file=compose_file,
     )
-    try:
-        subprocess.run(
-            ["docker", "compose", "-f", compose_file, "up", "-d"], check=True
-        )
-        time.sleep(10)  # Wait for the cluster to start
-        logger.info("Temporal started")
 
-        yield  # Run the tests
+    no_restart = pytestconfig.getoption("--temporal-no-restart")
+    if no_restart:
+        logger.info("Skipping Temporal cluster setup")
+        yield
+    else:
+        try:
+            subprocess.run(
+                ["docker", "compose", "-f", compose_file, "up", "-d"], check=True
+            )
+            time.sleep(10)  # Wait for the cluster to start
+            logger.info("Temporal started")
 
-    finally:
-        logger.info("Shutting down Temporal cluster")
-        subprocess.run(
-            ["docker", "compose", "-f", compose_file, "down", "--remove-orphans"],
-            check=True,
-        )
-        logger.info("Successfully shut down Temporal cluster")
+            yield  # Run the tests
+
+        finally:
+            logger.info("Shutting down Temporal cluster")
+            subprocess.run(
+                ["docker", "compose", "-f", compose_file, "down", "--remove-orphans"],
+                check=True,
+            )
+            logger.info("Successfully shut down Temporal cluster")
 
 
 @pytest.fixture(scope="session")
-def tracecat_stack(env_sandbox):
+def tracecat_stack(pytestconfig: pytest.Config, env_sandbox):
     logger.info("Setup Tracecat stack")
-    try:
-        subprocess.run(
-            ["docker", "compose", "up", "-d", "api", "postgres_db"], check=True
-        )
-        time.sleep(5)  # Wait for the cluster to start
-        logger.info("Tracecat stack started")
-
+    no_restart = pytestconfig.getoption("--tracecat-no-restart")
+    if no_restart:
+        logger.info("Skipping Tracecat stack setup")
         yield
-    finally:
-        logger.info("Shutting down Tracecat stack")
-        subprocess.run(["docker", "compose", "down", "--remove-orphans"], check=True)
-        logger.info("Successfully shut down Tracecat stack")
+    else:
+        try:
+            subprocess.run(
+                ["docker", "compose", "up", "-d", "api", "postgres_db"], check=True
+            )
+            time.sleep(5)  # Wait for the cluster to start
+            logger.info("Tracecat stack started")
+
+            yield
+        finally:
+            logger.info("Shutting down Tracecat stack")
+            subprocess.run(
+                ["docker", "compose", "down", "--remove-orphans"], check=True
+            )
+            logger.info("Successfully shut down Tracecat stack")
