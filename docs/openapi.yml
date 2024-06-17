@@ -287,8 +287,11 @@ paths:
               - $ref: '#/components/schemas/Body_commit_workflow_workflows__workflow_id__commit_post'
               title: Body
       responses:
-        '204':
+        '200':
           description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
