@@ -7,7 +7,7 @@ from tempfile import SpooledTemporaryFile
 from typing import Annotated, Any, Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from temporalio.client import Client, TLSConfig
 
 from tracecat import config
@@ -103,7 +103,6 @@ class DSLInput(BaseModel):
     This allows the execution of the workflow to be fully deterministic.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     title: str
     description: str
     entrypoint: str
