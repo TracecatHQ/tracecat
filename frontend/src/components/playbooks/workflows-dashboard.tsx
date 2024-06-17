@@ -5,7 +5,7 @@ import { InfoIcon } from "lucide-react"
 import { fetchAllPlaybooks } from "@/lib/workflow"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
+import { WorkflowItem } from "@/components/playbooks/workflows-dashboard-item"
 
 export async function WorkflowsDashboard() {
   return (
