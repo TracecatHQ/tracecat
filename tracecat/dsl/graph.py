@@ -143,9 +143,10 @@ class RFGraph(TSObject):
     def validate_graph(self) -> Self:
         # The graph may have 0 inner edges if it only is a single node
         if not self.nodes:
-            raise TracecatValidationError(
-                "Graph must have at least one node excluding trigger"
-            )
+            # NOTE: self.nodes includes all node types.
+            # Having no action nodes is a valid graph state.
+            # However, having no nodes at all is not valid.
+            raise TracecatValidationError("Graph must have at least one node")
         try:
             _ = self.trigger
         except TracecatValidationError as e:
@@ -198,7 +199,7 @@ class RFGraph(TSObject):
     @cached_property
     def adj_list(self) -> dict[str, list[str]]:
         """Return an adjacency list (node IDs) of the graph."""
-        adj_list: dict[str, list[str]] = {node.id: [] for node in self.nodes}
+        adj_list: dict[str, list[str]] = {node.id: [] for node in self.action_nodes()}
         for edge in self.action_edges():
             adj_list[edge.source].append(edge.target)
         return adj_list
@@ -260,8 +261,13 @@ class RFGraph(TSObject):
 
     def action_statements(self, workflow: Workflow) -> list[ActionStatement]:
         """Create ActionStatements by combining RFGraph.nodes and Workflow.actions."""
-        if len(self.nodes) != len(workflow.actions):
-            raise ValueError("Mismatch between graph nodes and workflow actions")
+        if len(self.action_nodes()) != len(workflow.actions):
+            logger.error(
+                f"Mismatch between graph action nodes and workflow actions: {len(self.nodes)=} != {len(workflow.actions)=}"
+            )
+            raise ValueError(
+                f"Mismatch between graph nodes and workflow actions: {len(self.nodes)=} != {len(workflow.actions)=}"
+            )
 
         actions = workflow.actions or []
         action_map = {action.ref: action for action in actions}
