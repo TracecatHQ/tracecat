@@ -36,7 +36,7 @@ import { toast } from "@/components/ui/use-toast"
 interface NewCredentialsDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
-  > { }
+  > {}
 
 export function NewCredentialsDialog({
   children,

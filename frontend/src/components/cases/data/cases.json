@@ -1,132 +1,132 @@
 [
-    {
-        "id": "ID-1",
-        "workflow_id": "WID-1",
-        "title": "Suspicious S3 Bucket Access from Unrecognized IP",
-        "payload": {
-            "attack_vector": "S3 Bucket Public Access",
-            "suspicious_ip": "198.51.100.14",
-            "access_time": "2024-03-12T14:30:00Z",
-            "bucket_name": "company-backup-data"
-        },
-        "malice": "malicious",
-        "action": "Investigate the source IP. If malicious, revoke access rights and alert the security team.",
-        "context": null,
-        "suppression": {
-            "Is from known safe geo-location": false,
-            "Is internal traffic": false,
-            "Has multi-factor authentication": false
-        },
-        "status": "in_progress",
-        "priority": "critical"
+  {
+    "id": "ID-1",
+    "workflow_id": "WID-1",
+    "title": "Suspicious S3 Bucket Access from Unrecognized IP",
+    "payload": {
+      "attack_vector": "S3 Bucket Public Access",
+      "suspicious_ip": "198.51.100.14",
+      "access_time": "2024-03-12T14:30:00Z",
+      "bucket_name": "company-backup-data"
     },
-    {
-        "id": "ID-2",
-        "workflow_id": "WID-2",
-        "title": "Multiple Failed Login Attempts Detected for IAM User",
-        "payload": {
-            "user": "admin_user",
-            "failed_attempts": "5",
-            "time_window": "10 minutes",
-            "alert_time": "2024-03-12T15:45:00Z"
-        },
-        "malice": "malicious",
-        "action": null,
-        "context": {
-            "severity": "medium",
-            "indicator_of_compromise": "brute_force_attack",
-            "impact": "account_compromise"
-        },
-        "suppression": {
-            "Is during scheduled maintenance": false,
-            "Is from known IP address": false,
-            "User has recent password change": false
-        },
-        "status": "open",
-        "priority": "high"
+    "malice": "malicious",
+    "action": "Investigate the source IP. If malicious, revoke access rights and alert the security team.",
+    "context": null,
+    "suppression": {
+      "Is from known safe geo-location": false,
+      "Is internal traffic": false,
+      "Has multi-factor authentication": false
     },
-    {
-        "id": "ID-3",
-        "workflow_id": "WID-3",
-        "title": "Suspicious S3 Bucket Access from Unrecognized IP",
-        "payload": {
-            "attack_vector": "S3 Bucket Public Access",
-            "suspicious_ip": "198.51.100.14",
-            "access_time": "2024-03-12T14:30:00Z",
-            "bucket_name": "company-backup-data"
-        },
-        "malice": "malicious",
-        "action": "Investigate the source IP. If malicious, revoke access rights and alert the security team.",
-        "context": null,
-        "suppression": {
-            "Is from known safe geo-location": false,
-            "Is internal traffic": false,
-            "Has multi-factor authentication": false
-        },
-        "status": "in_progress",
-        "priority": "critical"
+    "status": "in_progress",
+    "priority": "critical"
+  },
+  {
+    "id": "ID-2",
+    "workflow_id": "WID-2",
+    "title": "Multiple Failed Login Attempts Detected for IAM User",
+    "payload": {
+      "user": "admin_user",
+      "failed_attempts": "5",
+      "time_window": "10 minutes",
+      "alert_time": "2024-03-12T15:45:00Z"
     },
-    {
-        "id": "ID-4",
-        "workflow_id": "WID-4",
-        "title": "Multiple Failed Login Attempts Detected for IAM User",
-        "payload": {
-            "user": "admin_user",
-            "failed_attempts": "5",
-            "time_window": "10 minutes",
-            "alert_time": "2024-03-12T15:45:00Z"
-        },
-        "malice": "malicious",
-        "action": null,
-        "context": null,
-        "suppression": {
-            "Is during scheduled maintenance": false,
-            "Is from known IP address": false,
-            "User has recent password change": false
-        },
-        "status": "open",
-        "priority": "high"
+    "malice": "malicious",
+    "action": null,
+    "context": {
+      "severity": "medium",
+      "indicator_of_compromise": "brute_force_attack",
+      "impact": "account_compromise"
     },
-    {
-        "id": "ID-5",
-        "workflow_id": "WID-5",
-        "title": "Multiple Failed Login Attempts Detected for IAM User",
-        "payload": {
-            "user": "admin_user",
-            "failed_attempts": "5",
-            "time_window": "10 minutes",
-            "alert_time": "2024-03-12T15:45:00Z"
-        },
-        "malice": "malicious",
-        "action": null,
-        "context": null,
-        "suppression": {
-            "Is during scheduled maintenance": false,
-            "Is from known IP address": false,
-            "User has recent password change": false
-        },
-        "status": "open",
-        "priority": "high"
+    "suppression": {
+      "Is during scheduled maintenance": false,
+      "Is from known IP address": false,
+      "User has recent password change": false
     },
-    {
-        "id": "ID-6",
-        "workflow_id": "WID-6",
-        "title": "Multiple Failed Login Attempts Detected for IAM User",
-        "payload": {
-            "user": "admin_user",
-            "failed_attempts": "5",
-            "time_window": "10 minutes",
-            "alert_time": "2024-03-12T15:45:00Z"
-        },
-        "malice": "malicious",
-        "action": null,
-        "context": null,
-        "suppression": {
-            "Is during scheduled maintenance": false,
-            "Is from known IP address": false,
-            "User has recent password change": false
-        },
-        "status": "open",
-        "priority": "high"
-    }
+    "status": "open",
+    "priority": "high"
+  },
+  {
+    "id": "ID-3",
+    "workflow_id": "WID-3",
+    "title": "Suspicious S3 Bucket Access from Unrecognized IP",
+    "payload": {
+      "attack_vector": "S3 Bucket Public Access",
+      "suspicious_ip": "198.51.100.14",
+      "access_time": "2024-03-12T14:30:00Z",
+      "bucket_name": "company-backup-data"
+    },
+    "malice": "malicious",
+    "action": "Investigate the source IP. If malicious, revoke access rights and alert the security team.",
+    "context": null,
+    "suppression": {
+      "Is from known safe geo-location": false,
+      "Is internal traffic": false,
+      "Has multi-factor authentication": false
+    },
+    "status": "in_progress",
+    "priority": "critical"
+  },
+  {
+    "id": "ID-4",
+    "workflow_id": "WID-4",
+    "title": "Multiple Failed Login Attempts Detected for IAM User",
+    "payload": {
+      "user": "admin_user",
+      "failed_attempts": "5",
+      "time_window": "10 minutes",
+      "alert_time": "2024-03-12T15:45:00Z"
+    },
+    "malice": "malicious",
+    "action": null,
+    "context": null,
+    "suppression": {
+      "Is during scheduled maintenance": false,
+      "Is from known IP address": false,
+      "User has recent password change": false
+    },
+    "status": "open",
+    "priority": "high"
+  },
+  {
+    "id": "ID-5",
+    "workflow_id": "WID-5",
+    "title": "Multiple Failed Login Attempts Detected for IAM User",
+    "payload": {
+      "user": "admin_user",
+      "failed_attempts": "5",
+      "time_window": "10 minutes",
+      "alert_time": "2024-03-12T15:45:00Z"
+    },
+    "malice": "malicious",
+    "action": null,
+    "context": null,
+    "suppression": {
+      "Is during scheduled maintenance": false,
+      "Is from known IP address": false,
+      "User has recent password change": false
+    },
+    "status": "open",
+    "priority": "high"
+  },
+  {
+    "id": "ID-6",
+    "workflow_id": "WID-6",
+    "title": "Multiple Failed Login Attempts Detected for IAM User",
+    "payload": {
+      "user": "admin_user",
+      "failed_attempts": "5",
+      "time_window": "10 minutes",
+      "alert_time": "2024-03-12T15:45:00Z"
+    },
+    "malice": "malicious",
+    "action": null,
+    "context": null,
+    "suppression": {
+      "Is during scheduled maintenance": false,
+      "Is from known IP address": false,
+      "User has recent password change": false
+    },
+    "status": "open",
+    "priority": "high"
+  }
 ]

@@ -3,23 +3,20 @@ import { LucideIcon, LucideProps } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-const titleVariants = cva(
-  "flex items-center justify-between font-semibold",
-  {
-    variants: {
-      titleSize: {
-        xl: "text-xl",
-        lg: "text-lg",
-        md: "text-md",
-        sm: "text-sm",
-        xs: "text-xs",
-      },
+const titleVariants = cva("flex items-center justify-between font-semibold", {
+  variants: {
+    titleSize: {
+      xl: "text-xl",
+      lg: "text-lg",
+      md: "text-md",
+      sm: "text-sm",
+      xs: "text-xs",
     },
-    defaultVariants: {
-      titleSize: "xl",
-    },
-  }
-)
+  },
+  defaultVariants: {
+    titleSize: "xl",
+  },
+})
 const iconVariants = cva("mr-2", {
   variants: {
     iconSize: {

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { PawPrint, WorkflowIcon } from "lucide-react"
 import ConfettiExplosion from "react-confetti-explosion"
 
-import { PawPrint, WorkflowIcon } from "lucide-react"
 import { useUser } from "@/lib/auth"
 import { completeOnboarding, newUserFlow } from "@/lib/onboarding"
 import { Button } from "@/components/ui/button"
@@ -45,12 +45,13 @@ export default function OnboardingComponent() {
           </h3>
           <div className="space-y-4">
             <p className="text-sm">
-              Tracecat is the modern SecOps automation platform designed to reduce noise.
+              Tracecat is the modern SecOps automation platform designed to
+              reduce noise.
             </p>
             <p className="text-sm text-muted-foreground">
-              We are doing it open source with security practitioners such as yourself.
-              You can find us on Discord or GitHub.
-              We are excited to have you join our community!
+              We are doing it open source with security practitioners such as
+              yourself. You can find us on Discord or GitHub. We are excited to
+              have you join our community!
             </p>
           </div>
           <Button
@@ -73,6 +74,6 @@ export default function OnboardingComponent() {
           </Button>
         </div>
       </div>
-    </div >
+    </div>
   )
 }

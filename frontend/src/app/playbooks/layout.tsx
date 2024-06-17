@@ -1,11 +1,11 @@
 import { type Metadata } from "next"
+import { WorkflowProvider } from "@/providers/workflow"
 
 import Navbar from "@/components/nav/navbar"
-import { WorkflowProvider } from "@/providers/workflow"
 
 export const metadata: Metadata = {
   title: "Playbooks",
-  description: "Pre-built workflows ready to deploy."
+  description: "Pre-built workflows ready to deploy.",
 }
 
 export default async function WorkflowsLayout({
