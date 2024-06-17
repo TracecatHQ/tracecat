@@ -23,6 +23,14 @@ DEFAULT_NAMESPACE = "core"
 class RegistryValidationError(TracecatException):
     """Exception raised when a registry validation error occurs."""
 
+    key: str
+    err: ValidationError
+
+    def __init__(self, *args, key: str, err: ValidationError | None = None):
+        super().__init__(*args)
+        self.key = key
+        self.err = err
+
 
 class UDFSchema(TypedDict):
     args: dict[str, Any]
@@ -85,11 +93,14 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
         except ValidationError as e:
             logger.error(f"Validation error for UDF {self.key!r}. {e.errors()!r}")
             raise RegistryValidationError(
-                f"Validation error for UDF {self.key!r}. {e.errors()!r}"
+                f"Validation error for UDF {self.key!r}. {e.errors()!r}",
+                key=self.key,
+                err=e,
             ) from e
         except Exception as e:
             raise RegistryValidationError(
-                f"Error when validating input arguments for UDF {self.key!r}. {e}"
+                f"Unexpected error when validating input arguments for UDF {self.key!r}. {e}",
+                key=self.key,
             ) from e
 
     async def run_async(self, args: dict[str, Any]) -> Coroutine[Any, Any, Any]:
