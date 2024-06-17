@@ -1,6 +1,7 @@
 # Non-development docker compose extension file
 # - Removes all volume bindings
-# -
+# - Uses the multi-stage frontend Dockerfile
+# - Changes env vars to production
 services:
   api:
     volumes: []
