@@ -4,9 +4,6 @@ services:
     container_name: api
     ports:
       - "8000:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -32,9 +29,6 @@ services:
   worker:
     build: .
     container_name: worker
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -58,6 +52,7 @@ services:
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile.prod
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
@@ -69,10 +64,6 @@ services:
     env_file: .env
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/.next:/app/.next
-      - ./frontend/node_modules:/app/node_modules
     environment:
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY} # Sensitive
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
@@ -95,8 +86,6 @@ services:
     container_name: postgres_db
     ports:
       - "5432:5432"
-    volumes:
-      - db-storage:/var/lib/postgresql/data
     restart: always
     shm_size: 128mb
     environment:
@@ -107,7 +96,3 @@ services:
 
 networks:
   internal-network:
-
-volumes:
-  app-storage:
-  db-storage:
