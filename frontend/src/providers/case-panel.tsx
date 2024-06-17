@@ -2,7 +2,9 @@
 
 import React, {
   createContext,
+  Dispatch,
   PropsWithChildren,
+  SetStateAction,
   useContext,
   useEffect,
   useState,
@@ -13,13 +15,20 @@ import { cn } from "@/lib/utils"
 import { CasePanelContent } from "@/components/cases/panel-content"
 import { SlidingPanel } from "@/components/sliding-panel"
 
-export const useCasePanelContext = () => useContext(CasePanelContext)
+interface CasePanelContextProps {
+  panelCase: Case | null
+  setPanelCase: Dispatch<SetStateAction<Case | null>>
+  isOpen: boolean
+  setIsOpen: Dispatch<SetStateAction<boolean>>
+}
 
-const CasePanelContext = createContext({
+export const useCasePanelContext = () =>
+  useContext<CasePanelContextProps>(CasePanelContext)
+const CasePanelContext = createContext<CasePanelContextProps>({
   panelCase: null as Case | null,
-  setPanelCase: (selectedCase: Case | null) => {},
+  setPanelCase: () => {},
   isOpen: false,
-  setIsOpen: (isOpen: boolean) => {},
+  setIsOpen: () => {},
 })
 
 export default function CasePanelProvider({

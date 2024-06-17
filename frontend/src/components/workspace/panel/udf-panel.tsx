@@ -125,7 +125,7 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                 <div className="flex w-full items-center space-x-4">
                   {getIcon(udf.key, {
                     className: "size-10 p-2",
-                    flairSize: "md",
+                    flairsize: "md",
                   })}
                   <div className="flex w-full flex-1 justify-between space-x-12">
                     <div className="flex flex-col">

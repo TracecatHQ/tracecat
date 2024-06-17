@@ -2,7 +2,6 @@
 
 // Error components must be Client Components
 import { useEffect } from "react"
-import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime"
 import Image from "next/image"
 import Link from "next/link"
 import { AxiosError } from "axios"
@@ -28,24 +27,24 @@ export default function Error({ error }: { error: ErrorProps | AxiosError }) {
     </main>
   )
 }
-function sessionExpiredError(router: AppRouterInstance): CustomError {
-  return {
-    headline: "Your session has expired",
-    level: "warning",
-    message: "Please log in again.",
-    action: (
-      <Button
-        variant="outline"
-        onClick={async () => {
-          router.push("/")
-          router.refresh()
-        }}
-      >
-        Log in
-      </Button>
-    ),
-  }
-}
+// function sessionExpiredError(router: AppRouterInstance): CustomError {
+//   return {
+//     headline: "Your session has expired",
+//     level: "warning",
+//     message: "Please log in again.",
+//     action: (
+//       <Button
+//         variant="outline"
+//         onClick={async () => {
+//           router.push("/")
+//           router.refresh()
+//         }}
+//       >
+//         Log in
+//       </Button>
+//     ),
+//   }
+// }
 
 type CustomError = {
   headline: string

@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils"
 
 type IconProps = React.HTMLAttributes<SVGElement>
-type CustomIconProps = IconProps & { flairSize?: "sm" | "md" | "lg" }
+type CustomIconProps = IconProps & { flairsize?: "sm" | "md" | "lg" }
 
 export const Icons = {
   logo: (props: IconProps) => (
@@ -256,7 +256,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
     /* AI subnamespace */
-    "core.ai.extract": ({ className, flairSize = "md", ...rest }) => (
+    "core.ai.extract": ({ className, flairsize = "md", ...rest }) => (
       <div
         className={cn(
           "relative flex bg-amber-100",
@@ -268,12 +268,12 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Sparkles
           className={cn(
             "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairSize)
+            getFlairSize(flairsize)
           )}
         />
       </div>
     ),
-    "core.ai.label": ({ className, flairSize = "md", ...rest }) => (
+    "core.ai.label": ({ className, flairsize = "md", ...rest }) => (
       <div
         className={cn(
           "relative flex bg-amber-100",
@@ -285,12 +285,12 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Sparkles
           className={cn(
             "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairSize)
+            getFlairSize(flairsize)
           )}
         />
       </div>
     ),
-    "core.ai.translate": ({ className, flairSize = "md", ...rest }) => (
+    "core.ai.translate": ({ className, flairsize = "md", ...rest }) => (
       <div
         className={cn(
           "relative flex bg-amber-100",
@@ -302,12 +302,12 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Sparkles
           className={cn(
             "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairSize)
+            getFlairSize(flairsize)
           )}
         />
       </div>
     ),
-    "core.ai.select": ({ className, flairSize = "md", ...rest }) => (
+    "core.ai.select": ({ className, flairsize = "md", ...rest }) => (
       <div
         className={cn(
           "relative flex bg-amber-100",
@@ -319,12 +319,12 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Sparkles
           className={cn(
             "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairSize)
+            getFlairSize(flairsize)
           )}
         />
       </div>
     ),
-    "core.ai.summarize": ({ className, flairSize = "md", ...rest }) => (
+    "core.ai.summarize": ({ className, flairsize = "md", ...rest }) => (
       <div
         className={cn(
           "relative flex bg-amber-100",
@@ -336,7 +336,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Sparkles
           className={cn(
             "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairSize)
+            getFlairSize(flairsize)
           )}
         />
       </div>
