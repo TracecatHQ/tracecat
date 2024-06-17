@@ -144,3 +144,29 @@ def tracecat_stack(pytestconfig: pytest.Config, env_sandbox):
                 ["docker", "compose", "down", "--remove-orphans"], check=True
             )
             logger.info("Successfully shut down Tracecat stack")
+
+
+@pytest.fixture(scope="session")
+def tracecat_worker(env_sandbox):
+    # Start the Tracecat Temporal worker
+    # The worker is in our main tracecat docker compose file
+    try:
+        # Check that worker is not already running
+        logger.info("Starting Tracecat Temporal worker")
+        env_copy = os.environ.copy()
+        # As the worker is running inside a container, use host.docker.internal
+        env_copy["TEMPORAL__CLUSTER_URL"] = "http://host.docker.internal:7233"
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "worker"],
+            check=True,
+            env=env_copy,
+        )
+        time.sleep(5)
+
+        yield
+    finally:
+        logger.info("Stopping Tracecat Temporal worker")
+        subprocess.run(
+            ["docker", "compose", "down", "--remove-orphans", "worker"], check=True
+        )
+        logger.info("Stopped Tracecat Temporal worker")
