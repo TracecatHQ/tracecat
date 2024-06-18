@@ -89,7 +89,7 @@ jobs:
         id: set-image-tag
         run: |
           if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "TRACECAT__IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+            echo "TRACECAT__IMAGE_TAG=latest" >> $GITHUB_ENV
           else
             echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
           fi
