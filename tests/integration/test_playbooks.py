@@ -36,8 +36,12 @@ def create_secrets():
 
     for name, env_vars in secrets.items():
         env_vars_str = " ".join([f"{key}={value}" for key, value in env_vars.items()])
-        command = f"tracecat secret create {name} {env_vars_str}"
-        subprocess.run(command, shell=True, check=True)
+        output = subprocess.run(
+            f"tracecat secret create {name} {env_vars_str}",
+            capture_output=True,
+            text=True,
+        )
+        assert "Secret created successfully!" in output.stdout
 
 
 @pytest.mark.parametrize(
@@ -55,17 +59,18 @@ def test_playbook(path_to_playbook):
     # Output is a JSON where the workflow ID is stored under the key "id"
     output = subprocess.run(
         ["tracecat", "workflow", "create", "--title", filename],
-        check=True,
         capture_output=True,
         text=True,
     )
     workflow_id = json.loads(output.stdout)["id"]
     # 2. Commit workflow definition
-    subprocess.run(
+    output = subprocess.run(
         ["tracecat", "workflow", "commit", "--file", path_to_playbook, workflow_id],
-        check=True,
+        capture_output=True,
+        text=True,
     )
+    assert "Successfully committed to workflow" in output.stdout
     # 3. Activate the workflow
-    subprocess.run(["tracecat", "workflow", "up", "--webhook", workflow_id], check=True)
+    subprocess.run(["tracecat", "workflow", "up", "--webhook", workflow_id])
     # 4. Run the workflow
-    subprocess.run(["tracecat", "workflow", "run", workflow_id], check=True)
+    subprocess.run(["tracecat", "workflow", "run", workflow_id])
