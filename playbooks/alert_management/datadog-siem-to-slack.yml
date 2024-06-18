@@ -1,4 +1,4 @@
-title: Send Slack notifications for Datadog SIEM signals
+title: Redirect Datadog SIEM signals to Slack with user tagging
 description: |
   Pulls Datadog SIEM signals (alerts), extracts emails contains within the signal,
   finds Slack users associated with the emails, and tags the Slack users in a notification.
