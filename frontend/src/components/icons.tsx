@@ -1,21 +1,17 @@
 import {
   Blend,
   Bolt,
-  BookText,
   BoxesIcon,
-  CheckSquare,
   Container,
   Cpu,
-  FlaskConical,
   GitCompareArrows,
   Globe,
-  Languages,
   Mail,
   Regex,
   Send,
   ShieldAlert,
   Sparkles,
-  Tags,
+  WandSparkles,
   ZapIcon,
 } from "lucide-react"
 
@@ -256,7 +252,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
     /* AI subnamespace */
-    "core.ai.extract": ({ className, flairsize = "md", ...rest }) => (
+    "core.ai_action": ({ className, flairsize = "md", ...rest }) => (
       <div
         className={cn(
           "relative flex bg-amber-100",
@@ -264,75 +260,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
           className
         )}
       >
-        <FlaskConical {...rest} />
-        <Sparkles
-          className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairsize)
-          )}
-        />
-      </div>
-    ),
-    "core.ai.label": ({ className, flairsize = "md", ...rest }) => (
-      <div
-        className={cn(
-          "relative flex bg-amber-100",
-          basicIconsCommon,
-          className
-        )}
-      >
-        <Tags {...rest} />
-        <Sparkles
-          className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairsize)
-          )}
-        />
-      </div>
-    ),
-    "core.ai.translate": ({ className, flairsize = "md", ...rest }) => (
-      <div
-        className={cn(
-          "relative flex bg-amber-100",
-          basicIconsCommon,
-          className
-        )}
-      >
-        <Languages {...rest} />
-        <Sparkles
-          className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairsize)
-          )}
-        />
-      </div>
-    ),
-    "core.ai.select": ({ className, flairsize = "md", ...rest }) => (
-      <div
-        className={cn(
-          "relative flex bg-amber-100",
-          basicIconsCommon,
-          className
-        )}
-      >
-        <CheckSquare {...rest} />
-        <Sparkles
-          className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairsize)
-          )}
-        />
-      </div>
-    ),
-    "core.ai.summarize": ({ className, flairsize = "md", ...rest }) => (
-      <div
-        className={cn(
-          "relative flex bg-amber-100",
-          basicIconsCommon,
-          className
-        )}
-      >
-        <BookText {...rest} />
+        <WandSparkles {...rest} />
         <Sparkles
           className={cn(
             "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
