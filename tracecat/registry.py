@@ -168,7 +168,23 @@ class _Registry:
         display_group: str | None = None,
         **register_kwargs,
     ):
-        """Decorator factory to register a new udf function with additional parameters."""
+        """Decorator factory to register a new udf function with additional parameters.
+
+        Parameters
+        ----------
+        description : str
+            A description of the udf.
+        secrets : list[str] | None, optional
+            Required secrets, by default None
+        namespace : str, optional
+            The namespace to register the UDF, by default `core`
+        version : str | None, optional
+            The UDF version, by default None
+        default_title : str | None, optional
+            The default title (also the catalog name) for the UDF, by default None
+        display_group : str | None, optional
+            The group under which the UDF should be displayed in the catalog, by default None
+        """
 
         def decorator_register(fn: FunctionType):
             """The decorator function to register a new udf.
