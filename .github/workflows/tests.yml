@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   push-to-ghcr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +30,9 @@ jobs:
         with:
           images: ghcr.io/TracecatHQ/tracecat
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -37,9 +40,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   pytest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     needs: push-to-ghcr
     timeout-minutes: 30
     steps:
