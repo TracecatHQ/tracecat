@@ -4,14 +4,12 @@ description: |
   Also sends a message if no findings available.
 entrypoint: pull_aws_guardduty_findings
 inputs:
-  slack_channel: CXXXXXXXXXXXX
   start_time: "2023-06-12T00:00:00Z"
   end_time: "2024-06-15T12:00:00Z"
-  slack_webhook: http://your-slack-webhook-url.com
 
 triggers:
   - type: webhook
-    ref: my_webhook
+    ref: guardduty_findings_webhook
     entrypoint: pull_aws_guardduty_findings
 
 actions:
@@ -29,7 +27,7 @@ actions:
       - pull_aws_guardduty_findings
     run_if: ${{ FN.is_empty(ACTIONS.pull_aws_guardduty_findings.result) }}
     args:
-      url: ${{ INPUTS.slack_webhook }}
+      url: ${{ SECRETS.slack.SLACK_WEBHOOK }}
       method: POST
       headers:
         Content-Type: application/json
@@ -67,7 +65,7 @@ actions:
     # Assign each SMAC finding to a variable named `smac`
     for_each: ${{ for var.smac in ACTIONS.reshape_findings_into_smac.result }}
     args:
-      channel: ${{ INPUTS.slack_channel }}
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
       text: GuardDuty findings for past 24h
       blocks:
         - type: header

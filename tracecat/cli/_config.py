@@ -1,16 +1,12 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import rich
-import typer
 from dotenv import find_dotenv, load_dotenv
 
 from tracecat import config
 from tracecat.auth.credentials import Role
 
-if not load_dotenv(find_dotenv()):
-    rich.print("[red]No .env file found[/red]")
-    raise typer.Exit()
+load_dotenv(find_dotenv())
 
 
 # In reality we should use the user's id from config.toml

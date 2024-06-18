@@ -1,0 +1,94 @@
+name: Playbooks
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  run-playbooks:
+    runs-on: ubuntu-latest-8-cores
+    environment: QA
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Download Temporal CLI
+        run: |
+          curl -L -o temporal.tar.gz "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64"
+          mkdir -p temporal-cli
+          tar -xzf temporal.tar.gz -C temporal-cli
+          echo "${GITHUB_WORKSPACE}/temporal-cli" >> $GITHUB_PATH
+
+      - name: Verify Temporal CLI installation
+        run: temporal --version
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev,cli]"
+
+      - name: Run environment setup script
+        run: bash env.sh
+
+      - name: Get image tag
+        id: set-image-tag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "TRACECAT__IMAGE_TAG=latest" >> $GITHUB_ENV
+          else
+            echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          fi
+
+      - name: Mask sensitive data
+        run: |
+          echo "::add-mask::${{ secrets.INTEGRATION__ABUSECH_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__ABUSEIPDB_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__AWS_GUARDDUTY__ACCESS_KEY_ID }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__AWS_GUARDDUTY__SECRET_ACCESS_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__DD_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__DD_APP_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__HYBRID_ANALYSIS_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__OPENAI_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__PULSEDRIVE_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__RESEND_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__SLACK_BOT_TOKEN }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__SLACK_CHANNEL }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__URLSCAN_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__VT_API_KEY }}"
+
+      - name: Run playbooks
+        env:
+          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
+          ABUSECH_API_KEY: ${{ secrets.INTEGRATION__ABUSECH_API_KEY }}
+          ABUSEIPDB_API_KEY: ${{ secrets.INTEGRATION__ABUSEIPDB_API_KEY }}
+          AWS_GUARDDUTY__ACCESS_KEY_ID: ${{ secrets.INTEGRATION__AWS_GUARDDUTY__ACCESS_KEY_ID }}
+          AWS_GUARDDUTY__SECRET_ACCESS_KEY: ${{ secrets.INTEGRATION__AWS_GUARDDUTY__SECRET_ACCESS_KEY }}
+          DD_API_KEY: ${{ secrets.INTEGRATION__DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.INTEGRATION__DD_APP_KEY }}
+          HYBRID_ANALYSIS_API_KEY: ${{ secrets.INTEGRATION__HYBRID_ANALYSIS_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.INTEGRATION__OPENAI_API_KEY }}
+          PULSEDRIVE_API_KEY: ${{ secrets.INTEGRATION__PULSEDRIVE_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.INTEGRATION__RESEND_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.INTEGRATION__SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ secrets.INTEGRATION__SLACK_CHANNEL }}
+          URLSCAN_API_KEY: ${{ secrets.INTEGRATION__URLSCAN_API_KEY }}
+          VT_API_KEY: ${{ secrets.INTEGRATION__VT_API_KEY }}
+        run: |
+          docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
+          nohup temporal server start-dev > temporal.log 2>&1 &
+          pytest -k "test_playbooks" --temporal-no-restart --tracecat-no-restart
