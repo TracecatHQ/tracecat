@@ -13,6 +13,14 @@ replacers:
     replace: "- "
 
 autolabeler:
+  - label: playbook
+    title:
+      - "/^playbook/"
+
+  - label: integration
+    title:
+      - "/^integration/"
+
   - label: frontend
     title:
       # Example: feat(ui): ...
@@ -82,6 +90,12 @@ categories:
 
   - title: ⚠️ Deprecations
     labels: deprecation
+
+  - title: 📘 Playbooks
+    labels: playbook
+
+  - title: 🧩 Integrations
+    labels: integration
 
   - title: 🚀 Performance improvements
     labels: performance
