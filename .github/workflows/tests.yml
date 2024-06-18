@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   push-to-ghcr:
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest-4-cores
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   pytest:
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest-4-cores
     needs: push-to-ghcr
     timeout-minutes: 30
     steps:
