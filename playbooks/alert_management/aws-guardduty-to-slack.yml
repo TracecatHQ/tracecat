@@ -7,7 +7,6 @@ inputs:
   slack_channel: CXXXXXXXXXXXX
   start_time: "2023-06-12T00:00:00Z"
   end_time: "2024-06-15T12:00:00Z"
-  slack_webhook: http://your-slack-webhook-url.com
 
 triggers:
   - type: webhook
@@ -21,20 +20,6 @@ actions:
       start_time: ${{ INPUTS.start_time }}
       end_time: ${{ INPUTS.end_time }}
       limit: 10
-
-  # Short circuit the workflow if no findings are found
-  - ref: report_no_findings
-    action: core.http_request
-    depends_on:
-      - pull_aws_guardduty_findings
-    run_if: ${{ FN.is_empty(ACTIONS.pull_aws_guardduty_findings.result) }}
-    args:
-      url: ${{ INPUTS.slack_webhook }}
-      method: POST
-      headers:
-        Content-Type: application/json
-      payload:
-        text: Tracecat ran workflow for GuardDuty findings, but no findings were found
 
   # Transform the list of GuardDuty findings into a list of SMAC findings
   - ref: reshape_findings_into_smac
