@@ -6,7 +6,7 @@ from typing import Annotated, Any, TypedDict
 
 from pydantic import Field
 
-from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
+from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, retryable_async_openai_call
 from tracecat.registry import registry
 
 
@@ -175,7 +175,7 @@ async def _call_llm(
     final_system_context = "\n".join((system_context, formatted_event_context))
 
     if response_schema is None:
-        text_response: str = await async_openai_call(
+        text_response: str = await retryable_async_openai_call(
             prompt=text,
             model=model,
             system_context=final_system_context,
@@ -184,7 +184,7 @@ async def _call_llm(
         )
         return LLMResponse(data=text_response)
     else:
-        json_response: dict[str, Any] = await async_openai_call(
+        json_response: dict[str, Any] = await retryable_async_openai_call(
             prompt=text,
             model=model,
             system_context="\n".join(

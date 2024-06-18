@@ -29,7 +29,7 @@ DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True,
 )
-async def async_openai_call(  # type: ignore
+async def retryable_async_openai_call(  # type: ignore
     prompt: str,
     model: ModelType = DEFAULT_MODEL_TYPE,
     temperature: float = 0.2,

@@ -8,7 +8,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 from slugify import slugify
 
-from tracecat.llm import async_openai_call
+from tracecat.llm import retryable_async_openai_call
 from tracecat.types.cases import Case
 
 T = TypeVar("T", bound=BaseModel)
@@ -252,7 +252,7 @@ async def stream_case_completions(
         prompt = f"""Case JSON Object: ```\n{case.model_dump_json()}\n```"""
         with logger.contextualize(case_id=case.id):
             logger.info("🧠 Starting case completion")
-            response: dict[str, str] = await async_openai_call(
+            response: dict[str, str] = await retryable_async_openai_call(
                 prompt=prompt,
                 model="gpt-4-turbo-preview",
                 system_context=system_context,
