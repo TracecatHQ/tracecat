@@ -9,7 +9,7 @@ inputs:
 
 triggers:
   - type: webhook
-    ref: my_webhook
+    ref: guardduty_findings_webhook
     entrypoint: pull_aws_guardduty_findings
 
 actions:
@@ -19,6 +19,20 @@ actions:
       start_time: ${{ INPUTS.start_time }}
       end_time: ${{ INPUTS.end_time }}
       limit: 10
+
+  # Short circuit the workflow if no findings are found
+  - ref: report_no_findings
+    action: core.http_request
+    depends_on:
+      - pull_aws_guardduty_findings
+    run_if: ${{ FN.is_empty(ACTIONS.pull_aws_guardduty_findings.result) }}
+    args:
+      url: ${{ SECRETS.slack.SLACK_WEBHOOK }}
+      method: POST
+      headers:
+        Content-Type: application/json
+      payload:
+        text: Tracecat ran workflow for GuardDuty findings, but no findings were found
 
   # Transform the list of GuardDuty findings into a list of SMAC findings
   - ref: reshape_findings_into_smac
