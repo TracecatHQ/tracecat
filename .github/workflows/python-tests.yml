@@ -11,11 +11,40 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
+  push-to-ghcr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/TracecatHQ/tracecat
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   build:
     runs-on: ubuntu-latest
-
+    needs: push-to-ghcr
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -55,12 +84,14 @@ jobs:
         run: bash env.sh
 
       - name: Run tests (headless mode)
+        env:
+          TRACECAT__IMAGE_TAG: pr-${{ github.event.pull_request.number }}
         run: |
           # Start Tracecat services (without frontend)
           docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
 
-          # Start Temporal lite server
-          temporal server start-dev
+          # Start Temporal lite server in detached mode
+          nohup temporal server start-dev > temporal.log 2>&1 &
 
           # Run Tracecat tests
           pytest tests --temporal-no-restart --tracecat-no-restart
