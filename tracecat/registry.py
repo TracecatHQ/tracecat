@@ -164,6 +164,8 @@ class _Registry:
         secrets: list[str] | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         version: str | None = None,
+        default_title: str | None = None,
+        display_group: str | None = None,
         **register_kwargs,
     ):
         """Decorator factory to register a new udf function with additional parameters."""
@@ -238,7 +240,11 @@ class _Registry:
                 args_docs=args_docs,
                 rtype_cls=rtype_cls,
                 rtype_adapter=rtype_adapter,
-                metadata=register_kwargs,
+                metadata={
+                    **register_kwargs,
+                    "default_title": default_title,
+                    "display_group": display_group,
+                },
             )
 
             setattr(wrapped_fn, "__tracecat_udf", True)
