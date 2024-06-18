@@ -24,12 +24,7 @@ DEFAULT_MODEL_TYPE: ModelType = "gpt-4o"
 DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
 
 
-@retry(
-    stop=stop_after_attempt(LLM_MAX_RETRIES),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    reraise=True,
-)
-async def retryable_async_openai_call(  # type: ignore
+async def async_openai_call(  # type: ignore
     prompt: str,
     model: ModelType = DEFAULT_MODEL_TYPE,
     temperature: float = 0.2,
@@ -83,3 +78,30 @@ async def retryable_async_openai_call(  # type: ignore
         return response
 
     return parse_choice(response.choices[0])
+
+
+@retry(
+    stop=stop_after_attempt(LLM_MAX_RETRIES),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True,
+)
+async def retryable_async_openai_call(
+    prompt: str,
+    model: ModelType = DEFAULT_MODEL_TYPE,
+    temperature: float = 0.2,
+    system_context: str = DEFAULT_SYSTEM_CONTEXT,
+    response_format: Literal["json_object", "text"] = "text",
+    stream: bool = False,
+    parse_json: bool = True,
+    **kwargs,
+):
+    return await async_openai_call(
+        prompt=prompt,
+        model=model,
+        temperature=temperature,
+        system_context=system_context,
+        response_format=response_format,
+        stream=stream,
+        parse_json=parse_json,
+        **kwargs,
+    )
