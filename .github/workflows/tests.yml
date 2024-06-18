@@ -85,9 +85,18 @@ jobs:
       - name: Run environment setup script
         run: bash env.sh
 
+      - name: Get image tag
+        id: set-image-tag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "TRACECAT__IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+          else
+            echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          fi
+
       - name: Run tests (headless mode)
         env:
-          TRACECAT__IMAGE_TAG: pr-${{ github.event.pull_request.number }}
+          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
         run: |
           # Start Tracecat services (without frontend)
           docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
