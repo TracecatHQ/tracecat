@@ -7,7 +7,6 @@ entrypoint: pull_datadog_signals
 inputs:
   dd_region: us5
   dd_api_url: https://api.us5.datadoghq.com
-  slack_channel: CXXXXXXXXXXXX
 
 triggers:
   - type: webhook
@@ -75,7 +74,7 @@ actions:
       - ${{ for var.signal in ACTIONS.reshape_signals.result }}
       - ${{ for var.user_ids in ACTIONS.extract_slack_user_ids.result }}
     args:
-      channel: ${{ INPUTS.slack_channel }}
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
       text: Datadog alerts (last )
       blocks:
         - type: header
