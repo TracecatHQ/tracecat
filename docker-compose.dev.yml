@@ -4,11 +4,13 @@
 # - Changes env vars to production
 services:
   api:
+    build: .
     volumes:
       - ./tracecat:/app/tracecat
       - app-storage:/var/lib/tracecat
 
   worker:
+    build: .
     volumes:
       - ./tracecat:/app/tracecat
       - app-storage:/var/lib/tracecat

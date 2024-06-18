@@ -42,11 +42,11 @@ then
     exit
 fi
 
-if ! command -v ngrok &> /dev/null
-then
-    echo -e "${RED}Ngrok could not be found. Please install Ngrok and try again.${NC}"
-    exit
-fi
+# if ! command -v ngrok &> /dev/null
+# then
+#     echo -e "${RED}Ngrok could not be found. Please install Ngrok and try again.${NC}"
+#     exit
+# fi
 
 # If .env exists, ask user if they want to overwrite it
 if [ -f .env ]; then
