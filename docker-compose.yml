@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/tracecathq/tracecat:latest
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
     container_name: api
     ports:
       - "8000:8000"
@@ -27,7 +27,7 @@ services:
       - internal-network
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:latest
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
     container_name: worker
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
