@@ -165,7 +165,7 @@ export const caseSchema = z.object({
   // Case related data
   workflow_id: z.string(),
   case_title: z.string(),
-  payload: z.record(z.string()),
+  payload: z.record(z.string(), z.any()),
   malice: z.enum(caseMaliceTypes),
   status: z.enum(caseStatusTypes),
   priority: z.enum(casePriorityTypes),

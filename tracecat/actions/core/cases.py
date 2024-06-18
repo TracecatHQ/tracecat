@@ -10,9 +10,8 @@ from pydantic import Field
 
 from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.engine import create_vdb_conn
-from tracecat.db.schemas import CaseContext
 from tracecat.registry import registry
-from tracecat.types.api import Suppression, Tag
+from tracecat.types.api import CaseContext, Suppression, Tag
 from tracecat.types.cases import Case
 
 
