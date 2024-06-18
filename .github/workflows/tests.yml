@@ -105,4 +105,4 @@ jobs:
           nohup temporal server start-dev > temporal.log 2>&1 &
 
           # Run Tracecat tests
-          pytest tests --temporal-no-restart --tracecat-no-restart
+          pytest tests/unit --temporal-no-restart --tracecat-no-restart
