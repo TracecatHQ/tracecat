@@ -31,7 +31,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/TracecatHQ/tracecat
+          images: ghcr.io/tracecathq/tracecat
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -40,5 +40,5 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}
-            ${{ github.ref == 'refs/heads/main' && 'ghcr.io/TracecatHQ/tracecat:latest' || '' }}
+            ${{ github.ref == 'refs/heads/main' && 'ghcr.io/tracecathq/tracecat:latest' || '' }}
           labels: ${{ steps.meta.outputs.labels }}
