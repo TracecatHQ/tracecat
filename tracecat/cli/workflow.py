@@ -102,6 +102,13 @@ async def _list_workflows():
     return dynamic_table(res.json(), "Workfows")
 
 
+async def _get_cases(workflow_id: str):
+    async with user_client() as client:
+        res = await client.get(f"/workflows/{workflow_id}/cases")
+        res.raise_for_status()
+    return res.json()
+
+
 @app.command(help="Create a workflow")
 def create(
     title: str = typer.Option(None, "--title", "-t", help="Title of the workflow"),
@@ -159,3 +166,16 @@ def up(
     """Triggers a webhook to run a workflow."""
     rich.print(f"Activating workflow {workflow_id!r}")
     asyncio.run(_activate_workflow(workflow_id, with_webhook))
+
+
+@app.command(help="List cases.", no_args_is_help=True)
+def cases(
+    workflow_id: str = typer.Argument(..., help="ID of the workflow to get cases."),
+    table: bool = typer.Option(False, "--table", "-t", help="Display as table"),
+):
+    """Triggers a webhook to run a workflow."""
+    results = asyncio.run(_get_cases(workflow_id))
+    if table:
+        Console().print(dynamic_table(results, "Cases"))
+    else:
+        rich.print(results)
