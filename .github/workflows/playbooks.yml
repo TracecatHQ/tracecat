@@ -37,10 +37,10 @@ jobs:
       - name: Verify Temporal CLI installation
         run: temporal --version
 
-      - name: Install Tracecat CLI
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ".[cli]"
+          pip install ".[dev,cli]"
 
       - name: Run environment setup script
         run: bash env.sh
