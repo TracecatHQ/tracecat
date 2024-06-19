@@ -36,16 +36,24 @@ async def _commit_workflow(yaml_path: Path, workflow_id: str):
         rich.print(e.response.json())
 
 
-async def _run_workflow(workflow_id: str, payload: dict[str, str] | None = None):
+async def _run_workflow(
+    workflow_id: str, payload: dict[str, str] | None = None, proxy: bool = False
+):
     async with user_client() as client:
         # Get the webhook url
         res = await client.get(f"/workflows/{workflow_id}/webhook")
         res.raise_for_status()
-        webhooks = WebhookResponse.model_validate(res.json())
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            webhooks.url, content=orjson.dumps(payload) if payload else None
-        )
+        webhook = WebhookResponse.model_validate(res.json())
+    content = orjson.dumps(payload) if payload else None
+    if proxy:
+        run_client = httpx.AsyncClient()
+        url = webhook.url
+    else:
+        run_client = user_client()
+        url = f"/webhooks/{workflow_id}/{webhook.secret}"
+
+    async with run_client as client:
+        res = await client.post(url, content=content)
         try:
             res.raise_for_status()
             rich.print(res.json())
@@ -150,10 +158,19 @@ def list():
 def run(
     workflow_id: str = typer.Argument(..., help="ID of the workflow to run"),
     data: str = typer.Option(None, "--data", "-d", help="JSON Payload to send"),
+    proxy: bool = typer.Option(
+        False,
+        "--proxy",
+        help="If set, run the workflow through the external-facing webhook",
+    ),
 ):
     """Triggers a webhook to run a workflow."""
-    rich.print(f"Running workflow {workflow_id!r}")
-    asyncio.run(_run_workflow(workflow_id, orjson.loads(data) if data else None))
+    rich.print(f"Running workflow {workflow_id!r} {"proxied" if proxy else 'directly'}")
+    asyncio.run(
+        _run_workflow(
+            workflow_id, payload=orjson.loads(data) if data else None, proxy=proxy
+        )
+    )
 
 
 @app.command(help="Activate a workflow", no_args_is_help=True)
