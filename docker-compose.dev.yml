@@ -31,10 +31,6 @@ services:
       - ./frontend/.next:/app/.next
       - ./frontend/node_modules:/app/node_modules
 
-  postgres_db:
-    volumes:
-      - db-storage:/var/lib/postgresql/data
-
 volumes:
   app-storage:
   db-storage:

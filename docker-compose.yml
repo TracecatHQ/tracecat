@@ -93,6 +93,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     networks:
       - internal-network
+    volumes:
+      - db-storage:/var/lib/postgresql/data
 
 networks:
   internal-network:
+
+volumes:
+  db-storage:
