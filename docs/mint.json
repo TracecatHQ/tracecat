@@ -1,9 +1,7 @@
 {
   "$schema": "https://mintlify.com/schema.json",
   "name": "Tracecat",
-  "openapi": [
-    "/openapi.yml"
-  ],
+  "openapi": ["/openapi.yml"],
   "logo": {
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
@@ -26,7 +24,7 @@
   ],
   "topbarCtaButton": {
     "name": "Book Demo",
-    "url": "https://calendly.com/d/cpfn-rsm-4t7/tracecat-onboarding"
+    "url": "https://cal.com/team/tracecat/onboarding-with-traceact"
   },
   "tabs": [
     {
@@ -54,10 +52,7 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": [
-        "introduction",
-        "quickstart"
-      ]
+      "pages": ["introduction", "quickstart"]
     },
     {
       "group": "Concepts",
@@ -76,17 +71,11 @@
     },
     {
       "group": "Tutorials",
-      "pages": [
-        "tutorials/workflows-tutorial",
-        "tutorials/actions-tutorial"
-      ]
+      "pages": ["tutorials/workflows-tutorial", "tutorials/actions-tutorial"]
     },
     {
       "group": "Self-hosted",
-      "pages": [
-        "installation",
-        "deployment"
-      ]
+      "pages": ["installation", "deployment"]
     },
     {
       "group": "API Documentation",
@@ -98,9 +87,7 @@
             "api-reference/reference/check-health",
             {
               "group": "public",
-              "pages": [
-                "api-reference/reference/public/incoming-webhook"
-              ]
+              "pages": ["api-reference/reference/public/incoming-webhook"]
             },
             {
               "group": "workflows",
@@ -148,9 +135,7 @@
             },
             {
               "group": "events",
-              "pages": [
-                "api-reference/reference/events/search-events"
-              ]
+              "pages": ["api-reference/reference/events/search-events"]
             },
             {
               "group": "cases",
