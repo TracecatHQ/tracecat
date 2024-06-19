@@ -70,10 +70,6 @@
       ]
     },
     {
-      "group": "Tutorials",
-      "pages": ["tutorials/workflows-tutorial", "tutorials/actions-tutorial"]
-    },
-    {
       "group": "Self-hosted",
       "pages": ["installation", "deployment"]
     },
