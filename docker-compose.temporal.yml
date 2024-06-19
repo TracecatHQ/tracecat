@@ -1,0 +1,45 @@
+services:
+  api:
+    networks:
+      - temporal
+
+  worker:
+    networks:
+      - temporal
+
+  temporal_postgres_db:
+    image: postgres:16.2-bullseye
+    container_name: temporal_postgres_db
+    # ports:
+    #   - "5432:5432"
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD}
+    networks:
+      - temporal
+
+  temporal:
+    container_name: temporal
+    depends_on:
+      - temporal_postgres_db
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${TEMPORAL_POSTGRES_USER}
+      - POSTGRES_PWD=${TEMPORAL_POSTGRES_PASSWORD}
+      - POSTGRES_SEEDS=temporal_postgres_db
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/tracecat-sql.yaml
+      - DEFAULT_NAMESPACE=tracecat
+    image: temporalio/auto-setup:${TEMPORAL_VERSION}
+    networks:
+      - internal-network
+      - temporal
+    # ports:
+    #   - 7233:7233
+    volumes:
+      - ./temporal/:/etc/temporal/config/dynamicconfig
+
+networks:
+  temporal:
