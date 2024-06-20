@@ -47,7 +47,7 @@ services:
     restart: unless-stopped
     networks:
       - internal-network
-    entrypoint: [ "python", "tracecat/dsl/worker.py" ]
+    entrypoint: ["python", "tracecat/dsl/worker.py"]
 
   frontend:
     build:
