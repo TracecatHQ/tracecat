@@ -1,0 +1,61 @@
+services:
+  temporal_elasticsearch:
+    container_name: temporal_elasticsearch
+    environment:
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=512mb
+      - cluster.routing.allocation.disk.watermark.high=256mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - xpack.security.enabled=false
+    image: elasticsearch:${TEMPORAL_ELASTICSEARCH_VERSION}
+    networks:
+      - temporal
+    volumes:
+      - ./temporal/.elasticsearch:/var/lib/elasticsearch/data
+
+  temporal_admin_tools:
+    container_name: temporal_admin_tools
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    image: temporalio/admin-tools:${TEMPORAL_ADMINTOOLS_VERSION}
+    networks:
+      - temporal
+    stdin_open: true
+    tty: true
+
+  temporal_ui:
+    container_name: temporal_ui
+    depends_on:
+      - temporal
+      - temporal_elasticsearch
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=${TEMPORAL_UI_URL}
+    image: temporalio/ui:${TEMPORAL_UI_VERSION}
+    networks:
+      - temporal
+    ports:
+      - ${TEMPORAL_UI_PORT}:${TEMPORAL_UI_PORT}
+
+  temporal:
+    depends_on:
+      - temporal_postgres_db
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${TEMPORAL_POSTGRES_USER}
+      - POSTGRES_PWD=${TEMPORAL_POSTGRES_PASSWORD}
+      - POSTGRES_SEEDS=temporal_postgres_db
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/tracecat-sql.yaml
+      - DEFAULT_NAMESPACE=tracecat
+      - ENABLE_ES=true
+      - ES_SEEDS=temporal_elasticsearch
+      - ES_VERSION=v7
+
+networks:
+  temporal:

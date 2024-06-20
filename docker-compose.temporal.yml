@@ -8,17 +8,15 @@ services:
       - temporal
 
   temporal_postgres_db:
-    image: postgres:16.2-bullseye
+    image: postgres:${TEMPORAL_POSTGRESQL_VERSION}
     container_name: temporal_postgres_db
-    # ports:
-    #   - "5432:5432"
-    restart: always
-    shm_size: 128mb
     environment:
       POSTGRES_USER: ${TEMPORAL_POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD}
     networks:
       - temporal
+    volumes:
+      - ./temporal/.db/:/var/lib/postgresql/data
 
   temporal:
     container_name: temporal
@@ -35,10 +33,8 @@ services:
     image: temporalio/auto-setup:${TEMPORAL_VERSION}
     networks:
       - temporal
-    # ports:
-    #   - 7233:7233
     volumes:
-      - ./temporal/:/etc/temporal/config/dynamicconfig
+      - ./temporal/config/:/etc/temporal/config/dynamicconfig
 
 networks:
   temporal:
