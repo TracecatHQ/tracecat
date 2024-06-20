@@ -47,6 +47,11 @@
       "name": "Community",
       "icon": "discord",
       "url": "https://discord.gg/n3GF4qxFU8"
+    },
+    {
+      "name": "Playbooks",
+      "icon": "play",
+      "url": "https://github.com/TracecatHQ/tracecat/tree/main/playbooks"
     }
   ],
   "navigation": [
