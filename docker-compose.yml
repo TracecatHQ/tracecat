@@ -23,6 +23,8 @@ services:
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
+    depends_on:
+      - postgres_db
     networks:
       - internal-network
 
