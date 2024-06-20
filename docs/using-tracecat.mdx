@@ -1,11 +1,22 @@
 ---
-title: User Interface
+title: Using Tracecat
 description: Security automation done your way.
 ---
 
-Tracecat's flexible user interface that allows you to build workflows in **headless** or **GUI** modes -- whichever suits you best.
+<Info>
+  We recommend building workflows in [headless mode](#headless-mode) using the
+  CLI + YAML. Our frontend UI is intended to be used as a visualizer for your
+  workflows and cases.
+</Info>
 
-## Interfaces Overview
+<Frame>
+  <img src="img/canvas_gd_slack.jpeg" />
+</Frame>
+
+Tracecat's flexible user interface that allows you to build workflows in **headless**
+mode and view your workflows in the UI (**GUI** mode).
+
+## Operational modes
 
 | Mode               | User interface        | Editor                        |
 | ------------------ | --------------------- | ----------------------------- |
@@ -14,30 +25,17 @@ Tracecat's flexible user interface that allows you to build workflows in **headl
 
 Across all the documentation, when we refer to "the UI", we're talking about the any of the user interfaces.
 
-Actions taken and edits made in either mode are reflected in the other. A workflow created in headless mode will show up in the GUI, and vice versa.
-
-<Warning>
-This two-way sync functionality is a work in progress. It's missing:
-
-- Workflow changes in headless mode should update the GUI graph object.
-
-**What this means for you now**:
-
-- For each workflow you create, please use its respective mode to edit it.
-
-</Warning>
-
 ## Headless mode
 
 In headless mode, workflows are built and edited using your IDE or text editor with a YAML-like DSL. More on this in the [workflows](/concepts/workflows) section.
-To operate Tracecat, this is done via the [REST API](/api-reference) or CLI.
+To operate Tracecat, this is done via the [REST API](/api-reference) or CLI. See the benefits of using YAML [here](/concepts/workflow-definitions#using-yaml).
 
 ### Command Line Interface (CLI)
 
 Tracecat's CLI thinly wraps around the REST API. It's built using [Typer](https://typer.tiangolo.com/) and requres Python to be installed.
 We recommend using the CLI if you can, as it's a more user-friendly interface compared to hitting the API directly. Please refer to the [CLI installation](/installation#headless-mode-only) guide for more information.
 
-_NOTE: We have plans to make the CLI more portable in the future._
+_NOTE: We are working on making the CLI more portable._
 
 ## GUI mode
 
@@ -70,3 +68,9 @@ The workspace is where you manage your workflows, secrets, and events.
 
 - Commit changes to the workflow.
 - Enable or disable the workflow.
+
+## Two-way sync
+
+Actions taken and edits made in either headless or GUI mode are reflected in the other. A workflow created in headless mode will show up in the GUI, and vice versa.
+
+<Tip>This two-way sync functionality is a work in progress.</Tip>

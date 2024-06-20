@@ -52,12 +52,15 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["introduction", "quickstart"]
+      "pages": [
+        "introduction",
+        "quickstart",
+        "using-tracecat"
+      ]
     },
     {
       "group": "Concepts",
       "pages": [
-        "concepts/user-interface",
         "concepts/workflows",
         "concepts/actions",
         "concepts/workflow-definitions",
