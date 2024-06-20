@@ -4,7 +4,7 @@ import { getAuthToken } from "@/lib/auth"
 import { isServer } from "@/lib/utils"
 
 // Determine the base URL based on the execution environment
-let baseURL = isServer()
+const baseURL = isServer()
   ? process.env.NEXT_SERVER_API_URL
   : process.env.NEXT_PUBLIC_API_URL
 
