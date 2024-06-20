@@ -34,7 +34,6 @@ services:
       - DEFAULT_NAMESPACE=tracecat
     image: temporalio/auto-setup:${TEMPORAL_VERSION}
     networks:
-      - internal-network
       - temporal
     # ports:
     #   - 7233:7233
