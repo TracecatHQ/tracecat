@@ -42,11 +42,6 @@ then
     exit
 fi
 
-# if ! command -v ngrok &> /dev/null
-# then
-#     echo -e "${RED}Ngrok could not be found. Please install Ngrok and try again.${NC}"
-#     exit
-# fi
 
 # If .env exists, ask user if they want to overwrite it
 if [ -f .env ]; then
@@ -59,27 +54,7 @@ if [ -f .env ]; then
 fi
 
 # Create .env file
-runner_url=""
 env_file=".env"
-
-# take inputs
-# Runner URL
-# Prompt the user for the runner URL, use stdin
-echo -e "${BLUE}We recommend using ngrok https://ngrok.com/ to set up a static domain for your Runner URL.${NC}"
-echo -ne "${BLUE}Enter the Runner URL (required, e.g., https://your-ngrok-static-domain.ngrok-free.app):${NC}"
-
-read runner_url
-
-# Runner integrations
-# OpenAI API key
-echo -ne "${BLUE}Enter your OpenAI API key to use AI functionality (optional, press Enter to skip):${NC}"
-read -s openai_api_key
-echo
-
-# Resend API key
-echo -ne "${BLUE}Enter your Resend API key to use Email functionality (optional, press Enter to skip):${NC}"
-read -s resend_api_key
-echo
 
 echo -e "${YELLOW}Generating new service key and signing secret...${NC}"
 service_key=$(openssl rand -hex 32)
@@ -97,12 +72,3 @@ cp .env.example .env
 dotenv_replace "TRACECAT__SERVICE_KEY" "$service_key" "$env_file"
 dotenv_replace "TRACECAT__SIGNING_SECRET" "$signing_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
-dotenv_replace "TRACECAT__PUBLIC_RUNNER_URL" "$runner_url" "$env_file"
-dotenv_replace "OPENAI_API_KEY" "$openai_api_key" "$env_file"
-dotenv_replace "RESEND_API_KEY" "$resend_api_key" "$env_file"
-
-# Check if the existing value matches the default value
-if [ "$runner_url" == "https://your-ngrok-runner-url" ]; then
-    echo -e "${RED}The TRACECAT__PUBLIC_RUNNER_URL value is missing. Please update it in the .env file.${NC}"
-    exit 1
-fi
