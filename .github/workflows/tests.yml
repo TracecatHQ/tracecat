@@ -95,13 +95,15 @@ jobs:
         run: |
           docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
 
-      - name: Verify Tracecat CLI installation
-        run: |
-          tracecat --help
-          docker run --rm ghcr.io/tracecathq/tracecat:latest --help
-
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
+
+      - name: Verify Tracecat CLI installation
+        env:
+          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
+        run: |
+          tracecat --help
+          docker run --rm ghcr.io/tracecathq/tracecat:$TRACECAT__IMAGE_TAG --help
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
