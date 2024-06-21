@@ -8,7 +8,7 @@ DOCKER_RUN_CMD = [
     "docker",
     "run",
     "--rm",  # Automatically remove the container when it exits
-    f"ghcr.io/tracecathq/tracecat/{IMAGE_TAG}",
+    f"ghcr.io/tracecathq/tracecat:{IMAGE_TAG}",
 ]
 
 
