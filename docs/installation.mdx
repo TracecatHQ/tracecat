@@ -172,13 +172,98 @@ If correctly set up, your .env should contain:
 TRACECAT__PUBLIC_RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
 ```
 
-### Setup Temporal
+### Install Temporal
 
-Visit [temporalio/docker-compose](https://github.com/temporalio/docker-compose) and follow their installation guide to clone this into a separate directory.
-We will just use the base `docker-compose.yml` for this.
+Tracecat's workflow orchestration layer is built on top of [Temporal](https://temporal.io/), an open-source workflow orchestration platform for building durable and scalable applications.
+
+You can read more about why and how we use Temporal [here](/concepts/workflows#workflow-orchestration-layer).
+
+#### Local environment: Temporal CLI
+
+You can find Temporal's CLI installation instructions [here](https://docs.temporal.io/cli#install).
+
+<CodeGroup>
+```bash MacOS
+brew install temporal
+```
+
+```bash Linux + WSL (amd64)
+ # Download the Temporal CLI archive
+curl -L -o temporal.tar.gz "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64"
+
+# Create a directory for the Temporal CLI.
+mkdir -p tamporal-cli
+
+# Extract the archive
+tar -xzf temporal.tar.gz -C temporal-cli
+
+# Add the Temporal CLI binary to the PATH
+export PATH=$PATH:$PWD/temporal-cli
+
+# Alternatively, you can add a symbolic link to the binary
+# ln -s temporal-cli/temporal /usr/local/bin/temporal
+
+# Verify installation
+temporal --version
+```
+
+```bash Linux + WSL (arm64)
+ # Download the Temporal CLI archive
+curl -L -o temporal.tar.gz "https://temporal.download/cli/archive/latest?platform=linux&arch=arm64"
+
+# Create a directory for the Temporal CLI
+mkdir -p temporal-cli
+
+# Extract the archive
+tar -xzf temporal.tar.gz -C temporal-cli
+
+# Add the Temporal CLI binary to the PATH
+export PATH=$PATH:$PWD/temporal-cli
+
+# Alternatively, you can add a symbolic link to the binary
+# ln -s temporal-cli/temporal /usr/local/bin/temporal
+
+# Verify installation
+temporal --version
+```
+
+```bash Windows
+Please see the Windows installaction guide on the Temporal docs.
+```
+
+</CodeGroup>
+
+For more installation options, see the [Temporal CLI installation guide](https://docs.temporal.io/cli#install).
+
+#### Porduction environment
+
+For production and cloud environments, we recommend the following guides:
+
+- [Temporal self-hosted guide](https://docs.temporal.io/self-hosted-guide)
+- [Temporal cloud guide](https://docs.temporal.io/cloud)
 
 <Tip>
-  Using the `env.sh` script will automatically set the environment variables required to connect to the local Temporal cluster.
+  This can be tricky. We'd love to help you on
+  [Discord](https://discord.gg/n3GF4qxFU8), or if you prefer to [meet with
+  us](https://cal.com/team/tracecat/hello)!
+</Tip>
+
+#### Environment variables
+
+These are the default environment variables that Tracecat uses to connect to the local Temporal server:
+
+```bash
+# For Tracecat workflow runners to connect to the Temporal server
+TEMPORAL__CLUSTER_URL=temporal:7233
+# For Temporal to schedule tasks that will be executed by the Tracecat workers
+TEMPORAL__CLUSTER_QUEUE=tracecat-task-queue
+# Isolated Temporal namespace for all Tracecat related activity
+TEMPORAL__CLUSTER_NAMESPACE=tracecat
+```
+
+<Tip>
+  Using the `env.sh` script will automatically set these environment variables
+  for you.
 </Tip>
 
 ## Start Tracecat
@@ -186,11 +271,10 @@ We will just use the base `docker-compose.yml` for this.
 The Tracecat stack manages services that span the application and persistence layers.
 Temporal manages the workflow orchestration layer.
 
-First, spin up the Temporal stack in the background. From the cloned `temporalio/docker-compose` repository run:
+First, in a separate terminal spin up the Temporal server:
 
 ```bash
-# In path/to/some/docker-compose
-docker compose up -d
+temporal server start-dev
 ```
 
 Finally, start Tracecat. Navigate to the `tracecat` root directory and run:
