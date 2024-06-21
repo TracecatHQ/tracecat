@@ -36,7 +36,7 @@
 - [x] Command-line interface
 - [x] Integrations
 
-Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simpliest way for modern security teams to build, scale, and maintain workflows. Tracecat enables security practitioners to build automations using both:
+Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simplest way for modern security teams to build, scale, and maintain workflows. Tracecat enables security practitioners to build automations using both:
 
 - No-code drag-and-drop UI
 - Configuration-as-code (e.g. Ansible / GitHub Actions)
