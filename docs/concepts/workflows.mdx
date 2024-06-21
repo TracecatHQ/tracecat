@@ -23,10 +23,26 @@ Kinds of triggers we support:
 - [**Webhooks**](/concepts/webhooks): Trigger a workflow by sending an HTTP request to a webhook URL.
 - [**Schedules**](/concepts/schedules): Trigger a workflow at a specific time or interval.
 
-## Orchestration Layer
+## Workflow Orchestration Layer
 
-Tracecat's workflow orchestration layer is built on top of Temporal, an open-source, stateful, and resilient orchestration engine.
-By offloading the orchestation logic to Temporal, we can fully focus on the execution logic here at Tracecat.
+Tracecat's workflow orchestration layer is responsible for managing how workflows and actions get executed.
+
+It's built on top of [Temporal](https://temporal.io/), which is an open-source platform for building durable and scalable applications.
+It provides a fault-tolerant runtime that ensures your application workflows can reliably execute to completion, even in the face of failures, network outages, or infrastructure issues.
+
+Tracecat's workflow runners (worker service) are built using Temporal's Python SDK. Temporal is responsible for distribuing workflow execution tasks to our workers.
+
+### Key Features
+
+- **Durable Execution**: Temporal preserves the entire state of your application workflows, allowing them to resume execution from the exact point they left off, even after crashes or infrastructure failures.
+
+- **Scalability**: Temporal can scale to handle high loads and a massive number of concurrent workflow executions.
+
+- **Reliability**: Workflow executions are designed to be resilient to worker process failures or cluster outages, ensuring progress can resume after any interruptions.
+
+- **Language Agnostic**: Temporal supports multiple programming languages, including Go, Java, Python, PHP, and TypeScript, enabling polyglot development.
+
+- **Visibility and Monitoring**: Temporal records every execution, its progress, and state, providing insights into errors and application performance. At the moment, Tracecat only supports the Python SDK.
 
 ## Child Workflows
 
