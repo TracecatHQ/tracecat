@@ -14,7 +14,7 @@ permissions:
   packages: write
 
 jobs:
-  push-to-ghcr:
+  push-api-to-ghcr:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -41,4 +41,34 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.tags }}
             ${{ github.ref == 'refs/heads/main' && 'ghcr.io/tracecathq/tracecat:latest' || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  push-ui-to-ghcr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/tracecathq/tracecat-ui
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: Dockerfile.prod
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ github.ref == 'refs/heads/main' && 'ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
           labels: ${{ steps.meta.outputs.labels }}
