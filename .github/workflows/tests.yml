@@ -91,15 +91,22 @@ jobs:
             echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
           fi
 
+      - name: Start Docker Compose services
+        run: |
+          docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
+
+      - name: Verify Tracecat CLI installation
+        run: |
+          tracecat --help
+          docker run --rm ghcr.io/tracecathq/tracecat:latest --help
+
+      - name: Verify Tracecat API is running
+        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
+
+      - name: Start Temporal server
+        run: nohup temporal server start-dev > temporal.log 2>&1 &
+
       - name: Run tests (headless mode)
         env:
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
-        run: |
-          # Start Tracecat services (without frontend)
-          docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
-
-          # Start Temporal lite server in detached mode
-          nohup temporal server start-dev > temporal.log 2>&1 &
-
-          # Run Tracecat tests
-          pytest tests/unit --temporal-no-restart --tracecat-no-restart
+        run: pytest tests/unit --temporal-no-restart --tracecat-no-restart
