@@ -1,9 +1,9 @@
 services:
   api:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
-    container_name: api
+    container_name: tracecat_api
     ports:
-      - "8000:8000"
+      - 8000:8000
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -21,11 +21,12 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
     networks:
-      - internal-network
+      - core
+      - temporal
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
-    container_name: worker
+    container_name: tracecat_worker
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -41,10 +42,11 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
     networks:
-      - internal-network
+      - core
+      - temporal
     entrypoint: ["python", "tracecat/dsl/worker.py"]
 
-  frontend:
+  ui:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
@@ -55,10 +57,10 @@ services:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY} # Sensitive
         NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
         NODE_ENV: ${NODE_ENV}
-    container_name: frontend
+    container_name: tracecat_ui
     env_file: .env
     ports:
-      - "3000:3000"
+      - 3000:3000
     environment:
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY} # Sensitive
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
@@ -74,25 +76,95 @@ services:
     depends_on:
       - api
     networks:
-      - internal-network
+      - core
 
   postgres_db:
     image: postgres:16.2-bullseye
-    container_name: postgres_db
+    container_name: tracecat_postgres_db
     ports:
-      - "5432:5432"
+      - 5432:5432
     restart: always
     shm_size: 128mb
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     networks:
-      - internal-network
+      - core
     volumes:
-      - db-storage:/var/lib/postgresql/data
+      - core-db:/var/lib/postgresql/data
+
+  temporal_postgres_db:
+    image: postgres:${TEMPORAL__POSTGRESQL_VERSION}
+    container_name: tracecat_temporal_postgres_db
+    environment:
+      POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
+    networks:
+      - temporal
+    volumes:
+      - temporal-db:/var/lib/postgresql/data
+
+  temporal_elasticsearch:
+    container_name: tracecat_temporal_elasticsearch
+    environment:
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=512mb
+      - cluster.routing.allocation.disk.watermark.high=256mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - xpack.security.enabled=false
+      - logger.level=WARN
+    image: elasticsearch:${TEMPORAL__ELASTICSEARCH_VERSION}
+    networks:
+      - temporal
+    volumes:
+      - temporal-elasticsearch:/var/lib/elasticsearch/data
+    expose:
+      - 9200
+
+  temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    container_name: tracecat_temporal_ui
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - temporal
+      - temporal_elasticsearch
+    networks:
+      - temporal
+    ports:
+      - 8080:8080
+
+  temporal:
+    image: temporalio/auto-setup:${TEMPORAL__VERSION}
+    container_name: tracecat_temporal
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
+      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
+      - POSTGRES_SEEDS=temporal_postgres_db
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/tracecat-sql.yaml
+      - ENABLE_ES=true
+      - ES_SEEDS=temporal_elasticsearch
+      - ES_VERSION=v7
+      - LOG_LEVEL=warn
+    ports:
+      - 7233:7233
+    depends_on:
+      - temporal_postgres_db
+    networks:
+      - temporal
+    volumes:
+      - ./temporal/config:/etc/temporal/config/dynamicconfig
 
 networks:
-  internal-network:
+  core:
+  temporal:
 
 volumes:
-  db-storage:
+  core-db:
+  temporal-db:
+  temporal-elasticsearch:
