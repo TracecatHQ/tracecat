@@ -49,8 +49,12 @@ COPY --chown=apiuser:apiuser ./requirements.txt /app/requirements.txt
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 
-# Install the Python dependencies
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+# Install package
+RUN pip install --upgrade pip && pip install ".[cli]"
+ENV PATH="/home/apiuser/.local/bin:$PATH"
+
+# Entrypoint for CLI
+ENTRYPOINT [ "tracecat" ]
 
 # Command to run the application
 CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT --reload"]
