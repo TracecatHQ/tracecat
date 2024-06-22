@@ -57,7 +57,7 @@ RUN pip install --no-deps ".[cli]"
 ENV PATH="/home/apiuser/.local/bin:$PATH"
 
 # Entrypoint for CLI
-ENTRYPOINT [ "python", "-c", "import requests; requests.get('http://localhost:8000')" ]
+ENTRYPOINT [ "tracecat" ]
 
 # Command to run the application
 CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT --reload"]
