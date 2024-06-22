@@ -19,7 +19,7 @@ class Config:
     docs_path: Path = field(default_factory=lambda: Path("docs"))
     docs_api_group: str = field(default="API Documentation")
     docs_api_pages_group: str = field(default="Reference")
-    api_url: str = field(default=config.TRACECAT__API_URL)
+    api_url: str = field(default=config.TRACECAT__EXTERNAL_API_URL)
 
 
 config = Config()
