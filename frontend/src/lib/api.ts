@@ -4,14 +4,9 @@ import { getAuthToken } from "@/lib/auth"
 import { isServer } from "@/lib/utils"
 
 // Determine the base URL based on the execution environment
-let baseURL = process.env.NEXT_PUBLIC_API_URL
-
-// Use different base url for server-side
-if (process.env.NODE_ENV === "development" && isServer()) {
-  baseURL = "http://host.docker.internal:8000"
-} else if (process.env.NODE_ENV === "production" && isServer()) {
-  baseURL = process.env.NEXT_SERVER_API_URL
-}
+const baseURL = isServer()
+  ? process.env.NEXT_SERVER_API_URL
+  : process.env.NEXT_PUBLIC_API_URL
 
 export const client = axios.create({
   baseURL,
