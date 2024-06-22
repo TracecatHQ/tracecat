@@ -108,7 +108,7 @@ jobs:
           # CLI via pip
           tracecat --help
           # CLI via Docker
-          docker run --rm ghcr.io/tracecathq/tracecat:$TRACECAT__IMAGE_TAG --help
+          docker run --network host --rm ghcr.io/tracecathq/tracecat:$TRACECAT__IMAGE_TAG --help
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
