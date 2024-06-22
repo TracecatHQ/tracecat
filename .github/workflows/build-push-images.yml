@@ -82,7 +82,7 @@ jobs:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "unused"
           NEXT_PUBLIC_DISABLE_AUTH: "true"
           NEXT_SERVER_API_URL: http://api:8000
-          NODE_ENV: production
+          NODE_ENV: development
         with:
           context: frontend
           file: frontend/Dockerfile.prod
