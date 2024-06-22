@@ -8,6 +8,7 @@ DOCKER_RUN_CMD = [
     "docker",
     "run",
     "--rm",  # Automatically remove the container when it exits
+    "--network=host",  # Use the host's network stack to call localhost
     f"ghcr.io/tracecathq/tracecat:{IMAGE_TAG}",
 ]
 
