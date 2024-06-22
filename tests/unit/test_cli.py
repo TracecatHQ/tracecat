@@ -1,24 +1,13 @@
 """Test CLI commands."""
 
-import os
 import subprocess
-
-IMAGE_TAG = os.environ["TRACECAT__IMAGE_TAG"]
-DOCKER_RUN_CMD = [
-    "docker",
-    "run",
-    "--rm",  # Automatically remove the container when it exits
-    "--network",  # Use the host's network stack to call localhost
-    "host",
-    f"ghcr.io/tracecathq/tracecat:{IMAGE_TAG}",
-]
 
 
 def test_create_secret():
     secret_name = "test_secret"
     keyvalues = ["KEY1=VAL1", "KEY2=VAL2"]
     cmd = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "secret",
         "create",
         secret_name,
@@ -35,7 +24,7 @@ def test_delete_secret():
 
     # Create the secret first
     create_cmd = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "secret",
         "create",
         secret_name,
@@ -47,7 +36,7 @@ def test_delete_secret():
 
     # Now delete the secret
     delete_cmd = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "secret",
         "delete",
         secret_name,
@@ -65,7 +54,7 @@ def test_list_secrets():
 
     # Create the first secret
     create_cmd1 = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "secret",
         "create",
         secret_name1,
@@ -77,7 +66,7 @@ def test_list_secrets():
 
     # Create the second secret
     create_cmd2 = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "secret",
         "create",
         secret_name2,
@@ -89,7 +78,7 @@ def test_list_secrets():
 
     # Now list the secrets
     list_cmd = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "secret",
         "list",
     ]
@@ -106,7 +95,7 @@ def test_create_workflow():
     title = "Test Workflow"
     description = "This is a test workflow"
     cmd = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "workflow",
         "create",
         "--title",
@@ -124,7 +113,7 @@ def test_list_workflows():
     title1 = "Test Workflow 1"
     description1 = "This is the first test workflow"
     create_cmd1 = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "workflow",
         "create",
         "--title",
@@ -140,7 +129,7 @@ def test_list_workflows():
     title2 = "Test Workflow 2"
     description2 = "This is the second test workflow"
     create_cmd2 = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "workflow",
         "create",
         "--title",
@@ -154,7 +143,7 @@ def test_list_workflows():
 
     # List workflows
     list_cmd = [
-        *DOCKER_RUN_CMD,
+        "tracecat",
         "workflow",
         "list",
     ]
