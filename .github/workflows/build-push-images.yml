@@ -7,6 +7,8 @@ on:
       - "main"
     tags:
       - "v*"
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -37,6 +39,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/tracecathq/tracecat
+          tags: type=semver,pattern={{version}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -46,6 +49,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta.outputs.tags }}
+            ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
             ${{ github.ref == 'refs/heads/main' && 'ghcr.io/tracecathq/tracecat:latest' || '' }}
           labels: ${{ steps.meta.outputs.labels }}
 
@@ -73,6 +77,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/tracecathq/tracecat-ui
+          tags: |
+            type=semver,pattern={{version}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -99,5 +105,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta.outputs.tags }}
+            ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
             ${{ github.ref == 'refs/heads/main' && 'ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
           labels: ${{ steps.meta.outputs.labels }}
