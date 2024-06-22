@@ -41,7 +41,7 @@ jobs:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "secret-clerk-publishable-key"
           NEXT_PUBLIC_DISABLE_AUTH: "true"
-          NEXT_SERVER_API_URL: http://api:8000
+          NEXT_SERVER_API_URL: http://localhost:8000
           NODE_ENV: development
         run: pnpm build
         working-directory: ./frontend
