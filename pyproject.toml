@@ -29,6 +29,7 @@ dependencies = [
     "cloudpickle==3.0.0",
     "colorlog==6.8.2",
     "croniter==2.0.5",
+    "crowdstrike-falconpy==1.4.4",
     "cryptography==42.0.7",
     "diskcache==5.6.3",
     "fastapi==0.111.0",
