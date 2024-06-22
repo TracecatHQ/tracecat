@@ -27,23 +27,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Mask sensitive data
-        run: |
-          echo "::add-mask::${{ secrets.INTEGRATION__ABUSECH_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__ABUSEIPDB_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__AWS_GUARDDUTY__ACCESS_KEY_ID }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__AWS_GUARDDUTY__SECRET_ACCESS_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__DD_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__DD_APP_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__HYBRID_ANALYSIS_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__OPENAI_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__PULSEDRIVE_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__RESEND_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__SLACK_BOT_TOKEN }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__SLACK_CHANNEL }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__URLSCAN_API_KEY }}"
-          echo "::add-mask::${{ secrets.INTEGRATION__VT_API_KEY }}"
-
       - name: Run environment setup script
         run: bash env.sh
 
@@ -67,6 +50,23 @@ jobs:
 
       - name: Verify Tracecat CLI installation
         run: tracecat --help
+
+      - name: Mask sensitive data
+        run: |
+          echo "::add-mask::${{ secrets.INTEGRATION__ABUSECH_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__ABUSEIPDB_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__AWS_GUARDDUTY__ACCESS_KEY_ID }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__AWS_GUARDDUTY__SECRET_ACCESS_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__DD_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__DD_APP_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__HYBRID_ANALYSIS_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__OPENAI_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__PULSEDRIVE_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__RESEND_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__SLACK_BOT_TOKEN }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__SLACK_CHANNEL }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__URLSCAN_API_KEY }}"
+          echo "::add-mask::${{ secrets.INTEGRATION__VT_API_KEY }}"
 
       - name: Run playbooks
         env:
