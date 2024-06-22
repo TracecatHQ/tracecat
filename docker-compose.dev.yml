@@ -7,13 +7,13 @@ services:
     build: .
     volumes:
       - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
+      - core-app:/var/lib/tracecat
 
   worker:
     build: .
     volumes:
       - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
+      - core-app:/var/lib/tracecat
 
   frontend:
     build:
@@ -32,5 +32,4 @@ services:
       - ./frontend/node_modules:/app/node_modules
 
 volumes:
-  app-storage:
-  db-storage:
+  core-app:
