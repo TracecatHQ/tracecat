@@ -20,7 +20,7 @@ actions:
     for_each: ${{ for var.alert in ACTIONS.pull_crowdstrike_alerts.result }}
     args:
       value:
-        title: ${{ var.alert__name }} # Name of the detection
+        title: ${{ var.alert.name }} # Name of the detection
         description: ${{ var.alert.description }} # Description of the detected file or activity
         payload:
           rule: ${{ var.alert.id }} # Identifier associated with the alert
