@@ -20,6 +20,7 @@ from tracecat.db.schemas import (
     CaseContext,
     CaseSchema,
     UDFSpec,
+    User,
     Webhook,
     Workflow,
 )
@@ -102,6 +103,14 @@ def initialize_db() -> Engine:
         logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
         session.add_all(udfs)
         session.commit()
+
+        user_id = "default-tracecat-user"
+        result = session.exec(select(User).where(User.id == user_id).limit(1))
+        if not result.one_or_none():
+            # Create a default user if it doesn't exist
+            user = User(owner_id="tracecat", id=user_id)
+            session.add(user)
+            session.commit()
     return engine
 
 
