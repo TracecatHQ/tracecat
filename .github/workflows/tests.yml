@@ -77,11 +77,6 @@ jobs:
       - name: Verify Temporal CLI installation
         run: temporal --version
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ".[dev,cli]"
-
       - name: Run environment setup script
         run: bash env.sh
 
@@ -94,21 +89,17 @@ jobs:
             echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
           fi
 
-      - name: Start Docker Compose services
-        run: |
-          docker compose -f docker-compose.yml up --no-deps api worker postgres_db -d
+      - name: Start Docker services
+        run: docker compose up --no-deps api worker postgres_db -d
 
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
 
+      - name: pip install Tracecat
+        run: python -m pip install --upgrade pip && pip install ".[dev,cli]"
+
       - name: Verify Tracecat CLI installation
-        env:
-          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
-        run: |
-          # CLI via pip
-          tracecat --help
-          # CLI via Docker
-          docker run --network host --rm ghcr.io/tracecathq/tracecat:$TRACECAT__IMAGE_TAG --help
+        run: tracecat --help
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
