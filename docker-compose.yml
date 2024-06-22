@@ -49,7 +49,6 @@ services:
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-latest}
     container_name: tracecat_ui
-    env_file: .env
     ports:
       - 3000:3000
     environment:
