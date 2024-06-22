@@ -107,7 +107,7 @@ async def _list_workflows():
     async with user_client() as client:
         res = await client.get("/workflows")
         res.raise_for_status()
-    return dynamic_table(res.json(), "Workfows")
+    return dynamic_table(res.json(), "Workflows")
 
 
 async def _get_cases(workflow_id: str):
