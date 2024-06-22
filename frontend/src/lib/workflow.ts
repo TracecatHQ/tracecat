@@ -59,7 +59,7 @@ export async function createWorkflow(
   return workflowMetadataSchema.parse(response.data)
 }
 
-export async function fetchAllWorkflows(): Promise<WorkflowMetadata[] | null> {
+export async function fetchAllWorkflows(): Promise<WorkflowMetadata[]> {
   try {
     const response = await client.get<WorkflowMetadata[]>("/workflows")
     const workflows = response.data
@@ -67,7 +67,7 @@ export async function fetchAllWorkflows(): Promise<WorkflowMetadata[] | null> {
     return z.array(workflowMetadataSchema).parse(workflows)
   } catch (error) {
     console.error("Error fetching workflows:", error)
-    return null
+    throw error
   }
 }
 
