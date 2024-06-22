@@ -3,6 +3,13 @@
 import subprocess
 
 
+def test_whoami():
+    cmd = ["tracecat", "dev", "whoami"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert "user_id='default-tracecat-user'" in result.stdout
+
+
 def test_create_secret():
     secret_name = "test_secret"
     keyvalues = ["KEY1=VAL1", "KEY2=VAL2"]
