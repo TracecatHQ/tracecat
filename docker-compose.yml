@@ -136,7 +136,6 @@ services:
       - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/tracecat-sql.yaml
       - ENABLE_ES=true
       - ES_SEEDS=temporal_elasticsearch
       - ES_VERSION=v7
@@ -147,8 +146,6 @@ services:
       - temporal_postgres_db
     networks:
       - temporal
-    volumes:
-      - ./temporal/config:/etc/temporal/config/dynamicconfig
 
 networks:
   core:
