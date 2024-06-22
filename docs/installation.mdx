@@ -8,10 +8,7 @@ description: Run Tracecat locally.
   [Discord](https://discord.gg/n3GF4qxFU8)!
 </Note>
 
-Install Tracecat locally on your machine.
-
-_NOTE: The default setup is not intended for production use, but rather for
-testing and development._
+In this guide, we will show you how to run Tracecat locally using Docker Compose.
 
 ## Video Tutorial
 
@@ -19,140 +16,113 @@ _Updated video tutorial coming soon!_
 
 ## Prerequisites
 
-Tracecat can operate in **Headless mode** (no frontend, optional CLI) or **GUI mode** (with frontend).
+Before you start, make sure you have the following installed:
 
-<Warning>
-  <>
-    Tracecat runs best on MacOS and and Windows WSL (Ubuntu 20.04 + Docker
-    Desktop in Windows).
-  </>
-  <>
-    Linux (Ubuntu 20.04) is also supported, but **you may encounter issues with
-    Docker DNS resolution in GUI mode. Please see [Docker
-    networking](#docker-networking) to troubleshoot.**
-  </>
-</Warning>
+- [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+)
+- [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2: `docker compose`)
 
-### Required
+You can install [Docker Desktop](https://www.docker.com/products/docker-desktop/) to get both Docker Engine and Docker Compose.
 
-Core infrastructure for both headless and GUI modes.
+If you wish to expose webhooks to the internet, see the section on [exposing webhooks](#expose-webhooks).
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) (built-in resolution for `host.docker.internal`)
-- [Docker](https://docs.docker.com/get-docker/) (Docker Engine v20.10+; ships with Docker Desktop)
-- [Docker Compose](https://docs.docker.com/compose/install/) (Compose V2; ships with Docker Desktop)
-- [ngrok](https://ngrok.com/) (recommended for tunneling)
-- [Temporal](https://github.com/temporalio/docker-compose) (clone this into a separate directory)
+To add API credentials for integrations, see [secrets](/concepts/secrets).
+You can find the full list of out-of-the-box integrations and their required credentials [here](/integrations).
 
-### Headless mode only
+## Setup Tracecat on localhost
 
-You can operate Tracecat directly through the REST API.
+Tracecat can be deployed locally with just 4 files.
 
-It also has a CLI, though you'll need Python 3.12+ and pip to install it.
-
-- [Python 3.12+](https://www.python.org/downloads/) (CLI only)
-- [pip](https://pip.pypa.io/en/stable/installation/) (CLI only)
-
-### GUI mode only
-
-You'll need this to run the Tracecat frontend.
-
-- [pnpm](https://pnpm.io/installation) (with Node v20+)
-
-### Optional
-
-You don't have to set up these services to run Tracecat, but they are required for certain features.
-
-- [OpenAI API key](https://platform.openai.com/signup) (required for AI actions)
-- [Resend API Key](https://resend.com/docs/introduction) (required for Email actions)
-
-## Setup
-
-Please install the prerequisite tools beforehand.
-
-First, clone the Tracecat repository:
+Run these commands to download the files from the Tracecat github repository:
 
 ```bash
-git clone git@github.com:TracecatHQ/tracecat.git
-cd tracecat
+curl https://raw.githubusercontent.com/TracecatHQ/tracecat/main/docker-compose.yml -o docker-compose.yml
+curl https://raw.githubusercontent.com/TracecatHQ/tracecat/main/env.sh -o env.sh
+curl https://raw.githubusercontent.com/TracecatHQ/tracecat/main/.env.example -o .env.example
 ```
-
-### GUI mode
-
-To install the frontend dependencies using `pnpm`:
-
-```bash
-# From the Tracecat directory root
-cd frontend
-pnpm install
-```
-
-<Note>
-  The frontend Docker container looks for `node_modules` on the host machine.
-</Note>
-
-### Headless CLI mode (optional)
-
-To do this we'll have to install the Tracecat CLI. We recommend installing the CLI in a virtual environment with `pip`.
-
-Activate your virtual environment, then install the CLI:
-
-```bash
-# With your venv activated
-pip install ".[cli]"
-```
-
-You can now access the Tracecat CLI by running:
-
-```bash
-tracecat  # or 'tracecat --help'
-```
-
-<Note>
-  If you use `oh-my-zsh`, running just `tracecat` might move you into the
-  Tracecat package. To avoid this you can run `tracecat --help` to see the
-  available commands. All other commands should work as expected.
-</Note>
 
 ### Environment variables
 
-#### Manual
+We provide a script called `env.sh` that creates a `.env` file with a fresh database encryption key, API service key, and webhook signing secret for you.
 
-To manually set up environment variables, copy `.env.example` to create a `.env` file.
-
-```bash
-cp .env.example .env
-```
-
-You will have to replace the environment variables prefixed with `your-.*` with your own values.
-
-#### Using `env.sh` (recommended)
-
-The `env.sh` script runs commands to set up the database encryption key, API service key, and webhook signing secret for you.
-
-Run the following command to create a `.env` file in the root directory:
-
-```bash
+<CodeGroup>
+```bash Setup script (recommended)
 chmod +x env.sh
-bash env.sh
+./env.sh
+```
+```bash Manual
+cp .env.example .env
+# You will have to replace the environment variables prefixed with `your-.*` with your own values.
 ```
 
-You'll be prompted to enter your public facing runner URL, optional OpenAI API key, and optional Resend API key.
-If you'd rather provide these later, you can skip each prompt step by pressing `Enter`.
+</CodeGroup>
 
-If you use `ngrok`, the public runner URL should take the form `https://<your-ngrok-domain>.ngrok-free.app`.
-See the section [Expose webhooks via ngrok](#expose-webhooks-via-ngrok) for more details.
+| Prefix         | Description                                                                                                    |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `TRACECAT__`   | Tracecat's internal environment variables                                                                      |
+| `TEMPORAL__`   | Tracecat's Temporal-specific environment variables. Tracecat uses these to connect to local Temporal services. |
+| `CLERK_`       | Clerk-specific environment variables                                                                           |
+| `NEXT_PUBLIC_` | NextJS-specific public environment variables                                                                   |
+| `NEXT_SERVER_` | NextJS-specific environment variables                                                                          |
 
-### Expose webhooks via ngrok
+<Tip>
+  The Temporal setup in the base docker compose file is for local use. For
+  production and cloud deployments, we'd love to help you on
+  [Discord](https://discord.gg/n3GF4qxFU8), or if you prefer to [meet with
+  us](https://cal.com/team/tracecat/hello)!
+</Tip>
 
+### Start Tracecat
+
+Start the Tracecat services defined in the `docker-compose.yml` file:
+
+```bash
+docker compose up -d
+```
+
+### Expose webhooks (optional)
+
+Your webhooks are not exposed to the internet by default.
+That said, you can still run workflows directly using the Tracecat CLI or hitting `localhost` endpoints.
+
+If you wish to expose webhooks to the internet, you can use a reverse tunnel like `ngrok` or `bore` to expose your local services to the internet.
+
+Full list of alternative tunneling services [here](https://github.com/anderspitman/awesome-tunneling).
+
+<AccordionGroup>
+<Accordion title="bore">
+Full instructions [here](https://github.com/ekzhang/bore).
+
+Install `bore` by running:
+
+```bash
+brew install bore-cli
+```
+
+Then run the following command to route your local port 8000 through bore's public URL:
+
+```bash
+bore local 8000 --to bore.pub
+```
+
+Update your `.env` file with the public runner URL:
+
+```bash
+TRACECAT__PUBLIC_RUNNER_URL=https://the-url-you-get-from-bore.pub
+```
+
+Finally, restart the docker compose stack to apply the changes.
+
+</Accordion>
+<Accordion title="ngrok">
 Go to [ngrok](https://ngrok.com/) and create an account.
 Follow the instructions in [getting started](https://dashboard.ngrok.com/get-started/setup) to install `ngrok` on your local machine.
 Then, go to [ngrok dashboard](https://dashboard.ngrok.com/cloud-edge/domains) and create a new domain (you get 1 free static domain).
 The domain should be in the format `<some-random-phrase>.ngrok-free.app`.
 
-For example, if your ngrok domain is `your-grnok-domain.ngrok-free.app`, start `ngrok` by running the following command:
+Start `ngrok` by running the following command:
 
 ```bash
-ngrok http --domain=your-ngrok-domain.ngrok-free.app 8000
+ngrok http --domain=${YOUR_NGROK_DOMAIN}.ngrok-free.app 8000
 ```
 
 If you don't have a static domain, you can use a free ephemeral domain by running:
@@ -169,133 +139,23 @@ ngrok http http://localhost:8000
 If correctly set up, your .env should contain:
 
 ```bash
-TRACECAT__PUBLIC_RUNNER_URL=https://your-ngrok-domain.ngrok-free.app
+TRACECAT__PUBLIC_RUNNER_URL=https://${YOUR_NGROK_DOMAIN}.ngrok-free.app
 ```
 
-### Install Temporal
+Finally, restart the docker compose stack to apply the changes.
 
-Tracecat's workflow orchestration layer is built on top of [Temporal](https://temporal.io/), an open-source workflow orchestration platform for building durable and scalable applications.
+</Accordion>
+</AccordionGroup>
 
-You can read more about why and how we use Temporal [here](/concepts/workflows#workflow-orchestration-layer).
-
-#### Local environment: Temporal CLI
-
-You can find Temporal's CLI installation instructions [here](https://docs.temporal.io/cli#install).
-
-<CodeGroup>
-```bash MacOS
-brew install temporal
-```
-
-```bash Linux + WSL (amd64)
- # Download the Temporal CLI archive
-curl -L -o temporal.tar.gz "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64"
-
-# Create a directory for the Temporal CLI.
-mkdir -p tamporal-cli
-
-# Extract the archive
-tar -xzf temporal.tar.gz -C temporal-cli
-
-# Add the Temporal CLI binary to the PATH
-export PATH=$PATH:$PWD/temporal-cli
-
-# Alternatively, you can add a symbolic link to the binary
-# ln -s temporal-cli/temporal /usr/local/bin/temporal
-
-# Verify installation
-temporal --version
-```
-
-```bash Linux + WSL (arm64)
- # Download the Temporal CLI archive
-curl -L -o temporal.tar.gz "https://temporal.download/cli/archive/latest?platform=linux&arch=arm64"
-
-# Create a directory for the Temporal CLI
-mkdir -p temporal-cli
-
-# Extract the archive
-tar -xzf temporal.tar.gz -C temporal-cli
-
-# Add the Temporal CLI binary to the PATH
-export PATH=$PATH:$PWD/temporal-cli
-
-# Alternatively, you can add a symbolic link to the binary
-# ln -s temporal-cli/temporal /usr/local/bin/temporal
-
-# Verify installation
-temporal --version
-```
-
-```bash Windows
-Please see the Windows installaction guide on the Temporal docs.
-```
-
-</CodeGroup>
-
-For more installation options, see the [Temporal CLI installation guide](https://docs.temporal.io/cli#install).
-
-#### Production environment
-
-For production and cloud environments, we recommend the following guides:
-
-- [Temporal self-hosted guide](https://docs.temporal.io/self-hosted-guide)
-- [Temporal cloud guide](https://docs.temporal.io/cloud)
-
-<Tip>
-  This can be tricky. We'd love to help you on
-  [Discord](https://discord.gg/n3GF4qxFU8), or if you prefer to [meet with
-  us](https://cal.com/team/tracecat/hello)!
-</Tip>
-
-#### Environment variables
-
-These are the default environment variables that Tracecat uses to connect to the local Temporal server:
-
-```bash
-# For Tracecat workflow runners to connect to the Temporal server
-TEMPORAL__CLUSTER_URL=temporal:7233
-# For Temporal to schedule tasks that will be executed by the Tracecat workers
-TEMPORAL__CLUSTER_QUEUE=tracecat-task-queue
-# Isolated Temporal namespace for all Tracecat related activity
-TEMPORAL__CLUSTER_NAMESPACE=tracecat
-```
-
-<Tip>
-  Using the `env.sh` script will automatically set these environment variables
-  for you.
-</Tip>
-
-## Start Tracecat
-
-The Tracecat stack manages services that span the application and persistence layers.
-Temporal manages the workflow orchestration layer.
-
-First, in a separate terminal spin up the Temporal server:
-
-```bash
-temporal server start-dev
-```
-
-Finally, start Tracecat. Navigate to the `tracecat` root directory and run:
-
-<CodeGroup>
-
-```bash Headless mode
-# In path/to/tracecat
-docker compose up api postgres_db worker
-```
-
-```bash GUI mode
-docker compose up
-```
-
-</CodeGroup>
+<Info>
+  In the interest of security, we recommend using a tunneling service only for
+  development/testing purposes.
+</Info>
 
 ## Access Tracecat
 
-The Tracecat frontend should now be running on port `3000`.
-To access the frontend, open your browser and navigate to [http://localhost:3000](http://localhost:3000).
+The Tracecat UI should now be running on port `3000`.
+To access the UI, open your browser and navigate to [http://localhost:3000](http://localhost:3000).
 You do not need to create an account for local usage.
 
 Tracecat's API server is also accessible via port `8000`. You should see
@@ -316,86 +176,3 @@ You can also visit the Temporal Web UI (port `8080`) at [http://localhost:8080](
   production-ready self-hosting solution, we recommend using one of our [Cloud
   deployment](/deployment) strategies.
 </Check>
-
-## Stop Tracecat
-
-To spin down all services, in both the cloned `temporalio/docker-compose` and `tracecat` root directories run the following command:
-
-```bash
-# Separately in both /path/to/some/docker-compose and /path/to/tracecat
-docker compose down --remove-orphans
-```
-
-## Authentication
-
-So far, we've shown how to run Tracecat locally without authentication and running with a default user.
-
-If you want to enable authentication, you can set the `TRACECAT__DISABLE_AUTH` environment variable to `false` or `0` in the `.env` file. This requires you to have a Clerk account and set up the Clerk environment variables in `.env`.
-
-```bash
-# --- Authentication + Clerk ---
-TRACECAT__DISABLE_AUTH=0
-# Fill these in!
-CLERK_FRONTEND_API_URL=...
-CLERK_SECRET_KEY=...
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
-```
-
-Finally, you will need to add custom claims to your sessions - follow the steps in [this Clerk blog post](https://clerk.com/blog/add-onboarding-flow-for-your-application-with-clerk#add-custom-claims-to-your-session-token).
-
-## Troubleshooting
-
-### Docker networking
-
-Some users face issues with Docker DNS resolution. What has often resolved their issues is to use `host.docker.internal` in certain places where container services are being referenced.
-This allows Docker containers to reference the Docker host machine.
-
-For example, if you have a service `api` running in a container with port mapping `1234:8000` (mapping of port 1234 on the Docker host and 8000 in the container), from inside the Docker network you should be able to reference it using `http://api:8000`.
-
-### Linux DNS resolution
-
-If you are using Linux, you may encounter issues around being unable to resolve `host.docker.internal` from within the Docker containers.
-To resolve this, you can add the following parameter to each of the services in the `docker-compose.yaml` file, as suggested by this [StackOverflow post](https://stackoverflow.com/a/67158212).
-
-For example:
-
-```yaml
-# See the comments (1) and (2) below
-services:
-  api:
-    build: .
-    container_name: api
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./tracecat:/app/tracecat
-      - app-storage:/var/lib/tracecat
-    environment:
-      # Tracecat configs
-      LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      TRACECAT__DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      # Clerk auth
-      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
-      # Integrations
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    restart: unless-stopped
-    networks:
-      - tracecat-network
-    ###### (1) Add this section here ######
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    #######################################
-# (2) Repeat this change for ALL of the services
-# ...
-```
-
-On MacOS and Windows WSL, you shouldn't have this issue.
-If you do, please refer to the [Docker networking docs](https://docs.docker.com/network/)
-or reach out to us on [Discord](https://discord.gg/n3GF4qxFU8) for help.
