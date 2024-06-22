@@ -29,7 +29,6 @@ from tracecat.api.completions import (
     stream_case_completions,
 )
 from tracecat.auth.credentials import (
-    Role,
     authenticate_service,
     authenticate_user,
     authenticate_user_or_service,
@@ -95,6 +94,7 @@ from tracecat.types.api import (
     WorkflowRunEventParams,
     WorkflowRunResponse,
 )
+from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
 

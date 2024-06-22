@@ -5,7 +5,6 @@ from httpx import AsyncClient
 
 from tracecat.auth.clients import AuthenticatedAPIClient, AuthenticatedServiceClient
 from tracecat.auth.credentials import (
-    Role,
     decrypt,
     decrypt_object,
     encrypt,
@@ -13,6 +12,7 @@ from tracecat.auth.credentials import (
 )
 from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_role
+from tracecat.types.auth import Role
 
 
 def test_encrypt_decrypt():

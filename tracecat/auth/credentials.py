@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 from functools import partial
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import httpx
 import orjson
@@ -15,10 +15,10 @@ from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
 from loguru import logger
-from pydantic import BaseModel
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.types.auth import Role
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -30,38 +30,6 @@ CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 IS_AUTH_DISABLED = str(os.environ.get("TRACECAT__DISABLE_AUTH")) in ("true", "1")
-
-
-class Role(BaseModel):
-    """The role of the session.
-
-    Params
-    ------
-    type : Literal["user", "service"]
-        The type of role.
-    user_id : str | None
-        The user's JWT 'sub' claim, or the service's user_id.
-        This can be None for internal services, or when a user hasn't been set for the role.
-    service_id : str | None = None
-        The service's role name, or None if the role is a user.
-
-
-    User roles
-    ----------
-    - User roles are authenticated via JWT.
-    - The `user_id` is the user's JWT 'sub' claim.
-    - User roles do not have an associated `service_id`, this must be None.
-
-    Service roles
-    -------------
-    - Service roles are authenticated via API key.
-    - Used for internal services to authenticate with the API.
-    - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
-    """
-
-    type: Literal["user", "service"]
-    user_id: str | None = None
-    service_id: str | None = None
 
 
 def compute_hash(object_id: str) -> str:

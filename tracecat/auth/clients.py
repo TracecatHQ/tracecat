@@ -5,8 +5,8 @@ import os
 import httpx
 
 from tracecat import config
-from tracecat.auth.credentials import Role
 from tracecat.contexts import ctx_role
+from tracecat.types.auth import Role
 
 
 class AuthenticatedServiceClient(httpx.AsyncClient):

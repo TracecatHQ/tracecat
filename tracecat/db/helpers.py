@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 
 from tracecat.auth.clients import AuthenticatedAPIClient
-from tracecat.auth.credentials import Role
 from tracecat.db.schemas import Secret
+from tracecat.types.auth import Role
 
 
 async def batch_get_secrets(role: Role, secret_names: list[str]) -> list[Secret]:

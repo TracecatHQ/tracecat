@@ -40,8 +40,8 @@ def monkeysession(request):
 # NOTE: Don't auto-use this fixture unless necessary
 @pytest.fixture(scope="session")
 def auth_sandbox():
-    from tracecat.auth.credentials import Role
     from tracecat.contexts import ctx_role
+    from tracecat.types.auth import Role
 
     service_role = Role(
         type="service", user_id="test-tracecat-user", service_id="tracecat-testing"

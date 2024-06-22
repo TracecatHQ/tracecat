@@ -23,7 +23,7 @@ with workflow.unsafe.imports_passed_through():
         eval_templated_object,
         extract_templated_secrets,
     )
-    from tracecat.auth.credentials import Role
+    from tracecat.types.auth import Role
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.common import ActionStatement, DSLInput
