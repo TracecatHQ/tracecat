@@ -2,10 +2,10 @@ import httpx
 import pytest
 import pytest_mock
 
-from tracecat.auth.credentials import Role
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
+from tracecat.types.auth import Role
 from tracecat.types.secrets import SecretKeyValue
 
 

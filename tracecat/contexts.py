@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from tracecat import identifiers
 
 if TYPE_CHECKING:
-    from tracecat.auth.credentials import Role
+    from tracecat.types.auth import Role
 
 
 class RunContext(BaseModel):

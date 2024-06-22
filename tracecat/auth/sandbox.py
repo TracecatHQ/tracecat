@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Literal, Self
 from loguru import logger
 
 from tracecat.auth.clients import AuthenticatedAPIClient
-from tracecat.auth.credentials import Role
 from tracecat.contexts import ctx_role
+from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
     from tracecat.db.schemas import Secret
