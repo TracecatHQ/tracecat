@@ -37,7 +37,7 @@ jobs:
 
       - name: Build project
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:3000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "secret-clerk-publishable-key"
           NEXT_PUBLIC_DISABLE_AUTH: "true"
