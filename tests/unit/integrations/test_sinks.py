@@ -21,6 +21,8 @@ def setup_database(tmp_path):
         """)
         conn.commit()
         yield uri, file_path
+
+    with sqlite3.connect(file_path) as conn:
         conn.close()
 
 
