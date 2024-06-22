@@ -1,4 +1,4 @@
-name: Update draft release
+name: Update Draft Release
 
 on:
   push:
