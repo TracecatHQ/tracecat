@@ -10,7 +10,6 @@ from pydantic import (
     Field,
     TypeAdapter,
     model_validator,
-    root_validator,
 )
 from pydantic.alias_generators import to_camel
 
@@ -117,7 +116,7 @@ class RFEdge(TSObject):
 
     label: str | None = Field(default=None, description="Edge label")
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def generate_id(cls, values):
         """Generate the ID as a concatenation of source and target with a prefix."""
         source = values.get("source")
