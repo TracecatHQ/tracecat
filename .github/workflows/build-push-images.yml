@@ -85,6 +85,12 @@ jobs:
         with:
           context: frontend
           file: frontend/Dockerfile.prod
+          build-args: |
+            NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+            NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+            NEXT_PUBLIC_DISABLE_AUTH=$NEXT_PUBLIC_DISABLE_AUTH
+            NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
+            NODE_ENV=$NODE_ENV
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
