@@ -76,6 +76,12 @@ jobs:
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_PUBLIC_DISABLE_AUTH: "true"
+          NEXT_SERVER_API_URL: http://api:8000
+          NODE_ENV: production
         with:
           context: frontend
           file: frontend/Dockerfile.prod
