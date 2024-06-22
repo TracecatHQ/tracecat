@@ -307,7 +307,85 @@ actions:
         ...
 ```
 
-## Evaluation Steps
+### Function Expressions
+
+Function expressions are expressions that target the `FN` context.
+
+```css
+${{ FN.<fn_name>(<arg1>, <arg2>, ...) }}
+
+```
+
+Our syntax allows for nested expressions, so you can use the result of one function as an argument to another function:
+
+```css
+${{ FN.add(FN.add(1, 2), 3) }}
+```
+
+#### Supported Functions
+
+| Name                    | Description                                |
+| ----------------------- | ------------------------------------------ |
+| `less_than`             | less than comparison                       |
+| `less_than_or_equal`    | less than or equal comparison              |
+| `greater_than`          | greater than comparison                    |
+| `greater_than_or_equal` | greater than or equal comparison           |
+| `not_equal`             | not equal comparison                       |
+| `is_equal`              | equal comparison                           |
+| `not_null`              | check if value is not null                 |
+| `is_null`               | check if value is null                     |
+| `regex_extract`         | extract match using regex pattern          |
+| `regex_match`           | check if text matches regex pattern        |
+| `regex_not_match`       | check if text does not match regex pattern |
+| `contains`              | check if container contains item           |
+| `does_not_contain`      | check if container does not contain item   |
+| `length`                | get the length of a collection             |
+| `is_empty`              | check if collection is empty               |
+| `not_empty`             | check if collection is not empty           |
+| `add`                   | add two numbers                            |
+| `sub`                   | subtract two numbers                       |
+| `mul`                   | multiply two numbers                       |
+| `div`                   | divide two numbers                         |
+| `mod`                   | get the modulus of two numbers             |
+| `pow`                   | raise a number to a power                  |
+| `sum`                   | sum a collection of numbers                |
+| `join`                  | join items in a list with a separator      |
+| `concat`                | concatenate multiple items into a string   |
+| `format`                | format a string                            |
+| `and`                   | logical and operation                      |
+| `or`                    | logical or operation                       |
+| `not`                   | logical not operation                      |
+| `serialize_json`        | convert json to string                     |
+| `from_timestamp`        | convert timestamp to datetime              |
+
+<Note>
+  This list is not exhaustive, and we plan to add more functions in the future.
+</Note>
+
+### Typecasts
+
+We support the following typecasts:
+| Type | Python Type |
+|-------|-------------|
+| int | `int` |
+| float | `float` |
+| str | `str` |
+| bool | Custom `bool` - true for any truthy value, `1`, or upper/lower case `true` |
+
+You can perform a typecast on an expression like so:
+
+<CodeGroup>
+```php Inline
+${{ int(<expression>) }}
+```
+
+```php Trialing
+${{ <expression> -> int }}
+```
+
+</CodeGroup>
+
+## Evaluation Procedure
 
 Before an action runs, Tracecat performs the following steps to evaluate the expressions in the action:
 
