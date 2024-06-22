@@ -235,6 +235,8 @@ correctness_test_cases = [
     "unit_transform_forwarder_arrange_loop",
     "unit_transform_forwarder_zip",
     "unit_transform_forwarder_map_loop",
+    "unit_runtime_test_adder_tree",
+    "unit_runtime_test_chain",
 ]
 
 

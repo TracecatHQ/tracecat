@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import Annotated, Any, Literal, Self
 
+import fsspec
 import yaml
 from pydantic import BaseModel, Field, model_validator
 from temporalio.client import Client, TLSConfig
@@ -13,6 +16,7 @@ from temporalio.client import Client, TLSConfig
 from tracecat import config
 from tracecat.dsl._converter import pydantic_data_converter
 from tracecat.expressions import TemplateValidator
+from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatDSLError
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -89,6 +93,47 @@ class Trigger(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class ActionTest(BaseModel):
+    ref: str = Field(..., pattern=SLUG_PATTERN, description="Action reference")
+    enable: bool = Field(default=True, description="Enable or disable the test")
+    validate_args: bool = Field(default=True, description="Validate action arguments")
+    success: Any = Field(
+        ...,
+        description=(
+            "Patched success output. This can be any data structure."
+            "If it's a fsspec file, it will be read and the contents will be used."
+        ),
+    )
+    failure: Any = Field(default=None, description="Patched failure output")
+
+    async def resolve_success_output(self) -> Any:
+        output = self.success
+        if isinstance(output, str):
+            output = await asyncio.to_thread(resolve_string_or_uri, output)
+        return output
+
+
+def resolve_string_or_uri(string_or_uri: str) -> Any:
+    try:
+        of = fsspec.open(string_or_uri, "rb")
+        with of as f:
+            data = f.read()
+
+        return json.loads(data)
+
+    except (FileNotFoundError, ValueError) as e:
+        if "protocol not known" in str(e).lower():
+            raise DSLError(
+                f"Failed to read fsspec file, protocol not known: {string_or_uri}"
+            ) from e
+        logger.info(
+            "String input did not match fsspec, handling as normal",
+            string_or_uri=string_or_uri,
+            error=e,
+        )
+        return string_or_uri
+
+
 class DSLInput(BaseModel):
     """DSL definition for a workflow.
 
@@ -102,7 +147,7 @@ class DSLInput(BaseModel):
 
     title: str
     description: str
-    entrypoint: str
+    entrypoint: str = Field(..., description="The entrypoint action ref")
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
@@ -112,6 +157,7 @@ class DSLInput(BaseModel):
     trigger_inputs: dict[str, Any] = Field(
         default_factory=dict, description="Dynamic input parameters"
     )
+    tests: list[ActionTest] = Field(default_factory=list, description="Action tests")
 
     @staticmethod
     def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:
@@ -151,4 +197,9 @@ class DSLInput(BaseModel):
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
         if n_entrypoints != 1:
             raise TracecatDSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
+        # Validate that all the refs in tests are valid actions
+        valid_actions = {a.ref for a in self.actions}
+        invalid_refs = {t.ref for t in self.tests} - valid_actions
+        if invalid_refs:
+            raise TracecatDSLError(f"Invalid action refs in tests: {invalid_refs}")
         return self

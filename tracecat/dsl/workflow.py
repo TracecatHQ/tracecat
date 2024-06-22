@@ -26,7 +26,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.types.auth import Role
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-    from tracecat.dsl.common import ActionStatement, DSLInput
+    from tracecat.dsl.common import ActionStatement, DSLInput, ActionTest
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.db.schemas import Secret  # noqa
@@ -205,6 +205,7 @@ class DSLWorkflow:
             TRIGGER=self.dsl.trigger_inputs,
         )
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
+        self.action_test_map = {test.ref: test for test in self.dsl.tests}
         self.logger.info("Running DSL task workflow")
 
         self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=self.dsl)
@@ -220,6 +221,8 @@ class DSLWorkflow:
         ---------------
         1. Evaluate `run_if` condition
         2. Resolve all templated arguments
+        3. If there's an ActionTest, skip execution and return the patched result.
+            - Note that we still schedule the task for execution, but we don't actually run it.
         """
         with self.logger.contextualize(task_ref=task.ref):
             if self._should_skip_execution(task):
@@ -235,6 +238,7 @@ class DSLWorkflow:
                     role=self.role,
                     run_context=self.run_ctx,
                     exec_context=self.context,
+                    action_test=self.action_test_map.get(task.ref),
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
             )
@@ -265,6 +269,7 @@ class UDFActionInput(BaseModel):
     role: Role
     exec_context: dict[ExprContext, dict[str, Any]]
     run_context: RunContext
+    action_test: ActionTest | None = None
 
 
 def _udf_key_to_activity_name(key: str) -> str:
@@ -352,10 +357,20 @@ class DSLActivities:
             "Run udf", task_ref=task.ref, type=type, is_async=udf.is_async, args=args
         )
 
-        # If there's a loop, we need to process this action in parallel
-        if task.for_each:
-            # Evaluate the loop expression
+        act_test = input.action_test
+        if act_test and act_test.enable:
+            act_logger.warning(
+                f"Action test enabled, mocking the output of {task.ref!r}."
+                " You should not use this in production workflows."
+            )
+            if act_test.validate_args:
+                udf.validate_args(**args)
+            result = await act_test.resolve_success_output()
 
+        elif task.for_each:
+            # If there's a loop, we need to process this action in parallel
+
+            # Evaluate the loop expression
             iterable_exprs: IterableExpr | list[IterableExpr] = eval_templated_object(
                 task.for_each, operand=input.exec_context
             )
