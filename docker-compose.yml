@@ -48,8 +48,7 @@ services:
 
   ui:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
+      image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-latest}
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}

@@ -15,7 +15,7 @@ services:
       - ./tracecat:/app/tracecat
       - core-app:/var/lib/tracecat
 
-  frontend:
+  ui:
     build:
       context: ./frontend
       dockerfile: Dockerfile
