@@ -79,6 +79,7 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:3000
           NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "unused"
           NEXT_PUBLIC_DISABLE_AUTH: "true"
           NEXT_SERVER_API_URL: http://api:8000
           NODE_ENV: production
@@ -88,6 +89,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
             NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
             NEXT_PUBLIC_DISABLE_AUTH=$NEXT_PUBLIC_DISABLE_AUTH
             NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
             NODE_ENV=$NODE_ENV
