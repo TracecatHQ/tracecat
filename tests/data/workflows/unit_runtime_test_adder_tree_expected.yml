@@ -1,0 +1,13 @@
+ACTIONS:
+  a:
+    result: "1"
+    result_typename: "str"
+  b:
+    result: 999
+    result_typename: "int"
+  c:
+    result: 4
+    result_typename: "int"
+INPUTS:
+
+TRIGGER:
