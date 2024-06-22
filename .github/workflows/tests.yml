@@ -114,4 +114,4 @@ jobs:
       - name: Run tests (headless mode)
         env:
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
-        run: pytest tests/unit --temporal-no-restart --tracecat-no-restart
+        run: pytest tests/unit --temporal-no-restart --tracecat-no-restart --capture=all
