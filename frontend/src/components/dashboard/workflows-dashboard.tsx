@@ -1,15 +1,16 @@
-import { Suspense } from "react"
+"use client"
+
 import Link from "next/link"
 import { ConeIcon } from "lucide-react"
 
-import { fetchAllWorkflows } from "@/lib/workflow"
+import { useWorkflows } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
 import CreateWorkflowButton from "@/components/dashboard/create-workflow-button"
 import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
 import { AlertNotification } from "@/components/notifications"
+import { ListItemSkeletion } from "@/components/skeletons"
 
-export async function WorkflowsDashboard() {
+export function WorkflowsDashboard() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[800px] flex-col space-y-12 p-16 pt-32">
@@ -30,26 +31,22 @@ export async function WorkflowsDashboard() {
             </Link>
           </div>
         </div>
-        <Suspense
-          fallback={
-            <div className="flex flex-col gap-2 pt-4">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          }
-        >
-          <WorkflowList />
-        </Suspense>
+        <WorkflowList />
       </div>
     </div>
   )
 }
 
-export async function WorkflowList() {
-  const workflows = await fetchAllWorkflows()
-  if (workflows === null) {
+export function WorkflowList() {
+  const { data: workflows, error, isLoading } = useWorkflows()
+  if (isLoading) {
+    return (
+      <div className="flex w-full flex-col items-center space-y-12">
+        <ListItemSkeletion n={2} />
+      </div>
+    )
+  }
+  if (error || workflows === undefined) {
     return (
       <AlertNotification level="error" message="Error fetching workflows" />
     )
@@ -59,20 +56,7 @@ export async function WorkflowList() {
     <div className="flex flex-col space-y-4">
       {workflows.length === 0 ? (
         <div className="flex w-full flex-col items-center space-y-12">
-          <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="size-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
-          <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="size-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
+          <ListItemSkeletion n={2} />
           <div className="space-y-4 text-center">
             <p className="text-sm">Welcome to Tracecat 👋</p>
           </div>

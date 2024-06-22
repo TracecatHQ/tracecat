@@ -1,14 +1,15 @@
-import { Suspense } from "react"
+"use client"
+
 import Link from "next/link"
 import { InfoIcon } from "lucide-react"
 
-import { fetchAllPlaybooks } from "@/lib/workflow"
+import { usePlaybooks } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
 import { AlertNotification } from "@/components/notifications"
 import { WorkflowItem } from "@/components/playbooks/workflows-dashboard-item"
+import { ListItemSkeletion } from "@/components/skeletons"
 
-export async function WorkflowsDashboard() {
+export function PlaybooksDashboard() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[800px] flex-col space-y-12 p-16 pt-32">
@@ -31,48 +32,31 @@ export async function WorkflowsDashboard() {
             </Link>
           </Button>
         </div>
-        <Suspense
-          fallback={
-            <div className="flex flex-col gap-2 pt-4">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          }
-        >
-          <WorkflowList />
-        </Suspense>
+        <PlaybookList />
       </div>
     </div>
   )
 }
 
-export async function WorkflowList() {
-  const workflows = await fetchAllPlaybooks()
-  if (workflows === null) {
+export function PlaybookList() {
+  const { data: playbooks, error, isLoading } = usePlaybooks()
+  if (isLoading) {
+    return (
+      <div className="flex w-full flex-col items-center space-y-12">
+        <ListItemSkeletion n={2} />
+      </div>
+    )
+  }
+  if (error || playbooks === undefined) {
     return (
       <AlertNotification level="error" message="Error fetching playbooks" />
     )
   }
   return (
     <div className="flex flex-col space-y-4">
-      {workflows.length === 0 ? (
+      {playbooks.length === 0 ? (
         <div className="flex w-full flex-col items-center space-y-12">
-          <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="size-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
-          <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="size-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
+          <ListItemSkeletion n={2} />
           <div className="space-y-4 text-center">
             <p className="text-sm">No playbooks installed 😿</p>
             <p className="max-w-lg text-center text-xs text-muted-foreground">
@@ -83,7 +67,7 @@ export async function WorkflowList() {
         </div>
       ) : (
         <>
-          {workflows.map((wf, idx) => (
+          {playbooks.map((wf, idx) => (
             <WorkflowItem key={idx} workflow={wf} />
           ))}
         </>

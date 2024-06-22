@@ -2,7 +2,12 @@ import { useEffect, useState } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { Action, CaseEvent, type Case } from "@/types/schemas"
+import {
+  Action,
+  CaseEvent,
+  type Case,
+  type WorkflowMetadata,
+} from "@/types/schemas"
 import {
   CaseEventParams,
   createCaseEvent,
@@ -11,7 +16,12 @@ import {
   updateCase,
 } from "@/lib/cases"
 import { updateWebhook } from "@/lib/trigger"
-import { getActionById, updateAction } from "@/lib/workflow"
+import {
+  fetchAllPlaybooks,
+  fetchAllWorkflows,
+  getActionById,
+  updateAction,
+} from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 
@@ -225,4 +235,20 @@ export function useUpdateWebhook(workflowId: string) {
   })
 
   return mutation
+}
+
+export function useWorkflows() {
+  const query = useQuery<WorkflowMetadata[], Error>({
+    queryKey: ["workflows"],
+    queryFn: fetchAllWorkflows,
+  })
+  return query
+}
+
+export function usePlaybooks() {
+  const query = useQuery<WorkflowMetadata[], Error>({
+    queryKey: ["playbooks"],
+    queryFn: fetchAllPlaybooks,
+  })
+  return query
 }
