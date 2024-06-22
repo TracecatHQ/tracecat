@@ -5,9 +5,9 @@ import { InfoIcon } from "lucide-react"
 
 import { usePlaybooks } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
 import { AlertNotification } from "@/components/notifications"
 import { WorkflowItem } from "@/components/playbooks/workflows-dashboard-item"
+import { ListItemSkeletion } from "@/components/skeletons"
 
 export function PlaybooksDashboard() {
   return (
@@ -42,11 +42,8 @@ export function PlaybookList() {
   const { data: playbooks, error, isLoading } = usePlaybooks()
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-2 pt-4">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
+      <div className="flex w-full flex-col items-center space-y-12">
+        <ListItemSkeletion n={2} />
       </div>
     )
   }
@@ -59,20 +56,7 @@ export function PlaybookList() {
     <div className="flex flex-col space-y-4">
       {playbooks.length === 0 ? (
         <div className="flex w-full flex-col items-center space-y-12">
-          <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="size-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
-          <div className="flex w-full items-center justify-center space-x-4">
-            <Skeleton className="size-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px]" />
-              <Skeleton className="h-4 w-[200px]" />
-            </div>
-          </div>
+          <ListItemSkeletion n={2} />
           <div className="space-y-4 text-center">
             <p className="text-sm">No playbooks installed 😿</p>
             <p className="max-w-lg text-center text-xs text-muted-foreground">
