@@ -105,7 +105,9 @@ jobs:
         env:
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
         run: |
+          # CLI via pip
           tracecat --help
+          # CLI via Docker
           docker run --rm ghcr.io/tracecathq/tracecat:$TRACECAT__IMAGE_TAG --help
 
       - name: Start Temporal server
