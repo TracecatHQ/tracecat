@@ -104,11 +104,13 @@ def initialize_db() -> Engine:
         session.add_all(udfs)
         session.commit()
 
-        if config.TRACECAT__APP_ENV == "development":
-            user = User(owner_id="tracecat", id="default-tracecat-user")
+        user_id = "default-tracecat-user"
+        result = session.exec(select(User).where(User.id == user_id).limit(1))
+        if not result.one_or_none():
+            # Create a default user if it doesn't exist
+            user = User(owner_id="tracecat", id=user_id)
             session.add(user)
             session.commit()
-            session.refresh(user)
     return engine
 
 
