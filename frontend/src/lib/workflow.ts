@@ -252,13 +252,13 @@ export async function copyPlaybook(workflowId: string) {
  * @param maybeToken
  * @returns
  */
-export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[] | null> {
+export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
   try {
     const response = await client.get("/workflows?library=true")
     return response.data
   } catch (error) {
     console.error("Error fetching playbooks:", error)
-    return null
+    throw error
   }
 }
 
