@@ -40,16 +40,44 @@ actions:
           updated_at: ${{ var.alert.updated_timestamp -> str }} # Timestamp indicating when the alert was last updated
           created_at: ${{ var.alert.created_timestamp -> str }} # Timestamp indicating when the alert was created
 
+  - ref: send_slack_notification
+    action: integrations.chat.slack.post_slack_message
+    depends_on: reshape_alerts_into_smac
+    for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
+    args:
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      text: Crowdstrike alerts
+      blocks:
+        - type: header
+          text:
+            type: plain_text
+            text: ${{ var.smac.title }}
+            emoji: true
+        - type: section
+          text:
+            type: mrkdwn
+            text: ${{ var.smac.description }}
+        - type: section
+          fields:
+            - type: mrkdwn
+              text: "*Status:* ${{ var.smac.status }}"
+            - type: mrkdwn
+              text: "*Malice:* ${{ var.smac.malice }}"
+            - type: mrkdwn
+              text: "*Action:* ${{ var.smac.action }}"
+            - type: mrkdwn
+              text: "*Context:* ${{ var.smac.context }}"
+
   - ref: open_cases
     action: core.open_case
     depends_on:
-      - suggest_osquery_queries
-    for_each: ${{ for var.alert in ACTIONS.reshape_alerts_into_smac.result }}
+      - reshape_alerts_into_smac
+    for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
     args:
-      case_title: ${{ var.alert.title }}
-      status: ${{ var.alert.status }}
-      malice: ${{ var.alert.malice }}
-      action: ${{ var.alert.action }}
-      context: ${{ var.alert.context }}
-      payload: ${{ var.alert.payload }}
-      priority: ${{ var.alert.severity }}
+      case_title: ${{ var.smac.title }}
+      status: ${{ var.smac.status }}
+      malice: ${{ var.smac.malice }}
+      action: ${{ var.smac.action }}
+      context: ${{ var.smac.context }}
+      payload: ${{ var.smac.payload }}
+      priority: ${{ var.smac.severity }}

@@ -75,7 +75,7 @@ actions:
       - ${{ for var.user_ids in ACTIONS.extract_slack_user_ids.result }}
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      text: Datadog alerts (last )
+      text: Datadog alerts
       blocks:
         - type: header
           text:
