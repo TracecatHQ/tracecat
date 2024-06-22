@@ -12,6 +12,7 @@ Tracecat supports deployment to AWS via a CDK (Cloud Development Kit) stack writ
 For security purposes, we require self-hosted Cloud users to request access to the deployment script via founders@tracecat.com email.
 
 Tracecat's AWS deployment includes the following resources:
+
 - 1 VPC
 - 1 AmazonMQ Broker
 - 2 ECS Fargate Services
@@ -29,3 +30,22 @@ Coming soon!
 ## GCP
 
 Coming soon!
+
+## Authentication
+
+Tracecat supports Enterprise SSO via Clerk.
+
+So far, we've shown how to run Tracecat locally without authentication and running with a default user.
+
+If you want to enable authentication, you can set the `TRACECAT__DISABLE_AUTH` environment variable to `false` or `0` in the `.env` file. This requires you to have a Clerk account and set up the Clerk environment variables in `.env`.
+
+```bash
+# --- Authentication + Clerk ---
+TRACECAT__DISABLE_AUTH=0
+# Fill these in!
+CLERK_FRONTEND_API_URL=...
+CLERK_SECRET_KEY=...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+```
+
+Finally, you will need to add custom claims to your sessions - follow the steps in [this Clerk blog post](https://clerk.com/blog/add-onboarding-flow-for-your-application-with-clerk#add-custom-claims-to-your-session-token).
