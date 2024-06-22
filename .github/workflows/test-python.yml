@@ -3,8 +3,12 @@ name: Tests
 on:
   push:
     branches: ["main"]
+    paths-ignore:
+      - "frontend/**"
   pull_request:
     branches: ["main"]
+    paths-ignore:
+      - "frontend/**"
 
 permissions:
   contents: read
