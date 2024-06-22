@@ -1,9 +1,9 @@
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from tracecat import config
 from tracecat.auth.credentials import Role
 
 load_dotenv(find_dotenv())
@@ -19,7 +19,9 @@ class Config:
     docs_path: Path = field(default_factory=lambda: Path("docs"))
     docs_api_group: str = field(default="API Documentation")
     docs_api_pages_group: str = field(default="Reference")
-    api_url: str = field(default=config.TRACECAT__EXTERNAL_API_URL)
+    api_url: str = field(
+        default=os.getenv("TRACECAT__PUBLIC_API_URL", "http://localhost:8000")
+    )
 
 
 config = Config()
