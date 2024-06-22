@@ -78,6 +78,7 @@ jobs:
         uses: docker/build-push-action@v6
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_ENV: development
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "secret-clerk-publishable-key"
           NEXT_PUBLIC_DISABLE_AUTH: "true"
@@ -88,6 +89,7 @@ jobs:
           file: frontend/Dockerfile.prod
           build-args: |
             NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+            NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
             NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
             NEXT_PUBLIC_DISABLE_AUTH=$NEXT_PUBLIC_DISABLE_AUTH
