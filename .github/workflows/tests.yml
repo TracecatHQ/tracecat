@@ -57,6 +57,9 @@ jobs:
           cache: "pip"
           cache-dependency-path: pyproject.toml
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Download Temporal CLI
         run: |
           # Download the Temporal CLI archive
