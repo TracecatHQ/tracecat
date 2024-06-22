@@ -24,9 +24,9 @@ def normalize_email_address(email: str) -> str:
 
 
 @registry.register(
+    default_title="Extract emails",
     description="Extract unique emails from a list of strings.",
     namespace="integrations.extraction",
-    default_title="Email Extractor",
     display_group="Data Extraction",
 )
 def extract_emails(
@@ -46,8 +46,5 @@ def extract_emails(
         re.findall(EMAIL_REGEX, text) for text in texts
     )
     if normalize:
-        normalized_emails = [
-            normalize_email_address(email) for email in extract_emails(texts)
-        ]
-        emails += normalized_emails
+        emails = [normalize_email_address(email) for email in emails]
     return list(set(emails))
