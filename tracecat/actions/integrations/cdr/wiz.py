@@ -148,9 +148,9 @@ async def _query_wiz_alerts(
 
 
 @registry.register(
-    default_title="List Wiz alerts",
-    description="Fetch filtered Wiz alerts.",
-    display_group="Cloud Detection & Response",
+    default_title="List Wiz detection findings",
+    description="Fetch Wiz detection findings and filter by time range.",
+    display_group="Wiz",
     namespace="integrations.wiz",
     secrets=["wiz"],
 )
