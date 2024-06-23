@@ -2,10 +2,11 @@
 
 Authentication method: OAuth 2.0
 
-Requires the following parameters:
-- Authentication URL (e.g. https://auth.app.wiz.io/oauth/token)
-- Client ID
-- Client Secret
+Requires a secret named `wiz` with the following parameters:
+- `WIZ_API_URL`: the API url (e.g. https://api.app.wiz.io/graphql)
+- `WIZ_AUTH_URL`: Authentication URL (e.g. https://auth.app.wiz.io/oauth/token)
+- `WIZ_CLIENT_ID`: Client ID
+- `WIZ_CLIENT_SECRET`: Client Secret
 
 Supported APIs:
 
@@ -19,12 +20,14 @@ list_alerts = {
 ```
 """
 
+import os
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 
 from tracecat.actions.io import retry
+from tracecat.registry import Field, registry
 
 QUERY_STRING = """
 query IssuesTable($filterBy: IssueFilters, $first: Int, $after: String, $orderBy: IssueOrder) {
@@ -144,14 +147,31 @@ async def _query_wiz_alerts(
         return response.json()["data"]["issues"]
 
 
+@registry.register(
+    default_title="List Wiz alerts",
+    description="Fetch filtered Wiz alerts.",
+    display_group="Cloud Detection & Response",
+    namespace="integrations.wiz",
+    secrets=["wiz"],
+)
 async def list_wiz_alerts(
-    client_id: str,
-    client_secret: str,
-    auth_url: str,
-    api_url: str,
-    start_time: datetime,
-    end_time: datetime,
+    start_time: Annotated[
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
+    ],
+    end_time: Annotated[
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
+    ],
+    limit: Annotated[
+        int, Field(default=5000, description="Maximum number of alerts to return.")
+    ] = 5000,
 ) -> list[dict[str, Any]]:
+    api_url = os.getenv("WIZ_API_URL")
+    auth_url = os.getenv("WIZ_AUTH_URL")
+    client_id = os.getenv("WIZ_CLIENT_ID")
+    client_secret = os.getenv("WIZ_CLIENT_SECRET")
+
     issues = []
     dt_format = "%Y-%m-%dT%H:%M:%SZ"
     variables = {
