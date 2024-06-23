@@ -42,7 +42,8 @@ actions:
 
   - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
-    depends_on: reshape_alerts_into_smac
+    depends_on:
+      - reshape_alerts_into_smac
     for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
@@ -67,6 +68,26 @@ actions:
               text: "*Action:* ${{ var.smac.action }}"
             - type: mrkdwn
               text: "*Context:* ${{ var.smac.context }}"
+        - type: section
+          text:
+            type: mrkdwn
+            text: "Select an option to update the alert:"
+          accessory:
+            type: static_select
+            action_id: update_crowdstrike_alert
+            options:
+              - text:
+                  type: plain_text
+                  text: "Ignore"
+                value: "ignored"
+              - text:
+                  type: plain_text
+                  text: "True Positive"
+                value: "true_positive"
+              - text:
+                  type: plain_text
+                  text: "False Positive"
+                value: "false_positive"
 
   - ref: open_cases
     action: core.open_case
