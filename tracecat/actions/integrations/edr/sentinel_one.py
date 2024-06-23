@@ -20,8 +20,8 @@ list_alerts: {
 ```
 """
 
-import datetime
 import os
+from datetime import datetime
 from typing import Annotated, Any
 
 import httpx

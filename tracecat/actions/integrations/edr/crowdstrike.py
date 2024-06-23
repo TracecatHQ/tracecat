@@ -30,8 +30,8 @@ list_detections = {
 ```
 """
 
-import datetime
 import os
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from falconpy import Alerts, Detects
