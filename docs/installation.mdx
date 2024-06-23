@@ -30,15 +30,14 @@ You can find the full list of out-of-the-box integrations and their required cre
 
 ## Setup Tracecat on localhost
 
-Tracecat can be deployed locally with just 4 files.
+Tracecat can be deployed locally from our Github repository.
 
-Run these commands to download the files from the Tracecat github repository:
+Run these commands to clone the Tracecat repository:
 
 ```bash
 # Run these commands in your terminal
-curl https://raw.githubusercontent.com/TracecatHQ/tracecat/main/docker-compose.yml -o docker-compose.yml
-curl https://raw.githubusercontent.com/TracecatHQ/tracecat/main/env.sh -o env.sh
-curl https://raw.githubusercontent.com/TracecatHQ/tracecat/main/.env.example -o .env.example
+git clone https://github.com/TracecatHQ/tracecat.git
+cd tracecat
 ```
 
 ### Environment variables
