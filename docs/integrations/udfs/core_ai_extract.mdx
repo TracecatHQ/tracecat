@@ -1,0 +1,77 @@
+---
+title: AI Extract
+description: core.ai.extract
+---
+
+Perform extraction using a LLM.
+
+This is the JSONSchema7 definition for the core.ai.extract integration.
+
+_No secrets required._
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "groups": {
+            "items": {
+                "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+        },
+        "response_schema": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "default": null,
+            "description": "Shape of the response",
+            "title": "Response Schema",
+            "type": "object"
+        },
+        "text": {
+            "title": "Text",
+            "type": "string"
+        }
+    },
+    "required": [
+        "text",
+        "groups"
+    ],
+    "title": "CoreAiExtract",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "properties": {
+        "data": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "object"
+                }
+            ],
+            "title": "Data"
+        }
+    },
+    "required": [
+        "data"
+    ],
+    "title": "LLMResponse",
+    "type": "object"
+}
+```
+
+</CodeGroup>

@@ -1,0 +1,56 @@
+---
+title: List Microsoft Defender for Endpoint alerts
+description: integrations.microsoft_defender.list_defender_endpoint_alerts
+---
+
+Fetch all Microsoft Defender for Endpoint alerts and filter by time range.
+
+This is the JSONSchema7 definition for the integrations.microsoft_defender.list_defender_endpoint_alerts integration.
+
+This integration requires secrets: `microsoft_defender_endpoint`
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "end_time": {
+            "description": "End time, return alerts created before this time.",
+            "format": "date-time",
+            "title": "End Time",
+            "type": "string"
+        },
+        "limit": {
+            "default": 1000,
+            "description": "Maximum number of alerts to return.",
+            "title": "Limit",
+            "type": "integer"
+        },
+        "start_time": {
+            "description": "Start time, return alerts created after this time.",
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+        }
+    },
+    "required": [
+        "start_time",
+        "end_time"
+    ],
+    "title": "IntegrationsMicrosoftDefenderListDefenderEndpointAlerts",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{}
+```
+
+</CodeGroup>

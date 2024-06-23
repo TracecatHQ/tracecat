@@ -1,7 +1,9 @@
 {
   "$schema": "https://mintlify.com/schema.json",
   "name": "Tracecat",
-  "openapi": ["/openapi.yml"],
+  "openapi": [
+    "/openapi.yml"
+  ],
   "logo": {
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
@@ -30,6 +32,10 @@
     {
       "name": "API Reference",
       "url": "api-reference"
+    },
+    {
+      "name": "Integrations",
+      "url": "integrations"
     }
   ],
   "anchors": [
@@ -79,7 +85,10 @@
     },
     {
       "group": "Self-hosted",
-      "pages": ["installation", "deployment"]
+      "pages": [
+        "installation",
+        "deployment"
+      ]
     },
     {
       "group": "API Documentation",
@@ -91,7 +100,9 @@
             "api-reference/reference/check-health",
             {
               "group": "public",
-              "pages": ["api-reference/reference/public/incoming-webhook"]
+              "pages": [
+                "api-reference/reference/public/incoming-webhook"
+              ]
             },
             {
               "group": "workflows",
@@ -139,7 +150,9 @@
             },
             {
               "group": "events",
-              "pages": ["api-reference/reference/events/search-events"]
+              "pages": [
+                "api-reference/reference/events/search-events"
+              ]
             },
             {
               "group": "cases",
@@ -188,6 +201,143 @@
                 "api-reference/reference/udfs/get-udf",
                 "api-reference/reference/udfs/create-udf",
                 "api-reference/reference/udfs/validate-udf-args"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/introduction"
+      ]
+    },
+    {
+      "group": "Schemas",
+      "pages": [
+        {
+          "group": "core",
+          "pages": [
+            {
+              "group": "ai",
+              "pages": [
+                "integrations/udfs/core_ai_extract",
+                "integrations/udfs/core_ai_label",
+                "integrations/udfs/core_ai_summarize",
+                "integrations/udfs/core_ai_translate"
+              ]
+            },
+            {
+              "group": "condition",
+              "pages": [
+                "integrations/udfs/core_condition_compare",
+                "integrations/udfs/core_condition_membership",
+                "integrations/udfs/core_condition_regex"
+              ]
+            },
+            {
+              "group": "extraction",
+              "pages": [
+                "integrations/udfs/core_extraction_extract_emails"
+              ]
+            },
+            "integrations/udfs/core_http_request",
+            "integrations/udfs/core_open_case",
+            "integrations/udfs/core_send_email",
+            {
+              "group": "transform",
+              "pages": [
+                "integrations/udfs/core_transform_forward"
+              ]
+            }
+          ]
+        },
+        {
+          "group": "integrations",
+          "pages": [
+            {
+              "group": "aws",
+              "pages": [
+                {
+                  "group": "guardduty",
+                  "pages": [
+                    "integrations/udfs/integrations_aws_guardduty_list_guardduty_alerts"
+                  ]
+                }
+              ]
+            },
+            {
+              "group": "chat",
+              "pages": [
+                {
+                  "group": "slack",
+                  "pages": [
+                    "integrations/udfs/integrations_chat_slack_list_slack_users",
+                    "integrations/udfs/integrations_chat_slack_post_slack_message"
+                  ]
+                }
+              ]
+            },
+            {
+              "group": "crowdstrike",
+              "pages": [
+                "integrations/udfs/integrations_crowdstrike_list_crowdstrike_alerts",
+                "integrations/udfs/integrations_crowdstrike_list_crowdstrike_detects",
+                "integrations/udfs/integrations_crowdstrike_update_crowdstrike_alert_status",
+                "integrations/udfs/integrations_crowdstrike_update_crowdstrike_detect_status"
+              ]
+            },
+            {
+              "group": "datadog",
+              "pages": [
+                "integrations/udfs/integrations_datadog_list_datadog_alerts"
+              ]
+            },
+            {
+              "group": "elastic",
+              "pages": [
+                "integrations/udfs/integrations_elastic_list_elastic_alerts"
+              ]
+            },
+            {
+              "group": "extraction",
+              "pages": [
+                "integrations/udfs/integrations_extraction_extract_ipv4_addresses"
+              ]
+            },
+            {
+              "group": "microsoft_defender",
+              "pages": [
+                "integrations/udfs/integrations_microsoft_defender_list_defender_cloud_alerts",
+                "integrations/udfs/integrations_microsoft_defender_list_defender_endpoint_alerts"
+              ]
+            },
+            {
+              "group": "sentinel_one",
+              "pages": [
+                "integrations/udfs/integrations_sentinel_one_list_sentinelone_alerts",
+                "integrations/udfs/integrations_sentinel_one_update_sentinelone_alert_status"
+              ]
+            },
+            {
+              "group": "sinks",
+              "pages": [
+                "integrations/udfs/integrations_sinks_write_to_database"
+              ]
+            },
+            {
+              "group": "virustotal",
+              "pages": [
+                "integrations/udfs/integrations_virustotal_analyze_ip_address",
+                "integrations/udfs/integrations_virustotal_analyze_malware_sample",
+                "integrations/udfs/integrations_virustotal_analyze_url"
+              ]
+            },
+            {
+              "group": "wiz",
+              "pages": [
+                "integrations/udfs/integrations_wiz_list_wiz_alerts"
               ]
             }
           ]
