@@ -1,0 +1,73 @@
+---
+title: Post Slack Message
+description: integrations.chat.slack.post_slack_message
+---
+
+Send Slack message to channel.
+
+This is the JSONSchema7 definition for the integrations.chat.slack.post_slack_message integration.
+
+This integration requires secrets: `slack`
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "blocks": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "Slack blocks definition",
+            "title": "Blocks"
+        },
+        "channel": {
+            "description": "The Slack channel ID to send a message to",
+            "title": "Channel",
+            "type": "string"
+        },
+        "text": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "The message text",
+            "title": "Text"
+        }
+    },
+    "required": [
+        "channel"
+    ],
+    "title": "IntegrationsChatSlackPostSlackMessage",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "type": "object"
+}
+```
+
+</CodeGroup>

@@ -24,6 +24,7 @@ CONST = "test_"
     description="For testing the registry",
     namespace="example",
     version="0.1.0",
+    include_in_schema=False,
 )
 def passthrough(
     value: Annotated[str, Field(..., description="The value to pass through")],
@@ -35,6 +36,7 @@ def passthrough(
     description="Adder example",
     namespace="example",
     version="0.1.0",
+    include_in_schema=False,
 )
 def add(
     lhs: Annotated[int, Field(..., description="The first number")],
@@ -47,6 +49,7 @@ def add(
     description="This is a test function",
     namespace="example",
     version="0.1.0",
+    include_in_schema=False,
 )
 def my_function(
     age: Annotated[int, Field(30, description="Persons age in years")],
@@ -76,6 +79,7 @@ def my_function(
     description="This is another test function",
     namespace="example",
     version="0.1.0",
+    include_in_schema=False,
 )
 def another_function(
     age: Annotated[int, Doc("Persons age in years")] = 30,

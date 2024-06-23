@@ -75,7 +75,7 @@ async def post_slack_message(
     default_title="List Slack Users",
     description="Fetch Slack users by team ID or list of emails.",
     display_group="ChatOps",
-    inamespace="integrations.chat.slack",
+    namespace="integrations.chat.slack",
     secrets=["slack"],
 )
 async def list_slack_users(

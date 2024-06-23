@@ -1,0 +1,207 @@
+---
+title: Open Case
+description: core.open_case
+---
+
+Open a new case in the case management system.
+
+This is the JSONSchema7 definition for the core.open_case integration.
+
+_No secrets required._
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "$defs": {
+        "CaseContext": {
+            "properties": {
+                "key": {
+                    "title": "Key",
+                    "type": "string"
+                },
+                "value": {
+                    "title": "Value",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "key",
+                "value"
+            ],
+            "title": "CaseContext",
+            "type": "object"
+        },
+        "Suppression": {
+            "properties": {
+                "condition": {
+                    "title": "Condition",
+                    "type": "string"
+                },
+                "result": {
+                    "title": "Result",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "condition",
+                "result"
+            ],
+            "title": "Suppression",
+            "type": "object"
+        },
+        "Tag": {
+            "properties": {
+                "is_ai_generated": {
+                    "default": false,
+                    "title": "Is Ai Generated",
+                    "type": "boolean"
+                },
+                "tag": {
+                    "title": "Tag",
+                    "type": "string"
+                },
+                "value": {
+                    "title": "Value",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "tag",
+                "value"
+            ],
+            "title": "Tag",
+            "type": "object"
+        }
+    },
+    "additionalProperties": false,
+    "properties": {
+        "action": {
+            "description": "Action to be taken",
+            "enum": [
+                "ignore",
+                "quarantine",
+                "informational",
+                "sinkhole",
+                "active_compromise"
+            ],
+            "title": "Action",
+            "type": "string"
+        },
+        "case_title": {
+            "description": "Title of the case",
+            "title": "Case Title",
+            "type": "string"
+        },
+        "context": {
+            "anyOf": [
+                {
+                    "items": {
+                        "$ref": "#/$defs/CaseContext"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "List of case contexts",
+            "title": "Context"
+        },
+        "malice": {
+            "description": "Malice type",
+            "enum": [
+                "malicious",
+                "benign"
+            ],
+            "title": "Malice",
+            "type": "string"
+        },
+        "payload": {
+            "description": "Payload of the case",
+            "title": "Payload",
+            "type": "object"
+        },
+        "priority": {
+            "description": "Priority of the case",
+            "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "title": "Priority",
+            "type": "string"
+        },
+        "status": {
+            "description": "Status of the case",
+            "enum": [
+                "open",
+                "closed",
+                "in_progress",
+                "reported",
+                "escalated"
+            ],
+            "title": "Status",
+            "type": "string"
+        },
+        "suppression": {
+            "anyOf": [
+                {
+                    "items": {
+                        "$ref": "#/$defs/Suppression"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "List of suppressions",
+            "title": "Suppression"
+        },
+        "tags": {
+            "anyOf": [
+                {
+                    "items": {
+                        "$ref": "#/$defs/Tag"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "List of tags",
+            "title": "Tags"
+        }
+    },
+    "required": [
+        "case_title",
+        "payload",
+        "malice",
+        "status",
+        "priority",
+        "action"
+    ],
+    "title": "CoreOpenCase",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "type": "object"
+}
+```
+
+</CodeGroup>

@@ -1,0 +1,44 @@
+---
+title: Analyze IP address
+description: integrations.virustotal.analyze_ip_address
+---
+
+Analyze an IP address using VirusTotal.
+
+This is the JSONSchema7 definition for the integrations.virustotal.analyze_ip_address integration.
+
+This integration requires secrets: `virustotal`
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "ip_address": {
+            "description": "The IP address to analyze",
+            "title": "Ip Address",
+            "type": "string"
+        }
+    },
+    "required": [
+        "ip_address"
+    ],
+    "title": "IntegrationsVirustotalAnalyzeIpAddress",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "type": "object"
+}
+```
+
+</CodeGroup>

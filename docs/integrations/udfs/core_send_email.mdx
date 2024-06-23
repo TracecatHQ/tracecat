@@ -1,0 +1,66 @@
+---
+title: Send Email
+description: core.send_email
+---
+
+Perform a send email action.
+
+This is the JSONSchema7 definition for the core.send_email integration.
+
+This integration requires secrets: `resend_api_key`
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "body": {
+            "title": "Body",
+            "type": "string"
+        },
+        "provider": {
+            "const": "resend",
+            "default": "resend",
+            "title": "Provider"
+        },
+        "recipients": {
+            "items": {
+                "type": "string"
+            },
+            "title": "Recipients",
+            "type": "array"
+        },
+        "sender": {
+            "default": "mail@tracecat.com",
+            "title": "Sender",
+            "type": "string"
+        },
+        "subject": {
+            "title": "Subject",
+            "type": "string"
+        }
+    },
+    "required": [
+        "recipients",
+        "subject",
+        "body"
+    ],
+    "title": "CoreSendEmail",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "type": "object"
+}
+```
+
+</CodeGroup>

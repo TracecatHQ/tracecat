@@ -1,0 +1,59 @@
+---
+title: Update Sentinel One alert status
+description: integrations.sentinel_one.update_sentinelone_alert_status
+---
+
+Update the analyst verdict of Sentinel One alerts.
+
+This is the JSONSchema7 definition for the integrations.sentinel_one.update_sentinelone_alert_status integration.
+
+_No secrets required._
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "alert_ids": {
+            "description": "List of alert IDs to update",
+            "items": {
+                "type": "string"
+            },
+            "title": "Alert Ids",
+            "type": "array"
+        },
+        "status": {
+            "description": "New status for the alerts",
+            "enum": [
+                "FALSE_POSITIVE",
+                "SUSPICIOUS",
+                "TRUE_POSITIVE",
+                "UNDEFINED"
+            ],
+            "title": "Status",
+            "type": "string"
+        }
+    },
+    "required": [
+        "alert_ids",
+        "status"
+    ],
+    "title": "IntegrationsSentinelOneUpdateSentineloneAlertStatus",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "type": "object"
+}
+```
+
+</CodeGroup>

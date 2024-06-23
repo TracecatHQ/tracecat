@@ -1,0 +1,71 @@
+---
+title: List Slack Users
+description: integrations.chat.slack.list_slack_users
+---
+
+Fetch Slack users by team ID or list of emails.
+
+This is the JSONSchema7 definition for the integrations.chat.slack.list_slack_users integration.
+
+This integration requires secrets: `slack`
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "emails": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "List of emails to filter users by",
+            "title": "Emails"
+        },
+        "team_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "The Slack team ID to filter users by",
+            "title": "Team Id"
+        }
+    },
+    "title": "IntegrationsChatSlackListSlackUsers",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "items": {
+        "additionalProperties": {
+            "type": "string"
+        },
+        "type": "object"
+    },
+    "type": "array"
+}
+```
+
+</CodeGroup>

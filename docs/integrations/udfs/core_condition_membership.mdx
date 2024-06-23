@@ -1,0 +1,55 @@
+---
+title: Membership
+description: core.condition.membership
+---
+
+Perform a conditional rule evaluation.
+
+This is the JSONSchema7 definition for the core.condition.membership integration.
+
+_No secrets required._
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "additionalProperties": false,
+    "properties": {
+        "action_run_kwargs": {
+            "anyOf": [
+                {
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "title": "Action Run Kwargs"
+        },
+        "condition_rules": {
+            "title": "Condition Rules",
+            "type": "object"
+        }
+    },
+    "required": [
+        "condition_rules"
+    ],
+    "title": "CoreConditionMembership",
+    "type": "object"
+}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{
+    "type": "object"
+}
+```
+
+</CodeGroup>
