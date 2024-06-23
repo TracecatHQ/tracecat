@@ -2,6 +2,8 @@
 
 Authentication method: Token-based
 
+Requires: A secret named `emailrep` with key `EMAILREP_API_KEY`
+
 References: https://docs.sublimesecurity.com/reference/get_-email
 
 Supported APIs:
@@ -34,8 +36,11 @@ def create_emailrep_client() -> httpx.AsyncClient:
 
 
 @registry.register(
-    description="Analyze an email address using EmailRep.",
-    namespace="emailrep",
+    default_title="Analyze email",
+    description="Analyze an email address using Emailrep.",
+    display_group="Emailrep",
+    namespace="integrations.emailrep",
+    secrets=["emailrep"],
 )
 async def analyze_email(
     email: Annotated[str, Field(..., description="The email address to analyze")],

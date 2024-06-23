@@ -30,8 +30,8 @@ list_detections = {
 ```
 """
 
-import datetime
 import os
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from falconpy import Alerts, Detects
@@ -60,19 +60,21 @@ def get_crowdstrike_credentials():
 @registry.register(
     default_title="List Crowdstrike alerts",
     description="Fetch all Crowdstrike alerts from Falcon SIEM.",
-    display_group="EDR",
-    namespace="integrations.crowdstrike.alerts",
+    display_group="Crowdstrike",
+    namespace="integrations.crowdstrike",
     secrets=["crowdstrike"],
 )
 async def list_crowdstrike_alerts(
     start_time: Annotated[
-        datetime.datetime, Field(..., description="The start time for the alerts")
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
     end_time: Annotated[
-        datetime.datetime, Field(..., description="The end time for the alerts")
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
-        int, Field(default=9999, description="The maximum number of alerts to return")
+        int, Field(default=9999, description="Maximum number of alerts to return.")
     ] = 9999,
 ) -> list[dict[str, Any]]:
     falcon = Alerts(**get_crowdstrike_credentials())
@@ -86,20 +88,21 @@ async def list_crowdstrike_alerts(
 @registry.register(
     default_title="List Crowdstrike detects",
     description="Fetch all Crowdstrike detections from Falcon SIEM.",
-    display_group="EDR",
-    namespace="integrations.crowdstrike.detections",
+    display_group="Crowdstrike",
+    namespace="integrations.crowdstrike",
     secrets=["crowdstrike"],
 )
 async def list_crowdstrike_detects(
     start_time: Annotated[
-        datetime.datetime, Field(..., description="The start time for the detections")
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
     end_time: Annotated[
-        datetime.datetime, Field(..., description="The end time for the detections")
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
-        int,
-        Field(default=9999, description="The maximum number of detections to return"),
+        int, Field(default=9999, description="Maximum number of alerts to return.")
     ] = 9999,
 ) -> list[dict[str, Any]]:
     falcon = Detects(**get_crowdstrike_credentials())
@@ -113,17 +116,15 @@ async def list_crowdstrike_detects(
 @registry.register(
     default_title="Update Crowdstrike alert status",
     description="Update the status of Crowdstrike alerts.",
-    display_group="EDR",
-    namespace="integrations.crowdstrike.alerts",
+    display_group="Crowdstrike",
+    namespace="integrations.crowdstrike",
     secrets=["crowdstrike"],
 )
 async def update_crowdstrike_alert_status(
     alert_ids: Annotated[
         list[str], Field(..., description="List of alert IDs to update")
     ],
-    status: Annotated[
-        AlertStatus, Field(..., description="The new status for the alerts")
-    ],
+    status: Annotated[AlertStatus, Field(..., description="New status for the alerts")],
 ) -> dict[str, Any]:
     falcon = Alerts(**get_crowdstrike_credentials())
 
@@ -139,17 +140,15 @@ async def update_crowdstrike_alert_status(
 @registry.register(
     default_title="Update Crowdstrike detect status",
     description="Update the status of Crowdstrike detects.",
-    display_group="EDR",
-    namespace="integrations.crowdstrike.detections",
+    display_group="Crowdstrike",
+    namespace="integrations.crowdstrike",
     secrets=["crowdstrike"],
 )
 async def update_crowdstrike_detect_status(
     detection_ids: Annotated[
         list[str], Field(..., description="List of detect IDs to update")
     ],
-    status: Annotated[
-        DetectStatus, Field(..., description="The new status for the detects")
-    ],
+    status: Annotated[AlertStatus, Field(..., description="New status for the alerts")],
 ) -> dict[str, Any]:
     falcon = Detects(**get_crowdstrike_credentials())
 

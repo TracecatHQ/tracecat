@@ -1,3 +1,12 @@
+"""Microsoft Defender for Endpoint integration.
+
+Requires secret named `microsoft_defender_endpoint` with the following keys:
+- `MICROSOFT_GRAPH_CLIENT_ID`
+- `MICROSOFT_GRAPH_CLIENT_SECRET`
+- `MICROSOFT_GRAPH_TENANT_ID`
+"""
+
+import os
 from datetime import datetime
 from typing import Annotated
 
@@ -8,29 +17,35 @@ MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForEndpoint"
 
 
 @registry.register(
-    description="Fetch all alerts from Microsoft Defender for Endpoints.",
-    namespace="microsoft_defender",
+    # Example:
+    # namespace="microsoft_defender",
+    # default_title="List Microsoft Defender for Endpoints alerts",
+    # description="Fetch all Sentinel One alerts.",
+    # display_group="Endpoint Detection & Response",
+    # namespace="integrations.sentinel_one",
+    # secrets=["sentinel_one"],
+    default_title="List Microsoft Defender for Endpoint alerts",
+    description="Fetch all Microsoft Defender for Endpoint alerts and filter by time range.",
+    display_group="Microsoft Defender",
+    namespace="integrations.microsoft_defender",
+    secrets=["microsoft_defender_endpoint"],
 )
 async def list_defender_endpoint_alerts(
-    client_id: Annotated[
-        str, Field(..., description="The client ID for Microsoft Graph API")
-    ],
-    client_secret: Annotated[
-        str, Field(..., description="The client secret for Microsoft Graph API")
-    ],
-    tenant_id: Annotated[
-        str, Field(..., description="The tenant ID for Microsoft Graph API")
-    ],
     start_time: Annotated[
-        datetime, Field(..., description="The start time for the alerts")
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
     end_time: Annotated[
-        datetime, Field(..., description="The end time for the alerts")
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
-        int, Field(default=1000, description="The maximum number of alerts to return")
+        int, Field(default=1000, description="Maximum number of alerts to return.")
     ] = 1000,
 ):
+    client_id = os.getenv("MICROSOFT_GRAPH_CLIENT_ID")
+    client_secret = os.getenv("MICROSOFT_GRAPH_CLIENT_SECRET")
+    tenant_id = os.getenv("MICROSOFT_GRAPH_TENANT_ID")
     return await list_microsoft_graph_alerts(
         client_id=client_id,
         client_secret=client_secret,

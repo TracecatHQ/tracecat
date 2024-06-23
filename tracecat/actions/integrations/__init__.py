@@ -1,3 +1,5 @@
-from . import cdr, chat, enrichment, extraction, siem
+from tracecat.actions.etl import extraction
 
-__all__ = ["cdr", "chat", "enrichment", "extraction", "siem"]
+from . import cdr, chat, edr, enrichment, siem, sinks
+
+__all__ = ["cdr", "chat", "edr", "enrichment", "extraction", "siem", "sinks"]

@@ -2,7 +2,9 @@
 
 Authentication method: Token-based (with username and password to generate the token in the UI)
 
-Required resource: Elastic Security
+Required resource: secret named `elastic` with the following keys:
+- `ELASTIC_API_KEY`: Elastic Security API key
+- `ELASTIC_API_URL`: Elastic Security API URL
 
 Supported APIs:
 
@@ -16,6 +18,7 @@ list_alerts = {
 ```
 """
 
+import os
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -25,24 +28,28 @@ from tracecat.registry import Field, registry
 
 
 @registry.register(
-    description="Fetch all alerts from Elastic Security (SIEM).",
-    namespace="elastic_security",
+    default_title="List Elastic Security alerts",
+    description="Fetch all alerts from Elastic Security and filter by time range.",
+    display_group="Elastic",
+    namespace="integrations.elastic",
+    secrets=["elastic"],
 )
 async def list_elastic_alerts(
-    api_key: Annotated[str, Field(..., description="The API key for Elastic Security")],
-    api_url: Annotated[
-        str, Field(..., description="The base URL for the Elastic Security API")
+    start_time: Annotated[
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
-    start_date: Annotated[
-        datetime, Field(..., description="The start date for the alerts")
-    ],
-    end_date: Annotated[
-        datetime, Field(..., description="The end date for the alerts")
+    end_time: Annotated[
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
-        int, Field(default=1000, description="The maximum number of alerts to return")
+        int, Field(default=1000, description="Maximum number of alerts to return.")
     ] = 1000,
 ) -> list[dict[str, Any]]:
+    api_key = os.getenv("ELASTIC_API_KEY")
+    api_url = os.getenv("ELASTIC_API_URL")
+
     url = f"{api_url}/api/detection_engine/signals/search"
     headers = {
         "Content-Type": "application/json",
@@ -57,8 +64,8 @@ async def list_elastic_alerts(
                     {
                         "range": {
                             "@timestamp": {
-                                "gte": start_date.isoformat(),
-                                "lte": end_date.isoformat(),
+                                "gte": start_time.isoformat(),
+                                "lte": end_time.isoformat(),
                             }
                         }
                     },

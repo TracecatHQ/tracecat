@@ -2,7 +2,7 @@
 
 Authentication method: Token-based
 
-Requires: OTX_API_KEY
+Requires: secret named `alienvault` with key `OTX_API_KEY`
 
 References: https://otx.alienvault.com/assets/static/external_api.html
 
@@ -55,8 +55,11 @@ def create_alienvault_client() -> httpx.AsyncClient:
 
 
 @registry.register(
+    default_title="Analyze URL",
     description="Analyze a URL using AlienVault OTX.",
-    namespace="alienvault",
+    display_group="AlienVault OTX",
+    namespace="integrations.alienvault",
+    secrets=["alienvault"],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -87,8 +90,11 @@ async def analyze_ip_address(
 
 
 @registry.register(
+    default_title="Analyze malware sample",
     description="Analyze a malware sample using AlienVault OTX.",
-    namespace="alienvault",
+    display_group="AlienVault OTX",
+    namespace="integrations.alienvault",
+    secrets=["alienvault"],
 )
 async def analyze_malware_sample(
     file_hash: Annotated[

@@ -2,6 +2,8 @@
 
 Authentication method: Token-based
 
+Requires: A secret named `pulsedive` with key `PULSEDIVE_API_KEY`.
+
 References:
 - https://pulsedive.com/api/explore
 - https://pulsedive.com/explore/
@@ -48,8 +50,11 @@ def create_pulsedive_client() -> httpx.AsyncClient:
 
 
 @registry.register(
+    default_title="Analyze URL",
     description="Analyze a URL using Pulsedive.",
-    namespace="pulsedive",
+    display_group="Pulsedive",
+    namespace="integrations.pulsedive",
+    secrets=["pulsedive"],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -62,8 +67,11 @@ async def analyze_url(
 
 
 @registry.register(
+    default_title="Analyze IP address",
     description="Analyze an IP address using Pulsedive.",
-    namespace="pulsedive",
+    display_group="Pulsedive",
+    namespace="integrations.pulsedive",
+    secrets=["pulsedive"],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
