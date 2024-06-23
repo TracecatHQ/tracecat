@@ -2,6 +2,10 @@
 
 Authentication method: Token
 
+Requires: A secret named `sentinel_one` with the following keys:
+- `SENTINEL_ONE_BASE_URL`
+- `SENTINEL_ONE_API_TOKEN`
+
 References: https://github.com/criblio/collector-templates/tree/main/collectors/rest/sentinel_one
 
 Supported APIs:
@@ -17,6 +21,7 @@ list_alerts: {
 """
 
 import datetime
+import os
 from typing import Annotated, Any
 
 import httpx
@@ -28,15 +33,10 @@ ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
 
 @registry.register(
     description="Fetch all Sentinel One alerts.",
-    namespace="sentinelone",
+    namespace="integrations.sentinel_one",
+    secrets=["sentinel_one"],
 )
 async def list_sentinelone_alerts(
-    base_url: Annotated[
-        str, Field(..., description="The base URL for the Sentinel One API")
-    ],
-    api_token: Annotated[
-        str, Field(..., description="The API token for Sentinel One API")
-    ],
     start_time: Annotated[
         datetime.datetime, Field(..., description="The start time for the alerts")
     ],
@@ -47,6 +47,8 @@ async def list_sentinelone_alerts(
         int, Field(default=1000, description="The maximum number of alerts to return")
     ] = 1000,
 ) -> list[dict[str, Any]]:
+    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
+    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
     headers = {
         "Authorization": f"ApiToken {api_token}",
         "Accept": "application/json",
