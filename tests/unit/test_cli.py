@@ -1,6 +1,9 @@
 """Test CLI commands."""
 
 import subprocess
+from pathlib import Path
+
+DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 
 
 def test_whoami():
@@ -157,3 +160,26 @@ def test_list_workflows():
     list_result = subprocess.run(list_cmd, capture_output=True, text=True)
     assert list_result.returncode == 0
     assert "Workflows" in list_result.stdout
+
+
+def test_create_workflow_with_commit():
+    title = "Test Workflow"
+    description = "This is a test workflow"
+    cmd = [
+        "tracecat",
+        "workflow",
+        "create",
+        "--title",
+        title,
+        "--description",
+        description,
+        "--commit",
+        DATA_PATH.joinpath("unit_transform_forwarder_arrange_loop.yml").as_posix(),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert "Created workflow" in result.stdout
+    assert title in result.stdout
+    assert description in result.stdout
+    assert "'version': None" in result.stdout
+    assert "Successfully committed to workflow" in result.stdout
