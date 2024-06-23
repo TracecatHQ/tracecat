@@ -5,10 +5,15 @@ Authentication method:
 - Cross-account AWS Role
 - IAM credentials (not recommended)
 
-Requires: A secret named `aws_secret` with the following keys:
+Requires: A secret named `aws_guardduty` with the following keys:
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_REGION`
+or:
+- `AWS_ROLE_ARN`
+- `AWS_ROLE_SESSION_NAME`
+or:
+- `AWS_PROFILE_NAME`
 
 Secret Values:
 ```json
@@ -131,34 +136,28 @@ async def _get_findings(
 
 
 @registry.register(
-    default_title="List alerts",
-    description="List AWS GuardDuty alerts",
-    display_group="Cloud D&R",
+    default_title="List AWS GuardDuty alerts",
+    description="Fetch filtered AWS GuardDuty alerts.",
+    display_group="Cloud Detection & Response",
     namespace="integrations.aws.guardduty",
-    secrets=["aws_secret"],
+    secrets=["aws_guardduty"],
 )
 async def list_guardduty_alerts(
     start_time: Annotated[
-        datetime, Field(..., description="The start time for the alerts")
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
     end_time: Annotated[
-        datetime, Field(..., description="The end time for the alerts")
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
-        int, Field(default=5000, description="The maximum number of alerts to return")
+        int, Field(default=5000, description="Maximum number of alerts to return.")
     ] = 5000,
-    role_arn: Annotated[
-        str | None, Field(default=None, description="The ARN of the role to assume")
-    ] = None,
-    role_session_name: Annotated[
-        str | None,
-        Field(default=None, description="The session name for the assumed role"),
-    ] = None,
-    profile_name: Annotated[
-        str | None, Field(default=None, description="The AWS profile name to use")
-    ] = None,
 ) -> list[dict[str, Any]]:
-    if role_arn:
+    if os.getenv("AWS_ROLE_ARN"):
+        role_arn = os.getenv("AWS_ROLE_ARN")
+        role_session_name = os.getenv("AWS_ROLE_SESSION_NAME", "tracecat-guardduty")
         # Assume process is running in an environment with
         # permissions to assume the cross-account guardduty role
         sts_session = aioboto3.Session()
@@ -176,16 +175,17 @@ async def list_guardduty_alerts(
             aws_session_token=credentials["SessionToken"],
             region_name=os.environ["AWS_REGION"],
         )
-
+    elif os.getenv("AWS_PROFILE_NAME"):
+        profile_name = os.getenv("AWS_PROFILE_NAME")
+        guardduty_session = aioboto3.Session(profile_name=profile_name)
     else:
         logger.warning(
-            "Role ARN not found. Defaulting to IAM credentials (not recommended)."
+            "Role ARN and profile not found. Defaulting to IAM credentials (not recommended)."
         )
         guardduty_session = aioboto3.Session(
-            profile_name=profile_name,
-            aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-            aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-            region_name=os.environ["AWS_REGION"],
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.getenv("AWS_REGION"),
         )
 
     # Get findings from GuardDuty
