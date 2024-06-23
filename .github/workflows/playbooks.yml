@@ -85,4 +85,5 @@ jobs:
           SLACK_CHANNEL: ${{ secrets.INTEGRATION__SLACK_CHANNEL }}
           URLSCAN_API_KEY: ${{ secrets.INTEGRATION__URLSCAN_API_KEY }}
           VT_API_KEY: ${{ secrets.INTEGRATION__VT_API_KEY }}
-        run: pytest -k "test_playbooks" --temporal-no-restart --tracecat-no-restart --capture=no
+          LOG_LEVEL: WARNING
+        run: pytest -k "test_playbooks" --temporal-no-restart --tracecat-no-restart
