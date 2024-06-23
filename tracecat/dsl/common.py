@@ -85,6 +85,10 @@ class ActionStatement(BaseModel):
 
 class DSLConfig(BaseModel):
     scheduler: Literal["static", "dynamic"] = "dynamic"
+    enable_runtime_tests: bool = Field(
+        default=False,
+        description="Enable runtime action tests. This is dynamically set on workflow entry.",
+    )
 
 
 class Trigger(BaseModel):
@@ -95,8 +99,8 @@ class Trigger(BaseModel):
 
 class ActionTest(BaseModel):
     ref: str = Field(..., pattern=SLUG_PATTERN, description="Action reference")
-    enable: bool = Field(default=True, description="Enable or disable the test")
-    validate_args: bool = Field(default=True, description="Validate action arguments")
+    enable: bool = True
+    validate_args: bool = True
     success: Any = Field(
         ...,
         description=(

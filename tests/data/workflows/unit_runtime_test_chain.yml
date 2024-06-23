@@ -42,4 +42,7 @@ tests:
 
   - ref: c
     # NOTE: REturn type consistency not enforced
-    success: tests/data/workflows/unit_runtime_test_chain_data.json
+    success: file://tests/data/workflows/unit_runtime_test_chain_data.json
+
+config:
+  enable_runtime_tests: true
