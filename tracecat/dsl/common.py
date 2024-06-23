@@ -127,7 +127,7 @@ def resolve_string_or_uri(string_or_uri: str) -> Any:
 
     except (FileNotFoundError, ValueError) as e:
         if "protocol not known" in str(e).lower():
-            raise DSLError(
+            raise TracecatDSLError(
                 f"Failed to read fsspec file, protocol not known: {string_or_uri}"
             ) from e
         logger.info(
