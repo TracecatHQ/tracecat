@@ -3,8 +3,9 @@
 Authentication method: Token-based
 
 Requires: secret named `datadog` with the following keys:
-- DD_APP_KEY: Datadog application key
-- DD_API_KEY: Datadog API key
+- `DD_APP_KEY`: Datadog application key
+- `DD_API_KEY`: Datadog API key
+- `DD_REGION`: Datadog region (e.g., us1, us3, us5, eu, ap1)
 
 Scopes:
 
@@ -24,6 +25,7 @@ list_alerts = {
 ```
 """
 
+import os
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -43,29 +45,28 @@ DD_REGION_TO_API_URL = {
 
 @registry.register(
     default_title="List Datadog SIEM alerts",
-    description="List Datadog SIEM alerts (signals)",
-    display_group="SIEM",
-    namespace="integrations.datadog.siem.list_datadog_alerts",
+    description="Fetch Datadog SIEM alerts (signals) and filter by time range.",
+    display_group="Datadog",
+    namespace="integrations.datadog",
     secrets=["datadog"],
 )
 async def list_datadog_alerts(
-    app_key: Annotated[
-        str, Field(..., description="The application key for Datadog API")
-    ],
-    api_key: Annotated[str, Field(..., description="The API key for Datadog API")],
-    region: Annotated[
-        str, Field(..., description="The Datadog region (e.g., us1, us3, us5, eu, ap1)")
-    ],
     start_time: Annotated[
-        datetime, Field(..., description="The start time for the alerts")
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
     end_time: Annotated[
-        datetime, Field(..., description="The end time for the alerts")
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
         int, Field(default=1000, description="The maximum number of alerts to return")
     ] = 1000,
 ) -> list[dict[str, Any]]:
+    api_key = os.getenv("DD_API_KEY")
+    app_key = os.getenv("DD_APP_KEY")
+    region = os.getenv("DD_REGION")
+
     dt_format = "%Y-%m-%dT%H:%M:%S+00:00"
     headers = {
         "DD-API-KEY": api_key,
