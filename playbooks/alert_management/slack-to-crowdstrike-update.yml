@@ -1,0 +1,51 @@
+title: Update Crowdstrike alerts via Slack
+description: |
+  Receives a Slack action and updates Crowdstrike alerts based on
+  `alert_ids` and `status` provided in the Slack action payload.
+entrypoint:
+triggers:
+  - type: webhook
+    ref: slack_actions_webhook
+    entrypoint: receive_slack_action
+
+actions:
+  - ref: extract_slack_payload
+    action: core.transform.forward
+    # Check if action received is as expected
+    run_if: ${{ FN.equal(TRIGGER.action.action_id, 'update_crowdstrike_alert') }}
+    args:
+      username: ${{ TRIGGER.user.username }}
+      alert_id: ${{ TRIGGER.action.value.alert_id }}
+      old_status: ${{ TRIGGER.action.value.old_status }}
+      new_status: ${{ TRIGGER.action.value.new_status }}
+
+  - ref: update_crowdstrike_alerts
+    action: integrations.crowdstrike.update_crowdstrike_alerts
+    depends_on:
+      - extract_slack_payload
+    args:
+      alert_id: ${{ ACTIONS.extract_slack_payload.result.alert_id }}
+      status: ${{ ACTIONS.extract_slack_payload.result.new_status }}
+
+  # Send slack notifiaction after updating Crowdstrike alerts
+  - ref: send_slack_notification
+    action: integrations.chat.slack.post_slack_message
+    depends_on:
+      - update_crowdstrike_alerts
+    args:
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      text: CrowdStrike alerts updated
+      blocks:
+        - type: header
+          text:
+            type: plain_text
+            text: ${{ ACTIONS.extract_slack_payload.result.username }} changed status of alert
+            emoji: true
+        - type: section
+          fields:
+            - type: mrkdwn
+              text: "*Alert ID:* ${{ ACTIONS.extract_slack_payload.result.alert_id }}"
+            - type: mrkdwn
+              text: "*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}"
+            - type: mrkdwn
+              text: "*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}"
