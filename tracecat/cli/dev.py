@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -9,6 +12,7 @@ import orjson
 import rich
 import typer
 import yaml
+from pydantic import BaseModel
 
 from ._config import config
 from ._utils import user_client
@@ -154,3 +158,136 @@ def generate_spec(
         json.dump(mint_data, file, indent=2)
     # Green
     rich.print(f"[green]API reference paths updated in {config.docs_path!s}[/green]")
+
+
+class Page(BaseModel):
+    group: str
+    pages: list[str | Page]
+
+
+def get_ns_tree(keys: list[str]):
+    root = {}
+    for key in sorted(keys):
+        parts = key.split(".")
+        current = root
+        for part in parts:
+            current = current.setdefault(part, {})
+    return root
+
+
+def convert_ns_tree_to_pages(root: dict, *, path: list[str]) -> Page | str:
+    if not root:
+        base, *rest = path
+        return f"{base}/{"_".join(rest)}"
+    pages = []
+    for key, value in root.items():
+        pages.append(convert_ns_tree_to_pages(value, path=path + [key]))
+    return Page(group=path[-1], pages=pages)
+
+
+def key_tree_to_pages(keys: list[str], base: str) -> Page:
+    ktree = get_ns_tree(keys)
+    pages = convert_ns_tree_to_pages(ktree, path=[base])
+    return pages
+
+
+UDF_MDX_TEMPLATE = """---
+title: {udf_name}
+description: {udf_key}
+---
+
+{udf_desc}
+
+This is the JSONSchema7 definition for the {udf_key} integration.
+
+{required_secrets}
+
+## Inputs
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{input_schema}
+```
+
+</CodeGroup>
+
+## Response
+
+<CodeGroup>
+```json JSONSchema7 Definition
+{response_schema}
+```
+
+</CodeGroup>
+"""
+
+
+@app.command(name="generate-udf-docs", help="Generate UDF documentation.")
+def generate_udf_docs():
+    """Generate UDF docs."""
+
+    int_relpath = "integrations/udfs"
+    path = config.docs_path / int_relpath
+
+    # Empty out the directory
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    path.mkdir(parents=True, exist_ok=True)
+
+    from tracecat.registry import registry
+
+    registry.init()
+
+    rich.print(f"Generating API reference paths in {config.docs_path!s}")
+
+    for key, udf in registry:
+        if udf.metadata.get("include_in_schema") is False:
+            continue
+        schema = udf.construct_schema()
+        s = UDF_MDX_TEMPLATE.format(
+            udf_name=udf.metadata.get("default_title")
+            or udf.key.split(".")[-1].title(),
+            udf_key=key,
+            udf_desc=udf.description
+            if udf.description.endswith(".")
+            else udf.description + ".",
+            required_secrets="This integration requires secrets: "
+            + ", ".join(f"`{sec}`" for sec in udf.secrets)
+            if udf.secrets
+            else "_No secrets required._",
+            input_schema=json.dumps(schema["args"], indent=4, sort_keys=True),
+            response_schema=json.dumps(schema["rtype"], indent=4, sort_keys=True),
+        )
+
+        with path.joinpath(f"{udf.key.replace(".","_")}.mdx").open("w") as f:
+            f.write(s)
+
+    mint_cfg = config.docs_path / "mint.json"
+    with mint_cfg.open() as file:
+        mint_data = json.load(file)
+    # Overwrite the 'navigation' property with the new JSON data
+    gname = "Schemas"
+    # Find 'Schemas' group
+    filtered_keys = [
+        key
+        for key, udf in registry
+        if udf.metadata.get("include_in_schema") is not False
+    ]
+    new_mint_pages = key_tree_to_pages(filtered_keys, int_relpath).model_dump()["pages"]
+    try:
+        schemas_ref = next(
+            item for item in mint_data["navigation"] if item["group"] == gname
+        )
+        schemas_ref["pages"] = new_mint_pages
+    except StopIteration:
+        # No Reference group found, create it
+        rich.print(f"No {gname!r} group found in mint.json, creating...")
+        schemas_ref["pages"].append({"group": "Schemas", "pages": new_mint_pages})
+
+    # Save the updated JSON back to 'mint.json'
+    with mint_cfg.open("w") as file:
+        json.dump(mint_data, file, indent=2)
+
+    rich.print("UDF docs updated!")
