@@ -20,6 +20,12 @@ class TracecatValidationError(TracecatException):
     pass
 
 
+class TracecatDSLError(TracecatValidationError):
+    """Tracecat user-facing DSL error"""
+
+    pass
+
+
 class TracecatExpressionError(TracecatException):
     """Tracecat user-facing expression error"""
 

@@ -13,6 +13,7 @@ from temporalio.client import Client, TLSConfig
 from tracecat import config
 from tracecat.dsl._converter import pydantic_data_converter
 from tracecat.expressions import TemplateValidator
+from tracecat.types.exceptions import TracecatDSLError
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -32,10 +33,6 @@ async def get_temporal_client() -> Client:
         tls=tls_config,
         data_converter=pydantic_data_converter,
     )
-
-
-class DSLError(ValueError):
-    pass
 
 
 class ActionStatement(BaseModel):
@@ -126,9 +123,12 @@ class DSLInput(BaseModel):
         elif isinstance(path, SpooledTemporaryFile):
             yaml_str = path.read().decode()
         else:
-            raise ValueError(f"Invalid file/path type {type(path)}")
+            raise TracecatDSLError(f"Invalid file/path type {type(path)}")
         dsl_dict = yaml.safe_load(yaml_str)
-        return DSLInput.model_validate(dsl_dict)
+        try:
+            return DSLInput.model_validate(dsl_dict)
+        except Exception as e:
+            raise TracecatDSLError(e) from e
 
     def to_yaml(self, path: str | Path) -> None:
         with Path(path).expanduser().resolve().open("w") as f:
@@ -140,13 +140,15 @@ class DSLInput(BaseModel):
     @model_validator(mode="after")
     def validate_input(self) -> Self:
         if not self.actions:
-            raise DSLError("At least one action must be defined")
+            raise TracecatDSLError("At least one action must be defined")
         if len({action.ref for action in self.actions}) != len(self.actions):
-            raise DSLError("All task.ref must be unique")
+            raise TracecatDSLError("All task.ref must be unique")
         valid_actions = tuple(action.ref for action in self.actions)
         if self.entrypoint not in valid_actions:
-            raise DSLError(f"Entrypoint must be one of the actions {valid_actions!r}")
+            raise TracecatDSLError(
+                f"Entrypoint must be one of the actions {valid_actions!r}"
+            )
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
         if n_entrypoints != 1:
-            raise DSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
+            raise TracecatDSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
         return self
