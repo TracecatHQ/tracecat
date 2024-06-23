@@ -31,11 +31,9 @@ actions:
 
 tests:
   - ref: b
-    validate_args: true
     success: 999
 
   - ref: c
-    validate_args: true
     success: 1000
 
 config:
