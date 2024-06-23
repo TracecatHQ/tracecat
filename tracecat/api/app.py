@@ -9,6 +9,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -97,7 +98,6 @@ from tracecat.types.api import (
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.types.headers import CustomHeaders
 
 engine: Engine
 
@@ -311,10 +311,10 @@ async def handle_incoming_webhook(
 
 @app.post("/webhooks/{path}/{secret}", tags=["public"])
 async def incoming_webhook(
-    request: Request,
     defn: Annotated[WorkflowDefinition, Depends(handle_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
+    x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
 ):
     """
     Webhook endpoint to trigger a workflow.
@@ -327,7 +327,6 @@ async def incoming_webhook(
         path=path,
         payload=payload,
         role=ctx_role.get(),
-        headers=request.headers,
     )
 
     # Fetch the DSL from the workflow object
@@ -336,8 +335,9 @@ async def incoming_webhook(
     # Set runtime configuration
     if payload:
         dsl_input.trigger_inputs = payload
-    dsl_input.config.enable_runtime_tests = bool(
-        request.headers.get(CustomHeaders.ENABLE_RUNTIME_TESTS) in ("1", "true")
+    dsl_input.config.enable_runtime_tests = x_tracecat_enable_runtime_tests in (
+        "1",
+        "true",
     )
 
     logger.info(dsl_input.dump_yaml())
