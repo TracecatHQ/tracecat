@@ -6,7 +6,7 @@ ACTIONS:
     result: 999
     result_typename: "int"
   c:
-    result: 4
+    result: 1000
     result_typename: "int"
 INPUTS:
 
