@@ -81,12 +81,7 @@ async def _run_workflow(
                 rich.print(e.response.json())
 
 
-async def _create_workflow(
-    title: str | None = None,
-    description: str | None = None,
-    activate_workflow: bool = False,
-    activate_webhook: bool = False,
-):
+async def _create_workflow(title: str | None = None, description: str | None = None):
     async with user_client() as client:
         # Get the webhook url
         params = {}
@@ -97,11 +92,7 @@ async def _create_workflow(
         res = await client.post("/workflows", content=orjson.dumps(params))
         res.raise_for_status()
         rich.print("Created workflow")
-        result = res.json()
-        rich.print(result)
-
-        if activate_workflow:
-            await _activate_workflow(result["id"], activate_webhook)
+        return res.json()
 
 
 async def _activate_workflow(workflow_id: str, with_webhook: bool = False):
@@ -142,12 +133,22 @@ def create(
     activate_webhook: bool = typer.Option(
         False, "--webhook", help="Activate the webhook"
     ),
+    defn_file: Path = typer.Option(
+        None, "--commit", "-c", help="Create with workflow definition"
+    ),
 ):
     """Create a new workflow."""
     rich.print("Creating a new workflow")
-    asyncio.run(
-        _create_workflow(title, description, activate_workflow, activate_webhook)
-    )
+
+    async def tasks():
+        result = await _create_workflow(title=title, description=description)
+        rich.print(result)
+        if activate_workflow:
+            await _activate_workflow(result["id"], activate_webhook)
+        if defn_file:
+            await _commit_workflow(defn_file, result["id"])
+
+    asyncio.run(tasks())
 
 
 @app.command(help="Commit a workflow definition")
