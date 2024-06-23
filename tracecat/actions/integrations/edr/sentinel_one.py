@@ -22,13 +22,16 @@ list_alerts: {
 
 import os
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 
 from tracecat.registry import Field, registry
 
 ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
+ANALYST_VERDICT_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts/analyst-verdict"
+
+AnalystVerdict = Literal["FALSE_POSITIVE", "SUSPICIOUS", "TRUE_POSITIVE", "UNDEFINED"]
 
 
 @registry.register(
@@ -70,6 +73,40 @@ async def list_sentinelone_alerts(
             f"{base_url}/{ALERTS_ENDPOINT}",
             headers=headers,
             params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Update Sentinel One alert status",
+    description="Update the analyst verdict of Sentinel One alerts.",
+    display_group="Sentinel One",
+    namespace="integrations.sentinel_one",
+)
+async def update_sentinelone_alert_status(
+    alert_ids: Annotated[
+        list[str], Field(..., description="List of alert IDs to update")
+    ],
+    status: Annotated[
+        AnalystVerdict, Field(..., description="New status for the alerts")
+    ],
+) -> dict[str, Any]:
+    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
+    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
+    headers = {
+        "Authorization": f"ApiToken {api_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{base_url}/{ANALYST_VERDICT_ENDPOINT}",
+            headers=headers,
+            json={
+                "data": {"analystVerdict": status},
+                "filter": {"ids": alert_ids},
+            },
         )
         response.raise_for_status()
         return response.json()
