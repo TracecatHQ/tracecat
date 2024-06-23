@@ -2,6 +2,8 @@
 
 Authentication method: Token-based
 
+Requires: A secret named `hybrid_analysis` with key `HA_API_KEY`
+
 References: https://hybrid-analysis.com/docs/api/v2#/
 
 Supported APIs:
@@ -38,8 +40,11 @@ def create_hybrid_analysis_client() -> httpx.AsyncClient:
 
 
 @registry.register(
+    default_title="Analyze malware sample",
     description="Analyze a malware sample using Hybrid Analysis.",
-    namespace="hybrid_analysis",
+    display_group="Hybrid Analysis",
+    namespace="integrations.hybrid_analysis",
+    secrets=["hybrid_analysis"],
 )
 async def analyze_malware_sample(
     file_hash: Annotated[

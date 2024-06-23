@@ -2,7 +2,7 @@
 
 Authentication method: Token-based
 
-Requires: AbuseIPDB API token
+Requires: secret named `abuseipdb` with key `ABUSEIPDB_API_KEY`
 
 References: https://docs.abuseipdb.com/
 
@@ -29,8 +29,11 @@ ABUSEIPDB_BASE_URL = "https://api.abuseipdb.com/api"
 
 
 @registry.register(
+    default_title="Analyze IP Address",
     description="Analyze an IP address using AbuseIPDB.",
-    namespace="abuseipdb",
+    display_group="AbuseIPDB",
+    namespace="integrations.abuseipdb",
+    secrets=["abuseipdb"],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],

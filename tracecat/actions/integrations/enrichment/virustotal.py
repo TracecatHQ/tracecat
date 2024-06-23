@@ -2,7 +2,7 @@
 
 Authentication method: Token-based
 
-Requires: A secret named `virustotal` with key `VT_API_KEY`.
+Requires: A secret named `virustotal` with key `VIRUSTOTAL_API_KEY`.
 
 References: https://docs.virustotal.com/reference/overview#most-popular-api-endpoints
 
@@ -42,22 +42,22 @@ VT_BASE_URL = "https://www.virustotal.com/api/"
 
 
 def create_virustotal_client() -> httpx.AsyncClient:
-    VT_API_KEY = os.getenv("VT_API_KEY")
-    if VT_API_KEY is None:
-        raise ValueError("VT_API_KEY is not set")
+    VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
+    if VIRUSTOTAL_API_KEY is None:
+        raise ValueError("VIRUSTOTAL_API_KEY is not set")
     client = httpx.AsyncClient(
         base_url=VT_BASE_URL,
-        headers={"x-apikey": VT_API_KEY},
+        headers={"x-apikey": VIRUSTOTAL_API_KEY},
     )
     return client
 
 
 @registry.register(
+    default_title="Analyze URL",
     description="Analyze a URL using VirusTotal.",
-    namespace="integrations.enrich.virustotal",
+    display_group="VirusTotal",
+    namespace="integrations.virustotal",
     secrets=["virustotal"],
-    default_title="VirusTotal",
-    display_group="Enrichment",
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -70,8 +70,11 @@ async def analyze_url(
 
 
 @registry.register(
+    default_title="Analyze IP address",
     description="Analyze an IP address using VirusTotal.",
-    namespace="virustotal",
+    display_group="VirusTotal",
+    namespace="integrations.virustotal",
+    secrets=["virustotal"],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
@@ -83,8 +86,11 @@ async def analyze_ip_address(
 
 
 @registry.register(
+    default_title="Analyze malware sample",
     description="Analyze a malware sample using VirusTotal.",
-    namespace="virustotal",
+    display_group="VirusTotal",
+    namespace="integrations.virustotal",
+    secrets=["virustotal"],
 )
 async def analyze_malware_sample(
     file_hash: Annotated[
