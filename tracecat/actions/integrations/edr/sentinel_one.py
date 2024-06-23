@@ -32,19 +32,23 @@ ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
 
 
 @registry.register(
-    description="Fetch all Sentinel One alerts.",
+    default_title="List Sentinel One alerts",
+    description="Fetch all Sentinel One alerts and filter by time range.",
+    display_group="Sentinel One",
     namespace="integrations.sentinel_one",
     secrets=["sentinel_one"],
 )
 async def list_sentinelone_alerts(
     start_time: Annotated[
-        datetime.datetime, Field(..., description="The start time for the alerts")
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
     ],
     end_time: Annotated[
-        datetime.datetime, Field(..., description="The end time for the alerts")
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
     ],
     limit: Annotated[
-        int, Field(default=1000, description="The maximum number of alerts to return")
+        int, Field(default=1000, description="Maximum number of alerts to return.")
     ] = 1000,
 ) -> list[dict[str, Any]]:
     api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
