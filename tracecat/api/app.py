@@ -59,7 +59,7 @@ from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry import RegistryValidationError, registry
+from tracecat.registry import RegistryValidationError, ValidationError, registry
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -676,10 +676,18 @@ def _validate_dsl(dsl: DSLInput) -> list[UDFArgsValidationResponse]:
         # We store the DSL as is to ensure compatibility with with string reprs
         _, val_err = _vadliate_udf_args(act_stmt.action, act_stmt.args)
         if val_err:
+            match val_err.err:
+                case ValidationError():
+                    detail = val_err.err.errors()
+                case str():
+                    detail = val_err.err
+                case _:
+                    try:
+                        detail = str(val_err.err)
+                    except Exception:
+                        detail = "Unknown error, please check the logs."
             resp = UDFArgsValidationResponse(
-                ok=False,
-                message=f"Error validating {val_err.key}",
-                detail=val_err.err.errors(),
+                ok=False, message=f"Error validating {val_err.key}", detail=detail
             )
             val_errors.append(resp)
     return val_errors
@@ -2084,5 +2092,11 @@ def _vadliate_udf_args(
         return validated_args, None
     except RegistryValidationError as e:
         return None, e
+    except KeyError:
+        return None, RegistryValidationError(
+            "UDF not found",
+            key=udf_key,
+            err=f"Could not find UDF {udf_key!r} in registry. Is this UDF registered?",
+        )
     except Exception as e:
         raise e

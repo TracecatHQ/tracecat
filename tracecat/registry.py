@@ -23,10 +23,7 @@ DEFAULT_NAMESPACE = "core"
 class RegistryValidationError(TracecatException):
     """Exception raised when a registry validation error occurs."""
 
-    key: str
-    err: ValidationError
-
-    def __init__(self, *args, key: str, err: ValidationError | None = None):
+    def __init__(self, *args, key: str, err: ValidationError | str | None = None):
         super().__init__(*args)
         self.key = key
         self.err = err
