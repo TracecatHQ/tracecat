@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 
 from tracecat.types.api import WebhookResponse
+from tracecat.types.headers import CustomHeaders
 
 from ._utils import dynamic_table, user_client
 
@@ -37,7 +38,10 @@ async def _commit_workflow(yaml_path: Path, workflow_id: str):
 
 
 async def _run_workflow(
-    workflow_id: str, payload: dict[str, str] | None = None, proxy: bool = False
+    workflow_id: str,
+    payload: dict[str, str] | None = None,
+    proxy: bool = False,
+    test: bool = False,
 ):
     async with user_client() as client:
         # Get the webhook url
@@ -53,7 +57,11 @@ async def _run_workflow(
         url = f"/webhooks/{workflow_id}/{webhook.secret}"
 
     async with run_client as client:
-        res = await client.post(url, content=content)
+        res = await client.post(
+            url,
+            content=content,
+            headers={CustomHeaders.ENABLE_RUNTIME_TESTS: "true"} if test else None,
+        )
         try:
             res.raise_for_status()
             rich.print(res.json())
@@ -62,8 +70,15 @@ async def _run_workflow(
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 rich.print(
-                    "Webhook not found. Either you entered it incorrectly or haven't exposed it yet (through ngrok)."
+                    "Webhook or workflow not found. Are your workflow ID and webhook URL correct?."
                 )
+            elif e.response.status_code == 400:
+                rich.print(
+                    f"{e.response.text}. If the webhook or workflow is offline, "
+                    "run `tracecat workflow up <workflow_id> --webhook` first."
+                )
+            else:
+                rich.print(e.response.json())
 
 
 async def _create_workflow(
@@ -163,12 +178,18 @@ def run(
         "--proxy",
         help="If set, run the workflow through the external-facing webhook",
     ),
+    test: bool = typer.Option(
+        False, "--test", help="If set, run the workflow with runtime action tests"
+    ),
 ):
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r} {"proxied" if proxy else 'directly'}")
     asyncio.run(
         _run_workflow(
-            workflow_id, payload=orjson.loads(data) if data else None, proxy=proxy
+            workflow_id,
+            payload=orjson.loads(data) if data else None,
+            proxy=proxy,
+            test=test,
         )
     )
 

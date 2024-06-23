@@ -35,6 +35,8 @@ tests:
     success: 999
 
   - ref: c
-    enable: false
     validate_args: true
     success: 1000
+
+config:
+  enable_runtime_tests: true

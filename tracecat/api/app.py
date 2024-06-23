@@ -97,6 +97,7 @@ from tracecat.types.api import (
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.types.headers import CustomHeaders
 
 engine: Engine
 
@@ -283,10 +284,10 @@ def validate_incoming_webhook(
         # Check if the workflow is active
 
         if defn.workflow.status == "offline":
-            logger.error("Workflow is inactive")
+            logger.error("Workflow is offline")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workflow is inactive",
+                detail="Workflow is offline",
             )
 
         # If we are here, all checks have passed
@@ -310,6 +311,7 @@ async def handle_incoming_webhook(
 
 @app.post("/webhooks/{path}/{secret}", tags=["public"])
 async def incoming_webhook(
+    request: Request,
     defn: Annotated[WorkflowDefinition, Depends(handle_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
@@ -320,14 +322,24 @@ async def incoming_webhook(
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
-    role = ctx_role.get()
-    logger.info("Webhook hit", path=path, payload=payload)
+    logger.info(
+        "Webhook hit",
+        path=path,
+        payload=payload,
+        role=ctx_role.get(),
+        headers=request.headers,
+    )
 
     # Fetch the DSL from the workflow object
-    logger.info("Incoming webhook role", role=role)
     dsl_input = defn.content
+
+    # Set runtime configuration
     if payload:
         dsl_input.trigger_inputs = payload
+    dsl_input.config.enable_runtime_tests = bool(
+        request.headers.get(CustomHeaders.ENABLE_RUNTIME_TESTS) in ("1", "true")
+    )
+
     logger.info(dsl_input.dump_yaml())
 
     asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
@@ -583,8 +595,6 @@ def commit_workflow(
                 dsl = converters.workflow_to_dsl(workflow)
                 logger.info("Commiting workflow from database")
 
-            logger.warning(dsl.model_dump())
-
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
             # Validate the action args
@@ -616,8 +626,6 @@ def commit_workflow(
                 Action.workflow_id == workflow_id, Action.owner_id == role.user_id
             )
             session.exec(del_stmt)
-            logger.info(result)
-
             session.flush()  # Ensure deletions are flushed
             session.refresh(workflow)
 

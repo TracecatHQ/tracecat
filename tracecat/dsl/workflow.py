@@ -229,7 +229,13 @@ class DSLWorkflow:
                 self._mark_task(task.ref, TaskMarker.SKIP)
                 return
 
-            self.logger.info("Executing task")
+            # Check for an action test
+            act_test = (
+                self.action_test_map.get(task.ref)
+                if self.dsl.config.enable_runtime_tests
+                else None
+            )
+            self.logger.info("Executing task", act_test=act_test)
             # TODO: Set a retry policy for the activity
             activity_result = await workflow.execute_activity(
                 _udf_key_to_activity_name(task.action),
@@ -238,7 +244,7 @@ class DSLWorkflow:
                     role=self.role,
                     run_context=self.run_ctx,
                     exec_context=self.context,
-                    action_test=self.action_test_map.get(task.ref),
+                    action_test=act_test,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
             )
