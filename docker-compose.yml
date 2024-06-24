@@ -26,7 +26,7 @@ services:
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
-    container_name: tracecat_worker
+    # container_name: tracecat_worker
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
