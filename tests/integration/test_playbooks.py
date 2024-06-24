@@ -3,6 +3,9 @@ import re
 import subprocess
 
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # Fixture to create Tracecat secrets
@@ -46,10 +49,22 @@ def create_secrets():
 
 
 @pytest.mark.parametrize(
-    "path_to_playbook",
+    "path_to_playbook, trigger_data",
     [
-        "alert_management/aws-guardduty-to-slack.yml",
-        "alert_management/datadog-siem-to-slack.yml",
+        (
+            "playbooks/alert_management/aws-guardduty-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/datadog-siem-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
     ],
 )
 def test_playbook(path_to_playbook):
