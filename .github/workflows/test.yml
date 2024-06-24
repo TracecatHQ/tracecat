@@ -144,7 +144,7 @@ jobs:
           fi
 
       - name: Start Docker services
-        run: docker compose up -d
+        run: docker compose up --no-deps api worker postgres_db temporal_elasticsearch temporal -d
 
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
