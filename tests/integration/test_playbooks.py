@@ -1,5 +1,5 @@
-import json
 import os
+import re
 import subprocess
 
 import pytest
@@ -48,32 +48,46 @@ def create_secrets():
 @pytest.mark.parametrize(
     "path_to_playbook",
     [
-        # "alert_management/aws-guardduty-to-slack.yml",
-        "alert_management/crowdstrike-to-cases.yml",
+        "alert_management/aws-guardduty-to-slack.yml",
         "alert_management/datadog-siem-to-slack.yml",
     ],
 )
 def test_playbook(path_to_playbook):
     # Extract the filename without extension
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
-    # 1. Create workflow
+    # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
     output = subprocess.run(
-        ["tracecat", "workflow", "create", "--title", filename],
+        [
+            "tracecat",
+            "workflow",
+            "create",
+            "--title",
+            filename,
+            "--commit",
+            path_to_playbook,
+        ],
         shell=True,
         capture_output=True,
         text=True,
     )
-    workflow_id = json.loads(output.stdout)["id"]
-    # 2. Commit workflow definition
+    # Use regex to extract the workflow ID
+    # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
+    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
+    assert output.returncode == 0
+    # 2. Activate the workflow
     output = subprocess.run(
-        ["tracecat", "workflow", "commit", "--file", path_to_playbook, workflow_id],
+        ["tracecat", "workflow", "up", "--webhook", workflow_id],
         shell=True,
         capture_output=True,
         text=True,
     )
-    assert "Successfully committed to workflow" in output.stdout
-    # 3. Activate the workflow
-    subprocess.run(["tracecat", "workflow", "up", "--webhook", workflow_id], shell=True)
-    # 4. Run the workflow
-    subprocess.run(["tracecat", "workflow", "run", workflow_id], shell=True)
+    assert output.returncode == 0
+    # 3. Run the workflow
+    output = subprocess.run(
+        ["tracecat", "workflow", "run", workflow_id],
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    assert output.returncode == 0
