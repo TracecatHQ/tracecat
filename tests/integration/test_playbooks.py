@@ -67,7 +67,7 @@ def create_secrets():
         ),
     ],
 )
-def test_playbook(path_to_playbook):
+def test_playbook(path_to_playbook, trigger_data):
     # Extract the filename without extension
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
     # 1. Create an commit workflow
