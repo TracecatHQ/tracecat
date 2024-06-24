@@ -1,8 +1,11 @@
-import json
 import os
+import re
 import subprocess
 
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # Fixture to create Tracecat secrets
@@ -46,34 +49,61 @@ def create_secrets():
 
 
 @pytest.mark.parametrize(
-    "path_to_playbook",
+    "path_to_playbook, trigger_data",
     [
-        # "alert_management/aws-guardduty-to-slack.yml",
-        "alert_management/crowdstrike-to-cases.yml",
-        "alert_management/datadog-siem-to-slack.yml",
+        (
+            "playbooks/alert_management/aws-guardduty-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/datadog-siem-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
     ],
 )
 def test_playbook(path_to_playbook):
     # Extract the filename without extension
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
-    # 1. Create workflow
+    # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
     output = subprocess.run(
-        ["tracecat", "workflow", "create", "--title", filename],
+        [
+            "tracecat",
+            "workflow",
+            "create",
+            "--title",
+            filename,
+            "--commit",
+            path_to_playbook,
+        ],
         shell=True,
         capture_output=True,
         text=True,
     )
-    workflow_id = json.loads(output.stdout)["id"]
-    # 2. Commit workflow definition
+    # Use regex to extract the workflow ID
+    # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
+    assert "Successfully created workflow" in output.stdout
+    assert output.returncode == 0
+    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
+    # 2. Activate the workflow
     output = subprocess.run(
-        ["tracecat", "workflow", "commit", "--file", path_to_playbook, workflow_id],
+        ["tracecat", "workflow", "up", "--webhook", workflow_id],
         shell=True,
         capture_output=True,
         text=True,
     )
-    assert "Successfully committed to workflow" in output.stdout
-    # 3. Activate the workflow
-    subprocess.run(["tracecat", "workflow", "up", "--webhook", workflow_id], shell=True)
-    # 4. Run the workflow
-    subprocess.run(["tracecat", "workflow", "run", workflow_id], shell=True)
+    assert output.returncode == 0
+    # 3. Run the workflow
+    output = subprocess.run(
+        ["tracecat", "workflow", "run", workflow_id],
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    assert output.returncode == 0

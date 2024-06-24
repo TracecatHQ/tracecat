@@ -10,12 +10,12 @@ inputs:
 
 triggers:
   - type: webhook
-    ref: datadog_siem_signals_webhook
+    ref: datadog_webhook
     entrypoint: pull_datadog_siem_signals
 
 actions:
   - ref: pull_datadog_signals
-    action: integrations.datadog.siem.list_datadog_alerts
+    action: integrations.datadog.list_datadog_alerts
     args:
       start_time: ${{ TRIGGER.start_time }}
       end_time: ${{ TRIGGER.end_time }}
@@ -39,7 +39,7 @@ actions:
 
   - ref: extract_emails
     # Returns a list of list of emails per alert
-    action: integrations.extraction.extract_emails
+    action: core.extraction.extract_emails
     depends_on:
       - reshape_signals
     for_each: ${{ for var.signal in ACTIONS.reshape_signals.result }}
