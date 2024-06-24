@@ -78,16 +78,22 @@ actions:
             options:
               - text:
                   type: plain_text
-                  text: "Ignore"
-                value: "ignored"
+                  text: Ignore
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: ignored"
               - text:
                   type: plain_text
-                  text: "True Positive"
-                value: "true_positive"
+                  text: True Positive
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: true_positive
               - text:
                   type: plain_text
-                  text: "False Positive"
-                value: "false_positive"
+                  text: False Positive
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: false_positive
 
   - ref: open_cases
     action: core.open_case
