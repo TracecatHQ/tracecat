@@ -6,7 +6,7 @@ on:
     paths: ["tracecat/**"]
   pull_request:
     branches: ["main"]
-    paths: [".github/workflows/stress-test.yml"]
+    paths: [".github/workflows/benchmark.yml"]
 
 jobs:
   stress-test:
