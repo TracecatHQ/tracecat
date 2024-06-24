@@ -1,0 +1,57 @@
+name: Benchmark
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["tracecat/**"]
+  pull_request:
+    branches: ["main"]
+    paths: [".github/workflows/stress-test.yml"]
+
+jobs:
+  stress-test:
+    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        n_workers: ["1", "2", "4", "8"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run environment setup script
+        run: bash env.sh
+
+      - name: Start Docker services
+        env:
+          N_WORKERS: ${{ matrix.n_workers }}
+        run: docker compose up --scale worker=$N_WORKERS -d
+
+      - name: Verify Tracecat API is running
+        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
+
+      - name: pip install Tracecat
+        run: python -m pip install --upgrade pip && pip install ".[dev,cli]"
+
+      - name: Verify Tracecat CLI installation
+        run: tracecat --help
+
+      - name: Run tests (headless mode)
+        env:
+          TRACECAT__IMAGE_TAG: main
+          LOG_LEVEL: WARNING
+        run: |
+          pytest -k "test_stress_workflow" --temporal-no-restart --tracecat-no-restart
+              --benchmark-name=short \
+              --benchmark-group-by=param \
+              --benchmark-warmup=off \
+              --benchmark-columns=min,max,mean,median,stddev,iterations \
