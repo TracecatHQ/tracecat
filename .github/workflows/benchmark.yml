@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        n_workers: ["1", "2", "4", "8"]
+        num_workers: ["1", "2", "4", "8"]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,8 +33,8 @@ jobs:
 
       - name: Start Docker services
         env:
-          N_WORKERS: ${{ matrix.n_workers }}
-        run: docker compose up --scale worker=$N_WORKERS -d
+          NUM_WORKERS: ${{ matrix.num_workers }}
+        run: docker compose up --scale worker=$NUM_WORKERS -d
 
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
