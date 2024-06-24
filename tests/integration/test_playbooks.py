@@ -1,6 +1,9 @@
+import json
 import os
 import re
 import subprocess
+from pathlib import Path
+from typing import Any
 
 import pytest
 from dotenv import load_dotenv
@@ -67,9 +70,9 @@ def create_secrets():
         ),
     ],
 )
-def test_playbook(path_to_playbook, trigger_data):
+def test_playbook(path_to_playbook: str, trigger_data: dict[str, Any]):
     # Extract the filename without extension
-    filename = os.path.basename(path_to_playbook).replace(".yml", "")
+    path = Path(path_to_playbook)
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
     output = subprocess.run(
@@ -78,31 +81,31 @@ def test_playbook(path_to_playbook, trigger_data):
             "workflow",
             "create",
             "--title",
-            filename,
+            path.name,
             "--commit",
-            path_to_playbook,
+            path.as_posix(),
+            "--activate",
+            "--webhook",
         ],
-        shell=True,
         capture_output=True,
         text=True,
     )
     # Use regex to extract the workflow ID
     # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
-    assert "Successfully created workflow" in output.stdout
+    assert "Created workflow" in output.stdout
+    assert "Successfully committed to workflow" in output.stdout
     assert output.returncode == 0
-    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
-    # 2. Activate the workflow
+    workflow_id = re.search(r"'id':\s*'(wf-[0-9a-f]+)'", output.stdout).group(1)
+    # Run the workflow
     output = subprocess.run(
-        ["tracecat", "workflow", "up", "--webhook", workflow_id],
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    assert output.returncode == 0
-    # 3. Run the workflow
-    output = subprocess.run(
-        ["tracecat", "workflow", "run", workflow_id],
-        shell=True,
+        [
+            "tracecat",
+            "workflow",
+            "run",
+            workflow_id,
+            "--data",
+            json.dumps(trigger_data),
+        ],
         capture_output=True,
         text=True,
     )
