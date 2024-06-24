@@ -13,7 +13,7 @@ triggers:
 
 actions:
   - ref: pull_datadog_signals
-    action: integrations.datadog.siem.list_datadog_alerts
+    action: integrations.datadog.list_datadog_alerts
     args:
       start_time: ${{ TRIGGER.start_time }}
       end_time: ${{ TRIGGER.end_time }}
@@ -102,4 +102,4 @@ actions:
       action: ${{ var.smac.action }}
       context: ${{ var.smac.context }}
       payload: ${{ var.smac.payload }}
-      priority: ${{ var.signal.attributes.status }}
+      priority: ${{ 'high' if FN.greater_than(var.smac.status, 'high') else 'low' }}
