@@ -35,7 +35,7 @@ TYPE_SPECIFIERS = ("int", "float", "str", "bool")
 TYPE_SPECIFIER_PATTERN = "|".join(rf"\b{type}\b" for type in TYPE_SPECIFIERS)
 """Match one of 'int', 'float', 'str', 'bool'."""
 
-ACTION_BASE = r"ACTIONS\.(?P<action_expr>[a-zA-Z0-9_\-\.]+?)"
+ACTION_BASE = r"ACTIONS\.(?P<action_expr>[a-zA-Z0-9_\-\.\[\]\*]+?)"
 """Match `ACTIONS.action`."""
 
 SECRET_BASE = r"SECRETS\.(?P<secret_expr>[a-zA-Z0-9_\-\.]+?)"
@@ -44,13 +44,16 @@ SECRET_BASE = r"SECRETS\.(?P<secret_expr>[a-zA-Z0-9_\-\.]+?)"
 FUNCTION_BASE = r"FN\.(?P<fn_expr>(?P<fn_name>[a-zA-Z0-9_\.]+?)\((?P<fn_args>.*?)\))"
 """Match `FN.func(arg1, arg2)`."""
 
-INPUTS_BASE = r"INPUTS\.(?P<input_expr>[a-zA-Z0-9_\-\.]+?)"
+INPUTS_BASE = r"INPUTS\.(?P<input_expr>[a-zA-Z0-9_\-\.\[\]\*]+?)"
 """Match `INPUTS.var` or `INPUTS.my.module.items`."""
 
-ENV_BASE = r"ENV\.(?P<env_expr>[a-zA-Z0-9_\-\.]+?)"
+ENV_BASE = r"ENV\.(?P<env_expr>[a-zA-Z0-9_\-\.\[\]\*]+?)"
 """Match `ENV.var` or `ENV.my.module.items`."""
 
-LOCAL_VARS_BASE = r"var\.(?P<vars_expr>[a-zA-Z0-9_\-\.]+?)"
+TRIGGER_BASE = r"TRIGGER\.(?P<trigger_expr>[a-zA-Z0-9_\-\.\[\]\*]+?)"
+"""Match `TRIGGER.var` or `TRIGGER.my.data.items`."""
+
+LOCAL_VARS_BASE = r"var\.(?P<vars_expr>[a-zA-Z0-9_\-\.\[\]\*]+?)"
 """Match the `var` action-local context. e.g.`var.some_variable` or `var.some.variable`."""
 
 STRING_LITERAL = r"'(?P<str_literal>[^']*)'"
@@ -78,6 +81,7 @@ TYPED_CTX_EXPR_PATTERN = _add_return_type(
     INPUTS_BASE,
     ENV_BASE,
     LOCAL_VARS_BASE,
+    TRIGGER_BASE,
 )
 
 ITERATOR_BASE = (

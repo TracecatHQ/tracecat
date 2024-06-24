@@ -461,6 +461,22 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("bool(True)", True),
         ("bool(1)", True),
         ("[1, 2, 3]", [1, 2, 3]),
+        # Environment expressions
+        ("ENV.item", "ITEM"),
+        ("ENV.var", "VAR"),
+        # Trigger expressions
+        ("TRIGGER.data.name", "John"),
+        ("TRIGGER.data.age", 30),
+        ("TRIGGER.value -> int", 100),
+        # Local variables
+        ("var.x", 5),
+        ("var.y", "100"),
+        ("var.y -> int", 100),
+        # Test jsonpath
+        ("INPUTS.people[1].name", "Bob"),
+        ("INPUTS.people[2].age -> str", "50"),
+        ("INPUTS.people[*].age", [30, 40, 50]),
+        ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -484,10 +500,35 @@ def test_expression_parser(expr, expected):
                 },
             },
             "adjectives": ["cool", "awesome", "happy"],
+            "people": [
+                {
+                    "name": "Alice",
+                    "age": 30,
+                },
+                {
+                    "name": "Bob",
+                    "age": 40,
+                },
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                },
+            ],
         },
         ExprContext.ENV: {
             "item": "ITEM",
             "var": "VAR",
+        },
+        ExprContext.TRIGGER: {
+            "data": {
+                "name": "John",
+                "age": 30,
+            },
+            "value": "100",
+        },
+        ExprContext.LOCAL_VARS: {
+            "x": 5,
+            "y": "100",
         },
     }
     parser = ExpressionParser(context=context)
