@@ -102,4 +102,7 @@ actions:
       action: ${{ var.smac.action }}
       context: ${{ var.smac.context }}
       payload: ${{ var.smac.payload }}
-      priority: ${{ 'high' if FN.greater_than(var.smac.status, 'high') else 'low' }}
+      # Datadog: critical, high, medium, low, info
+      # Tracecat: critical, high, medium, low
+      # NOTE: 'info' in Datadog is considered as 'low' in Tracecat
+      priority: ${{ 'low' if FN.equals_to(var.smac.status, 'info') else var.smac.status }}
