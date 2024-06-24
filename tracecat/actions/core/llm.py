@@ -56,7 +56,7 @@ async def ai_action(
         system_context += exec_ctx_str
 
     return await async_openai_call(
-        text=prompt,
+        prompt=prompt,
         system_context=system_context,
         model=model,
         **(additional_config or {}),
