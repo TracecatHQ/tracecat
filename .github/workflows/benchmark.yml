@@ -34,7 +34,9 @@ jobs:
       - name: Start Docker services
         env:
           NUM_WORKERS: ${{ matrix.num_workers }}
-        run: docker compose up --scale worker=$NUM_WORKERS -d
+        run: |
+          docker compose up --scale worker=$NUM_WORKERS \
+            --no-deps api worker postgres_db temporal_elasticsearch temporal_ui temporal -d
 
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
