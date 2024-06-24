@@ -33,7 +33,7 @@ actions:
         first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
         last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
         samples: ${{ var.signal.attributes.attributes.samples }}
-        link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.EventID }}
+        link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.id }}
 
   - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
@@ -87,8 +87,7 @@ actions:
         context:
           first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
           last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
-          # @topher-lo Which EventID is this meant to be?
-          link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.attributes.attributes.samples[0].eventId }}
+          link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.id }}
 
   # Open cases in Tracecat's case management system
   - ref: open_cases
