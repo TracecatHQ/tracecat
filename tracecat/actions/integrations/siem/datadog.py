@@ -80,7 +80,7 @@ async def list_datadog_alerts(
         ) from err
 
     # TODO: Add support for pagination
-    async with httpx.AsyncClient(base_url=api_url, allow_redirects=True) as client:
+    async with httpx.AsyncClient(base_url=api_url, follow_redirects=True) as client:
         response = await client.get(
             "/v2/security_monitoring/signals",
             headers=headers,
