@@ -73,8 +73,9 @@ def test_playbook(path_to_playbook):
     )
     # Use regex to extract the workflow ID
     # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
-    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
+    assert "Successfully created workflow" in output.stdout
     assert output.returncode == 0
+    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
     # 2. Activate the workflow
     output = subprocess.run(
         ["tracecat", "workflow", "up", "--webhook", workflow_id],
