@@ -87,7 +87,8 @@ actions:
         context:
           first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
           last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
-          link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.EventID }}
+          # @topher-lo Which EventID is this meant to be?
+          link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.attributes.attributes.samples[0].eventId }}
 
   # Open cases in Tracecat's case management system
   - ref: open_cases
