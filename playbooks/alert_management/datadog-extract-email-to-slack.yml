@@ -10,7 +10,7 @@ inputs:
 
 triggers:
   - type: webhook
-    ref: datadog_siem_signals_webhook
+    ref: datadog_webhook
     entrypoint: pull_datadog_siem_signals
 
 actions:
