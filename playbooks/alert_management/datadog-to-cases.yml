@@ -105,4 +105,4 @@ actions:
       # Datadog: critical, high, medium, low, info
       # Tracecat: critical, high, medium, low
       # NOTE: 'info' in Datadog is considered as 'low' in Tracecat
-      priority: ${{ 'low' if FN.equals_to(var.smac.status, 'info') else var.smac.status }}
+      priority: ${{ 'low' if FN.equals(var.smac.status, 'info') else var.smac.status }}
