@@ -178,6 +178,7 @@ class ExprType(StrEnum):
     TYPECAST = auto()
     ITERATOR = auto()
     TERNARY = auto()
+    TRIGGER = auto()
 
 
 class ParserFlags(IntEnum):
