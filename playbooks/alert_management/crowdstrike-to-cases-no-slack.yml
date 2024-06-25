@@ -1,16 +1,29 @@
+# INSTRUCTIONS:
+# From the root of the repository, run the following commands to get started.
+#
+# (1) Create, commit, and activate the workflow (+webhook) in one step with the following command:
+# >>> tracecat workflow create --commit playbooks/alert_management/crowdstrike-to-cases.yml --activate --webhook
+#
+# (2) To run the workflow, run the following command with the workflow ID (replace with your own):
+# >>> tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"my": "data", "for": "the", "workflow": "run"}'
+# To run workflow with action tests:
+# >>> tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"my": "data", "for": "the", "workflow": "run"}' --test
+#
+# TRIGGER DATA SHAPE:
+# - start_time: ISO8601 string
+# - end_time: ISO8601 string
+
 title: Fetch Crowdstrike alerts and open cases.
 description: Pulls Crowdstrike alerts and opens cases in Tracecat.
 config:
+  # NOTE: Setting `enable_runtime_tests` to `true` here will override all other
+  # runtime configuration for this flag i.e. tracecat workflow run --test flag).
   enable_runtime_tests: true
 entrypoint: pull_crowdstrike_alerts
 triggers:
   - type: webhook
     ref: crowdstrike_alerts_webhook
     entrypoint: pull_crowdstrike_alerts
-    # shape:
-    #   - start_time: ISO8601 string
-    #   - end_time: ISO8601 string
-    #   - update_crowdstrike_alert: Webhook URL
 
 actions:
   # Mocked
