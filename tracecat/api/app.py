@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+import orjson
 import polars as pl
 from fastapi import (
     Depends,
@@ -60,6 +61,7 @@ from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.parse import parse_child_webhook
 from tracecat.registry import RegistryValidationError, ValidationError, registry
 from tracecat.types.api import (
     ActionMetadataResponse,
@@ -80,6 +82,7 @@ from tracecat.types.api import (
     EventSearchParams,
     SearchSecretsParams,
     SecretResponse,
+    ServiceCallbackAction,
     StartWorkflowParams,
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
@@ -221,7 +224,11 @@ def check_health() -> dict[str, str]:
 
 
 def validate_incoming_webhook(
-    webhook_id: str, secret: str, request: Request
+    webhook_id: str,
+    secret: str,
+    request: Request,
+    *,
+    validate_method: bool = True,
 ) -> WorkflowDefinition:
     """Validate incoming webhook request.
 
@@ -254,7 +261,7 @@ def validate_incoming_webhook(
                 detail="Webhook is offline",
             )
 
-        if webhook.method.lower() != request.method.lower():
+        if validate_method and webhook.method.lower() != request.method.lower():
             logger.error("Method does not match")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -295,13 +302,17 @@ def validate_incoming_webhook(
 
 
 async def handle_incoming_webhook(
-    request: Request, path: str, secret: str
+    request: Request, path: str, secret: str, validate_method: bool = True
 ) -> WorkflowDefinition:
-    """Handle incoming webhook requests."""
+    """Handle an incoming webhook request and set the Role context."""
     # TODO(perf): Replace this when we get async sessions
     with logger.contextualize(webhook_id=path):
         defn = await asyncio.to_thread(
-            validate_incoming_webhook, webhook_id=path, secret=secret, request=request
+            validate_incoming_webhook,
+            webhook_id=path,
+            secret=secret,
+            request=request,
+            validate_method=validate_method,
         )
     ctx_role.set(
         Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
@@ -344,6 +355,142 @@ async def incoming_webhook(
 
     asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
     return {"status": "ok"}
+
+
+async def handle_service_callback(
+    request: Request, service: str
+) -> ServiceCallbackAction | None:
+    if service == "slack":
+        # if (
+        #     request.headers["user-agent"]
+        #     != "Slackbot 1.0 (+https://api.slack.com/robots)"
+        # ):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail="Invalid User-Agent",
+        #     )
+        # NOTE: This coroutine can only be consumed once!
+        form_data = await request.form()
+        json_payload = form_data.get("payload")
+        payload = orjson.loads(json_payload)
+        # Extract out the webhook
+        if (actions := payload.get("actions")) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Slack callback: Invalid payload",
+            )
+        logger.info("Received slack action", actions=actions)
+        if len(actions) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Slack callback: No actions",
+            )
+        action = actions[0]
+        match action:
+            case {
+                "type": "static_select",
+                "action_id": url,
+                "selected_option": {"value": kv_params},
+            }:
+                # e.g.
+                # {
+                #     "type": "static_select",
+                #     "action_id": "...",
+                #     "block_id": "nMMIK",
+                #     "selected_option": {
+                #         "text": {
+                #             "type": "plain_text",
+                #             "text": "True Positive",
+                #             "emoji": True,
+                #         },
+                #         "value": '["closed", "true_positive"]',
+                #     },
+                #     "action_ts": "1719281272.742854",
+                # }
+
+                logger.info("Matched static select action", action=action)
+                child_wh = parse_child_webhook(url, [kv_params])
+
+                if not child_wh:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid child webhook URL",
+                    )
+                return ServiceCallbackAction(
+                    action="webhook",
+                    payload=child_wh["payload"],
+                    metadata={"path": child_wh["path"], "secret": child_wh["secret"]},
+                )
+
+            case {"type": action_type}:
+                logger.error(
+                    "Invalid action type", action_type=action_type, action=action
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid action type {action_type}",
+                )
+            case _:
+                logger.error("Invalid action", action=action)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid action",
+                )
+    return None
+
+
+@app.post("/callback/{service}", tags=["public"])
+async def webhook_callback(
+    request: Request,
+    service: str,
+    next_action: Annotated[
+        ServiceCallbackAction | None, Depends(handle_service_callback)
+    ],
+) -> dict[str, str]:
+    """Receive a callback from an external service.
+
+    This can be used to trigger a workflow from an external service, or perform some other actions.
+    """
+
+    match next_action:
+        case ServiceCallbackAction(
+            action="webhook",
+            payload=payload,
+            metadata={"path": path, "secret": secret},
+        ):
+            # Don't validate method because callback is always POST
+            defn = await handle_incoming_webhook(
+                request, path, secret, validate_method=False
+            )
+            logger.info(
+                "Received Webhook in callback",
+                service=service,
+                path=path,
+                payload=payload,
+                role=ctx_role.get(),
+            )
+
+            # Fetch the DSL from the workflow object
+            dsl_input = defn.content
+
+            # Set runtime configuration
+            if payload:
+                dsl_input.trigger_inputs = payload
+
+            logger.info(dsl_input.dump_yaml())
+
+            asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
+            return {"status": "ok", "message": "Webhook dispatched"}
+
+        case None:
+            logger.info("No next action", service=service)
+            return {"status": "ok", "message": "No action taken"}
+        case _:
+            logger.error("Unsupported next action", next_action=next_action)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported next action",
+            )
 
 
 # ----- Workflows ----- #
