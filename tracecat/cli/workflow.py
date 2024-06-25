@@ -185,6 +185,15 @@ def run(
 ):
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r} {"proxied" if proxy else 'directly'}")
+    if data[0] == "@":
+        p = Path(data[1:])
+        if not p.exists():
+            raise typer.BadParameter(f"File {p} does not exist")
+        if p.suffix != ".json":
+            raise typer.BadParameter(f"File {p} is not a JSON file")
+        with p.open() as f:
+            data = f.read()
+
     asyncio.run(
         _run_workflow(
             workflow_id,
