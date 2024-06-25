@@ -44,7 +44,7 @@
         "data_domains": [
             "Endpoint"
         ],
-        "description": "ThisfilemeetstheAdware/PUPAnti-malwareMLalgorithm'slowest-confidencethreshold.",
+        "description": "This file meets the Adware/PUP Anti-malware ML algorithm's lowest-confidence threshold.",
         "device": {
             "agent_load_flags": 0,
             "agent_local_time": "2023-10-12T03:45:57.753Z",
