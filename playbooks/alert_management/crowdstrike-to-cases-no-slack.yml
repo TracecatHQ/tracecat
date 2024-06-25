@@ -1,5 +1,5 @@
-title: Fetch Crowdstrike alerts, open cases, and notify Slack.
-description: Pulls Crowdstrike alerts, opens cases in Tracecat, and sends notifications to Slack.
+title: Fetch Crowdstrike alerts and open cases.
+description: Pulls Crowdstrike alerts and opens cases in Tracecat.
 config:
   enable_runtime_tests: true
 entrypoint: pull_crowdstrike_alerts
@@ -47,55 +47,6 @@ actions:
           updated_at: ${{ var.alert.updated_timestamp -> str }} # Timestamp indicating when the alert was last updated
           created_at: ${{ var.alert.created_timestamp -> str }} # Timestamp indicating when the alert was created
           user_name: ${{ var.alert.user_name }}
-
-  - ref: send_slack_notification
-    action: integrations.chat.slack.post_slack_message
-    depends_on:
-      - reshape_alerts_into_smac
-    for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
-    args:
-      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      text: Crowdstrike alerts
-      blocks:
-        - type: header
-          text:
-            type: plain_text
-            text: ${{ var.smac.title }}
-            emoji: true
-        - type: section
-          text:
-            type: mrkdwn
-            text: ${{ var.smac.description }}
-        - type: section
-          fields:
-            - type: mrkdwn
-              text: "*Status:* ${{ var.smac.status }}"
-            - type: mrkdwn
-              text: "*Malice:* ${{ var.smac.malice }}"
-            - type: mrkdwn
-              text: "*Action:* ${{ var.smac.action }}"
-            - type: mrkdwn
-              text: "*Context:* ${{ var.smac.context }}"
-        - type: section
-          text:
-            type: mrkdwn
-            text: "Select an option to update the alert:"
-          accessory:
-            type: static_select
-            action_id: ${{ TRIGGER.update_crowdstrike_alert }}?action_id=update_crowdstrike_alerts&alert_id=${{ var.smac.context.cid }}&old_status=${{ var.smac.status }}&username=${{ var.smac.context.user_name }}
-            options:
-              - text:
-                  type: plain_text
-                  text: Ignore
-                value: new_status=ignored
-              - text:
-                  type: plain_text
-                  text: True Positive
-                value: new_status=true_positive
-              - text:
-                  type: plain_text
-                  text: False Positive
-                value: new_status=false_positive
 
   - ref: open_cases
     action: core.open_case
