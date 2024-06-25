@@ -129,7 +129,6 @@ HTTP_EXC = partial(
 
 if IS_AUTH_DISABLED:
     # Override the authentication functions with a dummy function
-    logger.warning("User authentication is disabled, using default user.")
     _DEFAULT_TRACECAT_USER_ID = "default-tracecat-user"
     _DEFAULT_TRACECAT_JWT = "super-secret-jwt-token"
 
