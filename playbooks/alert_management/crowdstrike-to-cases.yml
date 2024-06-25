@@ -1,5 +1,7 @@
 title: Fetch Crowdstrike alerts and open cases.
 description: Pulls Crowdstrike alerts and opens cases in Tracecat.
+config:
+  enable_runtime_tests: true
 entrypoint: pull_crowdstrike_alerts
 triggers:
   - type: webhook
@@ -7,6 +9,7 @@ triggers:
     entrypoint: pull_crowdstrike_alerts
 
 actions:
+  # Mocked
   - ref: pull_crowdstrike_alerts
     action: integrations.crowdstrike.list_crowdstrike_alerts
     args:
@@ -25,7 +28,7 @@ actions:
         payload:
           rule: ${{ var.alert.id }} # Identifier associated with the alert
           severity: ${{ var.alert.severity }} # Severity level associated with the detection
-        status: ${{ 'closed' if var.alert.status == 'resolved' else 'open' }} # Status of the alert
+        status: ${{ 'closed' if FN.equal(var.alert.status, 'resolved') else 'open' }} # Status of the alert
         malice: ${{ 'malicious' if FN.greater_than(var.alert.severity, 0) else 'benign' }} # Determines malice based on severity
         action: quarantine
         context:
@@ -39,6 +42,7 @@ actions:
           context_timestamp: ${{ var.alert.context_timestamp -> str }}
           updated_at: ${{ var.alert.updated_timestamp -> str }} # Timestamp indicating when the alert was last updated
           created_at: ${{ var.alert.created_timestamp -> str }} # Timestamp indicating when the alert was created
+          user_name: ${{ var.alert.user_name }}
 
   - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
@@ -74,26 +78,20 @@ actions:
             text: "Select an option to update the alert:"
           accessory:
             type: static_select
-            action_id: update_crowdstrike_alert
+            action_id: ${{ TRIGGER.update_crowdstrike_alert }}?action_id=update_crowdstrike_alerts&alert_id=${{ var.smac.context.cid }}&old_status=${{ var.smac.status }}&username=${{ var.smac.context.user_name }}
             options:
               - text:
                   type: plain_text
                   text: Ignore
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: ignored"
+                value: new_status=ignored
               - text:
                   type: plain_text
                   text: True Positive
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: true_positive
+                value: new_status=true_positive
               - text:
                   type: plain_text
                   text: False Positive
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: false_positive
+                value: new_status=false_positive
 
   - ref: open_cases
     action: core.open_case
@@ -107,4 +105,9 @@ actions:
       action: ${{ var.smac.action }}
       context: ${{ var.smac.context }}
       payload: ${{ var.smac.payload }}
-      priority: ${{ var.smac.severity }}
+      priority: ${{ 'high' if FN.greater_than(var.smac.payload.severity, 50) else 'low' }}
+
+tests:
+  - ref: pull_crowdstrike_alerts
+    success:
+      - https://raw.githubusercontent.com/TracecatHQ/tracecat/main/tests/data/log_samples/crowdstrike/alert.json
