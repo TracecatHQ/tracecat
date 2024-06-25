@@ -7,6 +7,10 @@ triggers:
   - type: webhook
     ref: crowdstrike_alerts_webhook
     entrypoint: pull_crowdstrike_alerts
+    # shape:
+    #   - start_time: ISO8601 string
+    #   - end_time: ISO8601 string
+    #   - update_crowdstrike_alert: Webhook URL
 
 actions:
   # Mocked
