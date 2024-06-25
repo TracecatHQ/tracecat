@@ -162,8 +162,8 @@ def commit(
     asyncio.run(_commit_workflow(file, workflow_id))
 
 
-@app.command(help="List all workflow definitions")
-def list():
+@app.command(name="list", help="List all workflow definitions")
+def list_workflows():
     """Commit a workflow definition to the database."""
     rich.print("Listing all workflows")
     table = asyncio.run(_list_workflows())
@@ -218,3 +218,39 @@ def cases(
         Console().print(dynamic_table(results, "Cases"))
     else:
         rich.print(results)
+
+
+@app.command(help="Delete a workflow")
+def delete(
+    workflow_ids: list[str] = typer.Argument(..., help="IDs of the workflow to delete"),
+):
+    """Delete workflows"""
+
+    async def _delete_workflows(workflow_ids: list[str]):
+        delete = typer.confirm(f"Are you sure you want to delete {workflow_ids!r}")
+        if not delete:
+            rich.print("Aborted")
+            return
+        async with user_client() as client, asyncio.TaskGroup() as tg:
+            for workflow_id in workflow_ids:
+                tg.create_task(client.delete(f"/workflows/{workflow_id}"))
+
+        rich.print("Deleted workflows")
+
+    asyncio.run(_delete_workflows(workflow_ids))
+
+
+@app.command(help="Inspect a workflow")
+def inspect(
+    workflow_id: str = typer.Argument(..., help="ID of the workflow to inspect"),
+):
+    """Inspect a workflow"""
+
+    async def _inspect_workflow():
+        async with user_client() as client:
+            res = await client.get(f"/workflows/{workflow_id}")
+            res.raise_for_status()
+            return res.json()
+
+    result = asyncio.run(_inspect_workflow())
+    rich.print(result)
