@@ -1,0 +1,307 @@
+---
+title: Using the CLI
+---
+
+Tracecat's Command-Line Interface (CLI) allows you to manage workflows without the UI.
+It's the fastest way to interact with Tracecat and is perfect for automating tasks.
+
+## Installation
+
+To install the Tracecat CLI, you will need Python 3.12 installed.
+We recommend using `micromamba` to help with managing multiple Python environments.
+
+<Note>
+  We are working on making our CLI tool more portable so you don't have to use
+  `micromamba` in the future.
+</Note>
+
+### Setup a Micromamba environment
+
+Micromamba is a standalone, pure C++ implementation of the mamba package manager, designed as a smaller and faster alternative to conda.
+It is distributed as a single, statically linked executable file that does not require a base environment or a default Python installation.
+
+Full installation instructions [here](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#operating-system-package-managers)
+
+<CodeGroup>
+
+```bash MacOS
+brew install micromamba
+```
+
+```bash Linux + WSL
+"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
+# You might have to add the binary to your PATH, then follow on-screen instructions
+# to restart and initialize your shell to complete the installation
+```
+
+</CodeGroup>
+
+With `micromamba` installed, you can now install the Tracecat CLI.
+We create a virtual environment for Tracecat to avoid conflicts with other Python packages.
+
+```bash
+micromamba env create -n tracecat python=3.12
+micromamba activate tracecat
+```
+
+If the environment is activated correctly, you should see something like this in your shell:
+
+```bash
+(tracecat) ~/tracecat $
+```
+
+Now from the root of the Tracecat repository, you can install the CLI using `pip`:
+
+```bash /path/to/tracecat
+pip install ".[cli]"
+```
+
+If installed correctly, you should be able to run the `tracecat` command and see the help output:
+
+```bash
+tracecat
+```
+
+## Workflow Management
+
+The `tracecat workflow` command suite allows you to manage workflows within the system. Below are the available commands and options to control and interact with workflow processes.
+
+### Listing Workflows
+
+To list all the workflows available in the system, use the `list` command.
+
+```bash
+tracecat workflow list
+```
+
+### Creating a Workflow
+
+This command is used to create a new workflow with specified parameters, which can be customized through various options.
+
+```bash
+tracecat workflow create WORKFLOW_ID [OPTIONS]
+```
+
+| Option          | Shortcut | Parameter | Description                                       | Default |
+| --------------- | -------- | --------- | ------------------------------------------------- | ------- |
+| `--title`       | `-t`     | TEXT      | Title of the workflow.                            | None    |
+| `--description` | `-d`     | TEXT      | Description of the workflow.                      | None    |
+| `--activate`    |          |           | Activate the workflow immediately after creation. |         |
+| `--webhook`     |          |           | Activate the webhook for the workflow.            |         |
+| `--commit`      | `-c`     | PATH      | Create with a specified workflow definition.      | None    |
+
+For example,
+
+```bash Commit, activate, and enable webhook for a workflow
+tracecat workflow create --commit /path/to/workflow.yml --activate --webhook
+```
+
+### Committing changes to a Workflow
+
+To make changes to a workflow definition, use the `commit` command.
+
+```bash
+tracecat workflow commit WORKFLOW_ID [OPTIONS]
+```
+
+| Option   | Shortcut | Parameter | Description                                | Default |
+| -------- | -------- | --------- | ------------------------------------------ | ------- |
+| `--file` | `-f`     | PATH      | Path to the workflow definition YAML file. | None    |
+
+The changes here are reflected in Tracecat's internal workflow definition, and the UI workflow graph,
+
+### Activating a Workflow
+
+Make a workflow available for execution using the `up` command.
+A decativated workflow or webhook will reject any incoming requests.
+
+```bash
+tracecat workflow up WORKFLOW_ID
+```
+
+| Option      | Shortcut | Description                   | Default |
+| ----------- | -------- | ----------------------------- | ------- |
+| `--webhook` |          | Activate its webhook as well. |         |
+| `--help`    |          | Show help message and exit.   |         |
+
+### Running a Workflow
+
+```bash
+tracecat workflow run WORKFLOW_ID [OPTIONS]
+```
+
+| Option    | Shortcut | Description                                                   | Default |
+| --------- | -------- | ------------------------------------------------------------- | ------- |
+| `--data`  | `-d`     | JSON Payload to send.                                         | None    |
+| `--proxy` |          | If set, run the workflow through the external-facing webhook. |         |
+| `--test`  |          | If set, run the workflow with runtime action tests.           |         |
+
+For example:
+
+```bash
+tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"my": "data", "for": "the", "workflow": "run"}'
+```
+
+To run with [action tests](/action-tests), use the `--test` flag:
+
+```bash
+tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"my": "data", "for": "the", "workflow": "run"}' --test
+```
+
+On a successful run, you will see
+
+```bash
+{"status": "ok" }
+```
+
+You can view the workflow execution status in the `temporal` UI (default: `http://localhost:8088`).
+
+### Inspecting a Workflow
+
+```bash
+tracecat workflow inspect WORKFLOW_ID
+```
+
+You can find detailed information about a specific workflow using this command.
+You can find the actions and webhook information associated with the workflow.
+
+```bash
+❯ tracecat workflow inspect wf-741117aa4bcf4465b051d5c029445b85
+{
+    'id': 'wf-741117aa4bcf4465b051d5c029445b85',
+    'title': 'Update Crowdstrike alerts via Slack',
+    'description': 'Receives a Slack action and updates Crowdstrike alerts based on\n`alert_ids` and `status` provided in the Slack action payload.\n',
+    'status': 'online',
+    'actions': {
+        'act:wf-741117aa4bcf4465b051d5c029445b85:extract_slack_payload': {
+            'id': 'act:wf-741117aa4bcf4465b051d5c029445b85:extract_slack_payload',
+            'type': 'core.transform.forward',
+            'title': 'Extract slack payload',
+            'description': '',
+            'status': 'offline',
+            'inputs': {'value': {'username': '${{ TRIGGER.username }}', 'alert_id': '${{ TRIGGER.alert_id }}', 'old_status': '${{ TRIGGER.old_status }}', 'new_status': '${{ TRIGGER.new_status }}'}},
+            'key': 'act:wf-741117aa4bcf4465b051d5c029445b85:act:wf-741117aa4bcf4465b051d5c029445b85:extract_slack_payload'
+        },
+        'act:wf-741117aa4bcf4465b051d5c029445b85:update_crowdstrike_alerts': {
+            'id': 'act:wf-741117aa4bcf4465b051d5c029445b85:update_crowdstrike_alerts',
+            'type': 'integrations.crowdstrike.update_crowdstrike_alert_status',
+            'title': 'Update crowdstrike alerts',
+            'description': '',
+            'status': 'offline',
+            'inputs': {'alert_ids': ['${{ ACTIONS.extract_slack_payload.result.alert_id }}'], 'status': '${{ ACTIONS.extract_slack_payload.result.new_status }}'},
+            'key': 'act:wf-741117aa4bcf4465b051d5c029445b85:act:wf-741117aa4bcf4465b051d5c029445b85:update_crowdstrike_alerts'
+        },
+        'act:wf-741117aa4bcf4465b051d5c029445b85:send_slack_notification': {
+            'id': 'act:wf-741117aa4bcf4465b051d5c029445b85:send_slack_notification',
+            'type': 'integrations.chat.slack.post_slack_message',
+            'title': 'Send slack notification',
+            'description': '',
+            'status': 'offline',
+            'inputs': {
+                'channel': '${{ SECRETS.slack.SLACK_CHANNEL }}',
+                'text': 'CrowdStrike alerts updated',
+                'blocks': [
+                    {'type': 'header', 'text': {'type': 'plain_text', 'text': '${{ ACTIONS.extract_slack_payload.result.username }} changed status of alert', 'emoji': True}},
+                    {
+                        'type': 'section',
+                        'fields': [
+                            {'type': 'mrkdwn', 'text': '*Alert ID:* ${{ ACTIONS.extract_slack_payload.result.alert_id }}'},
+                            {'type': 'mrkdwn', 'text': '*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}'},
+                            {'type': 'mrkdwn', 'text': '*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}'}
+                        ]
+                    }
+                ]
+            },
+            'key': 'act:wf-741117aa4bcf4465b051d5c029445b85:act:wf-741117aa4bcf4465b051d5c029445b85:send_slack_notification'
+        }
+    },
+    'object': { ... },  # This is the frontend graph object, omitted for brevity
+    'owner_id': 'default-tracecat-user',
+    'version': 1,
+    'webhook': {
+        'owner_id': 'default-tracecat-user',
+        'created_at': '2024-06-25T18:16:56.483047Z',
+        'updated_at': '2024-06-25T18:16:56.514445Z',
+        'id': 'wh-9a636f9125fb4cc4876c19e12001a211',
+        'secret': '<redacted>',
+        'status': 'online',
+        'entrypoint_ref': None,
+        'filters': {},
+        'method': 'POST',
+        'workflow_id': 'wf-741117aa4bcf4465b051d5c029445b85',
+        'url': 'http://localhost:8000/webhooks/wf-741117aa4bcf4465b051d5c029445b85/<redacted>'
+    },
+    'schedules': [],
+    'entrypoint': 'act:wf-741117aa4bcf4465b051d5c029445b85:extract_slack_payload'
+}
+```
+
+### Viewing Workflow Cases
+
+Outputs the cases associated with a workflow.
+
+```bash
+tracecat workflow cases WORKFLOW_ID
+```
+
+| Option    | Shortcut | Description         | Default |
+| --------- | -------- | ------------------- | ------- |
+| `--table` | `-t`     | Display as a table. |         |
+
+### Deleting Workflows
+
+```bash
+tracecat workflow delete [WORKFLOW_IDS]
+```
+
+This action is irreversible and will remove the workflow and all its associated actions and workflow definitions from the system. Use with caution.
+
+## Secrets Management
+
+The `tracecat secrets` command allows you to manage workflows within the system. Below are the available commands and options to control and interact with workflow processes.
+
+### Creating Secrets
+
+Creates a secret with specified key-value pairs.
+
+```bash
+tracecat secrets create SECRET_NAME KEYVALUES
+```
+
+| Argument      | Type         | Description                                                       | Default | Required |
+| ------------- | ------------ | ----------------------------------------------------------------- | ------- | -------- |
+| `secret_name` | TEXT         | Secret name, can include multiple key-value pairs.                | None    | Yes      |
+| `keyvalues`   | KEYVALUES... | Space-separated KEY-VALUE items, e.g., `KEY1=VAL1 KEY2=VAL2 ...`. | None    | Yes      |
+
+For example,
+
+```bash
+tracecat secrets create slack SLACK_CHANNEL=channel-name SLACK_BOT_TOKEN=token SLACK_WEBHOOK=webhook_url
+```
+
+### Listing Secrets
+
+View all the secrets stored in Tracecat's secret manager.
+
+```bash
+tracecat secrets list
+```
+
+### Deleting Secrets
+
+Delete a secret from Tracecat's secret manager.
+
+```bash
+tracecat secrets delete SECRET_NAME
+```
+
+## Dev commands
+
+Provides development tools for managing API interactions, generating specifications, and more.
+
+| Command             | Description                                                |
+| ------------------- | ---------------------------------------------------------- |
+| `api`               | Hit the API endpoint with an authenticated service client. |
+| `generate-spec`     | Generate OpenAPI specification. Requires npx.              |
+| `generate-udf-docs` | Generate UDF documentation.                                |
+| `whoami`            | Print the current role of the authenticated user.          |
