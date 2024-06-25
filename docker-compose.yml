@@ -20,6 +20,8 @@ services:
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
+    volumes:
+      - core-app:/var/lib/tracecat
     networks:
       - core
       - temporal
@@ -41,6 +43,8 @@ services:
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
     restart: unless-stopped
+    volumes:
+      - core-app:/var/lib/tracecat
     networks:
       - core
       - temporal
@@ -162,6 +166,7 @@ networks:
   temporal:
 
 volumes:
+  core-app:
   core-db:
   temporal-db:
   temporal-elasticsearch:
