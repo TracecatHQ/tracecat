@@ -88,7 +88,8 @@
       "group": "Self-hosted",
       "pages": [
         "installation",
-        "deployment"
+        "deployment",
+        "updating"
       ]
     },
     {
