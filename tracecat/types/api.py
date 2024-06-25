@@ -346,3 +346,9 @@ class CommitWorkflowResponse(BaseModel):
     message: str
     errors: list[UDFArgsValidationResponse] | None = None
     metadata: dict[str, Any] | None = None
+
+
+class ServiceCallbackAction(BaseModel):
+    action: Literal["webhook"]
+    payload: dict[str, Any]
+    metadata: dict[str, Any]
