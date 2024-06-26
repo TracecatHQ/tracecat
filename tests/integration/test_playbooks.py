@@ -1,9 +1,10 @@
 import os
-import re
 import subprocess
 
 import pytest
 from dotenv import load_dotenv
+
+from tracecat.cli.workflow import _create_activate_workflow
 
 load_dotenv()
 
@@ -72,25 +73,9 @@ def test_playbook(path_to_playbook, trigger_data):
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
-    output = subprocess.run(
-        [
-            "tracecat",
-            "workflow",
-            "create",
-            "--title",
-            filename,
-            "--commit",
-            path_to_playbook,
-        ],
-        shell=True,
-        capture_output=True,
-        text=True,
+    workflow_id = _create_activate_workflow(
+        title=filename, description=f"Test workflow: {filename}"
     )
-    # Use regex to extract the workflow ID
-    # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
-    assert "Successfully created workflow" in output.stdout
-    assert output.returncode == 0
-    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
     # 2. Activate the workflow
     output = subprocess.run(
         ["tracecat", "workflow", "up", "--webhook", workflow_id],
