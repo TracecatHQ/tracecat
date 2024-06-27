@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 
@@ -76,17 +77,16 @@ def test_playbook(path_to_playbook, trigger_data):
     workflow_id = _create_activate_workflow(
         title=filename, description=f"Test workflow: {filename}"
     )
-    # 2. Activate the workflow
+    # 2. Run the workflow
     output = subprocess.run(
-        ["tracecat", "workflow", "up", "--webhook", workflow_id],
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    assert output.returncode == 0
-    # 3. Run the workflow
-    output = subprocess.run(
-        ["tracecat", "workflow", "run", workflow_id],
+        [
+            "tracecat",
+            "workflow",
+            "run",
+            workflow_id,
+            "--data",
+            json.dumps(trigger_data),
+        ],
         shell=True,
         capture_output=True,
         text=True,
