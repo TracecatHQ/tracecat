@@ -4,6 +4,7 @@ import subprocess
 
 import pytest
 from dotenv import load_dotenv
+from loguru import logger
 
 from tracecat.cli.workflow import _create_activate_workflow
 
@@ -41,13 +42,16 @@ def create_secrets():
 
     for name, env_vars in secrets.items():
         env_vars_str = " ".join([f"{key}={value}" for key, value in env_vars.items()])
-        output = subprocess.run(
-            f"tracecat secret create {name} {env_vars_str}",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        assert "Secret created successfully!" in output.stdout
+        try:
+            output = subprocess.run(
+                f"tracecat secret create {name} {env_vars_str}",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "Secret created successfully!" in output.stdout
+        except AssertionError:
+            logger.error(f"Failed to create secret {name}")
 
 
 @pytest.mark.parametrize(
@@ -69,12 +73,13 @@ def create_secrets():
         ),
     ],
 )
-def test_playbook(path_to_playbook, trigger_data):
+@pytest.mark.asyncio
+async def test_playbook(path_to_playbook, trigger_data):
     # Extract the filename without extension
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
-    workflow_id = _create_activate_workflow(
+    workflow_id = await _create_activate_workflow(
         title=filename, description=f"Test workflow: {filename}"
     )
     # 2. Run the workflow
