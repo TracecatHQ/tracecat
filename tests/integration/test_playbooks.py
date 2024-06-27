@@ -58,7 +58,21 @@ def create_secrets():
     "path_to_playbook, trigger_data",
     [
         (
+            "playbooks/alert_management/aws-guardduty-to-cases.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
             "playbooks/alert_management/aws-guardduty-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/datadog-extract-email-to-slack.yml",
             {
                 "start_time": "2024-05-01T00:00:00Z",
                 "end_time": "2024-07-01T12:00:00Z",
