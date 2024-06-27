@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.common import DSLInput
@@ -335,9 +335,12 @@ class UDFArgsValidationResponse(BaseModel):
 
 
 class CreateScheduleParams(BaseModel):
-    entrypoint_ref: str
-    entrypoint_payload: dict[str, Any] | None = None
-    cron: str
+    inputs: dict[str, Any] | None = None
+    cron: str | None = None
+    every: timedelta = Field(..., description="ISO 8601 duration string")
+    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
+    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
 
 
 class CommitWorkflowResponse(BaseModel):

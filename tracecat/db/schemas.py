@@ -314,10 +314,8 @@ class Schedule(Resource, table=True):
         default_factory=id_factory("sch"), nullable=False, unique=True, index=True
     )
     status: str = "offline"  # "online" or "offline"
-    cron: str
-    entrypoint_payload: dict[str, Any] = Field(
-        default_factory=dict, sa_column=Column(JSON)
-    )
+    cron: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
     # Relationships
     workflow_id: str | None = Field(

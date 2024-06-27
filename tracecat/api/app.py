@@ -31,6 +31,7 @@ from tracecat.api.completions import (
     stream_case_completions,
 )
 from tracecat.auth.credentials import (
+    TemporaryRole,
     authenticate_service,
     authenticate_user,
     authenticate_user_or_service,
@@ -53,11 +54,11 @@ from tracecat.db.schemas import (
     WorkflowDefinition,
     WorkflowRun,
 )
+from tracecat.dsl import dispatcher, schedules
 from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
@@ -353,7 +354,7 @@ async def incoming_webhook(
 
     logger.info(dsl_input.dump_yaml())
 
-    asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
+    asyncio.create_task(dispatcher.dispatch_workflow(dsl_input, wf_id=path))
     return {"status": "ok"}
 
 
@@ -479,7 +480,7 @@ async def webhook_callback(
 
             logger.info(dsl_input.dump_yaml())
 
-            asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
+            asyncio.create_task(dispatcher.dispatch_workflow(dsl_input, wf_id=path))
             return {"status": "ok", "message": "Webhook dispatched"}
 
         case None:
@@ -1060,7 +1061,7 @@ async def trigger_workflow_run(
     path = "workflow4"
     with Path(f"/app/tracecat/static/workflows/{path}.yaml").resolve().open() as f:
         dsl_yaml = f.read()
-    await dispatch_workflow(dsl_yaml)
+    await dispatcher.dispatch_workflow(dsl_yaml)
 
     return StartWorkflowResponse(
         status="ok", message="Workflow started.", id=workflow_id
@@ -1153,47 +1154,101 @@ def update_webhook(
 # ----- Workflow Schedules ----- #
 
 
-@app.get("/workflows/{workflow_id}/schedules", tags=["triggers"])
-def list_schedules(
+@app.get("/workflows/{workflow_id}/schedules", tags=["schedules"])
+async def list_schedules(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-) -> list[Schedule]:
+    workflow_id: identifiers.WorkflowID,
+) -> list[Any]:
     """**[WORK IN PROGRESS]** List all schedules for a workflow."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        return result.all()
+    # with Session(engine) as session:
+    #     statement = select(Schedule).where(
+    #         Schedule.owner_id == role.user_id,
+    #         Schedule.workflow_id == workflow_id,
+    #     )
+    #     result = session.exec(statement)
+    #     return result.all()
+    res = await schedules.list_schedules()
+    return res
 
 
 @app.post(
     "/workflows/{workflow_id}/schedules",
     status_code=status.HTTP_201_CREATED,
-    tags=["triggers"],
+    tags=["schedules"],
 )
-def create_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+async def create_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
     params: CreateScheduleParams,
-) -> None:
+) -> Schedule:
     """**[WORK IN PROGRESS]** Create a schedule for a workflow."""
 
-    schedule = Schedule(
-        owner_id=role.user_id,
-        cron=params.cron,
-        entrypoint_payload=params.entrypoint_payload,
-        entrypoint_ref=params.entrypoint_ref,
-        workflow_id=workflow_id,
-    )
-    with Session(engine) as session:
-        session.add(schedule)
-        session.commit()
-        session.refresh(schedule)
+    with Session(engine) as session, logger.contextualize(role=role):
+        # Grab the workflow definition to load into the scheduler
+        result = session.exec(
+            select(WorkflowDefinition)
+            .where(WorkflowDefinition.workflow_id == workflow_id)
+            .order_by(WorkflowDefinition.version.desc())
+        )
+        try:
+            if not (defn_data := result.first()):
+                raise NoResultFound("No workflow definition found for workflow ID")
+        except NoResultFound as e:
+            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            ) from e
+
+        schedule = Schedule(
+            owner_id=role.user_id,
+            cron=params.cron,
+            inputs=params.inputs,
+            workflow_id=workflow_id,
+        )
+        session.refresh(defn_data)
+        defn = WorkflowDefinition.model_validate(defn_data)
+        dsl = defn.content
+        if params.inputs:
+            dsl.trigger_inputs = params.inputs
+
+        try:
+            # Set the role for the schedule as the tracecat-runner
+            with TemporaryRole(
+                type="service", user_id=defn.owner_id, service_id="tracecat-runner"
+            ) as sch_role:
+                handle = await schedules.create_schedule(
+                    workflow_id=workflow_id,
+                    schedule_id=schedule.id,
+                    dsl=dsl,
+                    every=params.every,
+                    offset=params.offset,
+                    start_at=params.start_at,
+                    end_at=params.end_at,
+                )
+                logger.info(
+                    "Created schedule",
+                    handle=handle,
+                    workflow_id=workflow_id,
+                    schedule_id=schedule.id,
+                    dsl=dsl,
+                    params=params,
+                    sch_role=sch_role,
+                )
+
+            session.add(schedule)
+            session.commit()
+            session.refresh(schedule)
+        except Exception as e:
+            session.rollback()
+            logger.opt(exception=e).error("Error creating schedule", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error creating schedule",
+            ) from e
+    return schedule
 
 
-@app.get("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["triggers"])
+@app.get("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["schedules"])
 def get_schedule(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     schedule_id: str,
@@ -1215,13 +1270,66 @@ def get_schedule(
             ) from e
 
 
-@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["triggers"])
+@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["schedules"])
 def delete_schedule(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     schedule_id: str,
     workflow_id: str,
 ) -> None:
     """**[WORK IN PROGRESS]** Delete a schedule from a workflow."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(
+            Schedule.owner_id == role.user_id,
+            Schedule.id == schedule_id,
+            Schedule.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            schedule = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        session.delete(schedule)
+        session.commit()
+
+
+@app.delete(
+    "/workflows/{workflow_id}/schedules/{schedule_id}/controls/backfill",
+    tags=["schedules"],
+)
+def backfill_schedule(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    schedule_id: str,
+    workflow_id: str,
+) -> None:
+    """**[WORK IN PROGRESS]** Backfill a schedule in a workflow."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(
+            Schedule.owner_id == role.user_id,
+            Schedule.id == schedule_id,
+            Schedule.workflow_id == workflow_id,
+        )
+        result = session.exec(statement)
+        try:
+            schedule = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+        session.delete(schedule)
+        session.commit()
+
+
+@app.delete(
+    "/workflows/{workflow_id}/schedules/{schedule_id}/controls/pause", tags=["triggers"]
+)
+def pause_schedule(
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    schedule_id: str,
+    workflow_id: str,
+) -> None:
+    """**[WORK IN PROGRESS]** Pause a schedule in a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
             Schedule.owner_id == role.user_id,
