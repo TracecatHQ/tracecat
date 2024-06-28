@@ -313,7 +313,7 @@ class Schedule(Resource, table=True):
     id: str = Field(
         default_factory=id_factory("sch"), nullable=False, unique=True, index=True
     )
-    status: str = "offline"  # "online" or "offline"
+    status: str = "online"  # "online" or "offline"
     cron: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     every: timedelta = Field(..., description="ISO 8601 duration string")
