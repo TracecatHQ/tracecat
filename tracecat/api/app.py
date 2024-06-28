@@ -1191,7 +1191,7 @@ async def create_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateScheduleParams,
 ) -> Schedule:
-    """**[WORK IN PROGRESS]** Create a schedule for a workflow."""
+    """Create a schedule for a workflow."""
 
     with Session(engine) as session, logger.contextualize(role=role):
         result = session.exec(
@@ -1282,7 +1282,7 @@ def update_schedule(
     schedule_id: identifiers.ScheduleID,
     params: UpdateScheduleParams,
 ) -> Schedule:
-    """**[WORK IN PROGRESS]** Get a schedule from a workflow."""
+    """Get a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
             Schedule.owner_id == role.user_id, Schedule.id == schedule_id
