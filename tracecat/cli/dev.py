@@ -15,7 +15,7 @@ import yaml
 from pydantic import BaseModel
 
 from ._config import config
-from ._utils import user_client
+from ._utils import read_input, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 
@@ -37,7 +37,8 @@ def api(
     data: str = typer.Option(None, "--data", "-d", help="JSON Payload to send"),
 ):
     """Commit a workflow definition to the database."""
-    payload = orjson.loads(data) if data else None
+
+    payload = read_input(data) if data else None
     result = asyncio.run(hit_api_endpoint(method, endpoint, payload))
     rich.print("Hit the endpoint successfully!")
     rich.print(result, len(result))
