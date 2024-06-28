@@ -428,7 +428,7 @@ class DSLActivities:
         else:
             result = await udf.run_async(args)
 
-        act_logger.info("Result", result=result)
+        act_logger.debug("Result", result=result)
         return result
 
 
