@@ -123,20 +123,6 @@ async def _get_cases(workflow_id: str):
     return res.json()
 
 
-async def _create_activate_workflow(
-    title: str | None = None,
-    description: str | None = None,
-) -> str:
-    """Create and activate a workflow with a webhook.
-
-    Mainly used for testing.
-    """
-    workflow = await _create_workflow(title, description)
-    workflow_id = workflow["id"]
-    await _activate_workflow(workflow_id, with_webhook=True)
-    return workflow_id
-
-
 @app.command(help="Create a workflow")
 def create(
     title: str = typer.Option(None, "--title", "-t", help="Title of the workflow"),

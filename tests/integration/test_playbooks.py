@@ -6,7 +6,7 @@ import pytest
 from dotenv import load_dotenv
 from loguru import logger
 
-from tracecat.cli.workflow import _create_activate_workflow
+from tracecat.cli.workflow import _activate_workflow, _create_workflow
 
 load_dotenv()
 
@@ -93,9 +93,10 @@ async def test_playbook(path_to_playbook, trigger_data):
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
-    workflow_id = await _create_activate_workflow(
-        title=filename, description=f"Test workflow: {filename}"
-    )
+    description = f"Test playbook: {filename}"
+    workflow = await _create_workflow(filename, description)
+    workflow_id = workflow["id"]
+    await _activate_workflow(workflow_id, with_webhook=True)
     # 2. Run the workflow
     output = subprocess.run(
         [
