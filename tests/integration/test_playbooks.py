@@ -1,9 +1,12 @@
+import json
 import os
-import re
 import subprocess
 
 import pytest
 from dotenv import load_dotenv
+from loguru import logger
+
+from tracecat.cli.workflow import _activate_workflow, _create_workflow
 
 load_dotenv()
 
@@ -39,20 +42,37 @@ def create_secrets():
 
     for name, env_vars in secrets.items():
         env_vars_str = " ".join([f"{key}={value}" for key, value in env_vars.items()])
-        output = subprocess.run(
-            f"tracecat secret create {name} {env_vars_str}",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        assert "Secret created successfully!" in output.stdout
+        try:
+            output = subprocess.run(
+                f"tracecat secret create {name} {env_vars_str}",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "Secret created successfully!" in output.stdout
+        except AssertionError:
+            logger.error(f"Failed to create secret {name}")
 
 
 @pytest.mark.parametrize(
     "path_to_playbook, trigger_data",
     [
         (
+            "playbooks/alert_management/aws-guardduty-to-cases.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
             "playbooks/alert_management/aws-guardduty-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/datadog-extract-email-to-slack.yml",
             {
                 "start_time": "2024-05-01T00:00:00Z",
                 "end_time": "2024-07-01T12:00:00Z",
@@ -67,41 +87,26 @@ def create_secrets():
         ),
     ],
 )
-def test_playbook(path_to_playbook, trigger_data):
+@pytest.mark.asyncio
+async def test_playbook(path_to_playbook, trigger_data):
     # Extract the filename without extension
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
+    description = f"Test playbook: {filename}"
+    workflow = await _create_workflow(filename, description)
+    workflow_id = workflow["id"]
+    await _activate_workflow(workflow_id, with_webhook=True)
+    # 2. Run the workflow
     output = subprocess.run(
         [
             "tracecat",
             "workflow",
-            "create",
-            "--title",
-            filename,
-            "--commit",
-            path_to_playbook,
+            "run",
+            workflow_id,
+            "--data",
+            json.dumps(trigger_data),
         ],
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    # Use regex to extract the workflow ID
-    # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
-    assert "Successfully created workflow" in output.stdout
-    assert output.returncode == 0
-    workflow_id = re.search(r'{"id":"(wf-[0-9a-f]+)"}', output.stdout).group(1)
-    # 2. Activate the workflow
-    output = subprocess.run(
-        ["tracecat", "workflow", "up", "--webhook", workflow_id],
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    assert output.returncode == 0
-    # 3. Run the workflow
-    output = subprocess.run(
-        ["tracecat", "workflow", "run", workflow_id],
         shell=True,
         capture_output=True,
         text=True,

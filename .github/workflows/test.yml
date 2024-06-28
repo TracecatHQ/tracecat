@@ -5,10 +5,14 @@ on:
     branches: ["main"]
     paths-ignore:
       - "frontend/**"
+      - "docs/**"
+      - "README.md"
   pull_request:
     branches: ["main"]
     paths-ignore:
       - "frontend/**"
+      - "docs/**"
+      - "README.md"
 
 permissions:
   contents: read
@@ -55,7 +59,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
@@ -122,14 +126,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: pyproject.toml
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Run environment setup script
         run: bash env.sh
