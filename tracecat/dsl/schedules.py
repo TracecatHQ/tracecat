@@ -87,7 +87,7 @@ def string_to_timedelta(time_str: str) -> timedelta:
 
 async def create_schedule(
     workflow_id: identifiers.WorkflowID,
-    schedule_id: str,
+    schedule_id: identifiers.ScheduleID,
     dsl: DSLInput,
     # Schedule config
     every: timedelta,
@@ -120,10 +120,16 @@ async def create_schedule(
     )
 
 
-async def delete_schedule(sch_id: str) -> ScheduleHandle:
+async def delete_schedule(sch_id: identifiers.ScheduleID) -> ScheduleHandle:
     client = await get_temporal_client()
     handle = client.get_schedule_handle(sch_id)
-    return await handle.delete()
+    try:
+        return await handle.delete()
+    except Exception as e:
+        if "workflow execution already completed" in str(e):
+            # This is fine, we can ignore this error
+            return
+        raise e
 
 
 async def update_schedule(input: ScheduleUpdateInput) -> ScheduleUpdate:

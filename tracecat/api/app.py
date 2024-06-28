@@ -81,6 +81,7 @@ from tracecat.types.api import (
     CreateWorkflowParams,
     Event,
     EventSearchParams,
+    SearchScheduleParams,
     SearchSecretsParams,
     SecretResponse,
     ServiceCallbackAction,
@@ -89,6 +90,7 @@ from tracecat.types.api import (
     TriggerWorkflowRunParams,
     UDFArgsValidationResponse,
     UpdateActionParams,
+    UpdateScheduleParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
@@ -1154,40 +1156,36 @@ def update_webhook(
 # ----- Workflow Schedules ----- #
 
 
-@app.get("/workflows/{workflow_id}/schedules", tags=["schedules"])
+@app.get("/schedules", tags=["schedules"])
 async def list_schedules(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: identifiers.WorkflowID,
-) -> list[Any]:
-    """**[WORK IN PROGRESS]** List all schedules for a workflow."""
-    # with Session(engine) as session:
-    #     statement = select(Schedule).where(
-    #         Schedule.owner_id == role.user_id,
-    #         Schedule.workflow_id == workflow_id,
-    #     )
-    #     result = session.exec(statement)
-    #     return result.all()
-    res = await schedules.list_schedules()
-    return res
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID | None = None,
+) -> list[Schedule]:
+    """List all schedules for a workflow."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+        if workflow_id:
+            statement = statement.where(Schedule.workflow_id == workflow_id)
+        result = session.exec(statement)
+        try:
+            return result.all()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
 
-@app.post(
-    "/workflows/{workflow_id}/schedules",
-    status_code=status.HTTP_201_CREATED,
-    tags=["schedules"],
-)
+@app.post("/schedules", tags=["schedules"])
 async def create_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
     params: CreateScheduleParams,
 ) -> Schedule:
     """**[WORK IN PROGRESS]** Create a schedule for a workflow."""
 
     with Session(engine) as session, logger.contextualize(role=role):
-        # Grab the workflow definition to load into the scheduler
         result = session.exec(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == workflow_id)
+            .where(WorkflowDefinition.workflow_id == params.workflow_id)
             .order_by(WorkflowDefinition.version.desc())
         )
         try:
@@ -1203,7 +1201,7 @@ async def create_schedule(
             owner_id=role.user_id,
             cron=params.cron,
             inputs=params.inputs,
-            workflow_id=workflow_id,
+            workflow_id=params.workflow_id,
         )
         session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
@@ -1217,7 +1215,7 @@ async def create_schedule(
                 type="service", user_id=defn.owner_id, service_id="tracecat-runner"
             ) as sch_role:
                 handle = await schedules.create_schedule(
-                    workflow_id=workflow_id,
+                    workflow_id=params.workflow_id,
                     schedule_id=schedule.id,
                     dsl=dsl,
                     every=params.every,
@@ -1228,7 +1226,7 @@ async def create_schedule(
                 logger.info(
                     "Created schedule",
                     handle=handle,
-                    workflow_id=workflow_id,
+                    workflow_id=params.workflow_id,
                     schedule_id=schedule.id,
                     dsl=dsl,
                     params=params,
@@ -1238,6 +1236,7 @@ async def create_schedule(
             session.add(schedule)
             session.commit()
             session.refresh(schedule)
+            return schedule
         except Exception as e:
             session.rollback()
             logger.opt(exception=e).error("Error creating schedule", error=e)
@@ -1245,21 +1244,17 @@ async def create_schedule(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error creating schedule",
             ) from e
-    return schedule
 
 
-@app.get("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["schedules"])
+@app.get("/schedules/{schedule_id}", tags=["schedules"])
 def get_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    schedule_id: str,
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
+    schedule_id: identifiers.ScheduleID,
 ) -> Schedule:
-    """**[WORK IN PROGRESS]** Get a schedule from a workflow."""
+    """Get a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.id == schedule_id,
-            Schedule.workflow_id == workflow_id,
+            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
         try:
@@ -1270,18 +1265,16 @@ def get_schedule(
             ) from e
 
 
-@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["schedules"])
-def delete_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    schedule_id: str,
-    workflow_id: str,
-) -> None:
-    """**[WORK IN PROGRESS]** Delete a schedule from a workflow."""
+@app.post("/schedules/{schedule_id}", tags=["schedules"])
+def update_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
+    schedule_id: identifiers.ScheduleID,
+    params: UpdateScheduleParams,
+) -> Schedule:
+    """**[WORK IN PROGRESS]** Get a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.id == schedule_id,
-            Schedule.workflow_id == workflow_id,
+            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
         try:
@@ -1290,25 +1283,30 @@ def delete_schedule(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
-        session.delete(schedule)
+
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safety: params have been validated
+            setattr(schedule, key, value)
+
+        session.add(schedule)
         session.commit()
+        session.refresh(schedule)
+    return schedule
 
 
 @app.delete(
-    "/workflows/{workflow_id}/schedules/{schedule_id}/controls/backfill",
+    "/schedules/{schedule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
     tags=["schedules"],
 )
-def backfill_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    schedule_id: str,
-    workflow_id: str,
+async def delete_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
+    schedule_id: identifiers.ScheduleID,
 ) -> None:
-    """**[WORK IN PROGRESS]** Backfill a schedule in a workflow."""
+    """Delete a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.id == schedule_id,
-            Schedule.workflow_id == workflow_id,
+            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
         try:
@@ -1317,36 +1315,33 @@ def backfill_schedule(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
-        session.delete(schedule)
-        session.commit()
 
-
-@app.delete(
-    "/workflows/{workflow_id}/schedules/{schedule_id}/controls/pause", tags=["triggers"]
-)
-def pause_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    schedule_id: str,
-    workflow_id: str,
-) -> None:
-    """**[WORK IN PROGRESS]** Pause a schedule in a workflow."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.id == schedule_id,
-            Schedule.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
         try:
-            schedule = result.one()
-        except NoResultFound as e:
+            await schedules.delete_schedule(schedule_id)
+        except Exception as e:
+            logger.error("Error deleting schedule", error=e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error deleting schedule",
             ) from e
         session.delete(schedule)
         session.commit()
 
 
+@app.get("/schedules/search", tags=["schedules"])
+def search_schedules(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: SearchScheduleParams,
+) -> list[Schedule]:
+    """**[WORK IN PROGRESS]** Search for schedules."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+        results = session.exec(statement)
+        schedules = results.all()
+    return schedules
+
+
+@app.post("/schedules/search")
 # ----- Actions ----- #
 
 
