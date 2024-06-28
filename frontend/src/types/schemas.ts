@@ -39,8 +39,13 @@ export type Webhook = z.infer<typeof webhookSchema>
 export const scheduleSchema = z
   .object({
     status: z.enum(["online", "offline"]),
-    entrypoint_payload: z.record(z.any()),
-    cron: z.string(),
+    inputs: z.record(z.any()),
+    cron: z.string().nullish(),
+    every: z.string(),
+    offset: z.string().nullable(),
+    start_at: strAsDate.nullable(),
+    end_at: strAsDate.nullable(),
+    workflow_id: z.string(),
   })
   .and(resourceSchema)
 export type Schedule = z.infer<typeof scheduleSchema>
