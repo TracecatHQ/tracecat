@@ -1,6 +1,6 @@
 """Database schemas for Tracecat."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Self
 
 import pyarrow as pa
@@ -316,7 +316,10 @@ class Schedule(Resource, table=True):
     status: str = "offline"  # "online" or "offline"
     cron: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-
+    every: timedelta = Field(..., description="ISO 8601 duration string")
+    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
+    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     # Relationships
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))

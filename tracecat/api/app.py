@@ -1210,9 +1210,7 @@ async def create_schedule(
 
         schedule = Schedule(
             owner_id=role.user_id,
-            cron=params.cron,
-            inputs=params.inputs,
-            workflow_id=params.workflow_id,
+            **params.model_dump(exclude_unset=True),
         )
         session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
