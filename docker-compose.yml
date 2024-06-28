@@ -108,25 +108,6 @@ services:
     volumes:
       - temporal-db:/var/lib/postgresql/data
 
-  temporal_elasticsearch:
-    container_name: tracecat_temporal_elasticsearch
-    environment:
-      - cluster.routing.allocation.disk.threshold_enabled=true
-      - cluster.routing.allocation.disk.watermark.low=512mb
-      - cluster.routing.allocation.disk.watermark.high=256mb
-      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
-      - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms256m -Xmx256m
-      - xpack.security.enabled=false
-      - logger.level=WARN
-    image: elasticsearch:${TEMPORAL__ELASTICSEARCH_VERSION}
-    networks:
-      - temporal
-    volumes:
-      - temporal-elasticsearch:/var/lib/elasticsearch/data
-    expose:
-      - 9200
-
   temporal_ui:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
     container_name: tracecat_temporal_ui
@@ -135,7 +116,6 @@ services:
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     depends_on:
       - temporal
-      - temporal_elasticsearch
     networks:
       - temporal
     ports:
@@ -150,9 +130,6 @@ services:
       - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
-      - ENABLE_ES=true
-      - ES_SEEDS=temporal_elasticsearch
-      - ES_VERSION=v7
       - LOG_LEVEL=warn
     ports:
       - 7233:7233
@@ -169,4 +146,3 @@ volumes:
   core-app:
   core-db:
   temporal-db:
-  temporal-elasticsearch:
