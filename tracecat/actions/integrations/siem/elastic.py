@@ -24,7 +24,29 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
+
+elastic_secret = RegistrySecret(
+    name="elastic",
+    keys=["ELASTIC_API_KEY", "ELASTIC_API_URL"],
+)
+"""Elastic secret.
+
+Secret
+------
+- name: `elastic`
+- keys:
+    - `ELASTIC_API_KEY`
+    - `ELASTIC_API_URL`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["ELASTIC_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.elastic.ELASTIC_API_KEY }}
+"""
 
 
 @registry.register(
@@ -32,7 +54,7 @@ from tracecat.registry import Field, registry
     description="Fetch all alerts from Elastic Security and filter by time range.",
     display_group="Elastic",
     namespace="integrations.elastic",
-    secrets=["elastic"],
+    secrets=[elastic_secret],
 )
 async def list_elastic_alerts(
     start_time: Annotated[

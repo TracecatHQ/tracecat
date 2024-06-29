@@ -11,9 +11,20 @@ import httpx
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tracecat.registry import registry
+from tracecat.registry import RegistrySecret, registry
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+
+resend_secret = RegistrySecret(
+    name="resend_api_key",
+    keys=["RESEND_API_KEY"],
+)
+"""Resend secret.
+
+- name: `resend_api_key`
+- keys:
+    - `RESEND_API_KEY`
+"""
 
 
 class EmailBouncedError(Exception):
@@ -136,7 +147,7 @@ class ResendMailProvider(AsyncMailProvider):
     namespace="core",
     version="0.1.0",
     description="Perform a send email action",
-    secrets=["resend_api_key"],
+    secrets=[resend_secret],
     default_title="Send Email",
 )
 async def send_email(

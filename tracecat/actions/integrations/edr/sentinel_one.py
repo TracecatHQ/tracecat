@@ -26,12 +26,24 @@ from typing import Annotated, Any, Literal
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
 ANALYST_VERDICT_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts/analyst-verdict"
 
 AnalystVerdict = Literal["FALSE_POSITIVE", "SUSPICIOUS", "TRUE_POSITIVE", "UNDEFINED"]
+
+sentinel_one_secret = RegistrySecret(
+    name="sentinel_one",
+    keys=["SENTINEL_ONE_BASE_URL", "SENTINEL_ONE_API_TOKEN"],
+)
+"""Sentinel One secret.
+
+- name: `sentinel_one`
+- keys:
+    - `SENTINEL_ONE_BASE_URL`
+    - `SENTINEL_ONE_API_TOKEN`
+"""
 
 
 @registry.register(
@@ -39,7 +51,7 @@ AnalystVerdict = Literal["FALSE_POSITIVE", "SUSPICIOUS", "TRUE_POSITIVE", "UNDEF
     description="Fetch all Sentinel One alerts and filter by time range.",
     display_group="Sentinel One",
     namespace="integrations.sentinel_one",
-    secrets=["sentinel_one"],
+    secrets=[sentinel_one_secret],
 )
 async def list_sentinelone_alerts(
     start_time: Annotated[
@@ -83,6 +95,7 @@ async def list_sentinelone_alerts(
     description="Update the analyst verdict of Sentinel One alerts.",
     display_group="Sentinel One",
     namespace="integrations.sentinel_one",
+    secrets=[sentinel_one_secret],
 )
 async def update_sentinelone_alert_status(
     alert_ids: Annotated[

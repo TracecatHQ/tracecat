@@ -83,9 +83,32 @@ from types_aiobotocore_guardduty.client import GuardDutyClient
 
 from tracecat.actions.io import retry
 from tracecat.logging import logger
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 GUARDDUTY_MAX_RESULTS = 50
+
+aws_guardduty_secret = RegistrySecret(
+    name="aws_guardduty",
+    keys=["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+)
+"""AWS GuardDuty secret.
+
+Secret
+------
+- name: `aws_guardduty`
+- keys:
+    - `AWS_ACCESS_KEY_ID`
+    - `AWS_SECRET_ACCESS_KEY`
+    - `AWS_REGION`
+
+Example Usage
+-------------
+Environment variables:
+>>> os.environ["AWS_ACCESS_KEY_ID"]
+
+Expression:
+>>> ${{ SECRETS.aws_guardduty.AWS_ACCESS_KEY_ID }}
+"""
 
 
 @retry()
@@ -140,7 +163,7 @@ async def _get_findings(
     description="Fetch Amazon GuardDuty alerts and filter by time range.",
     display_group="Amazon GuardDuty",
     namespace="integrations.aws.guardduty",
-    secrets=["aws_guardduty"],
+    secrets=[aws_guardduty_secret],
 )
 async def list_guardduty_alerts(
     start_time: Annotated[

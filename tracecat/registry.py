@@ -1,3 +1,5 @@
+"""Tracecat UDF registry."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +8,7 @@ import inspect
 import re
 from collections.abc import Callable, Coroutine
 from types import FunctionType, GenericAlias
-from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
+from typing import Annotated, Any, Generic, Self, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
@@ -16,8 +18,14 @@ from typing_extensions import Doc
 from tracecat import expressions
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.types.exceptions import TracecatException
+from tracecat.types.secrets import SecretKey, SecretName
 
 DEFAULT_NAMESPACE = "core"
+
+
+class RegistrySecret(BaseModel):
+    name: SecretName
+    keys: list[SecretKey]
 
 
 class RegistryValidationError(TracecatException):
@@ -29,10 +37,15 @@ class RegistryValidationError(TracecatException):
         self.err = err
 
 
-class UDFSchema(TypedDict):
+class UDFSchema(BaseModel):
     args: dict[str, Any]
     rtype: dict[str, Any] | None
-    secrets: list[str] | None
+    secrets: list[RegistrySecret] | None
+    version: str | None
+    description: str
+    namespace: str
+    key: str
+    metadata: dict[str, Any]
 
 
 ArgsT = TypeVar("ArgsT", bound=type[BaseModel])
@@ -45,7 +58,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
     description: str
     namespace: str
     version: str | None = None
-    secrets: list[str] | None = None
+    secrets: list[RegistrySecret] | None = None
     args_cls: ArgsT
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
@@ -56,7 +69,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.fn)
 
-    def construct_schema(self) -> UDFSchema:
+    def construct_schema(self) -> dict[str, Any]:
         return UDFSchema(
             args=self.args_cls.model_json_schema(),
             rtype=None if not self.rtype_adapter else self.rtype_adapter.json_schema(),
@@ -66,7 +79,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
             namespace=self.namespace,
             key=self.key,
             metadata=self.metadata,
-        )
+        ).model_dump(mode="json")
 
     def validate_args(self, *args, **kwargs) -> dict[str, Any]:
         """Validate the input arguments for a UDF.
@@ -141,7 +154,7 @@ class _Registry:
         """Retrieve a registered udf."""
         return self._udf_registry[name]
 
-    def get_schemas(self) -> dict[str, UDFSchema]:
+    def get_schemas(self) -> dict[str, dict]:
         return {key: udf.construct_schema() for key, udf in self._udf_registry.items()}
 
     def init(self) -> None:
@@ -158,7 +171,7 @@ class _Registry:
         self,
         *,
         description: str,
-        secrets: list[str] | None = None,
+        secrets: list[RegistrySecret] | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         version: str | None = None,
         default_title: str | None = None,
@@ -202,6 +215,7 @@ class _Registry:
             logger.debug(f"Registering udf {key=}")
 
             wrapped_fn: FunctionType
+            secret_names = [secret.name for secret in secrets or []]
 
             if inspect.iscoroutinefunction(fn):
 
@@ -218,7 +232,7 @@ class _Registry:
                     """
 
                     validated_kwargs = self[key].validate_args(*args, **kwargs)
-                    async with AuthSandbox(secrets=secrets):
+                    async with AuthSandbox(secrets=secret_names, target="env"):
                         return await fn(**validated_kwargs)
             else:
 
@@ -227,7 +241,7 @@ class _Registry:
                     """Sync version of the wrapper function for the udf."""
 
                     validated_kwargs = self[key].validate_args(*args, **kwargs)
-                    with AuthSandbox(secrets=secrets):
+                    with AuthSandbox(secrets=secret_names, target="env"):
                         return fn(**validated_kwargs)
 
             if key in self:
