@@ -199,8 +199,10 @@ description: {udf_key}
 
 {udf_desc}
 
-This is the JSONSchema7 definition for the {udf_key} integration.
+This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `{udf_key}` integration.
 
+
+## Secrets
 {required_secrets}
 
 ## Inputs
@@ -223,9 +225,24 @@ This is the JSONSchema7 definition for the {udf_key} integration.
 """
 
 
+def create_markdown_table(data: dict[str, Any]) -> str:
+    """Create a markdown table from a dictionary."""
+    header = ["| Name | Keys |", "| --- | --- |"]
+    body = []
+    for key, value in data.items():
+        body.append(f"| {key} | {value} |")
+    return "\n".join(header + body)
+
+
 @app.command(name="generate-udf-docs", help="Generate UDF documentation.")
 def generate_udf_docs():
-    """Generate UDF docs."""
+    """Generate UDF docs.
+
+    Usage
+    -----
+    Run this from the Tracecat root directory:
+    >>> tracecat dev generate-udf-docs
+    """
 
     int_relpath = "integrations/udfs"
     path = config.docs_path / int_relpath
@@ -246,18 +263,29 @@ def generate_udf_docs():
     for key, udf in registry:
         if udf.metadata.get("include_in_schema") is False:
             continue
+
         schema = udf.construct_schema()
+        required_secrets = (
+            create_markdown_table(
+                {
+                    f"`{secret.name}`": ", ".join(f"`{k}`" for k in secret.keys)
+                    for secret in udf.secrets
+                }
+            )
+            if udf.secrets
+            else "_No secrets required._"
+        )
         s = UDF_MDX_TEMPLATE.format(
+            # Default title or the last part of the key
             udf_name=udf.metadata.get("default_title")
             or udf.key.split(".")[-1].title(),
             udf_key=key,
+            # Add a period at the end if it doesn't have one
             udf_desc=udf.description
             if udf.description.endswith(".")
             else udf.description + ".",
-            required_secrets="This integration requires secrets: "
-            + ", ".join(f"`{sec}`" for sec in udf.secrets)
-            if udf.secrets
-            else "_No secrets required._",
+            # Required secrets
+            required_secrets=required_secrets,
             input_schema=json.dumps(schema["args"], indent=4, sort_keys=True),
             response_schema=json.dumps(schema["rtype"], indent=4, sort_keys=True),
         )
