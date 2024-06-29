@@ -8,7 +8,7 @@ import inspect
 import re
 from collections.abc import Callable, Coroutine
 from types import FunctionType, GenericAlias
-from typing import Annotated, Any, Generic, Self, TypeVar
+from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
@@ -45,10 +45,19 @@ class UDFSchema(BaseModel):
     description: str
     namespace: str
     key: str
-    metadata: dict[str, Any]
+    metadata: RegisteredUDFMetadata
 
 
 ArgsT = TypeVar("ArgsT", bound=type[BaseModel])
+
+
+# total=False allows for additional fields in the TypedDict
+class RegisteredUDFMetadata(TypedDict, total=False):
+    """Metadata for a registered UDF."""
+
+    default_title: str | None
+    display_group: str | None
+    include_in_schema: bool
 
 
 class RegisteredUDF(BaseModel, Generic[ArgsT]):
@@ -63,7 +72,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: RegisteredUDFMetadata = Field(default_factory=dict)
 
     @property
     def is_async(self) -> bool:
@@ -176,7 +185,7 @@ class _Registry:
         version: str | None = None,
         default_title: str | None = None,
         display_group: str | None = None,
-        **register_kwargs,
+        include_in_schema: bool = True,
     ):
         """Decorator factory to register a new udf function with additional parameters.
 
@@ -267,11 +276,11 @@ class _Registry:
                 args_docs=args_docs,
                 rtype_cls=rtype_cls,
                 rtype_adapter=rtype_adapter,
-                metadata={
-                    **register_kwargs,
-                    "default_title": default_title,
-                    "display_group": display_group,
-                },
+                metadata=RegisteredUDFMetadata(
+                    default_title=default_title,
+                    display_group=display_group,
+                    include_in_schema=include_in_schema,
+                ),
             )
 
             setattr(wrapped_fn, "__tracecat_udf", True)
