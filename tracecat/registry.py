@@ -6,7 +6,7 @@ import asyncio
 import functools
 import inspect
 import re
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
 from types import FunctionType, GenericAlias
 from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
 
@@ -288,6 +288,30 @@ class _Registry:
             return wrapped_fn
 
         return decorator_register
+
+    def filter(
+        self, namespace: str | None = None, include_marked: bool = False
+    ) -> Iterator[tuple[str, RegisteredUDF]]:
+        """Filter the registry.
+
+        If namespace is provided, only return UDFs in that namespace.
+        If not, return all UDFs.
+
+        If include_marked is True, include UDFs marked with `include_in_schema: False`.
+        """
+
+        def include(udf: RegisteredUDF) -> bool:
+            inc = True
+            if not include_marked:
+                inc &= udf.metadata.get("include_in_schema", True)
+
+            if namespace:
+                inc &= udf.namespace.startswith(namespace)
+
+            logger.warning(f"{udf.key=} {inc=}")
+            return inc
+
+        return ((key, udf) for key, udf in self.__iter__() if include(udf))
 
 
 registry = _Registry()
