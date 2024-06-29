@@ -6,6 +6,11 @@ from pydantic import UUID4, StringConstraints
 
 from tracecat.identifiers.resource import ResourcePrefix, generate_resource_id
 
+WorkflowScheduleID = Annotated[
+    str, StringConstraints(pattern=r"wf-[0-9a-f]{32}:sch-[0-9a-f]{32}")
+]
+"""A unique ID for a scheduled workflow."""
+
 WorkflowID = Annotated[str, StringConstraints(pattern=r"wf-[0-9a-f]{32}")]
 """A unique ID for a workflow.
 

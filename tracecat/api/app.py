@@ -1209,8 +1209,7 @@ async def create_schedule(
             ) from e
 
         schedule = Schedule(
-            owner_id=role.user_id,
-            **params.model_dump(exclude_unset=True),
+            owner_id=role.user_id, **params.model_dump(exclude_unset=True)
         )
         session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
@@ -1234,11 +1233,9 @@ async def create_schedule(
                 )
                 logger.info(
                     "Created schedule",
-                    handle=handle,
+                    handle_id=handle.id,
                     workflow_id=params.workflow_id,
                     schedule_id=schedule.id,
-                    dsl=dsl,
-                    params=params,
                     sch_role=sch_role,
                 )
 
@@ -1275,12 +1272,12 @@ def get_schedule(
 
 
 @app.post("/schedules/{schedule_id}", tags=["schedules"])
-def update_schedule(
+async def update_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
     params: UpdateScheduleParams,
 ) -> Schedule:
-    """Get a schedule from a workflow."""
+    """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
     with Session(engine) as session:
         statement = select(Schedule).where(
             Schedule.owner_id == role.user_id, Schedule.id == schedule_id
@@ -1293,14 +1290,26 @@ def update_schedule(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        for key, value in params.model_dump(exclude_unset=True).items():
-            # Safety: params have been validated
-            setattr(schedule, key, value)
+        try:
+            # (1) Synchronize with Temporal
+            await schedules.update_schedule(schedule_id, params)
 
-        session.add(schedule)
-        session.commit()
-        session.refresh(schedule)
-    return schedule
+            # (2) Update the schedule
+            for key, value in params.model_dump(exclude_unset=True).items():
+                # Safety: params have been validated
+                setattr(schedule, key, value)
+
+            session.add(schedule)
+            session.commit()
+            session.refresh(schedule)
+            return schedule
+        except Exception as e:
+            session.rollback()
+            logger.opt(exception=e).error("Error creating schedule", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error creating schedule",
+            ) from e
 
 
 @app.delete(

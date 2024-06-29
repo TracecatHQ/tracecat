@@ -6,12 +6,9 @@ from pydantic import ValidationInfo, ValidatorFunctionWrapHandler, WrapValidator
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
-    ScheduleDescription,
     ScheduleHandle,
     ScheduleIntervalSpec,
-    ScheduleListDescription,
     ScheduleSpec,
-    ScheduleState,
     ScheduleUpdate,
     ScheduleUpdateInput,
 )
@@ -20,6 +17,7 @@ from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput, get_temporal_client
 from tracecat.dsl.workflow import DSLRunArgs, DSLWorkflow
+from tracecat.types.api import UpdateScheduleParams
 
 T = TypeVar("T")
 
@@ -85,6 +83,11 @@ def string_to_timedelta(time_str: str) -> timedelta:
     )
 
 
+async def _get_handle(sch_id: identifiers.ScheduleID) -> ScheduleHandle:
+    client = await get_temporal_client()
+    return client.get_schedule_handle(sch_id)
+
+
 async def create_schedule(
     workflow_id: identifiers.WorkflowID,
     schedule_id: identifiers.ScheduleID,
@@ -98,7 +101,7 @@ async def create_schedule(
 ) -> ScheduleHandle:
     client = await get_temporal_client()
 
-    exec_id = identifiers.workflow.exec_id(workflow_id)
+    workflow_schedule_id = f"{workflow_id}:{schedule_id}"
     return await client.create_schedule(
         schedule_id,
         Schedule(
@@ -106,7 +109,7 @@ async def create_schedule(
                 DSLWorkflow.run,
                 # The args that should run in the scheduled workflow
                 DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=workflow_id),
-                id=exec_id,
+                id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
             ),
             spec=ScheduleSpec(
@@ -114,15 +117,13 @@ async def create_schedule(
                 start_at=start_at,
                 end_at=end_at,
             ),
-            state=ScheduleState(note="Here's a note on my Schedule."),
         ),
         **kwargs,
     )
 
 
-async def delete_schedule(sch_id: identifiers.ScheduleID) -> ScheduleHandle:
-    client = await get_temporal_client()
-    handle = client.get_schedule_handle(sch_id)
+async def delete_schedule(schedule_id: identifiers.ScheduleID) -> ScheduleHandle:
+    handle = await _get_handle(schedule_id)
     try:
         return await handle.delete()
     except Exception as e:
@@ -132,30 +133,35 @@ async def delete_schedule(sch_id: identifiers.ScheduleID) -> ScheduleHandle:
         raise e
 
 
-async def update_schedule(input: ScheduleUpdateInput) -> ScheduleUpdate:
-    schedule_action = input.description.schedule.action
+async def update_schedule(
+    schedule_id: identifiers.ScheduleID, params: UpdateScheduleParams
+) -> ScheduleUpdate:
+    async def _update_schedule(input: ScheduleUpdateInput) -> ScheduleUpdate:
+        set_fields = params.model_dump(exclude_unset=True)
+        action = input.description.schedule.action
+        spec = input.description.schedule.spec
+        state = input.description.schedule.state
 
-    if isinstance(schedule_action, ScheduleActionStartWorkflow):
-        schedule_action.args = [
-            DSLRunArgs(dsl=input.description.schedule.action.args.dsl)
-        ]
-    ScheduleUpdate(schedule=input.description.schedule)
+        if "status" in set_fields:
+            state.paused = set_fields["status"] != "online"
+        if isinstance(action, ScheduleActionStartWorkflow):
+            if "inputs" in set_fields:
+                action.args[0].dsl.trigger_inputs = set_fields["inputs"]
+        else:
+            raise NotImplementedError(
+                "Only ScheduleActionStartWorkflow is supported for now."
+            )
+        # We only support one interval per schedule for now
+        if "every" in set_fields:
+            spec.intervals[0].every = set_fields["every"]
+        if "offset" in set_fields:
+            spec.intervals[0].offset = set_fields["offset"]
+        if "start_at" in set_fields:
+            spec.start_at = set_fields["start_at"]
+        if "end_at" in set_fields:
+            spec.end_at = set_fields["end_at"]
 
+        return ScheduleUpdate(schedule=input.description.schedule)
 
-async def get_schedule() -> ScheduleDescription:
-    client = await get_temporal_client()
-    handle = client.get_schedule_handle(
-        "workflow-schedule-id",
-    )
-
-    desc = await handle.describe()
-
-    print(f"Returns the note: {desc.schedule.state.note}")
-
-
-async def list_schedules() -> list[ScheduleListDescription]:
-    client = await get_temporal_client()
-    res = []
-    async for schedule in await client.list_schedules():
-        res.append(schedule)
-    return res
+    handle = await _get_handle(schedule_id)
+    return await handle.update(_update_schedule)
