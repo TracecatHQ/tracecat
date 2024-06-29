@@ -212,7 +212,8 @@
     {
       "group": "Integrations",
       "pages": [
-        "integrations/introduction"
+        "integrations/introduction",
+        "integrations/secrets_cheatsheet"
       ]
     },
     {
