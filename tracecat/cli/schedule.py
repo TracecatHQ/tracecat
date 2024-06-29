@@ -103,23 +103,28 @@ def update(
         None, "--data", "-d", help="JSON Payload to send (trigger context)"
     ),
     every: str = typer.Option(
-        None, "--every", "-e", help="Interval at which the schedule should run"
+        None, "--every", help="Interval at which the schedule should run"
     ),
     offset: str = typer.Option(
-        None, "--offset", "-o", help="Offset from the start of the interval"
+        None, "--offset", help="Offset from the start of the interval"
     ),
+    online: bool = typer.Option(None, "--online", help="Set the schedule to online"),
+    offline: bool = typer.Option(None, "--offline", help="Set the schedule to offline"),
 ):
     """Update a schedule"""
+    if online and offline:
+        raise typer.BadParameter("Cannot set both online and offline")
 
     params = UpdateScheduleParams(
         inputs=read_input(inputs) if inputs else None,
         every=every,
         offset=offset,
+        status="online" if online else "offline",
     )
     with user_client_sync() as client:
         res = client.post(
             f"/schedules/{schedule_id}",
-            json=params.model_dump(exclude_unset=True, exclude_none=True),
+            json=params.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
         )
         handle_response(res)
     rich.print(res.json())
