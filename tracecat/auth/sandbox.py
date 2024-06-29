@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING, Literal, Self
 from loguru import logger
 
 from tracecat.auth.clients import AuthenticatedAPIClient
+from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
-from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatCredentialsError
 
 if TYPE_CHECKING:
     from tracecat.db.schemas import Secret
+    from tracecat.types.auth import Role
 
 
 class AuthSandbox:
@@ -32,7 +34,7 @@ class AuthSandbox:
         target: Literal["env", "context"] = "env",
     ):
         self._role = role or ctx_role.get()
-        self._secret_paths: list[str] = secrets
+        self._secret_paths: list[str] = secrets or []
         self._secret_objs: list[Secret] = []
         self._target = target
         self._context = {}
@@ -62,6 +64,12 @@ class AuthSandbox:
         """Return secret names mapped to their secret key value pairs."""
         return self._context
 
+    def _iter_secrets(self):
+        """Iterate over the secrets."""
+        for secret in self._secret_objs:
+            for kv in secret.keys or []:
+                yield secret.name, kv
+
     def _set_secrets(self):
         """Set secrets in the target."""
         if self._target == "context":
@@ -70,15 +78,12 @@ class AuthSandbox:
                 paths=self._secret_paths,
                 objs=self._secret_objs,
             )
-            for secret in self._secret_objs:
-                self._context[secret.name] = {
-                    kv.key: kv.value.get_secret_value() for kv in secret.keys
-                }
+            for name, kv in self._iter_secrets():
+                self._context[name] = {kv.key: kv.value.get_secret_value()}
         else:
             logger.info("Setting secrets in the environment", paths=self._secret_paths)
-            for secret in self._secret_objs:
-                for kv in secret.keys:
-                    os.environ[kv.key] = kv.value.get_secret_value()
+            for _, kv in self._iter_secrets():
+                os.environ[kv.key] = kv.value.get_secret_value()
 
     def _unset_secrets(self):
         if self._target == "context":
@@ -86,10 +91,9 @@ class AuthSandbox:
                 if secret.name in self._context:
                     del self._context[secret.name]
         else:
-            for secret in self._secret_objs:
-                for kv in secret.keys:
-                    if kv.key in os.environ:
-                        del os.environ[kv.key]
+            for _, kv in self._iter_secrets():
+                if kv.key in os.environ:
+                    del os.environ[kv.key]
 
     async def _get_secrets(self) -> list[Secret]:
         """Retrieve secrets from the secrets API."""
@@ -104,12 +108,31 @@ class AuthSandbox:
         )
         secret_names = (path.split(".")[0] for path in self._secret_paths)
 
-        async with AuthenticatedAPIClient(role=self._role) as client:
-            # NOTE(perf): This is not really batched - room for improvement
-            secret_responses = await asyncio.gather(
-                *[client.get(f"/secrets/{secret_name}") for secret_name in secret_names]
-            )
-            return [
-                Secret.model_validate_json(secret_bytes.content)
-                for secret_bytes in secret_responses
-            ]
+        try:
+            async with (
+                AuthenticatedAPIClient(role=self._role) as client,
+                GatheringTaskGroup() as tg,
+            ):
+                for secret_name in secret_names:
+
+                    async def fetcher(name: str):
+                        try:
+                            res = await client.get(f"/secrets/{name}")
+                            res.raise_for_status()  # Raise an exception for HTTP error codes
+                            return res
+                        except Exception as e:
+                            msg = (
+                                f"Failed to retrieve secret {name!r}."
+                                f" Please ensure you have set all required secrets: {self._secret_paths}"
+                            )
+                            logger.error(msg)
+                            raise TracecatCredentialsError(msg) from e
+
+                    tg.create_task(fetcher(secret_name))
+        except* TracecatCredentialsError as eg:
+            raise eg
+
+        return [
+            Secret.model_validate_json(secret_bytes.content)
+            for secret_bytes in tg.results()
+        ]
