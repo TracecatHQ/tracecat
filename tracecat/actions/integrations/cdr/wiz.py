@@ -27,7 +27,7 @@ from typing import Annotated, Any
 import httpx
 
 from tracecat.actions.io import retry
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 QUERY_STRING = """
 query IssuesTable($filterBy: IssueFilters, $first: Int, $after: String, $orderBy: IssueOrder) {
@@ -113,6 +113,25 @@ query IssuesTable($filterBy: IssueFilters, $first: Int, $after: String, $orderBy
 }
 """
 
+wiz_secret = RegistrySecret(
+    name="wiz",
+    keys=[
+        "WIZ_API_URL",
+        "WIZ_AUTH_URL",
+        "WIZ_CLIENT_ID",
+        "WIZ_CLIENT_SECRET",
+    ],
+)
+"""Wiz secret.
+
+- name: `wiz`
+- keys:
+    - `WIZ_API_URL`
+    - `WIZ_AUTH_URL`
+    - `WIZ_CLIENT_ID`
+    - `WIZ_CLIENT_SECRET`
+"""
+
 
 async def _get_access_token(client_id: str, client_secret: str, auth_url: str) -> str:
     payload = {
@@ -152,7 +171,7 @@ async def _query_wiz_alerts(
     description="Fetch Wiz detection findings and filter by time range.",
     display_group="Wiz",
     namespace="integrations.wiz",
-    secrets=["wiz"],
+    secrets=[wiz_secret],
 )
 async def list_wiz_alerts(
     start_time: Annotated[

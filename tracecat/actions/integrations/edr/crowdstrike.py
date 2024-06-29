@@ -36,7 +36,7 @@ from typing import Annotated, Any, Literal
 
 from falconpy import Alerts, Detects
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 TOKEN_ENDPOINT = "/oauth2/token"
 ALERTS_ENDPOINT = "/alerts/queries/alerts/v2"
@@ -47,6 +47,18 @@ AlertStatus = Literal[
     "ignored", "new", "in_progress", "true_positive", "false_positive"
 ]
 DetectStatus = Literal["ignored", "new", "in_progress", "resolved", "false_positive"]
+
+crowdstrike_secret = RegistrySecret(
+    name="crowdstrike",
+    keys=["CROWDSTRIKE_CLIENT_ID", "CROWDSTRIKE_CLIENT_SECRET"],
+)
+"""Crowdstrike secret.
+
+- name: `crowdstrike`
+- keys:
+    - `CROWDSTRIKE_CLIENT_ID`
+    - `CROWDSTRIKE_CLIENT_SECRET`
+"""
 
 
 def get_crowdstrike_credentials():
@@ -62,7 +74,7 @@ def get_crowdstrike_credentials():
     description="Fetch all Crowdstrike alerts from Falcon SIEM.",
     display_group="Crowdstrike",
     namespace="integrations.crowdstrike",
-    secrets=["crowdstrike"],
+    secrets=[crowdstrike_secret],
 )
 async def list_crowdstrike_alerts(
     start_time: Annotated[
@@ -90,7 +102,7 @@ async def list_crowdstrike_alerts(
     description="Fetch all Crowdstrike detections from Falcon SIEM.",
     display_group="Crowdstrike",
     namespace="integrations.crowdstrike",
-    secrets=["crowdstrike"],
+    secrets=[crowdstrike_secret],
 )
 async def list_crowdstrike_detects(
     start_time: Annotated[
@@ -118,7 +130,7 @@ async def list_crowdstrike_detects(
     description="Update the status of Crowdstrike alerts.",
     display_group="Crowdstrike",
     namespace="integrations.crowdstrike",
-    secrets=["crowdstrike"],
+    secrets=[crowdstrike_secret],
 )
 async def update_crowdstrike_alert_status(
     alert_ids: Annotated[
@@ -142,7 +154,7 @@ async def update_crowdstrike_alert_status(
     description="Update the status of Crowdstrike detects.",
     display_group="Crowdstrike",
     namespace="integrations.crowdstrike",
-    secrets=["crowdstrike"],
+    secrets=[crowdstrike_secret],
 )
 async def update_crowdstrike_detect_status(
     detection_ids: Annotated[

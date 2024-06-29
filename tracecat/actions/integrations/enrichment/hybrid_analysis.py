@@ -23,9 +23,27 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 HA_BASE_URL = "https://www.hybrid-analysis.com/api/v2/"
+
+hybrid_analysis_secret = RegistrySecret(name="hybrid_analysis", keys=["HA_API_KEY"])
+"""Hybrid Analysis secret.
+
+Secret
+------
+- name: `hybrid_analysis`
+- keys:
+    - `HA_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["HA_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.hybrid_analysis.HA_API_KEY }}
+"""
 
 
 def create_hybrid_analysis_client() -> httpx.AsyncClient:
@@ -44,7 +62,7 @@ def create_hybrid_analysis_client() -> httpx.AsyncClient:
     description="Analyze a malware sample using Hybrid Analysis.",
     display_group="Hybrid Analysis",
     namespace="integrations.hybrid_analysis",
-    secrets=["hybrid_analysis"],
+    secrets=[hybrid_analysis_secret],
 )
 async def analyze_malware_sample(
     file_hash: Annotated[

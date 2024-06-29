@@ -32,7 +32,7 @@ from typing import Annotated, Any
 import httpx
 from fastapi.exceptions import HTTPException
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 DD_REGION_TO_API_URL = {
     "us1": "https://api.datadoghq.com/api",
@@ -42,13 +42,36 @@ DD_REGION_TO_API_URL = {
     "ap1": "https://api.ap1.datadoghq.com/api",
 }
 
+datadog_secret = RegistrySecret(
+    name="datadog",
+    keys=["DD_APP_KEY", "DD_API_KEY", "DD_REGION"],
+)
+"""Datadog secret.
+
+Secret
+------
+- name: `datadog`
+- keys:
+    - `DD_APP_KEY`
+    - `DD_API_KEY`
+    - `DD_REGION`
+
+Example Usage
+-------------
+Environment variables:
+>>> os.environ["DD_APP_KEY"]
+
+Expression:
+>>> ${{ SECRETS.datadog.DD_APP_KEY }}
+"""
+
 
 @registry.register(
     default_title="List Datadog SIEM alerts",
     description="Fetch Datadog SIEM alerts (signals) and filter by time range.",
     display_group="Datadog",
     namespace="integrations.datadog",
-    secrets=["datadog"],
+    secrets=[datadog_secret],
 )
 async def list_datadog_alerts(
     start_time: Annotated[

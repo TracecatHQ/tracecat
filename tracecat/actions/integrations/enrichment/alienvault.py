@@ -36,10 +36,28 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 # Base URL for AlienVault OTX API
 OTX_BASE_URL = "https://otx.alienvault.com/api"
+
+alienvault_secret = RegistrySecret(name="alienvault", keys=["OTX_API_KEY"])
+"""AlienVault OTX secret.
+
+Secret
+------
+- name: `alienvault`
+- keys:
+    - `OTX_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["OTX_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.alienvault.OTX_API_KEY }}
+"""
 
 
 # Function to create an HTTPX async client for AlienVault OTX
@@ -59,7 +77,7 @@ def create_alienvault_client() -> httpx.AsyncClient:
     description="Analyze a URL using AlienVault OTX.",
     display_group="AlienVault OTX",
     namespace="integrations.alienvault",
-    secrets=["alienvault"],
+    secrets=[alienvault_secret],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -73,6 +91,7 @@ async def analyze_url(
 @registry.register(
     description="Analyze an IP address using AlienVault OTX.",
     namespace="alienvault",
+    secrets=[alienvault_secret],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
@@ -94,7 +113,7 @@ async def analyze_ip_address(
     description="Analyze a malware sample using AlienVault OTX.",
     display_group="AlienVault OTX",
     namespace="integrations.alienvault",
-    secrets=["alienvault"],
+    secrets=[alienvault_secret],
 )
 async def analyze_malware_sample(
     file_hash: Annotated[

@@ -36,9 +36,27 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 VT_BASE_URL = "https://www.virustotal.com/api/"
+
+virustotal_secret = RegistrySecret(name="virustotal", keys=["VIRUSTOTAL_API_KEY"])
+"""VirusTotal secret.
+
+Secret
+------
+- name: `virustotal`
+- keys:
+    - `VIRUSTOTAL_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["VIRUSTOTAL_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+"""
 
 
 def create_virustotal_client() -> httpx.AsyncClient:
@@ -57,7 +75,7 @@ def create_virustotal_client() -> httpx.AsyncClient:
     description="Analyze a URL using VirusTotal.",
     display_group="VirusTotal",
     namespace="integrations.virustotal",
-    secrets=["virustotal"],
+    secrets=[virustotal_secret],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -74,7 +92,7 @@ async def analyze_url(
     description="Analyze an IP address using VirusTotal.",
     display_group="VirusTotal",
     namespace="integrations.virustotal",
-    secrets=["virustotal"],
+    secrets=[virustotal_secret],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],
@@ -90,7 +108,7 @@ async def analyze_ip_address(
     description="Analyze a malware sample using VirusTotal.",
     display_group="VirusTotal",
     namespace="integrations.virustotal",
-    secrets=["virustotal"],
+    secrets=[virustotal_secret],
 )
 async def analyze_malware_sample(
     file_hash: Annotated[

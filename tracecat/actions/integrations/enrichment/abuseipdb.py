@@ -23,9 +23,18 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 ABUSEIPDB_BASE_URL = "https://api.abuseipdb.com/api"
+
+# Secret
+abuseipdb_secret = RegistrySecret(name="abuseipdb", keys=["ABUSEIPDB_API_KEY"])
+"""AbuseIPDB secret.
+
+- name: `abuseipdb`
+- keys:
+    - `ABUSEIPDB_API_KEY`
+"""
 
 
 @registry.register(
@@ -33,7 +42,7 @@ ABUSEIPDB_BASE_URL = "https://api.abuseipdb.com/api"
     description="Analyze an IP address using AbuseIPDB.",
     display_group="AbuseIPDB",
     namespace="integrations.abuseipdb",
-    secrets=["abuseipdb"],
+    secrets=[abuseipdb_secret],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],

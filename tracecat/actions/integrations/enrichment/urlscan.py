@@ -27,9 +27,27 @@ from typing import Annotated, Any, Literal
 import httpx
 from tenacity import retry, stop_after_delay, wait_combine, wait_fixed
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 URLSCAN_BASE_URL = "https://urlscan.io/api/"
+
+urlscan_secret = RegistrySecret(name="urlscan", keys=["URLSCAN_API_KEY"])
+"""URLScan secret.
+
+Secret
+------
+- name: `urlscan`
+- keys:
+    - `URLSCAN_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["URLSCAN_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+"""
 
 
 def create_urlscan_client() -> httpx.AsyncClient:
@@ -52,7 +70,7 @@ async def _get_scan_result(scan_id: str) -> dict[str, Any]:
     description="Get the scan result from URLScan by scan ID.",
     display_group="URLScan",
     namespace="integrations.urlscan",
-    secrets=["urlscan"],
+    secrets=[urlscan_secret],
 )
 async def get_scan_result(
     scan_id: Annotated[
@@ -68,7 +86,7 @@ async def get_scan_result(
     description="Analyze a URL using URLScan.",
     display_group="URLScan",
     namespace="integrations.urlscan",
-    secrets=["urlscan"],
+    secrets=[urlscan_secret],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],

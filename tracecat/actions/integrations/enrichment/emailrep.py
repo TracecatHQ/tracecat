@@ -22,9 +22,28 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 EMAILREP_BASE_URL = "https://emailrep.io"
+
+
+emailrep_secret = RegistrySecret(name="emailrep", keys=["EMAILREP_API_KEY"])
+"""Emailrep secret.
+
+Secret
+------
+- name: `emailrep`
+- keys:
+    - `EMAILREP_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["EMAILREP_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.emailrep.EMAILREP_API_KEY }}
+"""
 
 
 def create_emailrep_client() -> httpx.AsyncClient:
@@ -40,7 +59,7 @@ def create_emailrep_client() -> httpx.AsyncClient:
     description="Analyze an email address using Emailrep.",
     display_group="Emailrep",
     namespace="integrations.emailrep",
-    secrets=["emailrep"],
+    secrets=[emailrep_secret],
 )
 async def analyze_email(
     email: Annotated[str, Field(..., description="The email address to analyze")],
