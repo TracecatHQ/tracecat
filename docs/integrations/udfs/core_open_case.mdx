@@ -5,8 +5,10 @@ description: core.open_case
 
 Open a new case in the case management system.
 
-This is the JSONSchema7 definition for the core.open_case integration.
+This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `core.open_case` integration.
 
+
+## Secrets
 _No secrets required._
 
 ## Inputs
@@ -101,6 +103,9 @@ _No secrets required._
                         "$ref": "#/$defs/CaseContext"
                     },
                     "type": "array"
+                },
+                {
+                    "type": "object"
                 },
                 {
                     "type": "null"

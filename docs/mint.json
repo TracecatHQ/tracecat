@@ -221,15 +221,7 @@
         {
           "group": "core",
           "pages": [
-            {
-              "group": "ai",
-              "pages": [
-                "integrations/udfs/core_ai_extract",
-                "integrations/udfs/core_ai_label",
-                "integrations/udfs/core_ai_summarize",
-                "integrations/udfs/core_ai_translate"
-              ]
-            },
+            "integrations/udfs/core_ai_action",
             {
               "group": "condition",
               "pages": [
@@ -241,7 +233,8 @@
             {
               "group": "extraction",
               "pages": [
-                "integrations/udfs/core_extraction_extract_emails"
+                "integrations/udfs/core_extraction_extract_emails",
+                "integrations/udfs/core_extraction_extract_ipv4_addresses"
               ]
             },
             "integrations/udfs/core_http_request",
@@ -300,12 +293,6 @@
               "group": "elastic",
               "pages": [
                 "integrations/udfs/integrations_elastic_list_elastic_alerts"
-              ]
-            },
-            {
-              "group": "extraction",
-              "pages": [
-                "integrations/udfs/integrations_extraction_extract_ipv4_addresses"
               ]
             },
             {
