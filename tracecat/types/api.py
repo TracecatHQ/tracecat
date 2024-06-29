@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from tracecat import identifiers
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.common import DSLInput
 from tracecat.types.generics import ListModel
@@ -334,12 +335,6 @@ class UDFArgsValidationResponse(BaseModel):
     detail: Any | None = None
 
 
-class CreateScheduleParams(BaseModel):
-    entrypoint_ref: str
-    entrypoint_payload: dict[str, Any] | None = None
-    cron: str
-
-
 class CommitWorkflowResponse(BaseModel):
     workflow_id: str
     status: Literal["success", "failure"]
@@ -352,3 +347,33 @@ class ServiceCallbackAction(BaseModel):
     action: Literal["webhook"]
     payload: dict[str, Any]
     metadata: dict[str, Any]
+
+
+class CreateScheduleParams(BaseModel):
+    workflow_id: identifiers.WorkflowID
+    inputs: dict[str, Any] | None = None
+    cron: str | None = None
+    every: timedelta = Field(..., description="ISO 8601 duration string")
+    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
+    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    status: Literal["online", "offline"] = "online"
+
+
+class UpdateScheduleParams(BaseModel):
+    inputs: dict[str, Any] | None = None
+    cron: str | None = None
+    every: timedelta | None = Field(None, description="ISO 8601 duration string")
+    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
+    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    status: Literal["online", "offline"] | None = None
+
+
+class SearchScheduleParams(BaseModel):
+    workflow_id: str | None = None
+    limit: int = 100
+    order_by: str = "created_at"
+    query: str | None = None
+    group_by: list[str] | None = None
+    agg: str | None = None

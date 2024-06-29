@@ -265,30 +265,42 @@ export function ScheduleControls({ schedules }: { schedules: Schedule[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="h-8 text-center text-xs">
+            <TableHead className="h-8 text-center text-xs" colSpan={4}>
               <div className="flex items-center justify-center gap-1">
                 <WebhookIcon className="size-3" />
                 <span>Schedules</span>
               </div>
             </TableHead>
           </TableRow>
+          <TableRow>
+            <TableHead className="h-8 text-center text-xs">ID</TableHead>
+            <TableHead className="h-8 text-center text-xs">Status</TableHead>
+            <TableHead className="h-8 text-center text-xs">Inputs</TableHead>
+            <TableHead className="h-8 text-center text-xs">Every</TableHead>
+          </TableRow>
         </TableHeader>
         <TableBody>
-          {schedules.map(({ id, cron }) => (
-            <TableRow key={id}>
-              <TableCell>{cron}</TableCell>
+          {schedules.map(({ id, status, inputs, every }) => (
+            <TableRow key={id} className="text-xs text-muted-foreground">
+              <TableCell>{id}</TableCell>
+              <TableCell>{status}</TableCell>
+              <TableCell>{JSON.stringify(inputs)}</TableCell>
+              <TableCell>{every}</TableCell>
             </TableRow>
           ))}
         </TableBody>
-        <TableFooter className="flex w-full justify-center text-muted-foreground">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex w-full items-center justify-center gap-2"
-          >
-            <PlusCircleIcon className="size-4" />
-            <span>Add Schedule</span>
-          </Button>
+        <TableFooter>
+          <TableCell colSpan={4}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex h-4 w-full items-center justify-center gap-2 text-muted-foreground/90"
+              disabled
+            >
+              <PlusCircleIcon className="size-4" />
+              <span>Add Schedule</span>
+            </Button>
+          </TableCell>
         </TableFooter>
       </Table>
     </div>

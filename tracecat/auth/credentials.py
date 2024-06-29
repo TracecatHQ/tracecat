@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+from contextlib import contextmanager
 from functools import partial
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 import orjson
@@ -242,3 +243,19 @@ async def authenticate_user_or_service(
     if api_key:
         return await _get_role_from_service_key(request, api_key)
     raise HTTP_EXC("Could not validate credentials")
+
+
+@contextmanager
+def TemporaryRole(
+    type: Literal["user", "service"] = "service",
+    user_id: str | None = None,
+    service_id: str | None = None,
+):
+    """An async context manager to authenticate a user or service."""
+    prev_role = ctx_role.get()
+    temp_role = Role(type=type, user_id=user_id, service_id=service_id)
+    ctx_role.set(temp_role)
+    try:
+        yield temp_role
+    finally:
+        ctx_role.set(prev_role)

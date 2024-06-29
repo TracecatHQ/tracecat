@@ -127,7 +127,7 @@ export default React.memo(function TriggerNode({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="h-8 text-center text-xs">
+                  <TableHead className="h-8 text-center text-xs" colSpan={2}>
                     <div className="flex items-center justify-center gap-1">
                       <CalendarCheck className="size-3" />
                       <span>Schedules</span>
@@ -136,9 +136,31 @@ export default React.memo(function TriggerNode({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {workflow.schedules.map(({ id, cron }) => (
-                  <TableRow key={id}>
-                    <TableCell>{cron}</TableCell>
+                {workflow.schedules.map(({ status, every }, idx) => (
+                  <TableRow
+                    key={idx}
+                    className="items-center text-center text-xs text-muted-foreground"
+                  >
+                    <TableCell>
+                      <div className="flex w-full items-center justify-center">
+                        <span
+                          className={cn(
+                            status !== "online" &&
+                              "bg-muted-foreground/5 text-muted-foreground/50"
+                          )}
+                        >
+                          {every}
+                        </span>
+                        <span
+                          className={cn(
+                            "ml-2 inline-block size-2 rounded-full ",
+                            workflow.webhook.status === "online"
+                              ? "bg-emerald-500"
+                              : "bg-gray-300"
+                          )}
+                        />
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

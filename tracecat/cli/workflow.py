@@ -11,7 +11,7 @@ from rich.console import Console
 from tracecat.types.api import WebhookResponse
 from tracecat.types.headers import CustomHeaders
 
-from ._utils import dynamic_table, user_client
+from ._utils import dynamic_table, read_input, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
@@ -113,7 +113,7 @@ async def _list_workflows():
     async with user_client() as client:
         res = await client.get("/workflows")
         res.raise_for_status()
-    return dynamic_table(res.json(), "Workflows")
+    return res.json()
 
 
 async def _get_cases(workflow_id: str):
@@ -163,11 +163,17 @@ def commit(
 
 
 @app.command(name="list", help="List all workflow definitions")
-def list_workflows():
+def list_workflows(
+    as_json: bool = typer.Option(False, "--json", help="Display as JSON"),
+):
     """Commit a workflow definition to the database."""
     rich.print("Listing all workflows")
-    table = asyncio.run(_list_workflows())
-    Console().print(table)
+    result = asyncio.run(_list_workflows())
+    if as_json:
+        rich.print(result)
+    else:
+        result = dynamic_table(result, "Workflows")
+        Console().print(result)
 
 
 @app.command(help="Run a workflow", no_args_is_help=True)
@@ -185,23 +191,8 @@ def run(
 ):
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r} {"proxied" if proxy else 'directly'}")
-    if data[0] == "@":
-        p = Path(data[1:])
-        if not p.exists():
-            raise typer.BadParameter(f"File {p} does not exist")
-        if p.suffix != ".json":
-            raise typer.BadParameter(f"File {p} is not a JSON file")
-        with p.open() as f:
-            data = f.read()
-
-    asyncio.run(
-        _run_workflow(
-            workflow_id,
-            payload=orjson.loads(data) if data else None,
-            proxy=proxy,
-            test=test,
-        )
-    )
+    payload = read_input(data) if data else None
+    asyncio.run(_run_workflow(workflow_id, payload=payload, proxy=proxy, test=test))
 
 
 @app.command(help="Activate a workflow", no_args_is_help=True)
