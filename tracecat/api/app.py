@@ -1359,7 +1359,6 @@ def search_schedules(
     return schedules
 
 
-@app.post("/schedules/search")
 # ----- Actions ----- #
 
 
