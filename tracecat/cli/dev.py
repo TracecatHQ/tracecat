@@ -60,6 +60,11 @@ def generate_spec(
         "--update-docs",
         help="Update API reference paths in docs and update Mintlify config.",
     ),
+    use_npx: bool = typer.Option(
+        False,
+        "--npx",
+        help="Use npx to run the Mintlify scraping package.",
+    ),
 ):
     """Generate OpenAPI specification."""
 
@@ -89,11 +94,21 @@ def generate_spec(
 
     oas_relpath = outpath.relative_to(config.docs_path)
 
-    # NOTE: If this hands, likely the mintlify scraping package is trying to update (reading stdin)
+    # NOTE: If this hangs, likely the mintlify scraping package is trying to update (reading stdin)
     # Define the command that generates the output
+    rich.print(
+        "[yellow]Running Mintlify scraping package... "
+        "(if this hangs, you likely need to update 'mintlify-scrape'. "
+        "To fix, `cd docs && npx @mintlify/scraping@latest`)[/yellow]"
+    )
+    if use_npx:
+        executable = "npx @mintlify/scraping@latest"
+    else:
+        executable = "mintlify-scrape"
+
     cmd = (
         f"cd {config.docs_path!s} &&"
-        "npx @mintlify/scraping@latest"
+        f" {executable}"
         f" openapi-file {oas_relpath!s}"  # This should be a relative path from within the docs root dir
         f" -o api-reference/reference"  # Output directory, relative to the docs root dir
     )

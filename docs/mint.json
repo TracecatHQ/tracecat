@@ -99,11 +99,17 @@
         {
           "group": "Reference",
           "pages": [
-            "api-reference/reference/check-health",
+            {
+              "group": "API Reference",
+              "pages": [
+                "api-reference/reference/check-health"
+              ]
+            },
             {
               "group": "public",
               "pages": [
-                "api-reference/reference/public/incoming-webhook"
+                "api-reference/reference/public/incoming-webhook",
+                "api-reference/reference/public/webhook-callback"
               ]
             },
             {
@@ -129,11 +135,18 @@
               "pages": [
                 "api-reference/reference/triggers/get-webhook",
                 "api-reference/reference/triggers/create-webhook",
-                "api-reference/reference/triggers/update-webhook",
-                "api-reference/reference/triggers/list-schedules",
-                "api-reference/reference/triggers/create-schedule",
-                "api-reference/reference/triggers/get-schedule",
-                "api-reference/reference/triggers/delete-schedule"
+                "api-reference/reference/triggers/update-webhook"
+              ]
+            },
+            {
+              "group": "schedules",
+              "pages": [
+                "api-reference/reference/schedules/list-schedules",
+                "api-reference/reference/schedules/create-schedule",
+                "api-reference/reference/schedules/get-schedule",
+                "api-reference/reference/schedules/update-schedule",
+                "api-reference/reference/schedules/delete-schedule",
+                "api-reference/reference/schedules/search-schedules"
               ]
             },
             {
