@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
+from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tracecat import identifiers
@@ -11,6 +12,7 @@ from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.common import DSLInput
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
+from tracecat.types.validation import RegistryValidationResult
 
 # TODO: Consistent API design
 # Action and Workflow create / update params
@@ -334,6 +336,16 @@ class UDFArgsValidationResponse(BaseModel):
     message: str
     detail: Any | None = None
 
+    @staticmethod
+    def from_validation_result(
+        result: RegistryValidationResult,
+    ) -> UDFArgsValidationResponse:
+        return UDFArgsValidationResponse(
+            ok=result.status == "success",
+            message=result.msg,
+            detail=result.detail,
+        )
+
 
 class CommitWorkflowResponse(BaseModel):
     workflow_id: str
@@ -341,6 +353,9 @@ class CommitWorkflowResponse(BaseModel):
     message: str
     errors: list[UDFArgsValidationResponse] | None = None
     metadata: dict[str, Any] | None = None
+
+    def to_orjson(self, status_code: int) -> ORJSONResponse:
+        return ORJSONResponse(status_code=status_code, content=self.model_dump())
 
 
 class ServiceCallbackAction(BaseModel):
