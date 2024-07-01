@@ -48,9 +48,10 @@ def create_secrets():
 @pytest.mark.parametrize(
     "path_to_playbook",
     [
-        # "alert_management/aws-guardduty-to-slack.yml",
+        "alert_management/aws-guardduty-to-slack.yml",
         "alert_management/crowdstrike-to-cases.yml",
         "alert_management/datadog-siem-to-slack.yml",
+        "enrichment/triage-using-llms.yml",
     ],
 )
 def test_playbook(path_to_playbook):
