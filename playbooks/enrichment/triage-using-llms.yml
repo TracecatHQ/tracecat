@@ -16,7 +16,7 @@ actions:
       webhook: ${{ TRIGGER.webhook }}
 
   - ref: extract_ip_addresses
-    action: integrations.extraction.extract_ip_addresses
+    action: integrations.extraction.extract_ipv4_addresses
     depends_on:
       - receive_alert
     args:
@@ -48,14 +48,14 @@ actions:
   - ref: triage_alert
     action: core.ai_action
     depends_on:
-      - extract_ip_addresses
-      - extract_urls
+      - enrich_ip_addresses
+      - enrich_urls
     args:
       prompt: |
         You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IP Addresses: ${{ ACTION.extract_ip_addresses.result }}
-        URLs: ${{ ACTION.extract_urls.result }}
+        IP Addresses: ${{ ACTION.enrich_ip_addresses.result }}
+        URLs: ${{ ACTION.enrich_urls.result }}
 
         Task
         ----
@@ -80,8 +80,8 @@ actions:
       prompt: |
         You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IP Addresses: ${{ ACTION.extract_ip_addresses.result }}
-        URLs: ${{ ACTION.extract_urls.result }}
+        IP Addresses: ${{ ACTION.enrich_ip_addresses.result }}
+        URLs: ${{ ACTION.enrich_urls.result }}
 
         Task
         ----
