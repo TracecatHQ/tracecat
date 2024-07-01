@@ -1,5 +1,7 @@
 title: Pull Datadog signals, send to Slack and open cases
 description: |
+  This playbook pulls Datadog signals, sends them to Slack and
+  opens cases in Tracecat's case management system.
 
 entrypoint: pull_datadog_signals
 inputs:
