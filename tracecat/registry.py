@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from pydantic_core import ValidationError
 from typing_extensions import Doc
 
-from tracecat import expressions
 from tracecat.auth.sandbox import AuthSandbox
+from tracecat.expressions.validators import TemplateValidator
 from tracecat.types.exceptions import TracecatException
 from tracecat.types.secrets import SecretKey, SecretName
 
@@ -259,7 +259,7 @@ class _Registry:
                 raise ValueError("Provided object is not a callable function.")
             # Store function and decorator arguments in a dict
 
-            _attach_validators(fn, expressions.TemplateValidator())
+            _attach_validators(fn, TemplateValidator())
             args_cls, rtype_cls, rtype_adapter = _generate_model_from_function(
                 fn, namespace=namespace
             )
@@ -290,7 +290,10 @@ class _Registry:
         return decorator_register
 
     def filter(
-        self, namespace: str | None = None, include_marked: bool = False
+        self,
+        namespace: str | None = None,
+        include_marked: bool = False,
+        include_keys: set[str] | None = None,
     ) -> Iterator[tuple[str, RegisteredUDF]]:
         """Filter the registry.
 
@@ -298,17 +301,19 @@ class _Registry:
         If not, return all UDFs.
 
         If include_marked is True, include UDFs marked with `include_in_schema: False`.
+        Defining include_keys will override all other filters for.
+
         """
+        # Get the net set of keys to include
+        include_keys = include_keys or set()
 
         def include(udf: RegisteredUDF) -> bool:
             inc = True
+            inc &= udf.key in include_keys
             if not include_marked:
                 inc &= udf.metadata.get("include_in_schema", True)
-
             if namespace:
                 inc &= udf.namespace.startswith(namespace)
-
-            logger.warning(f"{udf.key=} {inc=}")
             return inc
 
         return ((key, udf) for key, udf in self.__iter__() if include(udf))
