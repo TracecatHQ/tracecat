@@ -71,7 +71,7 @@ actions:
         - <response 3>
         ```
 
-  - ref: estimate_risk
+  - ref: estimate_confidence
     action: core.ai_action
     depends_on:
       - extract_ip_addresses
@@ -85,8 +85,8 @@ actions:
 
         Task
         ----
-        - Score this alert between 0-100 for the risk of this alert being a False Positive.
-        - Score this alert between 0-100 for the risk of this alert being a True Positive.
+        - Score this alert between 0-100 for the likelihood of this alert being a False Positive.
+        - Score this alert between 0-100 for the likelihood of this alert being a True Positive.
 
         Give your response as a JSON:
         ```json
