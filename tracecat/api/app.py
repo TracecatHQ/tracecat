@@ -25,7 +25,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config, identifiers
+from tracecat import config, identifiers, validation
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -64,7 +64,6 @@ from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.parse import parse_child_webhook
-from tracecat.registry import RegistryValidationError, ValidationError, registry
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -719,7 +718,7 @@ def copy_workflow(
 
 
 @app.post("/workflows/{workflow_id}/commit", tags=["workflows"])
-def commit_workflow(
+async def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     yaml_file: UploadFile = File(None),
@@ -747,6 +746,10 @@ def commit_workflow(
                 ) from e
             # Hydrate actions
             _ = workflow.actions
+
+            # Perform Tiered Validation
+            # Tier 1: DSLInput validation
+            # Verify that the workflow DSL is structurally sound
             if yaml_file:
                 # Uploaded YAML file overrides the workflow in the database
                 dsl = DSLInput.from_yaml(yaml_file.file)
@@ -758,24 +761,19 @@ def commit_workflow(
 
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
-            # Validate the action args
 
-            errs = _validate_dsl(dsl)
-            if errs:
-                metadata = {}
-                if yaml_file:
-                    metadata["filename"] = yaml_file.filename
-                res = CommitWorkflowResponse(
+            if val_errors := await validation.validate_dsl(dsl):
+                logger.warning("Validation errors", errors=val_errors)
+                return CommitWorkflowResponse(
                     workflow_id=workflow_id,
                     status="failure",
-                    message="Validation errors",
-                    errors=errs,
-                    metadata=metadata or None,
-                )
-                return ORJSONResponse(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    content=res.model_dump(),
-                )
+                    message=f"{len(val_errors)} validation errors",
+                    errors=[
+                        UDFArgsValidationResponse.from_validation_result(e)
+                        for e in val_errors
+                    ],
+                    metadata={"filename": yaml_file.filename} if yaml_file else None,
+                ).to_orjson(status.HTTP_400_BAD_REQUEST)
 
             # Phase 1: Commit
             defn = _create_wf_definition(session, role, workflow_id, dsl)
@@ -817,16 +815,12 @@ def commit_workflow(
             session.refresh(workflow)
             session.refresh(defn)
 
-            res = CommitWorkflowResponse(
+            return CommitWorkflowResponse(
                 workflow_id=workflow_id,
                 status="success",
                 message="Workflow committed successfully.",
                 metadata={"version": defn.version},
-            )
-            return ORJSONResponse(
-                status_code=status.HTTP_200_OK,
-                content=res.model_dump(),
-            )
+            ).to_orjson(status.HTTP_200_OK)
 
         except SQLAlchemyError as e:
             session.rollback()
@@ -835,31 +829,6 @@ def commit_workflow(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="An error occurred while committing the workflow.",
             ) from e
-
-
-def _validate_dsl(dsl: DSLInput) -> list[UDFArgsValidationResponse]:
-    val_errors: list[UDFArgsValidationResponse] = []
-    for act_stmt in dsl.actions:
-        # We validate the action args, but keep them as is
-        # These will be coerced properly when the workflow is run
-        # We store the DSL as is to ensure compatibility with with string reprs
-        _, val_err = _vadliate_udf_args(act_stmt.action, act_stmt.args)
-        if val_err:
-            match val_err.err:
-                case ValidationError():
-                    detail = val_err.err.errors()
-                case str():
-                    detail = val_err.err
-                case _:
-                    try:
-                        detail = str(val_err.err)
-                    except Exception:
-                        detail = "Unknown error, please check the logs."
-            resp = UDFArgsValidationResponse(
-                ok=False, message=f"Error validating {val_err.key}", detail=detail
-            )
-            val_errors.append(resp)
-    return val_errors
 
 
 def _create_wf_definition(
@@ -2340,13 +2309,10 @@ def validate_udf_args(
 ) -> UDFArgsValidationResponse:
     """Validate user-defined function's arguments."""
     try:
-        _, err = _vadliate_udf_args(udf_key, args)
-        if err:
+        result = validation.vadliate_udf_args(udf_key, args)
+        if not result.ok:
             logger.error("Error validating UDF args")
-            return UDFArgsValidationResponse(
-                ok=False, message="Error validating UDF args", detail=err.errors()
-            )
-        return UDFArgsValidationResponse(ok=True, message="UDF args are valid")
+        return UDFArgsValidationResponse.from_validation_result(result)
     except KeyError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"UDF {udf_key!r} not found"
@@ -2356,22 +2322,3 @@ def validate_udf_args(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unexpected error validating UDF args",
         ) from e
-
-
-def _vadliate_udf_args(
-    udf_key: str, args: dict[str, Any]
-) -> tuple[dict[str, Any] | None, RegistryValidationError | None]:
-    try:
-        udf = registry.get(udf_key)
-        validated_args = udf.validate_args(**args)
-        return validated_args, None
-    except RegistryValidationError as e:
-        return None, e
-    except KeyError:
-        return None, RegistryValidationError(
-            "UDF not found",
-            key=udf_key,
-            err=f"Could not find UDF {udf_key!r} in registry. Is this UDF registered?",
-        )
-    except Exception as e:
-        raise e
