@@ -1,3 +1,4 @@
+import base64
 import itertools
 import json
 import operator
@@ -30,6 +31,14 @@ def _from_timestamp(x: int, unit: str) -> datetime:
 def _format_string(template: str, *values: Any) -> str:
     """Format a string with the given arguments."""
     return template.format(*values)
+
+
+def _str_to_b64(x: str) -> str:
+    return base64.b64encode(x.encode()).decode()
+
+
+def _b64_to_str(x: str) -> str:
+    return base64.b64decode(x).decode()
 
 
 BUILTIN_TYPE_NAPPING = {
@@ -80,8 +89,12 @@ _FUNCTION_MAPPING = {
     # Type conversion
     # Convert JSON to string
     "serialize_json": json.dumps,
+    "deserialize_json": json.loads,
     # Convert timestamp to datetime
     "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
+    # Base64
+    "to_base64": _str_to_b64,
+    "from_base64": _b64_to_str,
 }
 
 

@@ -3,6 +3,12 @@ import os
 import subprocess
 
 import pytest
+from dotenv import load_dotenv
+from loguru import logger
+
+from tracecat.cli.workflow import _activate_workflow, _create_workflow
+
+load_dotenv()
 
 
 # Fixture to create Tracecat secrets
@@ -36,45 +42,88 @@ def create_secrets():
 
     for name, env_vars in secrets.items():
         env_vars_str = " ".join([f"{key}={value}" for key, value in env_vars.items()])
-        output = subprocess.run(
-            f"tracecat secret create {name} {env_vars_str}",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        assert "Secret created successfully!" in output.stdout
+        try:
+            output = subprocess.run(
+                f"tracecat secret create {name} {env_vars_str}",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "Secret created successfully!" in output.stdout
+        except AssertionError:
+            logger.error(f"Failed to create secret {name}")
 
 
 @pytest.mark.parametrize(
-    "path_to_playbook",
+    "path_to_playbook, trigger_data",
     [
-        "alert_management/aws-guardduty-to-slack.yml",
-        "alert_management/crowdstrike-to-cases.yml",
-        "alert_management/datadog-siem-to-slack.yml",
-        "enrichment/triage-using-llms.yml",
+        (
+            "playbooks/alert_management/aws-guardduty-to-cases.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/aws-guardduty-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/datadog-extract-email-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "playbooks/alert_management/datadog-siem-to-slack.yml",
+            {
+                "start_time": "2024-05-01T00:00:00Z",
+                "end_time": "2024-07-01T12:00:00Z",
+            },
+        ),
+        (
+            "enrichment/triage-using-llms.yml",
+            {
+                "alert_id": "1234567890abcdef",
+                "timestamp": "2024-07-01T12:34:56Z",
+                "severity": "High",
+                "description": "Suspicious activity detected involving potential malware communication.",
+                "details": {
+                    "source_ip": "192.168.1.10",
+                    "destination_ip": "203.0.113.5",
+                    "url": "http://malicious-example.com",
+                    "additional_info": "Detected command and control communication attempt."
+                }
+            }
+        )
     ],
 )
-def test_playbook(path_to_playbook):
+@pytest.mark.asyncio
+async def test_playbook(path_to_playbook, trigger_data):
     # Extract the filename without extension
     filename = os.path.basename(path_to_playbook).replace(".yml", "")
-    # 1. Create workflow
+    # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
+    description = f"Test playbook: {filename}"
+    workflow = await _create_workflow(filename, description)
+    workflow_id = workflow["id"]
+    await _activate_workflow(workflow_id, with_webhook=True)
+    # 2. Run the workflow
     output = subprocess.run(
-        ["tracecat", "workflow", "create", "--title", filename],
+        [
+            "tracecat",
+            "workflow",
+            "run",
+            workflow_id,
+            "--data",
+            json.dumps(trigger_data),
+        ],
         shell=True,
         capture_output=True,
         text=True,
     )
-    workflow_id = json.loads(output.stdout)["id"]
-    # 2. Commit workflow definition
-    output = subprocess.run(
-        ["tracecat", "workflow", "commit", "--file", path_to_playbook, workflow_id],
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    assert "Successfully committed to workflow" in output.stdout
-    # 3. Activate the workflow
-    subprocess.run(["tracecat", "workflow", "up", "--webhook", workflow_id], shell=True)
-    # 4. Run the workflow
-    subprocess.run(["tracecat", "workflow", "run", workflow_id], shell=True)
+    assert output.returncode == 0

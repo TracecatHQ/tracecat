@@ -346,8 +346,6 @@ class DSLActivities:
         # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
         secret_refs = extract_templated_secrets(task.args)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
-            logger.info("Evaluating task arguments", secrets=sandbox.secrets)
-
             # Skip evaluation of action-local expressions
             args = eval_templated_object(
                 task.args,
@@ -430,7 +428,7 @@ class DSLActivities:
         else:
             result = await udf.run_async(args)
 
-        act_logger.info("Result", result=result)
+        act_logger.debug("Result", result=result)
         return result
 
 

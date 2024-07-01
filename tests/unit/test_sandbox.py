@@ -18,12 +18,15 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
     mock_secret = Secret(name="my_secret", owner_id=role.user_id)
     mock_secret.keys = mock_secret_keys
 
+    # Mock httpx.Response
+    mock_response = mocker.Mock(spec=httpx.Response)
+    mock_response.raise_for_status = mocker.Mock()
+    mock_response.content = mock_secret.model_dump_json().encode()
+
     mock_client = mocker.AsyncMock()
-    mock_client.get.return_value = httpx.Response(
-        200, content=mock_secret.model_dump_json().encode()
-    )
     mock_client.__aenter__.return_value = mock_client
     mock_client.__aexit__.return_value = None
+    mock_client.get.return_value = mock_response
 
     # Patch the AuthenticatedAPIClient to return the mock client
     mocker.patch(
@@ -35,6 +38,9 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
 
     # Assert that the secrets API was called with the correct parameters
     mock_client.get.assert_called_once_with("/secrets/my_secret")
+
+    # Assert that raise_for_status was called
+    mock_response.raise_for_status.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -36,8 +36,16 @@ from typing import Annotated, Any
 
 from slack_sdk.web.async_client import AsyncWebClient
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 from tracecat.types.exceptions import TracecatCredentialsError
+
+slack_chatops_secret = RegistrySecret(name="slack_chatops", keys=["SLACK_BOT_TOKEN"])
+"""Slack ChatOps secret.
+
+- name: `slack_chatops`
+- keys:
+    - `SLACK_BOT_TOKEN`
+"""
 
 
 # MESSAGES API
@@ -46,7 +54,7 @@ from tracecat.types.exceptions import TracecatCredentialsError
     description="Send Slack message to channel.",
     display_group="ChatOps",
     namespace="integrations.chat.slack",
-    secrets=["slack"],
+    secrets=[slack_chatops_secret],
 )
 async def post_slack_message(
     channel: Annotated[
@@ -76,7 +84,7 @@ async def post_slack_message(
     description="Fetch Slack users by team ID or list of emails.",
     display_group="ChatOps",
     namespace="integrations.chat.slack",
-    secrets=["slack"],
+    secrets=[slack_chatops_secret],
 )
 async def list_slack_users(
     team_id: Annotated[

@@ -4,7 +4,7 @@ description: Scan a malicious hash on Virustotal and send the results to an emai
 entrypoint: call_virustotal
 triggers:
   - type: webhook
-    ref: my_webhook
+    ref: virustotal_webhook
     entrypoint: call_virustotal
 
 actions:

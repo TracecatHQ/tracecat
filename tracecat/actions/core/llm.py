@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
-from tracecat.registry import registry
+from tracecat.registry import RegistrySecret, registry
 
 
 def _event_context_instructions(event_context: dict[str, Any]) -> str:
@@ -26,13 +26,24 @@ def _event_context_instructions(event_context: dict[str, Any]) -> str:
 
 DEFAULT_SYSTEM_CONTEXT = "You will be provided with a body of text and your task is to do exactly as instructed."
 
+openai_secret = RegistrySecret(
+    name="openai",
+    keys=["OPENAI_API_KEY"],
+)
+"""OpenAI secret.
+
+- name: `openai`
+- keys:
+    - `OPENAI_API_KEY`
+"""
+
 
 @registry.register(
     namespace="core",
     version="0.1.0",
     description="Call an LLM.",
     default_title="AI Action",
-    secrets=["openai"],
+    secrets=[openai_secret],
 )
 async def ai_action(
     prompt: Annotated[str, Field(description="The prompt to send to the LLM")],

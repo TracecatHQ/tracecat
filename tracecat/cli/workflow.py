@@ -11,7 +11,7 @@ from rich.console import Console
 from tracecat.types.api import WebhookResponse
 from tracecat.types.headers import CustomHeaders
 
-from ._utils import dynamic_table, user_client
+from ._utils import dynamic_table, read_input, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
@@ -113,7 +113,7 @@ async def _list_workflows():
     async with user_client() as client:
         res = await client.get("/workflows")
         res.raise_for_status()
-    return dynamic_table(res.json(), "Workflows")
+    return res.json()
 
 
 async def _get_cases(workflow_id: str):
@@ -162,12 +162,18 @@ def commit(
     asyncio.run(_commit_workflow(file, workflow_id))
 
 
-@app.command(help="List all workflow definitions")
-def list():
+@app.command(name="list", help="List all workflow definitions")
+def list_workflows(
+    as_json: bool = typer.Option(False, "--json", help="Display as JSON"),
+):
     """Commit a workflow definition to the database."""
     rich.print("Listing all workflows")
-    table = asyncio.run(_list_workflows())
-    Console().print(table)
+    result = asyncio.run(_list_workflows())
+    if as_json:
+        rich.print(result)
+    else:
+        result = dynamic_table(result, "Workflows")
+        Console().print(result)
 
 
 @app.command(help="Run a workflow", no_args_is_help=True)
@@ -185,14 +191,8 @@ def run(
 ):
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r} {"proxied" if proxy else 'directly'}")
-    asyncio.run(
-        _run_workflow(
-            workflow_id,
-            payload=orjson.loads(data) if data else None,
-            proxy=proxy,
-            test=test,
-        )
-    )
+    payload = read_input(data) if data else None
+    asyncio.run(_run_workflow(workflow_id, payload=payload, proxy=proxy, test=test))
 
 
 @app.command(help="Activate a workflow", no_args_is_help=True)
@@ -218,3 +218,39 @@ def cases(
         Console().print(dynamic_table(results, "Cases"))
     else:
         rich.print(results)
+
+
+@app.command(help="Delete a workflow")
+def delete(
+    workflow_ids: list[str] = typer.Argument(..., help="IDs of the workflow to delete"),
+):
+    """Delete workflows"""
+
+    async def _delete_workflows(workflow_ids: list[str]):
+        delete = typer.confirm(f"Are you sure you want to delete {workflow_ids!r}")
+        if not delete:
+            rich.print("Aborted")
+            return
+        async with user_client() as client, asyncio.TaskGroup() as tg:
+            for workflow_id in workflow_ids:
+                tg.create_task(client.delete(f"/workflows/{workflow_id}"))
+
+        rich.print("Deleted workflows")
+
+    asyncio.run(_delete_workflows(workflow_ids))
+
+
+@app.command(help="Inspect a workflow")
+def inspect(
+    workflow_id: str = typer.Argument(..., help="ID of the workflow to inspect"),
+):
+    """Inspect a workflow"""
+
+    async def _inspect_workflow():
+        async with user_client() as client:
+            res = await client.get(f"/workflows/{workflow_id}")
+            res.raise_for_status()
+            return res.json()
+
+    result = asyncio.run(_inspect_workflow())
+    rich.print(result)

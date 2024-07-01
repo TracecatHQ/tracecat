@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Coroutine
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import Annotated, Any, Literal, Self
@@ -111,10 +112,22 @@ class ActionTest(BaseModel):
     failure: Any = Field(default=None, description="Patched failure output")
 
     async def resolve_success_output(self) -> Any:
-        output = self.success
-        if isinstance(output, str):
-            output = await asyncio.to_thread(resolve_string_or_uri, output)
-        return output
+        def resolver_coro(_obj: Any) -> Coroutine:
+            return asyncio.to_thread(resolve_string_or_uri, _obj)
+
+        obj = self.success
+        match obj:
+            case str():
+                return await resolver_coro(obj)
+            case list():
+                tasks = []
+                async with asyncio.TaskGroup() as tg:
+                    for item in obj:
+                        task = tg.create_task(resolver_coro(item))
+                        tasks.append(task)
+                return [task.result() for task in tasks]
+            case _:
+                return obj
 
 
 def resolve_string_or_uri(string_or_uri: str) -> Any:

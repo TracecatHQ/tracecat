@@ -88,17 +88,25 @@ actions:
             options:
               - text:
                   type: plain_text
-                  text: "False Positive"
-                value: "FALSE_POSITIVE"
+                  text: False Positive
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: FALSE_POSITIVE
               - text:
                   type: plain_text
-                  text: "Suspicious"
-                value: "SUSPICIOUS"
+                  text: Suspicious
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: SUSPICIOUS
               - text:
                   type: plain_text
-                  text: "True Positive"
-                value: "TRUE_POSITIVE"
+                  text: True Positive
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: TRUE_POSITIVE
               - text:
                   type: plain_text
-                  text: "Undefined"
-                value: "UNDEFINED"
+                  text: Undefined
+                value:
+                  old_status: ${{ var.smac.status }}
+                  new_status: UNDEFINED

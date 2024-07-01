@@ -13,9 +13,9 @@ if TYPE_CHECKING:
 
 
 class RunContext(BaseModel):
-    wf_id: identifiers.workflow.WorkflowID
-    wf_exec_id: identifiers.workflow.WorkflowExecutionID
-    wf_run_id: identifiers.workflow.WorkflowRunID
+    wf_id: identifiers.WorkflowID
+    wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID
+    wf_run_id: identifiers.WorkflowRunID
 
 
 ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)

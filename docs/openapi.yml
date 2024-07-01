@@ -55,6 +55,21 @@ paths:
         schema:
           type: string
           title: Secret
+      - name: validate_method
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Validate Method
+      - name: x-tracecat-enable-runtime-tests
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Tracecat-Enable-Runtime-Tests
       requestBody:
         content:
           application/json:
@@ -69,6 +84,40 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /callback/{service}:
+    post:
+      tags:
+      - public
+      summary: Webhook Callback
+      description: 'Receive a callback from an external service.
+
+
+        This can be used to trigger a workflow from an external service, or perform
+        some other actions.'
+      operationId: webhook_callback_callback__service__post
+      parameters:
+      - name: service
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Service
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Response Webhook Callback Callback  Service  Post
         '422':
           description: Validation Error
           content:
@@ -609,22 +658,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /workflows/{workflow_id}/schedules:
+  /schedules:
     get:
       tags:
-      - triggers
+      - schedules
       summary: List Schedules
-      description: '**[WORK IN PROGRESS]** List all schedules for a workflow.'
-      operationId: list_schedules_workflows__workflow_id__schedules_get
+      description: List all schedules for a workflow.
+      operationId: list_schedules_schedules_get
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
       parameters:
       - name: workflow_id
-        in: path
-        required: true
+        in: query
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          - type: 'null'
           title: Workflow Id
       responses:
         '200':
@@ -635,7 +686,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Schedule'
-                title: Response List Schedules Workflows  Workflow Id  Schedules Get
+                title: Response List Schedules Schedules Get
         '422':
           description: Validation Error
           content:
@@ -644,20 +695,12 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-      - triggers
+      - schedules
       summary: Create Schedule
-      description: '**[WORK IN PROGRESS]** Create a schedule for a workflow.'
-      operationId: create_schedule_workflows__workflow_id__schedules_post
+      description: Create a schedule for a workflow.
+      operationId: create_schedule_schedules_post
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
-      parameters:
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
       requestBody:
         required: true
         content:
@@ -665,40 +708,71 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateScheduleParams'
       responses:
-        '201':
+        '200':
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/Schedule'
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /workflows/{workflow_id}/schedules/{schedule_id}:
+  /schedules/{schedule_id}:
     get:
       tags:
-      - triggers
+      - schedules
       summary: Get Schedule
-      description: '**[WORK IN PROGRESS]** Get a schedule from a workflow.'
-      operationId: get_schedule_workflows__workflow_id__schedules__schedule_id__get
+      description: Get a schedule from a workflow.
+      operationId: get_schedule_schedules__schedule_id__get
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
       parameters:
       - name: schedule_id
         in: path
         required: true
         schema:
           type: string
+          pattern: sch-[0-9a-f]{32}
           title: Schedule Id
-      - name: workflow_id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - schedules
+      summary: Update Schedule
+      description: Update a schedule from a workflow. You cannot update the Workflow
+        Definition, but you can update other fields.
+      operationId: update_schedule_schedules__schedule_id__post
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: schedule_id
         in: path
         required: true
         schema:
           type: string
-          title: Workflow Id
+          pattern: sch-[0-9a-f]{32}
+          title: Schedule Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleParams'
       responses:
         '200':
           description: Successful Response
@@ -714,38 +788,60 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
-      - triggers
+      - schedules
       summary: Delete Schedule
-      description: '**[WORK IN PROGRESS]** Delete a schedule from a workflow.'
-      operationId: delete_schedule_workflows__workflow_id__schedules__schedule_id__delete
+      description: Delete a schedule from a workflow.
+      operationId: delete_schedule_schedules__schedule_id__delete
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
       parameters:
       - name: schedule_id
         in: path
         required: true
         schema:
           type: string
+          pattern: sch-[0-9a-f]{32}
           title: Schedule Id
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
       responses:
-        '200':
+        '204':
           description: Successful Response
-          content:
-            application/json:
-              schema: {}
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /schedules/search:
+    get:
+      tags:
+      - schedules
+      summary: Search Schedules
+      description: '**[WORK IN PROGRESS]** Search for schedules.'
+      operationId: search_schedules_schedules_search_get
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchScheduleParams'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/Schedule'
+                type: array
+                title: Response Search Schedules Schedules Search Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - OAuth2PasswordBearer: []
   /actions:
     get:
       tags:
@@ -2179,6 +2275,33 @@ components:
       - ref
       - action
       title: ActionStatement
+    ActionTest:
+      properties:
+        ref:
+          type: string
+          pattern: ^[a-z0-9_]+$
+          title: Ref
+          description: Action reference
+        enable:
+          type: boolean
+          title: Enable
+          default: true
+        validate_args:
+          type: boolean
+          title: Validate Args
+          default: true
+        success:
+          title: Success
+          description: Patched success output. This can be any data structure.If it's
+            a fsspec file, it will be read and the contents will be used.
+        failure:
+          title: Failure
+          description: Patched failure output
+      type: object
+      required:
+      - ref
+      - success
+      title: ActionTest
     Body_commit_workflow_workflows__workflow_id__commit_post:
       properties:
         yaml_file:
@@ -2654,21 +2777,57 @@ components:
       title: CreateActionParams
     CreateScheduleParams:
       properties:
-        entrypoint_ref:
+        workflow_id:
           type: string
-          title: Entrypoint Ref
-        entrypoint_payload:
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+        inputs:
           anyOf:
           - type: object
           - type: 'null'
-          title: Entrypoint Payload
+          title: Inputs
         cron:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Cron
+        every:
+          type: string
+          format: duration
+          title: Every
+          description: ISO 8601 duration string
+        offset:
+          anyOf:
+          - type: string
+            format: duration
+          - type: 'null'
+          title: Offset
+          description: ISO 8601 duration string
+        start_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Start At
+          description: ISO 8601 datetime string
+        end_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: End At
+          description: ISO 8601 datetime string
+        status:
+          type: string
+          enum:
+          - online
+          - offline
+          title: Status
+          default: online
       type: object
       required:
-      - entrypoint_ref
-      - cron
+      - workflow_id
+      - every
       title: CreateScheduleParams
     CreateSecretParams:
       properties:
@@ -2753,6 +2912,12 @@ components:
           - dynamic
           title: Scheduler
           default: dynamic
+        enable_runtime_tests:
+          type: boolean
+          title: Enable Runtime Tests
+          description: Enable runtime action tests. This is dynamically set on workflow
+            entry.
+          default: false
       type: object
       title: DSLConfig
     DSLInput:
@@ -2766,6 +2931,7 @@ components:
         entrypoint:
           type: string
           title: Entrypoint
+          description: The entrypoint action ref
         actions:
           items:
             $ref: '#/components/schemas/ActionStatement'
@@ -2786,6 +2952,12 @@ components:
           type: object
           title: Trigger Inputs
           description: Dynamic input parameters
+        tests:
+          items:
+            $ref: '#/components/schemas/ActionTest'
+          type: array
+          title: Tests
+          description: Action tests
       type: object
       required:
       - title
@@ -2935,13 +3107,41 @@ components:
         status:
           type: string
           title: Status
-          default: offline
+          default: online
         cron:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Cron
-        entrypoint_payload:
+        inputs:
           type: object
-          title: Entrypoint Payload
+          title: Inputs
+        every:
+          type: string
+          format: duration
+          title: Every
+          description: ISO 8601 duration string
+        offset:
+          anyOf:
+          - type: string
+            format: duration
+          - type: 'null'
+          title: Offset
+          description: ISO 8601 duration string
+        start_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Start At
+          description: ISO 8601 datetime string
+        end_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: End At
+          description: ISO 8601 datetime string
         workflow_id:
           anyOf:
           - type: string
@@ -2952,9 +3152,43 @@ components:
       - owner_id
       - created_at
       - updated_at
-      - cron
+      - every
       - workflow_id
       title: Schedule
+    SearchScheduleParams:
+      properties:
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        limit:
+          type: integer
+          title: Limit
+          default: 100
+        order_by:
+          type: string
+          title: Order By
+          default: created_at
+        query:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Query
+        group_by:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Group By
+        agg:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agg
+      type: object
+      title: SearchScheduleParams
     SearchSecretsParams:
       properties:
         names:
@@ -3242,6 +3476,56 @@ components:
           title: Inputs
       type: object
       title: UpdateActionParams
+    UpdateScheduleParams:
+      properties:
+        inputs:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Inputs
+        cron:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cron
+        every:
+          anyOf:
+          - type: string
+            format: duration
+          - type: 'null'
+          title: Every
+          description: ISO 8601 duration string
+        offset:
+          anyOf:
+          - type: string
+            format: duration
+          - type: 'null'
+          title: Offset
+          description: ISO 8601 duration string
+        start_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Start At
+          description: ISO 8601 datetime string
+        end_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: End At
+          description: ISO 8601 datetime string
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - online
+            - offline
+          - type: 'null'
+          title: Status
+      type: object
+      title: UpdateScheduleParams
     UpdateWorkflowParams:
       properties:
         title:

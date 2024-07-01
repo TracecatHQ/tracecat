@@ -5,7 +5,25 @@ from typing import Annotated, Any
 
 import shodan
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
+
+shodan_secret = RegistrySecret(name="shodan", keys=["SHODAN_API_KEY"])
+"""Shodan secret.
+
+Secret
+------
+- name: `shodan`
+- keys:
+    - `SHODAN_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["SHODAN_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.shodan.SHODAN_API_KEY }}
+"""
 
 
 def create_shodan_client():
@@ -21,7 +39,7 @@ def create_shodan_client():
     description="Analyze a URL using Shodan.",
     display_group="Shodan",
     namespace="integrations.shodan",
-    secrets=["shodan"],
+    secrets=[shodan_secret],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -42,7 +60,7 @@ async def analyze_url(
     description="Analyze an IP address using Shodan.",
     display_group="Shodan",
     namespace="integrations.shodan",
-    secrets=["shodan"],
+    secrets=[shodan_secret],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],

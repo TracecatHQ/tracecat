@@ -1,13 +1,12 @@
 import asyncio
 import json
-import os
 import sys
 from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel
 
-from tracecat import identifiers
+from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput, get_temporal_client
 from tracecat.dsl.workflow import DSLContext, DSLRunArgs, DSLWorkflow
@@ -33,7 +32,7 @@ async def dispatch_workflow(
         DSLWorkflow.run,
         DSLRunArgs(dsl=dsl, role=role, wf_id=wf_id),
         id=wf_exec_id,
-        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
+        task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         **kwargs,
     )
     logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")

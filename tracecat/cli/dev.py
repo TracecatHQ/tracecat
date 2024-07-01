@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ import yaml
 from pydantic import BaseModel
 
 from ._config import config
-from ._utils import user_client
+from ._utils import read_input, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 
@@ -37,7 +38,8 @@ def api(
     data: str = typer.Option(None, "--data", "-d", help="JSON Payload to send"),
 ):
     """Commit a workflow definition to the database."""
-    payload = orjson.loads(data) if data else None
+
+    payload = read_input(data) if data else None
     result = asyncio.run(hit_api_endpoint(method, endpoint, payload))
     rich.print("Hit the endpoint successfully!")
     rich.print(result, len(result))
@@ -57,6 +59,11 @@ def generate_spec(
         False,
         "--update-docs",
         help="Update API reference paths in docs and update Mintlify config.",
+    ),
+    use_npx: bool = typer.Option(
+        False,
+        "--npx",
+        help="Use npx to run the Mintlify scraping package.",
     ),
 ):
     """Generate OpenAPI specification."""
@@ -87,11 +94,21 @@ def generate_spec(
 
     oas_relpath = outpath.relative_to(config.docs_path)
 
-    # NOTE: If this hands, likely the mintlify scraping package is trying to update (reading stdin)
+    # NOTE: If this hangs, likely the mintlify scraping package is trying to update (reading stdin)
     # Define the command that generates the output
+    rich.print(
+        "[yellow]Running Mintlify scraping package... "
+        "(if this hangs, you likely need to update 'mintlify-scrape'. "
+        "To fix, `cd docs && npx @mintlify/scraping@latest`)[/yellow]"
+    )
+    if use_npx:
+        executable = "npx @mintlify/scraping@latest"
+    else:
+        executable = "mintlify-scrape"
+
     cmd = (
         f"cd {config.docs_path!s} &&"
-        "npx @mintlify/scraping@latest"
+        f" {executable}"
         f" openapi-file {oas_relpath!s}"  # This should be a relative path from within the docs root dir
         f" -o api-reference/reference"  # Output directory, relative to the docs root dir
     )
@@ -198,8 +215,10 @@ description: {udf_key}
 
 {udf_desc}
 
-This is the JSONSchema7 definition for the {udf_key} integration.
+This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `{udf_key}` integration.
 
+
+## Secrets
 {required_secrets}
 
 ## Inputs
@@ -222,9 +241,38 @@ This is the JSONSchema7 definition for the {udf_key} integration.
 """
 
 
+def pad(text: str, *, n: int = 1) -> str:
+    return wrap(text, " ", n=n)
+
+
+def wrap(text: str, wrp: str, *, n: int = 1) -> str:
+    return wrp * n + text + wrp * n
+
+
+def create_markdown_table(header: tuple[str, ...], rows: list[tuple[Any, ...]]) -> str:
+    """Create a markdown table from a list of tuples."""
+    n_cols = len(header)
+    if n_cols != len(rows[0]):
+        raise ValueError("Number of columns in header and rows do not match.")
+    header = [
+        wrap("|".join(pad(h) for h in header), "|"),  # Header
+        wrap("|".join(" --- " for _ in range(n_cols)), "|"),  # Separator
+    ]
+    body = []
+    for row in rows:
+        body.append(wrap("|".join(pad(str(v)) for v in row), "|"))
+    return "\n".join(header + body)
+
+
 @app.command(name="generate-udf-docs", help="Generate UDF documentation.")
 def generate_udf_docs():
-    """Generate UDF docs."""
+    """Generate UDF docs.
+
+    Usage
+    -----
+    Run this from the Tracecat root directory:
+    >>> tracecat dev generate-udf-docs
+    """
 
     int_relpath = "integrations/udfs"
     path = config.docs_path / int_relpath
@@ -243,20 +291,34 @@ def generate_udf_docs():
     rich.print(f"Generating API reference paths in {config.docs_path!s}")
 
     for key, udf in registry:
-        if udf.metadata.get("include_in_schema") is False:
+        if not udf.metadata["include_in_schema"]:
             continue
+
         schema = udf.construct_schema()
+        required_secrets = (
+            create_markdown_table(
+                header=("Name", "Keys"),
+                rows=[
+                    (
+                        wrap(secret.name, "`"),
+                        ", ".join(wrap(k, "`") for k in secret.keys),
+                    )
+                    for secret in udf.secrets
+                ],
+            )
+            if udf.secrets
+            else "_No secrets required._"
+        )
         s = UDF_MDX_TEMPLATE.format(
-            udf_name=udf.metadata.get("default_title")
-            or udf.key.split(".")[-1].title(),
+            # Default title or the last part of the key
+            udf_name=udf.metadata["default_title"] or udf.key.split(".")[-1].title(),
             udf_key=key,
+            # Add a period at the end if it doesn't have one
             udf_desc=udf.description
             if udf.description.endswith(".")
             else udf.description + ".",
-            required_secrets="This integration requires secrets: "
-            + ", ".join(f"`{sec}`" for sec in udf.secrets)
-            if udf.secrets
-            else "_No secrets required._",
+            # Required secrets
+            required_secrets=required_secrets,
             input_schema=json.dumps(schema["args"], indent=4, sort_keys=True),
             response_schema=json.dumps(schema["rtype"], indent=4, sort_keys=True),
         )
@@ -270,11 +332,7 @@ def generate_udf_docs():
     # Overwrite the 'navigation' property with the new JSON data
     gname = "Schemas"
     # Find 'Schemas' group
-    filtered_keys = [
-        key
-        for key, udf in registry
-        if udf.metadata.get("include_in_schema") is not False
-    ]
+    filtered_keys = [key for key in registry.keys if udf.metadata["include_in_schema"]]
     new_mint_pages = key_tree_to_pages(filtered_keys, int_relpath).model_dump()["pages"]
     try:
         schemas_ref = next(
@@ -291,3 +349,88 @@ def generate_udf_docs():
         json.dump(mint_data, file, indent=2)
 
     rich.print("UDF docs updated!")
+
+
+SECRETS_CHEATSHEET = """---
+title: Secrets Cheatsheet
+description: A cheatsheet of all the secrets required by the UDFs and integrations.
+---
+## API Credentials
+The secret keys required by each secret are listed below.
+{api_credentials_table}
+
+## Core Actions
+Note that the fully qualified namespace for each Core Action UDF is prefixed with `core.`.
+{core_udfs_secrets_table}
+
+## Integrations
+Note that the fully qualified namespace for each Integration UDF is prefixed with `integrations.`.
+{integrations_secrets_table}
+"""
+
+
+@app.command(name="generate-secrets", help="Generate secrets.")
+def generate_secret_tables(
+    file: Path = typer.Option(
+        config.docs_path / "integrations/secrets_cheatsheet.mdx",
+        "-o",
+        help="Output file path",
+    ),
+):
+    from tracecat.registry import registry
+
+    registry.init()
+
+    # Table of core UDFs required secrets
+    core_udfs_secrets = []
+    integrations_secrets = []
+    # Get UDF -> Secrets mapping
+    for key, udf in registry.filter():
+        match key.split("."):
+            case ["integrations", *stem, func]:
+                integrations_secrets.append(
+                    (
+                        ".".join(stem) if stem else "-",
+                        func,
+                        ", ".join(wrap(s.name, "`") for s in udf.secrets)
+                        if udf.secrets
+                        else "-",
+                    )
+                )
+            case ["core", *stem, func]:
+                core_udfs_secrets.append(
+                    (
+                        ".".join(stem) if stem else "-",
+                        func,
+                        ", ".join(wrap(s.name, "`") for s in udf.secrets)
+                        if udf.secrets
+                        else "-",
+                    )
+                )
+
+    # Get all secrets -> secret keys
+    api_credentials = set()
+    for secret in chain.from_iterable(udf.secrets or [] for _, udf in registry):
+        api_credentials.add(
+            (
+                wrap(secret.name, "`"),
+                ", ".join(wrap(k, "`") for k in sorted(secret.keys)),
+            )
+        )
+
+    page_content = SECRETS_CHEATSHEET.format(
+        api_credentials_table=create_markdown_table(
+            header=("Secret Name", "Secret Keys"), rows=list(api_credentials)
+        ),
+        core_udfs_secrets_table=create_markdown_table(
+            header=("Sub-namespace", "Function", "Secrets"), rows=core_udfs_secrets
+        ),
+        integrations_secrets_table=create_markdown_table(
+            header=("Sub-namespace", "Function", "Secrets"), rows=integrations_secrets
+        ),
+    )
+
+    if file.exists():
+        file.unlink(missing_ok=True)
+    with file.open("w") as f:
+        f.write(page_content)

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+import orjson
 import polars as pl
 from fastapi import (
     Depends,
@@ -16,6 +17,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
@@ -30,6 +32,7 @@ from tracecat.api.completions import (
     stream_case_completions,
 )
 from tracecat.auth.credentials import (
+    TemporaryRole,
     authenticate_service,
     authenticate_user,
     authenticate_user_or_service,
@@ -52,14 +55,15 @@ from tracecat.db.schemas import (
     WorkflowDefinition,
     WorkflowRun,
 )
+from tracecat.dsl import dispatcher, schedules
 from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.dsl.dispatcher import dispatch_workflow
 from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.parse import parse_child_webhook
 from tracecat.registry import RegistryValidationError, ValidationError, registry
 from tracecat.types.api import (
     ActionMetadataResponse,
@@ -78,13 +82,16 @@ from tracecat.types.api import (
     CreateWorkflowParams,
     Event,
     EventSearchParams,
+    SearchScheduleParams,
     SearchSecretsParams,
     SecretResponse,
+    ServiceCallbackAction,
     StartWorkflowParams,
     StartWorkflowResponse,
     TriggerWorkflowRunParams,
     UDFArgsValidationResponse,
     UpdateActionParams,
+    UpdateScheduleParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
@@ -207,6 +214,16 @@ async def tracecat_exception_handler(request: Request, exc: TracecatException):
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Improves visiblity of 422 errors."""
+    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
+    logger.error(f"{request}: {exc_str}")
+    return ORJSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
+    )
+
+
 @app.get("/", include_in_schema=False)
 def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
@@ -221,7 +238,11 @@ def check_health() -> dict[str, str]:
 
 
 def validate_incoming_webhook(
-    webhook_id: str, secret: str, request: Request
+    webhook_id: str,
+    secret: str,
+    request: Request,
+    *,
+    validate_method: bool = True,
 ) -> WorkflowDefinition:
     """Validate incoming webhook request.
 
@@ -254,7 +275,7 @@ def validate_incoming_webhook(
                 detail="Webhook is offline",
             )
 
-        if webhook.method.lower() != request.method.lower():
+        if validate_method and webhook.method.lower() != request.method.lower():
             logger.error("Method does not match")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -295,13 +316,17 @@ def validate_incoming_webhook(
 
 
 async def handle_incoming_webhook(
-    request: Request, path: str, secret: str
+    request: Request, path: str, secret: str, validate_method: bool = True
 ) -> WorkflowDefinition:
-    """Handle incoming webhook requests."""
+    """Handle an incoming webhook request and set the Role context."""
     # TODO(perf): Replace this when we get async sessions
     with logger.contextualize(webhook_id=path):
         defn = await asyncio.to_thread(
-            validate_incoming_webhook, webhook_id=path, secret=secret, request=request
+            validate_incoming_webhook,
+            webhook_id=path,
+            secret=secret,
+            request=request,
+            validate_method=validate_method,
         )
     ctx_role.set(
         Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
@@ -342,8 +367,144 @@ async def incoming_webhook(
 
     logger.info(dsl_input.dump_yaml())
 
-    asyncio.create_task(dispatch_workflow(dsl_input, wf_id=path))
+    asyncio.create_task(dispatcher.dispatch_workflow(dsl_input, wf_id=path))
     return {"status": "ok"}
+
+
+async def handle_service_callback(
+    request: Request, service: str
+) -> ServiceCallbackAction | None:
+    if service == "slack":
+        # if (
+        #     request.headers["user-agent"]
+        #     != "Slackbot 1.0 (+https://api.slack.com/robots)"
+        # ):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail="Invalid User-Agent",
+        #     )
+        # NOTE: This coroutine can only be consumed once!
+        form_data = await request.form()
+        json_payload = form_data.get("payload")
+        payload = orjson.loads(json_payload)
+        # Extract out the webhook
+        if (actions := payload.get("actions")) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Slack callback: Invalid payload",
+            )
+        logger.info("Received slack action", actions=actions)
+        if len(actions) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Slack callback: No actions",
+            )
+        action = actions[0]
+        match action:
+            case {
+                "type": "static_select",
+                "action_id": url,
+                "selected_option": {"value": kv_params},
+            }:
+                # e.g.
+                # {
+                #     "type": "static_select",
+                #     "action_id": "...",
+                #     "block_id": "nMMIK",
+                #     "selected_option": {
+                #         "text": {
+                #             "type": "plain_text",
+                #             "text": "True Positive",
+                #             "emoji": True,
+                #         },
+                #         "value": '["closed", "true_positive"]',
+                #     },
+                #     "action_ts": "1719281272.742854",
+                # }
+
+                logger.info("Matched static select action", action=action)
+                child_wh = parse_child_webhook(url, [kv_params])
+
+                if not child_wh:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid child webhook URL",
+                    )
+                return ServiceCallbackAction(
+                    action="webhook",
+                    payload=child_wh["payload"],
+                    metadata={"path": child_wh["path"], "secret": child_wh["secret"]},
+                )
+
+            case {"type": action_type}:
+                logger.error(
+                    "Invalid action type", action_type=action_type, action=action
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid action type {action_type}",
+                )
+            case _:
+                logger.error("Invalid action", action=action)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid action",
+                )
+    return None
+
+
+@app.post("/callback/{service}", tags=["public"])
+async def webhook_callback(
+    request: Request,
+    service: str,
+    next_action: Annotated[
+        ServiceCallbackAction | None, Depends(handle_service_callback)
+    ],
+) -> dict[str, str]:
+    """Receive a callback from an external service.
+
+    This can be used to trigger a workflow from an external service, or perform some other actions.
+    """
+
+    match next_action:
+        case ServiceCallbackAction(
+            action="webhook",
+            payload=payload,
+            metadata={"path": path, "secret": secret},
+        ):
+            # Don't validate method because callback is always POST
+            defn = await handle_incoming_webhook(
+                request, path, secret, validate_method=False
+            )
+            logger.info(
+                "Received Webhook in callback",
+                service=service,
+                path=path,
+                payload=payload,
+                role=ctx_role.get(),
+            )
+
+            # Fetch the DSL from the workflow object
+            dsl_input = defn.content
+
+            # Set runtime configuration
+            if payload:
+                dsl_input.trigger_inputs = payload
+
+            logger.info(dsl_input.dump_yaml())
+
+            asyncio.create_task(dispatcher.dispatch_workflow(dsl_input, wf_id=path))
+            return {"status": "ok", "message": "Webhook dispatched"}
+
+        case None:
+            logger.info("No next action", service=service)
+            return {"status": "ok", "message": "No action taken"}
+        case _:
+            logger.error("Unsupported next action", next_action=next_action)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported next action",
+            )
 
 
 # ----- Workflows ----- #
@@ -913,7 +1074,7 @@ async def trigger_workflow_run(
     path = "workflow4"
     with Path(f"/app/tracecat/static/workflows/{path}.yaml").resolve().open() as f:
         dsl_yaml = f.read()
-    await dispatch_workflow(dsl_yaml)
+    await dispatcher.dispatch_workflow(dsl_yaml)
 
     return StartWorkflowResponse(
         status="ok", message="Workflow started.", id=workflow_id
@@ -1006,58 +1167,100 @@ def update_webhook(
 # ----- Workflow Schedules ----- #
 
 
-@app.get("/workflows/{workflow_id}/schedules", tags=["triggers"])
-def list_schedules(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+@app.get("/schedules", tags=["schedules"])
+async def list_schedules(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID | None = None,
 ) -> list[Schedule]:
-    """**[WORK IN PROGRESS]** List all schedules for a workflow."""
+    """List all schedules for a workflow."""
     with Session(engine) as session:
-        statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.workflow_id == workflow_id,
-        )
+        statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+        if workflow_id:
+            statement = statement.where(Schedule.workflow_id == workflow_id)
         result = session.exec(statement)
-        return result.all()
+        try:
+            return result.all()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
 
-@app.post(
-    "/workflows/{workflow_id}/schedules",
-    status_code=status.HTTP_201_CREATED,
-    tags=["triggers"],
-)
-def create_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+@app.post("/schedules", tags=["schedules"])
+async def create_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
     params: CreateScheduleParams,
-) -> None:
-    """**[WORK IN PROGRESS]** Create a schedule for a workflow."""
-
-    schedule = Schedule(
-        owner_id=role.user_id,
-        cron=params.cron,
-        entrypoint_payload=params.entrypoint_payload,
-        entrypoint_ref=params.entrypoint_ref,
-        workflow_id=workflow_id,
-    )
-    with Session(engine) as session:
-        session.add(schedule)
-        session.commit()
-        session.refresh(schedule)
-
-
-@app.get("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["triggers"])
-def get_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    schedule_id: str,
-    workflow_id: str,
 ) -> Schedule:
-    """**[WORK IN PROGRESS]** Get a schedule from a workflow."""
+    """Create a schedule for a workflow."""
+
+    with Session(engine) as session, logger.contextualize(role=role):
+        result = session.exec(
+            select(WorkflowDefinition)
+            .where(WorkflowDefinition.workflow_id == params.workflow_id)
+            .order_by(WorkflowDefinition.version.desc())
+        )
+        try:
+            if not (defn_data := result.first()):
+                raise NoResultFound("No workflow definition found for workflow ID")
+        except NoResultFound as e:
+            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            ) from e
+
+        schedule = Schedule(
+            owner_id=role.user_id, **params.model_dump(exclude_unset=True)
+        )
+        session.refresh(defn_data)
+        defn = WorkflowDefinition.model_validate(defn_data)
+        dsl = defn.content
+        if params.inputs:
+            dsl.trigger_inputs = params.inputs
+
+        try:
+            # Set the role for the schedule as the tracecat-runner
+            with TemporaryRole(
+                type="service", user_id=defn.owner_id, service_id="tracecat-runner"
+            ) as sch_role:
+                handle = await schedules.create_schedule(
+                    workflow_id=params.workflow_id,
+                    schedule_id=schedule.id,
+                    dsl=dsl,
+                    every=params.every,
+                    offset=params.offset,
+                    start_at=params.start_at,
+                    end_at=params.end_at,
+                )
+                logger.info(
+                    "Created schedule",
+                    handle_id=handle.id,
+                    workflow_id=params.workflow_id,
+                    schedule_id=schedule.id,
+                    sch_role=sch_role,
+                )
+
+            session.add(schedule)
+            session.commit()
+            session.refresh(schedule)
+            return schedule
+        except Exception as e:
+            session.rollback()
+            logger.opt(exception=e).error("Error creating schedule", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error creating schedule",
+            ) from e
+
+
+@app.get("/schedules/{schedule_id}", tags=["schedules"])
+def get_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
+    schedule_id: identifiers.ScheduleID,
+) -> Schedule:
+    """Get a schedule from a workflow."""
     with Session(engine) as session:
         statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.id == schedule_id,
-            Schedule.workflow_id == workflow_id,
+            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
         try:
@@ -1068,18 +1271,16 @@ def get_schedule(
             ) from e
 
 
-@app.delete("/workflows/{workflow_id}/schedules/{schedule_id}", tags=["triggers"])
-def delete_schedule(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    schedule_id: str,
-    workflow_id: str,
-) -> None:
-    """**[WORK IN PROGRESS]** Delete a schedule from a workflow."""
+@app.post("/schedules/{schedule_id}", tags=["schedules"])
+async def update_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
+    schedule_id: identifiers.ScheduleID,
+    params: UpdateScheduleParams,
+) -> Schedule:
+    """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
     with Session(engine) as session:
         statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id,
-            Schedule.id == schedule_id,
-            Schedule.workflow_id == workflow_id,
+            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
         try:
@@ -1088,8 +1289,74 @@ def delete_schedule(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
+
+        try:
+            # (1) Synchronize with Temporal
+            await schedules.update_schedule(schedule_id, params)
+
+            # (2) Update the schedule
+            for key, value in params.model_dump(exclude_unset=True).items():
+                # Safety: params have been validated
+                setattr(schedule, key, value)
+
+            session.add(schedule)
+            session.commit()
+            session.refresh(schedule)
+            return schedule
+        except Exception as e:
+            session.rollback()
+            logger.opt(exception=e).error("Error creating schedule", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error creating schedule",
+            ) from e
+
+
+@app.delete(
+    "/schedules/{schedule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["schedules"],
+)
+async def delete_schedule(
+    role: Annotated[Role, Depends(authenticate_user)],
+    schedule_id: identifiers.ScheduleID,
+) -> None:
+    """Delete a schedule from a workflow."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(
+            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        )
+        result = session.exec(statement)
+        try:
+            schedule = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+        try:
+            await schedules.delete_schedule(schedule_id)
+        except Exception as e:
+            logger.error("Error deleting schedule", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error deleting schedule",
+            ) from e
         session.delete(schedule)
         session.commit()
+
+
+@app.get("/schedules/search", tags=["schedules"])
+def search_schedules(
+    role: Annotated[Role, Depends(authenticate_user)],
+    params: SearchScheduleParams,
+) -> list[Schedule]:
+    """**[WORK IN PROGRESS]** Search for schedules."""
+    with Session(engine) as session:
+        statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+        results = session.exec(statement)
+        schedules = results.all()
+    return schedules
 
 
 # ----- Actions ----- #

@@ -11,9 +11,27 @@ from datetime import datetime
 from typing import Annotated
 
 from tracecat.actions.integrations.common import list_microsoft_graph_alerts
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForCloud"
+
+
+microsoft_defender_cloud_secret = RegistrySecret(
+    name="microsoft_defender_cloud",
+    keys=[
+        "MICROSOFT_GRAPH_CLIENT_ID",
+        "MICROSOFT_GRAPH_CLIENT_SECRET",
+        "MICROSOFT_GRAPH_TENANT_ID",
+    ],
+)
+"""Microsoft Defender for Cloud secret.
+
+- name: `microsoft_defender_cloud`
+- keys:
+    - `MICROSOFT_GRAPH_CLIENT_ID`
+    - `MICROSOFT_GRAPH_CLIENT_SECRET`
+    - `MICROSOFT_GRAPH_TENANT_ID`
+"""
 
 
 @registry.register(
@@ -21,7 +39,7 @@ MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForCloud"
     description="Fetch Microsoft Defender for Cloud alerts and filter by time range.",
     display_group="Microsoft Defender",
     namespace="integrations.microsoft_defender",
-    secrets=["microsoft_defender_cloud"],
+    secrets=[microsoft_defender_cloud_secret],
 )
 async def list_defender_cloud_alerts(
     start_time: Annotated[

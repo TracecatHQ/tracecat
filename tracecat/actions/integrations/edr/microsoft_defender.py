@@ -11,9 +11,26 @@ from datetime import datetime
 from typing import Annotated
 
 from tracecat.actions.integrations.common import list_microsoft_graph_alerts
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForEndpoint"
+
+microsoft_defender_endpoint_secret = RegistrySecret(
+    name="microsoft_defender_endpoint",
+    keys=[
+        "MICROSOFT_GRAPH_CLIENT_ID",
+        "MICROSOFT_GRAPH_CLIENT_SECRET",
+        "MICROSOFT_GRAPH_TENANT_ID",
+    ],
+)
+"""Microsoft Defender for Endpoint secret.
+
+- name: `microsoft_defender_endpoint`
+- keys:
+    - `MICROSOFT_GRAPH_CLIENT_ID`
+    - `MICROSOFT_GRAPH_CLIENT_SECRET`
+    - `MICROSOFT_GRAPH_TENANT_ID`
+"""
 
 
 @registry.register(
@@ -23,12 +40,12 @@ MICROSOFT_GRAPH_SERVICE_SOURCE = "microsoftDefenderForEndpoint"
     # description="Fetch all Sentinel One alerts.",
     # display_group="Endpoint Detection & Response",
     # namespace="integrations.sentinel_one",
-    # secrets=["sentinel_one"],
+    # secrets=[sentinel_one_secret],
     default_title="List Microsoft Defender for Endpoint alerts",
     description="Fetch all Microsoft Defender for Endpoint alerts and filter by time range.",
     display_group="Microsoft Defender",
     namespace="integrations.microsoft_defender",
-    secrets=["microsoft_defender_endpoint"],
+    secrets=[microsoft_defender_endpoint_secret],
 )
 async def list_defender_endpoint_alerts(
     start_time: Annotated[

@@ -1,6 +1,12 @@
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr, StringConstraints
+
+SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
+"""Validator for a secret name. e.g. 'aws_access_key_id'"""
+
+SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
+"""Validator for a secret key. e.g. 'access_key_id'"""
 
 
 class SecretKeyValue(BaseModel):

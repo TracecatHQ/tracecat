@@ -6,9 +6,27 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 CENSYS_BASE_URL = "https://search.censys.io/api/v2"
+
+censys_secret = RegistrySecret(name="censys", keys=["CENSYS_API_KEY"])
+"""Censys secret.
+
+Secret
+------
+- name: `censys`
+- keys:
+    - `CENSYS_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["CENSYS_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.censys.CENSYS_API_KEY }}
+"""
 
 
 def create_censys_client() -> httpx.AsyncClient:
@@ -27,7 +45,7 @@ def create_censys_client() -> httpx.AsyncClient:
     description="Analyze an IP address using Censys.",
     display_group="Censys",
     namespace="censys",
-    secrets=["censys"],
+    secrets=[censys_secret],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],

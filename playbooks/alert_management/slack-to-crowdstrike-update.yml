@@ -2,23 +2,29 @@ title: Update Crowdstrike alerts via Slack
 description: |
   Receives a Slack action and updates Crowdstrike alerts based on
   `alert_ids` and `status` provided in the Slack action payload.
+config:
+  enable_runtime_tests: true
 entrypoint: extract_slack_payload
 triggers:
   - type: webhook
     ref: slack_actions_webhook
     entrypoint: receive_slack_action
+    # shape:
+    #   - action_id: string
+    #   - alert_id: string
+    #   - old_status: string
+    #   - new_status: string
+    #   - username: string
 
 actions:
   - ref: extract_slack_payload
     action: core.transform.forward
-    # Check if action received is as expected
-    run_if: ${{ FN.equal(TRIGGER.action.action_id, 'update_crowdstrike_alert') }}
     args:
       value:
-        username: ${{ TRIGGER.user.username }}
-        alert_id: ${{ TRIGGER.action.value.alert_id }}
-        old_status: ${{ TRIGGER.action.value.old_status }}
-        new_status: ${{ TRIGGER.action.value.new_status }}
+        username: ${{ TRIGGER.username }}
+        alert_id: ${{ TRIGGER.alert_id }}
+        old_status: ${{ TRIGGER.old_status }}
+        new_status: ${{ TRIGGER.new_status }}
 
   - ref: update_crowdstrike_alerts
     action: integrations.crowdstrike.update_crowdstrike_alert_status
@@ -51,3 +57,9 @@ actions:
               text: "*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}"
             - type: mrkdwn
               text: "*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}"
+
+tests:
+  - ref: update_crowdstrike_alerts
+    success:
+      status: ok
+      code: 200

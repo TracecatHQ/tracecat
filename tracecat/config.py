@@ -34,6 +34,9 @@ TEMPORAL__CLUSTER_URL = os.environ.get(
 TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
     "TEMPORAL__CLUSTER_NAMESPACE", "default"
 )  # Temporal namespace
+TEMPORAL__CLUSTER_QUEUE = os.environ.get(
+    "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
+)  # Temporal task queue
 TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
 TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
 TEMPORAL__TLS_CLIENT_CERT = os.environ.get("TEMPORAL__TLS_CLIENT_CERT")

@@ -34,9 +34,28 @@ from typing import Annotated, Any
 
 import httpx
 
-from tracecat.registry import Field, registry
+from tracecat.registry import Field, RegistrySecret, registry
 
 PULSEDIVE_BASE_URL = "https://pulsedive.com/api/"
+
+pulsedive_secret = RegistrySecret(name="pulsedive", keys=["PULSEDIVE_API_KEY"])
+"""Pulsedive secret.
+
+Secret
+------
+- name: `pulsedive`
+
+- keys:
+    - `PULSEDIVE_API_KEY`
+
+Example Usage
+-------------
+Environment variable:
+>>> os.environ["PULSEDIVE_API_KEY"]
+
+Expression:
+>>> ${{ SECRETS.pulsedive.PULSEDIVE_API_KEY }}
+"""
 
 
 def create_pulsedive_client() -> httpx.AsyncClient:
@@ -54,7 +73,7 @@ def create_pulsedive_client() -> httpx.AsyncClient:
     description="Analyze a URL using Pulsedive.",
     display_group="Pulsedive",
     namespace="integrations.pulsedive",
-    secrets=["pulsedive"],
+    secrets=[pulsedive_secret],
 )
 async def analyze_url(
     url: Annotated[str, Field(..., description="The URL to analyze")],
@@ -71,7 +90,7 @@ async def analyze_url(
     description="Analyze an IP address using Pulsedive.",
     display_group="Pulsedive",
     namespace="integrations.pulsedive",
-    secrets=["pulsedive"],
+    secrets=[pulsedive_secret],
 )
 async def analyze_ip_address(
     ip_address: Annotated[str, Field(..., description="The IP address to analyze")],

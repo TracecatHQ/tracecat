@@ -477,6 +477,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("INPUTS.people[2].age -> str", "50"),
         ("INPUTS.people[*].age", [30, 40, 50]),
         ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
+        ("INPUTS.people[*].gender", ["female", "male"]),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -504,10 +505,12 @@ def test_expression_parser(expr, expected):
                 {
                     "name": "Alice",
                     "age": 30,
+                    "gender": "female",
                 },
                 {
                     "name": "Bob",
                     "age": 40,
+                    "gender": "male",
                 },
                 {
                     "name": "Charlie",

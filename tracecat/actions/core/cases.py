@@ -50,7 +50,7 @@ async def open_case(
         Field(description="Action to be taken"),
     ],
     context: Annotated[
-        list[CaseContext] | None,
+        list[CaseContext] | dict[str, Any] | None,
         Field(description="List of case contexts"),
     ] = None,
     suppression: Annotated[
@@ -71,10 +71,22 @@ async def open_case(
     if not role or not run_ctx:
         raise ValueError(f"Could not retrieve run context: {run_ctx}.")
     _context = context or []
+    if isinstance(_context, dict):
+        _context = [
+            CaseContext(key=key, value=value) for key, value in _context.items()
+        ]
+
     _suppression = suppression or []
     _tags = tags or []
-    logger.info("Opening case", title=case_title, malice=malice, status=status)
-    logger.info("Opening case", context=_context, suppression=_suppression, tags=_tags)
+    logger.debug(
+        "Opening case",
+        title=case_title,
+        malice=malice,
+        status=status,
+        context=_context,
+        suppression=_suppression,
+        tags=_tags,
+    )
     case = Case(
         owner_id=role.user_id,
         workflow_id=run_ctx.wf_id,

@@ -66,7 +66,8 @@
       "pages": [
         "introduction",
         "quickstart",
-        "using-tracecat"
+        "using-tracecat",
+        "using-the-cli"
       ]
     },
     {
@@ -87,7 +88,8 @@
       "group": "Self-hosted",
       "pages": [
         "installation",
-        "deployment"
+        "deployment",
+        "updating"
       ]
     },
     {
@@ -97,11 +99,17 @@
         {
           "group": "Reference",
           "pages": [
-            "api-reference/reference/check-health",
+            {
+              "group": "API Reference",
+              "pages": [
+                "api-reference/reference/check-health"
+              ]
+            },
             {
               "group": "public",
               "pages": [
-                "api-reference/reference/public/incoming-webhook"
+                "api-reference/reference/public/incoming-webhook",
+                "api-reference/reference/public/webhook-callback"
               ]
             },
             {
@@ -127,11 +135,18 @@
               "pages": [
                 "api-reference/reference/triggers/get-webhook",
                 "api-reference/reference/triggers/create-webhook",
-                "api-reference/reference/triggers/update-webhook",
-                "api-reference/reference/triggers/list-schedules",
-                "api-reference/reference/triggers/create-schedule",
-                "api-reference/reference/triggers/get-schedule",
-                "api-reference/reference/triggers/delete-schedule"
+                "api-reference/reference/triggers/update-webhook"
+              ]
+            },
+            {
+              "group": "schedules",
+              "pages": [
+                "api-reference/reference/schedules/list-schedules",
+                "api-reference/reference/schedules/create-schedule",
+                "api-reference/reference/schedules/get-schedule",
+                "api-reference/reference/schedules/update-schedule",
+                "api-reference/reference/schedules/delete-schedule",
+                "api-reference/reference/schedules/search-schedules"
               ]
             },
             {
@@ -210,7 +225,8 @@
     {
       "group": "Integrations",
       "pages": [
-        "integrations/introduction"
+        "integrations/introduction",
+        "integrations/secrets_cheatsheet"
       ]
     },
     {
@@ -219,15 +235,7 @@
         {
           "group": "core",
           "pages": [
-            {
-              "group": "ai",
-              "pages": [
-                "integrations/udfs/core_ai_extract",
-                "integrations/udfs/core_ai_label",
-                "integrations/udfs/core_ai_summarize",
-                "integrations/udfs/core_ai_translate"
-              ]
-            },
+            "integrations/udfs/core_ai_action",
             {
               "group": "condition",
               "pages": [
@@ -239,7 +247,8 @@
             {
               "group": "extraction",
               "pages": [
-                "integrations/udfs/core_extraction_extract_emails"
+                "integrations/udfs/core_extraction_extract_emails",
+                "integrations/udfs/core_extraction_extract_ipv4_addresses"
               ]
             },
             "integrations/udfs/core_http_request",
@@ -298,12 +307,6 @@
               "group": "elastic",
               "pages": [
                 "integrations/udfs/integrations_elastic_list_elastic_alerts"
-              ]
-            },
-            {
-              "group": "extraction",
-              "pages": [
-                "integrations/udfs/integrations_extraction_extract_ipv4_addresses"
               ]
             },
             {
