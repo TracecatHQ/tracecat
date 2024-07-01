@@ -1,64 +1,17 @@
-"""A module for templated expressions.
-
-
-Motivation
-----------
-- Formalize the templated expression syntax and vocabulary.
-- By doing so, in TypeScript we can infer the final type of the expression to improve type checking and validation.
-    - This helps with type checking in the UI at form submission time
-
-Template
---------
-A string with one or more templated expressions, e.g. "${{ $.webhook.result -> int }}"
-
-Expression
-----------
-The constituients of the template, "${{ <expression> -> <type> }}" "$.webhook.result -> int"
-The expression and type together are referred to as typed/annotated expression
-
-
-Type Coercion
--------------
-The type to cast the result to, e.g. "int" or "str" or "float". This is expressed using the -> operator.
-
-Context
--------
-The root level namespace of the expression, e.g. "SECRETS" or "$" or "FN".
-Anything that isn't a global context like SECRETS/FN is assumed to be a jsonpath, e.g. "$.webhook.result"
-
-Operand
--------
-The data structure to evaluate the expression on, e.g. {"webhook": {"result": 42}}
-
-Usage
------
-For secrets, you should:
-1. Extract the secrets from the templated object
-2. Fetch the secrets
-3. Populate the templated object with the actual values
-
-"""
-
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
-from enum import IntEnum, StrEnum, auto
-from typing import Any, Generic, TypeVar
-
-import jsonpath_ng
-from jsonpath_ng.exceptions import JsonPathParserError
+from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
-from tracecat.expressions.functions import BUILTIN_TYPE_NAPPING, FUNCTION_MAPPING
+from tracecat.expressions.shared import ExprContext, ExprType
+from tracecat.expressions.visitors import ExprValidatorVisitor, ExprVisitor
+from tracecat.expressions.visitors.evaluator import ExprEvaluatorVisitor
+from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 T = TypeVar("T")
-
-ExprStr = str
-"""An annotated template string that can be resolved into a type T."""
 
 OperandType = dict[str, Any]
 
@@ -68,7 +21,7 @@ class Expression:
 
     def __init__(
         self,
-        expression: ExprStr,
+        expression: str,
         *,
         operand: OperandType | None = None,
         include: set[ExprContext] | None = None,
@@ -78,7 +31,6 @@ class Expression:
         self._expr = expression
         self._operand = operand
         self._parser = ExpressionParser(
-            context=operand,
             include_contexts=include,
             exclude_contexts=exclude,
             **kwargs,
@@ -92,7 +44,13 @@ class Expression:
 
     def result(self) -> Any:
         """Evaluate the expression and return the result."""
-        return self._parser.parse_expr(self._expr)
+
+        visitor = ExprEvaluatorVisitor(self._operand)
+        return self._parser.walk_expr(self._expr, visitor=visitor)
+
+    def validate(self, visitor: ExprValidatorVisitor) -> None:
+        """Validate the expression."""
+        self._parser.walk_expr(self._expr, visitor=visitor)
 
 
 class TemplateExpression:
@@ -126,82 +84,31 @@ class TemplateExpression:
         return self.expr.result()
 
 
-def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
-    if operand is None or not isinstance(operand, dict):
-        raise TracecatExpressionError(
-            "A dict-type operand is required for templated jsonpath."
-        )
-    try:
-        # Try to evaluate the expression
-        jsonpath_expr = jsonpath_ng.parse(expr)
-    except JsonPathParserError as e:
-        raise TracecatExpressionError(f"Invalid jsonpath {expr!r}") from e
-    matches = [found.value for found in jsonpath_expr.find(operand)]
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        return matches
-    else:
-        # We know that if this function is called, there was a templated field.
-        # Therefore, it means the jsonpath was valid but there was no match.
-        raise TracecatExpressionError(
-            f"Operand has no path {expr!r}. Operand: {operand}."
-        )
-
-
 #####################
 # Expression Parser #
 #####################
 
 
-class ExprContext(StrEnum):
-    ACTIONS = "ACTIONS"
-    SECRETS = "SECRETS"
-    FN = "FN"
-    INPUTS = "INPUTS"
-    ENV = "ENV"
-    TRIGGER = "TRIGGER"
-    LOCAL_VARS = "var"  # Action-local variables
-
-
-ExprContextType = dict[ExprContext, Any]
-
-
-class ExprType(StrEnum):
-    ACTION = auto()
-    SECRET = auto()
-    FUNCTION = auto()
-    INPUT = auto()
-    ENV = auto()
-    LOCAL_VARS = auto()
-    LITERAL = auto()
-    TYPECAST = auto()
-    ITERATOR = auto()
-    TERNARY = auto()
-    TRIGGER = auto()
-
-
-class ParserFlags(IntEnum):
-    LOOP = 1
-
-
-class TracecatStopParser(Exception):
+class StopParser(Exception):
     def __init__(self, depth: int):
         self.depth = depth
         super().__init__()
 
 
 class ExpressionParser:
+    """Expression parser that can parse and evaluate expressions.
+
+    Visitor pattern is used to traverse the expression tree.
+    """
+
     def __init__(
         self,
-        context: ExprContextType,
         *,
         pattern: re.Pattern[str] = patterns.EXPRESSION_PATTERN,
         include_contexts: set[ExprContext] | None = None,
         exclude_contexts: set[ExprContext] | None = None,
         raise_on_stop: bool = False,
     ):
-        self.context = context
         self.raise_on_stop = raise_on_stop
         # Store the top level expression type
         # This is useful to introspect the type of the expression
@@ -223,183 +130,164 @@ class ExpressionParser:
         else:
             self._exclude_contexts = set()
 
+        self.logger = logger
+
     @property
-    def type(self):
+    def type(self) -> ExprType | None:
         return self._type
 
-    def parse_expr(self, expr: str, depth: int = 0):
-        """Parse a single expression and print the matched parts."""
+    def walk_expr(self, expr: str, visitor: ExprVisitor, depth: int = 0) -> Any:
+        """Walk through the expression and visit each node using the visitor."""
+        self.logger.trace("Walk expression", expr=expr, depth=depth)
         match = self._pattern.match(expr)
         if not match:
-            raise TracecatExpressionError(f"Invalid expression: {expr!r}")
+            return visitor.handle_error(expr)
 
-        matcher = match.groupdict()
-        rtype = matcher.get("context_expr_rtype", None)
         try:
+            matcher = match.groupdict()
             match matcher:
                 case {"action_expr": action_expr} if action_expr:
-                    self._type = ExprType.ACTION
-                    result = self._parse_action_expr(action_expr, depth + 1)
+                    result = self._walk_action_expr(visitor, action_expr, depth + 1)
                 case {"secret_expr": secret_expr} if secret_expr:
-                    self._type = ExprType.SECRET
-                    result = self._parse_secret_expr(secret_expr, depth + 1)
+                    result = self._walk_secret_expr(visitor, secret_expr, depth + 1)
                 case {
                     "fn_expr": fn_expr,
                     "fn_name": fn_name,
                     "fn_args": fn_args,
                 } if fn_expr and fn_name:
-                    self._type = ExprType.FUNCTION
-                    result = self._parse_function_expr(
-                        fn_expr, fn_name, fn_args, depth + 1
+                    result = self._walk_function_expr(
+                        visitor, fn_expr, fn_name, fn_args, depth + 1
                     )
                 case {"input_expr": input_expr} if input_expr:
-                    self._type = ExprType.INPUT
-                    result = self._parse_input_expr(input_expr, depth + 1)
+                    result = self._walk_input_expr(visitor, input_expr, depth + 1)
                 case {"trigger_expr": trigger_expr} if trigger_expr:
-                    self._type = ExprType.TRIGGER
-                    result = self._parse_trigger_expr(trigger_expr, depth + 1)
+                    result = self._walk_trigger_expr(visitor, trigger_expr, depth + 1)
                 case {
                     "iter_var_expr": iter_var_expr,
                     "iter_collection_expr": iter_collection_expr,
                 } if iter_var_expr and iter_collection_expr:
-                    self._type = ExprType.ITERATOR
-                    result = self._parse_iterator_expr(
-                        iter_var_expr, iter_collection_expr
+                    result = self._walk_iterator_expr(
+                        visitor, iter_var_expr, iter_collection_expr, depth + 1
                     )
                 case {
                     "ternary_true_expr": ternary_true_expr,
                     "ternary_cond_expr": ternary_cond_expr,
                     "ternary_false_expr": ternary_false_expr,
                 } if ternary_true_expr and ternary_cond_expr and ternary_false_expr:
-                    self._type = ExprType.TERNARY
-                    result = self._parse_ternary_expr(
-                        ternary_cond_expr, ternary_true_expr, ternary_false_expr
+                    result = self._walk_ternary_expr(
+                        visitor,
+                        cond_expr=ternary_cond_expr,
+                        true_expr=ternary_true_expr,
+                        false_expr=ternary_false_expr,
+                        depth=depth + 1,
                     )
                 case {
                     "cast_type": cast_type,
                     "cast_expr": cast_expr,
                 } if cast_type and cast_expr:
-                    self._type = ExprType.TYPECAST
-                    result = self._parse_cast_expr(cast_expr, cast_type)
+                    result = self._walk_cast_expr(
+                        visitor, cast_expr, cast_type, depth + 1
+                    )
                 case {"literal_expr": literal_expr} if literal_expr:
-                    self._type = ExprType.LITERAL
-                    result = self._parse_literal_expr(literal_expr)
+                    result = self._walk_literal_expr(visitor, literal_expr, depth + 1)
                 case {"env_expr": env_expr} if env_expr:
-                    self._type = ExprType.ENV
-                    result = self._parse_env_expr(env_expr)
+                    result = self._walk_env_expr(visitor, env_expr, depth + 1)
                 case {"vars_expr": vars_expr} if vars_expr:
-                    # Detect that we're inside a loop
-                    self._type = ExprType.LOCAL_VARS
-                    if self._flags & ParserFlags.LOOP:
-                        # If we're inside a loop, we are assigning an action-local variable
-                        result = vars_expr
-                    else:
-                        # If we're outside a loop, we are accessing an action-local variable
-                        result = self._parse_local_vars_expr(vars_expr)
+                    result = self._walk_local_vars_expr(visitor, vars_expr, depth + 1)
                 case _:
-                    raise ValueError(f"Couldn't match: {json.dumps(matcher, indent=2)}")
-            if rtype:
-                return self._cast_result(result, rtype)
+                    msg = f"Couldn't match: {json.dumps(matcher, indent=2)}"
+                    self.logger.error(msg)
+                    raise TracecatExpressionError(msg)
+            if rtype := matcher.get("context_expr_rtype", None):
+                return visitor.visit_trailing_cast_expr(result, rtype)
             return result
-        except TracecatStopParser as e:
-            if depth != 0:
-                raise e
-            if self.raise_on_stop:
+        except StopParser as e:
+            if depth > 0 or self.raise_on_stop:
+                self.logger.trace("Stop parser", expr=expr, depth=depth)
                 raise e
         return "${{ " + expr + " }}"
 
-    def _cast_result(self, result: Any, rtype: str):
-        return BUILTIN_TYPE_NAPPING[rtype](result)
+    # These methods help to walk through the expression and visit each node using the visitor
+    def _walk_action_expr(self, visitor: ExprVisitor, expr: str, depth: int):
+        if ExprContext.ACTIONS in self._exclude_contexts:
+            raise StopParser(depth)
+        return visitor.visit_action_expr(expr)
 
-    def _maybe_parse_jsonpath(
-        self, expr: str, expr_context: ExprContext, depth: int = 0
+    def _walk_secret_expr(self, visitor: ExprVisitor, expr: str, depth: int):
+        if ExprContext.SECRETS in self._exclude_contexts:
+            raise StopParser(depth)
+        return visitor.visit_secret_expr(expr)
+
+    def _walk_input_expr(self, visitor: ExprVisitor, expr: str, depth: int):
+        if ExprContext.INPUTS in self._exclude_contexts:
+            raise StopParser(depth)
+        return visitor.visit_input_expr(expr)
+
+    def _walk_trigger_expr(self, visitor: ExprVisitor, expr: str, depth: int):
+        if ExprContext.TRIGGER in self._exclude_contexts:
+            raise StopParser(depth)
+        return visitor.visit_trigger_expr(expr)
+
+    def _walk_env_expr(self, visitor: ExprVisitor, expr: str, depth: int):
+        if ExprContext.ENV in self._exclude_contexts:
+            raise StopParser(depth)
+        return visitor.visit_env_expr(expr)
+
+    def _walk_local_vars_expr(self, visitor: ExprVisitor, expr: str, depth: int):
+        if ExprContext.LOCAL_VARS in self._exclude_contexts:
+            raise StopParser(depth)
+        return visitor.visit_local_vars_expr(expr)
+
+    def _walk_function_expr(
+        self, visitor: ExprVisitor, expr: str, fn_name: str, fn_args: str, depth: int
     ):
-        if expr_context in self._exclude_contexts:
-            raise TracecatStopParser(depth=depth)
-        return eval_jsonpath(expr, self.context[expr_context])
-
-    def _parse_local_vars_expr(self, expr: str, depth: int = 0):
-        return self._maybe_parse_jsonpath(expr, ExprContext.LOCAL_VARS, depth)
-
-    def _parse_trigger_expr(self, expr: str, depth: int = 0):
-        return self._maybe_parse_jsonpath(expr, ExprContext.TRIGGER, depth)
-
-    def _parse_input_expr(self, expr: str, depth: int = 0):
-        return self._maybe_parse_jsonpath(expr, ExprContext.INPUTS, depth)
-
-    def _parse_env_expr(self, expr: str, depth: int = 0):
-        return self._maybe_parse_jsonpath(expr, ExprContext.ENV, depth)
-
-    def _parse_action_expr(self, expr: str, depth: int = 0):
-        return self._maybe_parse_jsonpath(expr, ExprContext.ACTIONS, depth)
-
-    def _parse_secret_expr(self, expr: str, depth: int = 0):
-        return self._maybe_parse_jsonpath(expr, ExprContext.SECRETS, depth)
-
-    def _parse_function_expr(self, expr: str, qualname: str, args: str, depth: int = 0):
         if ExprContext.FN in self._exclude_contexts:
             return expr
-        resolved_args = self._parse_parameter_pack(args, depth + 1)
-        if qualname.endswith(".map"):
-            qualname = qualname.rsplit(".", 1)[0]
-            fn = FUNCTION_MAPPING[qualname]
-            return fn.map(*resolved_args)
-        return FUNCTION_MAPPING[qualname](*resolved_args)
+        parsed_args = []
+        for arg in split_arguments(fn_args):
+            parsed_arg = self.walk_expr(arg, visitor, depth + 1)
+            parsed_args.append(parsed_arg)
 
-    def _parse_parameter_pack(self, expr: str, depth: int = 0) -> tuple:
-        parts = _split_arguments(expr)
-        return tuple(self.parse_expr(arg, depth + 1) for arg in parts)
+        return visitor.visit_function_expr(expr, fn_name, parsed_args)
 
-    def _parse_iterator_expr(self, iter_var_expr: str, iter_collection_expr: str):
-        # Mark that we're inside a loop
-        self._flags |= ParserFlags.LOOP
-        # Ensure that our iter_var is a `var` expression
-        if not re.match(r"^var\.", iter_var_expr):
-            raise ValueError(
-                f"Invalid iterator variable: {iter_var_expr!r}. Please use `var.your.variable`"
-            )
-        # Ensure that our collection is an iterable
-        # We have to evaluate the collection expression
-        collection = self.parse_expr(iter_collection_expr)
-        if not hasattr(collection, "__iter__"):
-            raise ValueError(
-                f"Invalid iterator collection: {iter_collection_expr!r}. Must be an iterable."
-            )
+    def _walk_iterator_expr(
+        self,
+        visitor: ExprVisitor,
+        iter_var_expr: str,
+        iter_collection_expr: str,
+        depth: int,
+    ):
+        collection = self.walk_expr(iter_collection_expr, visitor, depth + 1)
+        return visitor.visit_iterator_expr(iter_var_expr, collection)
 
-        # Reset the loop flag
-        self._flags &= ~ParserFlags.LOOP
-        return IterableExpr(iter_var_expr, collection)
+    def _walk_ternary_expr(
+        self,
+        visitor: ExprVisitor,
+        cond_expr: str,
+        true_expr: str,
+        false_expr: str,
+        depth: int,
+    ):
+        condition = self.walk_expr(cond_expr, visitor, depth + 1)
+        if condition:
+            return self.walk_expr(true_expr, visitor, depth + 1)
+        return self.walk_expr(false_expr, visitor, depth + 1)
 
-    def _parse_ternary_expr(self, cond_expr: str, true_expr: str, false_expr: str):
-        if bool(self.parse_expr(cond_expr)):
-            return self.parse_expr(true_expr)
-        return self.parse_expr(false_expr)
+    def _walk_cast_expr(
+        self, visitor: ExprVisitor, expr: str, typename: str, depth: int
+    ):
+        inner = self.walk_expr(expr, visitor, depth + 1)
+        return visitor.visit_cast_expr(inner, typename)
 
-    def _parse_cast_expr(self, expr: str, typename: str):
-        inner = self.parse_expr(expr)
-        return self._cast_result(inner, typename)
-
-    def _parse_literal_expr(self, expr: str, depth: int = 0):
-        if (match := re.match(patterns.STRING_LITERAL, expr)) is not None:
-            return match.group("str_literal").strip()
+    def _walk_literal_expr(self, visitor: ExprVisitor, expr: str, depth: int):
         if (match := re.match(patterns.LIST_LITERAL, expr)) is not None:
             param_pack_str = match.group("list_literal").strip()
-            args = self._parse_parameter_pack(param_pack_str, depth + 1)
-            return list(args)
-        if expr in ("True", "False"):
-            # Boolean literal
-            return expr == "True"
-        if expr == "None":
-            return None
-        if "." in expr:
-            return float(expr)
-        return int(expr)
+            args = split_arguments(param_pack_str)
+            return [self.walk_expr(arg, visitor, depth + 1) for arg in args]
+        return visitor.visit_literal_expr(expr)
 
 
-T = TypeVar("T")
-
-
-def _split_arguments(arguments: str):
+def split_arguments(arguments: str) -> list[str]:
     """Split arguments by commas, but ignore commas inside nested structures or quoted strings."""
     parts = []
     bracket_level = 0
@@ -430,15 +318,3 @@ def _split_arguments(arguments: str):
 
     parts.append("".join(current_part).strip())  # Add the last part
     return parts
-
-
-@dataclass
-class IterableExpr(Generic[T]):
-    """An expression that represents an iterable collection."""
-
-    iterator: str
-    collection: Iterable[T]
-
-    def __iter__(self) -> Iterator[tuple[str, T]]:
-        for item in self.collection:
-            yield self.iterator, item
