@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 import pytest
 import respx
@@ -6,22 +7,24 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from tracecat import config
+from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.helpers import batch_get_secrets, format_secrets_as_json
 from tracecat.db.schemas import Secret
-from tracecat.expressions.engine import (
-    ExprContext,
-    ExpressionParser,
-    TemplateExpression,
-    eval_jsonpath,
-)
+from tracecat.expressions.engine import ExpressionParser, TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
+    extract_expressions,
     extract_templated_secrets,
 )
+from tracecat.expressions.functions import eval_jsonpath
 from tracecat.expressions.patterns import FULL_TEMPLATE
+from tracecat.expressions.shared import ExprContext, ExprType
+from tracecat.expressions.visitors import ExprEvaluatorVisitor
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.secrets import SecretKeyValue
+from tracecat.types.validation import ValidationResult
+from tracecat.validation import default_validator_visitor
 
 
 @pytest.fixture(scope="session")
@@ -478,6 +481,8 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("INPUTS.people[*].age", [30, 40, 50]),
         ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
         ("INPUTS.people[*].gender", ["female", "male"]),
+        # Combination
+        ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -534,5 +539,139 @@ def test_expression_parser(expr, expected):
             "y": "100",
         },
     }
-    parser = ExpressionParser(context=context)
-    assert parser.parse_expr(expr) == expected
+    visitor = ExprEvaluatorVisitor(context=context)
+    parser = ExpressionParser()
+    assert parser.walk_expr(expr, visitor) == expected
+
+
+def assert_validation_result(
+    res: ValidationResult,
+    *,
+    type: ExprType,
+    status: Literal["success", "error"],
+    contains_msg: str | None = None,
+    contains_detail: str | None = None,
+):
+    assert res.type == type
+    assert res.status == status
+    if contains_msg:
+        assert contains_msg in res.msg
+    if contains_detail:
+        assert contains_detail in res.detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expr,expected",
+    [
+        (
+            "${{ FN.fail(5, var.x) }}",
+            [{"type": ExprType.FUNCTION, "status": "error", "contains_msg": "'fail'"}],
+        ),
+        (
+            "${{ FN.fail_again.map(5, var.x) }}",
+            [
+                {
+                    "type": ExprType.FUNCTION,
+                    "status": "error",
+                    "contains_msg": "'fail_again'",
+                }
+            ],
+        ),
+        (
+            "${{ false }}",
+            [{"type": ExprType.GENERIC, "status": "error"}],
+        ),
+        (
+            "${{ SECRETS.xxxxxxxxxxxxxxxxxxxxx.WORLD }}",
+            [
+                {
+                    "type": ExprType.SECRET,
+                    "status": "error",
+                    "contains_msg": "'xxxxxxxxxxxxxxxxxxxxx'",
+                }
+            ],
+        ),
+        (
+            "${{ ACTIONS.my_action.url.result }}",
+            [{"type": ExprType.ACTION, "status": "error"}],
+        ),
+        (
+            "${{ ACTIONS.random.result -> int }}",
+            [{"type": ExprType.ACTION, "status": "error"}],
+        ),
+        (
+            "${{ ACTIONS.my_action.result }} ${{ ACTIONS.my_action.count }}  ",
+            [
+                {"type": ExprType.ACTION, "status": "error", "contains_msg": "'count'"},
+            ],
+        ),
+        (
+            "${{ ACTIONS.my_action.url }}",
+            [{"type": ExprType.ACTION, "status": "error"}],
+        ),
+        (
+            "Again, inline substitution ${{ SECRETS.my_secret }} like this   ",
+            [
+                {
+                    "type": ExprType.SECRET,
+                    "status": "error",
+                    "contains_msg": "'my_secret'",
+                }
+            ],
+        ),
+        (
+            "Multiple inline substitutions ${{ ACTIONS.my_action.result }} and ${{ ACTIONS.my_action.url }} "
+            "no errors ${{ 'hello' }} another error ${{ SECRETS.some_secret }}",
+            [
+                {"type": ExprType.ACTION, "status": "error", "contains_msg": "'url'"},
+                {
+                    "type": ExprType.SECRET,
+                    "status": "error",
+                    "contains_msg": "'some_secret'",
+                },
+            ],
+        ),
+        (
+            {
+                "test": {
+                    "data": "INLINE: ${{ int('fails') }}",
+                    "url": "${{ int(100) }}",
+                },
+                "test2": "fail 1 ${{ ACTIONS.my_action.invalid }} ",
+                "test3": "fail 2 ${{ int(ACTIONS.my_action.invalid_inner) }} ",
+            },
+            [
+                {
+                    "type": ExprType.TYPECAST,
+                    "status": "error",
+                    "contains_msg": "'fails'",
+                },
+                {
+                    "type": ExprType.ACTION,
+                    "status": "error",
+                    "contains_msg": "'invalid'",
+                },
+                {
+                    "type": ExprType.ACTION,
+                    "status": "error",
+                    "contains_msg": "'invalid_inner'",
+                },
+            ],
+        ),
+    ],
+)
+async def test_extract_expressions_errors(expr, expected, auth_sandbox):
+    # The only defined action reference is "my_action"
+    act_refs = {"my_action"}
+    async with GatheringTaskGroup() as tg:
+        visitor = default_validator_visitor(task_group=tg, action_refs=act_refs)
+        exprs = extract_expressions(expr)
+        for expr in exprs:
+            # This queues up all the coros in the taskgroup
+            # and executes them concurrently on exit
+            expr.validate(visitor)
+
+    # NOTE: We are using results to get ALL validation results
+    for actual, ex in zip(visitor.errors(), expected, strict=True):
+        assert_validation_result(actual, **ex)
