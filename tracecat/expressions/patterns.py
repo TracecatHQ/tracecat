@@ -91,7 +91,13 @@ ITERATOR_BASE = (
     r"\s+(?P<iter_collection_expr>[a-zA-Z_][a-zA-Z0-9_\.]*)"
 )
 
-TERNARY_PATTERN = r"(?P<ternary_true_expr>.+?)\s*if\s*(?P<ternary_cond_expr>.+?)\s*else\s*(?P<ternary_false_expr>.+?)"
+TERNARY_PATTERN = (
+    r"(?P<ternary_true_expr>.+?)\s+"
+    "if"
+    r"\s+(?P<ternary_cond_expr>.+?)\s+"
+    "else"
+    r"\s+(?P<ternary_false_expr>.+)"  # XXX: This must be greedy, otherwise we only match the first char
+)
 
 ALL_EXPRESSIONS = [
     TYPED_CTX_EXPR_PATTERN,
