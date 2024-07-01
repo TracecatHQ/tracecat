@@ -15,10 +15,10 @@ from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
-from loguru import logger
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.logging import logger
 from tracecat.types.auth import Role
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -93,9 +93,11 @@ def _internal_get_role_from_service_key(
         not service_role_name
         or service_role_name not in config.TRACECAT__SERVICE_ROLES_WHITELIST
     ):
+        msg = f"Service-Role {service_role_name!r} invalid or not allowed"
+        logger.error(msg)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Service-Role {service_role_name!r} invalid or not allowed",
+            detail=msg,
             headers={"WWW-Authenticate": "Bearer"},
         )
     if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
