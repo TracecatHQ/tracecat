@@ -68,6 +68,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
+    loop.set_task_factory(asyncio.eager_task_factory)
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
