@@ -32,4 +32,4 @@ class Role(BaseModel):
 
     type: Literal["user", "service"]
     user_id: str | None = None
-    service_id: str | None = None
+    service_id: str

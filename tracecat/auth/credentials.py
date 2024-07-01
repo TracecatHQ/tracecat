@@ -138,7 +138,9 @@ if IS_AUTH_DISABLED:
     async def _get_role_from_jwt(token: str | bytes) -> Role:
         if token != _DEFAULT_TRACECAT_JWT:
             raise HTTP_EXC(f"Auth disabled, please use {_DEFAULT_TRACECAT_JWT!r}.")
-        role = Role(type="user", user_id=_DEFAULT_TRACECAT_USER_ID)
+        role = Role(
+            type="user", user_id=_DEFAULT_TRACECAT_USER_ID, service_id="tracecat-api"
+        )
         ctx_role.set(role)
         return role
 
@@ -200,7 +202,7 @@ else:
         # if await _validate_user_exists_in_db(user_id) is None:
         #     logger.error("User not authenticated")
         #     raise CREDENTIALS_EXCEPTION
-        role = Role(type="user", user_id=user_id)
+        role = Role(type="user", user_id=user_id, service_id="tracecat-api")
         ctx_role.set(role)
         return role
 
@@ -217,10 +219,14 @@ else:
 async def authenticate_user(
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> Role:
-    """Authenticate a user JWT and return the 'sub' claim as the user_id."""
+    """Authenticate a user JWT and return the 'sub' claim as the user_id.
+
+    `ctx_role` and `ctx_logger` ContextVars are set here.
+    """
     if not token:
         raise CREDENTIALS_EXCEPTION
-    return await _get_role_from_jwt(token)
+    role = await _get_role_from_jwt(token)
+    return role
 
 
 async def authenticate_service(
@@ -228,7 +234,8 @@ async def authenticate_service(
     api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
 ) -> Role:
     """Authenticate a service using an API key."""
-    return await _get_role_from_service_key(request, api_key)
+    role = await _get_role_from_service_key(request, api_key)
+    return role
 
 
 async def authenticate_user_or_service(
@@ -241,9 +248,9 @@ async def authenticate_user_or_service(
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
     if token:
-        return await _get_role_from_jwt(token)
+        return await authenticate_user(token)
     if api_key:
-        return await _get_role_from_service_key(request, api_key)
+        return await authenticate_service(request, api_key)
     raise HTTP_EXC("Could not validate credentials")
 
 

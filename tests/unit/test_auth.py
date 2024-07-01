@@ -53,14 +53,6 @@ async def test_authenticated_service_client():
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
         assert "Service-User-ID" not in client.headers
 
-    service_role = Role(type="service")
-    async with AuthenticatedServiceClient(role=service_role) as client:
-        assert isinstance(client, AsyncClient)
-        assert client.role == service_role
-        assert client.headers["Service-Role"] == "tracecat-service"
-        assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert "Service-User-ID" not in client.headers
-
 
 @pytest.mark.asyncio
 async def test_authenticated_service_client_init_with_role():
@@ -158,20 +150,4 @@ async def test_authenticated_api_client_init_with_role():
         assert client.headers["Service-Role"] == "mock_service_id"
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
         assert "Service-User-ID" not in client.headers
-        assert client.base_url == TRACECAT__API_URL
-
-    role = Role(type="service")
-    async with AuthenticatedAPIClient(role=role) as client:
-        assert client.role == role
-        assert client.headers["Service-Role"] == "tracecat-service"
-        assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert "Service-User-ID" not in client.headers
-        assert client.base_url == TRACECAT__API_URL
-
-    role = Role(type="service", user_id="mock_user_id")
-    async with AuthenticatedAPIClient(role=role) as client:
-        assert client.role == role
-        assert client.headers["Service-Role"] == "tracecat-service"
-        assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert client.headers["Service-User-ID"] == "mock_user_id"
         assert client.base_url == TRACECAT__API_URL
