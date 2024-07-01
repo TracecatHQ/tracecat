@@ -1,39 +1,39 @@
-title: Enrich IOCs and provide triage advice for security incidents
+title: Extract IoCs from alert, enrich using VirustTotal, and investigate using AI.
 description: |
-  This playbook takes a text input or a JSON format with all the context of a security incident/alert (Investigation).
-  It extracts all the IOCs (IPs, hash, domains et urls) and enriches them.
-  - IPs: Passive-dns (VT), Open port (Censys et Shodan), services and ports history (Censys), Geoloc, Provider, Reputation (VT)
-  - URLs: urlscan.io verdict, screenshot of the webpage
-  - Hash: Reputation (VT), signature (VT), malware familly (Tria.ge et Any.run)
-  It then provides triage advice for investigations (what to check/do, taking into account all the context and tools of the customer).
-  It also provides a risk assessment via LLM (% of chance of being False Positive AND % of chance of being a True Legitimate).
-  Finally, it provides a Remediations Plan.
+  Given a security alert, this playbook extracts URLs and IP addresses from the alert
+  enriches them using VirusTotal, and provides triage advice for further investigation.
 
 entrypoint: enrich_iocs
 triggers:
   - type: webhook
     ref: alert_webhook
-    entrypoint: enrich_iocs
+    entrypoint: receive_alert
 
 actions:
-  - ref: extract_iocs
-    action: core.extract_iocs
+  - ref: receive_alert
+    action: core.io.receive_webhook
     args:
-      # JSON with all the context of a security incident/alert
-      input: ${{ TRIGGER.alert }}
+      webhook: ${{ TRIGGER.webhook }}
 
-  - ref: extract_iocs
-    action: core.transform.forward
+  - ref: extract_ip_addresses
+    action: integrations.extraction.extract_ip_addresses
+    depends_on:
+      - receive_alert
     args:
-      ip_addresses: ${{ TRIGGER.alert.ip_addresses }}
-      urls: ${{ TRIGGER.alert.urls }}
-      hashes: ${{ TRIGGER.alert.hashes }}
+      text: ${{ ACTION.receive_alert.result.text }}
+
+  - ref: extract_urls
+    action: integrations.extraction.extract_urls
+    depends_on:
+      - receive_alert
+    args:
+      text: ${{ ACTION.receive_alert.result.text }}
 
   - ref: enrich_ip_addresses
     action: integrations.enrich.virustotal.analyze_ip
     for_each: ${{ for var.ip_address in ACTIONS.extract_iocs.result.ip_addresses }}
     depends_on:
-      - extract_iocs
+      - extract_ip_addresses
     args:
       ip_address: ${{ var.ip_address }}
 
@@ -41,82 +41,52 @@ actions:
     action: integrations.enrich.virustotal.analyze_url
     for_each: ${{ for var.url in ACTIONS.extract_iocs.result.urls }}
     depends_on:
-      - extract_iocs
+      - extract_urls
     args:
       url: ${{ var.url }}
 
-  - ref: enrich_hashes
-    action: integrations.enrich.virustotal.analyzem_malware_sample
-    for_each: ${{ for var.hash in ACTIONS.extract_iocs.result.hashes }}
-    depends_on:
-      - extract_iocs
-    args:
-      file_hash: ${{ var.hash }}
-
-  - ref: combine_iocs
-    action: core.transform.forward
-    depends_on:
-      - enrich_ips
-      - enrich_urls
-      - enrich_hashes
-    args:
-      enriched_ip_addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
-      enriched_urls: ${{ ACTIONS.enrich_urls.result }}
-      enriched_hashes: ${{ ACTIONS.enrich_hashes.result }}
-
-  - ref: provide_triage_advice
+  - ref: triage_alert
     action: core.ai_action
     depends_on:
-      - combine_iocs
+      - extract_ip_addresses
+      - extract_urls
     args:
       prompt: |
-        You are an expert in security incidents. You have all the context of the incident and the enriched IOCs.
-        - What would you do to investigate this incident?
-        - What tools would you use?
-        - What would you check?
+        You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IoCs extracted from the alert
-        -----------------------------
-        IP Addresses: ${{ ACTION.combine_iocs.result.enriched_ip_addresses }}
-        URLs: ${{ ACTION.combine_iocs.result.enriched_urls }}
-        Hashes: ${{ ACTION.combine_iocs.result.enriched_hashes }}
-
-  - ref: provide_risk_assessment
-    action: core.ai_action
-    depends_on:
-      - combine_iocs
-      - provide_triage_advice
-    args:
-      prompt: |
-        You are an expert in security incidents. You have all the context of the incident and the enriched IOCs.
-        - What is the risk of this incident being a False Positive?
-        - What is the risk of this incident being a True Legitimate?
-
-        IoCs extracted from the alert
-        -----------------------------
-        IP Addresses: ${{ ACTION.combine_iocs.result.enriched_ip_addresses }}
-        URLs: ${{ ACTION.combine_iocs.result.enriched_urls }}
-        Hashes: ${{ ACTION.combine_iocs.result.enriched_hashes }}
-
-  - ref: estimate_percentage_risk
-    action: core.ai_action
-    depends_on:
-      - combine_iocs
-      - provide_triage_advice
-    args:
-      prompt: |
-        You are an expert in security incidents. You have all the context of the incident and the enriched IOCs.
-
-        IoCs extracted from the alert
-        -----------------------------
-        IP Addresses: ${{ ACTION.combine_iocs.result.enriched_ip_addresses }}
-        URLs: ${{ ACTION.combine_iocs.result.enriched_urls }}
-        Hashes: ${{ ACTION.combine_iocs.result.enriched_hashes }}
+        IP Addresses: ${{ ACTION.extract_ip_addresses.result }}
+        URLs: ${{ ACTION.extract_urls.result }}
 
         Task
         ----
-        - Score this alert between 0-100 for the risk of this incident being a False Positive.
-        - Score this alert between 0-100 for the risk of this incident being a True Legitimate.
+        Answer the following questions:
+        - Are any of the provided IP addresses associated with known malicious activities or threat actors?
+        - What is the reputation of the provided URLs according to threat intelligence sources?
+        - What specific threats or vulnerabilities are associated with these IP addresses and URLs?
+
+        Give your response as a list of bullet points:
+        ```json
+        - <response 1>
+        - <response 2>
+        - <response 3>
+        ```
+
+  - ref: estimate_risk
+    action: core.ai_action
+    depends_on:
+      - extract_ip_addresses
+      - extract_urls
+    args:
+      prompt: |
+        You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
+
+        IP Addresses: ${{ ACTION.extract_ip_addresses.result }}
+        URLs: ${{ ACTION.extract_urls.result }}
+
+        Task
+        ----
+        - Score this alert between 0-100 for the risk of this alert being a False Positive.
+        - Score this alert between 0-100 for the risk of this alert being a True Positive.
 
         Give your response as a JSON:
         ```json
@@ -125,21 +95,3 @@ actions:
           "true_legitimate": <score>
         }
         ```
-
-  - ref: provide_remediations_plan
-    action: core.ai_action
-    depends_on:
-      - combine_iocs
-      - provide_triage_advice
-      - provide_risk_assessment
-    args:
-      prompt: |
-        You are an expert in security incidents. You have all the context of the incident and the enriched IOCs.
-        - What would be your remediations plan?
-        - What would you do to prevent this incident from happening again?
-
-        IoCs extracted from the alert
-        -----------------------------
-        IP Addresses: ${{ ACTION.combine_iocs.result.enriched_ip_addresses }}
-        URLs: ${{ ACTION.combine_iocs.result.enriched_urls }}
-        Hashes: ${{ ACTION.combine_iocs.result.enriched_hashes }}
