@@ -20,14 +20,14 @@ actions:
     depends_on:
       - receive_alert
     args:
-      text: ${{ ACTION.receive_alert.result.text }}
+      text: ${{ ACTIONS.receive_alert.result.text }}
 
   - ref: extract_urls
     action: integrations.extraction.extract_urls
     depends_on:
       - receive_alert
     args:
-      text: ${{ ACTION.receive_alert.result.text }}
+      text: ${{ ACTIONS.receive_alert.result.text }}
 
   - ref: enrich_ip_addresses
     action: integrations.enrich.virustotal.analyze_ip
@@ -54,8 +54,8 @@ actions:
       prompt: |
         You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IP Addresses: ${{ ACTION.enrich_ip_addresses.result }}
-        URLs: ${{ ACTION.enrich_urls.result }}
+        IP Addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
+        URLs: ${{ ACTIONS.enrich_urls.result }}
 
         Task
         ----
@@ -80,8 +80,8 @@ actions:
       prompt: |
         You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IP Addresses: ${{ ACTION.enrich_ip_addresses.result }}
-        URLs: ${{ ACTION.enrich_urls.result }}
+        IP Addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
+        URLs: ${{ ACTIONS.enrich_urls.result }}
 
         Task
         ----
