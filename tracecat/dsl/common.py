@@ -7,37 +7,18 @@ import json
 from collections.abc import Coroutine
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, TypedDict
 
 import fsspec
 import yaml
 from pydantic import BaseModel, Field, model_validator
-from temporalio.client import Client, TLSConfig
 
-from tracecat import config
-from tracecat.dsl._converter import pydantic_data_converter
-from tracecat.expressions import TemplateValidator
+from tracecat.expressions.validators import TemplateValidator
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatDSLError
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
-
-
-async def get_temporal_client() -> Client:
-    tls_config = False
-    if config.TEMPORAL__TLS_ENABLED:
-        tls_config = TLSConfig(
-            client_cert=config.TEMPORAL__TLS_CLIENT_CERT,
-            client_private_key=config.TEMPORAL__TLS_CLIENT_PRIVATE_KEY,
-        )
-
-    return await Client.connect(
-        target_host=config.TEMPORAL__CLUSTER_URL,
-        namespace=config.TEMPORAL__CLUSTER_NAMESPACE,
-        tls=tls_config,
-        data_converter=pydantic_data_converter,
-    )
 
 
 class ActionStatement(BaseModel):
@@ -55,8 +36,10 @@ class ActionStatement(BaseModel):
     description: str = ""
 
     action: str = Field(
-        pattern=ACTION_TYPE_PATTERN, description="Action type / UDF key"
+        pattern=ACTION_TYPE_PATTERN,
+        description="Action type. Equivalent to the UDF key.",
     )
+    """Action type. Equivalent to the UDF key."""
 
     args: dict[str, Any] = Field(
         default_factory=dict, description="Arguments for the action"
@@ -220,3 +203,8 @@ class DSLInput(BaseModel):
         if invalid_refs:
             raise TracecatDSLError(f"Invalid action refs in tests: {invalid_refs}")
         return self
+
+
+class DSLNodeResult(TypedDict):
+    result: Any
+    result_typename: str

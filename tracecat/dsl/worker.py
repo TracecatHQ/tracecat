@@ -13,7 +13,7 @@ from temporalio.worker.workflow_sandbox import (
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
 with workflow.unsafe.imports_passed_through():
-    from tracecat.dsl.common import get_temporal_client
+    from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
     from tracecat.registry import registry
 

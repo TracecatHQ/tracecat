@@ -16,17 +16,16 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel
 
-    from tracecat.expressions import (
-        ExprContext,
-        IterableExpr,
-        TemplateExpression,
+    from tracecat.expressions.shared import ExprContext, IterableExpr
+    from tracecat.expressions.engine import TemplateExpression
+    from tracecat.expressions.eval import (
         eval_templated_object,
         extract_templated_secrets,
     )
     from tracecat.types.auth import Role
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-    from tracecat.dsl.common import ActionStatement, DSLInput, ActionTest
+    from tracecat.dsl.common import ActionStatement, DSLInput, ActionTest, DSLNodeResult
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.db.schemas import Secret  # noqa
@@ -48,11 +47,6 @@ class DSLContext(TypedDict):
 
     TRIGGER: dict[str, Any]
     """DSL Trigger dynamic inputs context"""
-
-
-class DSLNodeResult(TypedDict):
-    result: Any
-    result_typename: str
 
 
 class TaskMarker(StrEnum):
