@@ -85,6 +85,21 @@ def create_secrets():
                 "end_time": "2024-07-01T12:00:00Z",
             },
         ),
+        (
+            "enrichment/triage-using-llms.yml",
+            {
+                "alert_id": "1234567890abcdef",
+                "timestamp": "2024-07-01T12:34:56Z",
+                "severity": "High",
+                "description": "Suspicious activity detected involving potential malware communication.",
+                "details": {
+                    "source_ip": "192.168.1.10",
+                    "destination_ip": "203.0.113.5",
+                    "url": "http://malicious-example.com",
+                    "additional_info": "Detected command and control communication attempt."
+                }
+            }
+        )
     ],
 )
 @pytest.mark.asyncio

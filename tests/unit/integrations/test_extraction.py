@@ -3,6 +3,7 @@ import pytest
 from tracecat.actions.etl.extraction import (
     extract_emails,
     extract_ipv4_addresses,
+    extract_urls,
 )
 
 
@@ -104,3 +105,55 @@ def test_extract_emails(texts, expected_emails, normalize):
 )
 def test_extract_ipv4_addresses(texts, expected_ip_addresses):
     assert sorted(extract_ipv4_addresses(texts=texts)) == sorted(expected_ip_addresses)
+
+
+@pytest.mark.parametrize(
+    "texts, expected_urls",
+    [
+        (
+            ["Visit our website at https://example.com for more info."],
+            ["https://example.com"],
+        ),
+        (
+            [
+                "Check out https://example.com/path and http://example.org/another-path for details."
+            ],
+            ["https://example.com/path", "http://example.org/another-path"],
+        ),
+        (
+            ["Invalid URL test http://.com and correct URL https://example.net/path"],
+            ["https://example.net/path"],
+        ),
+        (
+            [
+                "Multiple URLs: https://example.com/path1, http://example.org/path2, and https://sub.example.net/path3."
+            ],
+            [
+                "https://example.com/path1",
+                "http://example.org/path2",
+                "https://sub.example.net/path3",
+            ],
+        ),
+        (
+            [
+                '{"url": "https://example.com/path", "more_info": {"link": "http://sub.example.com/another-path"}}'
+            ],
+            ["https://example.com/path", "http://sub.example.com/another-path"],
+        ),
+        (
+            ["Text with no URLs should return an empty list."],
+            [],
+        ),
+    ],
+    ids=[
+        "single_url",
+        "multiple_urls_with_paths",
+        "invalid_and_valid_url_with_path",
+        "multiple_urls_in_text_with_paths",
+        "json_with_urls_and_paths",
+        "no_urls",
+    ],
+)
+def test_extract_urls(texts, expected_urls):
+    extracted_urls = extract_urls(texts=texts)
+    assert sorted(extracted_urls) == sorted(expected_urls)
