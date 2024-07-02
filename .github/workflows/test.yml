@@ -202,4 +202,4 @@ jobs:
           URLSCAN_API_KEY: ${{ secrets.INTEGRATION__URLSCAN_API_KEY }}
           VT_API_KEY: ${{ secrets.INTEGRATION__VT_API_KEY }}
           LOG_LEVEL: WARNING
-        run: pytest -k "test_playbooks" --temporal-no-restart --tracecat-no-restart
+        run: pytest -k "test_playbooks" --benchmark-disable --temporal-no-restart --tracecat-no-restart
