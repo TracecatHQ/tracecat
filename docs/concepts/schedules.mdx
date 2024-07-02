@@ -25,6 +25,11 @@ You can incoke the following command to achieve this like so:
 tracecat schedule create <workflow_id> --every PT15S --data '{ "hello": "world" }'
 ```
 
+<Info>
+  The inputs passed here will be accessible from the `TRIGGER` context, and can
+  be changed if you update the schedule.
+</Info>
+
 If a schedules was successfully created, you should see a response like this:
 
 ```bash
@@ -70,4 +75,10 @@ and unpause it with
 
 ```bash
 traceat schedule update <schedule_id> --online
+```
+
+To update the input data for the scheduled workflow run,
+
+```bash
+tracecat schedule update <schedule_id> --data @new_inputs.json
 ```
