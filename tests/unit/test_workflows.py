@@ -281,7 +281,6 @@ async def test_workflow_completes_and_correct(
     "num_workflows", [10, 100, 1000], ids=lambda x: f"num_workflows={x}"
 )
 @pytest.mark.slow
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_stress_workflow(
     dsl, num_workflows, temporal_cluster, mock_registry, auth_sandbox, benchmark
@@ -317,7 +316,9 @@ async def test_stress_workflow(
                     tasks.append(task)
         return tasks
 
-    tasks = benchmark.pedantic(run_worklows, iterations=3, rounds=1)
+    tasks = benchmark.pedantic(
+        lambda: asyncio.run(run_worklows), iterations=3, rounds=1
+    )
     assert all(task.done() for task in tasks)
 
 
