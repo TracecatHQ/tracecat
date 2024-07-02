@@ -3,16 +3,22 @@ name: Tests
 on:
   push:
     branches: ["main"]
-    paths-ignore:
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "tests/**"
+      - "tracecat-cli/**"
+      - "tracecat/**"
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "tests/**"
+      - "tracecat-cli/**"
+      - "tracecat/**"
 
 permissions:
   contents: read

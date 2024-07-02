@@ -3,7 +3,13 @@ name: Benchmark
 on:
   push:
     branches: ["main"]
-    paths: ["tracecat/**"]
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "tests/**"
+      - "tracecat-cli/**"
+      - "tracecat/**"
   pull_request:
     branches: ["main"]
     paths: [".github/workflows/benchmark.yml"]
