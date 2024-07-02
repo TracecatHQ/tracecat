@@ -295,6 +295,52 @@ Delete a secret from Tracecat's secret manager.
 tracecat secrets delete SECRET_NAME
 ```
 
+## Schedules Management
+
+### Creating schedules
+
+```
+tracecat schedule create WORKFLOW_ID
+```
+
+| Arguments     | Type | Description | Default | Required |
+| ------------- | ---- | ----------- | ------- | -------- |
+| `workflow_id` | TEXT | Workflow ID | None    | Yes      |
+
+| Options    | Short | Type | Description                               | Default |
+| ---------- | ----- | ---- | ----------------------------------------- | ------- |
+| `--data`   | `-d`  | TEXT | JSON Payload to send (trigger context)    | None    |
+| `--every`  | `-e`  | TEXT | Interval at which the schedule should run | None    |
+| `--offset` | `-o`  | TEXT | Offset from the start of the interval     | None    |
+
+### Listing schedules
+
+```
+traceat schedule list
+```
+
+### Updating schedules
+
+```
+tracecat schedule update SCHEDULE_ID [OPTIONS]
+```
+
+| Arguments     | Type | Description | Default | Required |
+| ------------- | ---- | ----------- | ------- | -------- |
+| `schedule_id` | TEXT | Schedule ID | None    | Yes      |
+
+| Options    | Short | Type | Description                               | Default |
+| ---------- | ----- | ---- | ----------------------------------------- | ------- |
+| `--data`   | `-d`  | TEXT | JSON Payload to send (trigger context)    | None    |
+| `--every`  | `-e`  | TEXT | Interval at which the schedule should run | None    |
+| `--offset` | `-o`  | TEXT | Offset from the start of the interval     | None    |
+
+### Deleting schedules
+
+```
+tracecat schedule delete [SCHEDULE_ID]
+```
+
 ## Dev commands
 
 Provides development tools for managing API interactions, generating specifications, and more.
@@ -305,3 +351,7 @@ Provides development tools for managing API interactions, generating specificati
 | `generate-spec`     | Generate OpenAPI specification. Requires npx.              |
 | `generate-udf-docs` | Generate UDF documentation.                                |
 | `whoami`            | Print the current role of the authenticated user.          |
+
+```
+
+```
