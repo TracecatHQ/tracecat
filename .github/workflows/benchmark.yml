@@ -55,6 +55,9 @@ jobs:
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
 
+      - name: pip install Tracecat
+        run: python -m pip install --upgrade pip && pip install ".[dev,cli]"
+
       - name: Run tests (headless mode)
         env:
           TRACECAT__IMAGE_TAG: main
