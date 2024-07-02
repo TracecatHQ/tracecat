@@ -159,6 +159,9 @@ jobs:
       - name: Verify Tracecat CLI installation
         run: tracecat --help
 
+      - name: Verify Temporal service is running via tracecat schedules
+        run: tracecat list schedules
+
       - name: Mask sensitive data
         run: |
           echo "::add-mask::${{ secrets.INTEGRATION__ABUSECH_API_KEY }}"
