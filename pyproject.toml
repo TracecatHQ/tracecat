@@ -70,6 +70,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 dev = [
     "respx",
     "pytest",
+    "pytest-benchmark",
     "python-dotenv",
     "pytest-asyncio",
     "pytest-mock==3.14.0",
