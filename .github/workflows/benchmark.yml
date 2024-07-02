@@ -35,7 +35,7 @@ jobs:
         id: set-image-tag
         run: |
           if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "TRACECAT__IMAGE_TAG=latest" >> $GITHUB_ENV
+            echo "TRACECAT__IMAGE_TAG=main" >> $GITHUB_ENV
           else
             echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
           fi
@@ -48,12 +48,6 @@ jobs:
 
       - name: Verify Tracecat API is running
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
-
-      - name: pip install Tracecat
-        run: python -m pip install --upgrade pip && pip install ".[dev,cli]"
-
-      - name: Verify Tracecat CLI installation
-        run: tracecat --help
 
       - name: Run tests (headless mode)
         env:
