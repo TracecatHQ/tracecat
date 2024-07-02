@@ -274,7 +274,7 @@ async def test_workflow_completes_and_correct(
 @pytest.mark.parametrize(
     "dsl",
     [DATA_PATH / "stress_adder_tree.yml"],
-    ids=lambda x: x.split("/")[-1].split(".")[0],
+    ids=lambda path: path.stem,
     indirect=True,
 )
 @pytest.mark.parametrize(
