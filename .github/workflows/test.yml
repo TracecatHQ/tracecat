@@ -156,11 +156,12 @@ jobs:
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev,cli]"
 
-      - name: Verify Tracecat CLI installation
-        run: tracecat --help
-
-      - name: Verify Temporal service is running
-        run: tracecat schedule list
+      - name: Verify Tracecat CLI commands
+        run: |
+          tracecat --help
+          tracecat workflow list
+          tracecat schedule list
+          tracecat secret list
 
       - name: Mask sensitive data
         run: |
