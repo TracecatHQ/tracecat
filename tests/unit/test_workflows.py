@@ -281,16 +281,15 @@ async def test_workflow_completes_and_correct(
     "num_workflows", [10, 100, 1000], ids=lambda x: f"num_workflows={x}"
 )
 @pytest.mark.slow
-@pytest.mark.asyncio
-async def test_stress_workflow(
+def test_stress_workflow(
     dsl, num_workflows, temporal_cluster, mock_registry, auth_sandbox, benchmark
 ):
     """Multiple executions of the same workflow run at the same time."""
     test_name = f"test_stress_workflow-{dsl.title}"
-    client = await get_temporal_client()
 
     async def run_worklows():
         tasks: list[asyncio.Task] = []
+        client = await get_temporal_client()
         async with (
             Worker(
                 client,
@@ -317,7 +316,7 @@ async def test_stress_workflow(
         return tasks
 
     tasks = benchmark.pedantic(
-        lambda: asyncio.run(run_worklows), iterations=3, rounds=1
+        lambda: asyncio.run(run_worklows()), iterations=3, rounds=1
     )
     assert all(task.done() for task in tasks)
 
