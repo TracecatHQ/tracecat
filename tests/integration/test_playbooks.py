@@ -2,13 +2,43 @@ import json
 import os
 import subprocess
 
+import httpx
 import pytest
 from dotenv import load_dotenv
 from loguru import logger
 
-from tracecat.cli.workflow import _activate_workflow, _create_workflow
-
 load_dotenv()
+
+
+def user_client() -> httpx.AsyncClient:
+    """Returns an asynchronous httpx client with the user's JWT token."""
+    return httpx.AsyncClient(
+        headers={"Authorization": "Bearer super-secret-jwt-token"},
+        base_url=os.environ.get("TRACECAT__PUBLIC_API_URL", "http://localhost:8000"),
+    )
+
+
+async def _create_workflow(title: str | None = None, description: str | None = None):
+    async with user_client() as client:
+        # Get the webhook url
+        params = {}
+        if title:
+            params["title"] = title
+        if description:
+            params["description"] = description
+        res = await client.post("/workflows", json=params)
+        return res.json()
+
+
+async def _activate_workflow(workflow_id: str, with_webhook: bool = False):
+    async with user_client() as client:
+        res = await client.patch(f"/workflows/{workflow_id}", json={"status": "online"})
+        res.raise_for_status()
+        if with_webhook:
+            res = await client.patch(
+                f"/workflows/{workflow_id}/webhook", json={"status": "online"}
+            )
+            res.raise_for_status()
 
 
 # Fixture to create Tracecat secrets
@@ -96,10 +126,10 @@ def create_secrets():
                     "source_ip": "192.168.1.10",
                     "destination_ip": "203.0.113.5",
                     "url": "http://malicious-example.com",
-                    "additional_info": "Detected command and control communication attempt."
-                }
-            }
-        )
+                    "additional_info": "Detected command and control communication attempt.",
+                },
+            },
+        ),
     ],
 )
 @pytest.mark.asyncio

@@ -58,10 +58,9 @@ def read_input(data: str) -> dict[str, str]:
         raise typer.BadParameter(f"Invalid JSON: {e}") from e
 
 
-def handle_response(res: httpx.Response) -> httpx.Response:
+def handle_response(res: httpx.Response) -> None:
     if res.status_code == 422:
-        rich.print("[red]Validation error[/red]")
+        rich.print("[red]Data validation error[/red]")
         rich.print(res.json())
         raise typer.Exit()
     res.raise_for_status()
-    return res

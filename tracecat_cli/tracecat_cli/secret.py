@@ -1,15 +1,27 @@
 import asyncio
+from typing import TypedDict
 
 import orjson
 import rich
 import typer
 from rich.console import Console
 
-from tracecat.types.api import CreateSecretParams
-
 from ._utils import dynamic_table, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Manage secrets.")
+
+
+class SecretKeyValue(TypedDict):
+    key: str
+    value: str
+
+
+def keyvalues_from_string(keyvalues: list[str]) -> list[SecretKeyValue]:
+    keyvalues = []
+    for kv in keyvalues:
+        key, value = kv.split("=", 1)
+        keyvalues.append({"key": key, "value": value})
+    return keyvalues
 
 
 async def create_secret(secret_name: str, keyvalues: list[str]):
@@ -20,15 +32,11 @@ async def create_secret(secret_name: str, keyvalues: list[str]):
         secret_name (str): Secret name, can have multiple key-value pairs.
         keyvalues (list[str]): Space-separated KEY-VALUE items.
     """
-    params = CreateSecretParams.from_strings(secret_name, keyvalues)
+    params = {"name": secret_name, "keys": keyvalues_from_string(keyvalues)}
     async with user_client() as client:
-        res = await client.put(
-            "/secrets",
-            content=orjson.dumps(
-                {**params.model_dump(exclude={"keys"}), "keys": params.reveal_keys()}
-            ),
-        )
+        res = await client.put("/secrets", content=orjson.dumps(params))
         res.raise_for_status()
+    return res.json()
 
 
 async def delete_secret(secret_name: str):
@@ -41,6 +49,7 @@ async def delete_secret(secret_name: str):
     async with user_client() as client:
         res = await client.delete(f"/secrets/{secret_name}")
         res.raise_for_status()
+    return res.json()
 
 
 async def list_secrets():
@@ -73,7 +82,6 @@ def create(
         secret_name (str): Secret name, can have multiple key-value pairs.
         keyvalues (list[str]): Space-separated KEY-VALUE items.
     """
-    rich.print(f"Creating secret {secret_name!r}")
     asyncio.run(create_secret(secret_name, keyvalues))
     rich.print("[green]Secret created successfully![/green]")
 
@@ -96,6 +104,8 @@ def delete(secret_name: str = typer.Argument(..., help="Secret name")):
     Args:
         secret_name (str): Secret name.
     """
-    rich.print(f"Deleting secret {secret_name!r}")
+    if not typer.confirm(f"Are you sure you want to delete {secret_name!r}"):
+        rich.print("Aborted")
+        return
     asyncio.run(delete_secret(secret_name))
     rich.print("[green]Secret deleted successfully![/green]")

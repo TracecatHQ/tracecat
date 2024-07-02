@@ -8,10 +8,7 @@ import rich
 import typer
 from rich.console import Console
 
-from tracecat.types.api import WebhookResponse
-from tracecat.types.headers import CustomHeaders
-
-from ._utils import dynamic_table, read_input, user_client
+from ._utils import dynamic_table, handle_response, read_input, user_client
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
@@ -30,7 +27,7 @@ async def _commit_workflow(yaml_path: Path, workflow_id: str):
     try:
         async with user_client() as client:
             res = await client.post(f"/workflows/{workflow_id}/commit", **kwargs)
-            res.raise_for_status()
+            handle_response(res)
             rich.print(f"Successfully committed to workflow {workflow_id!r}!")
     except httpx.HTTPStatusError as e:
         rich.print(f"[red]Failed to commit to workflow {workflow_id!r}![/red]")
@@ -46,8 +43,8 @@ async def _run_workflow(
     async with user_client() as client:
         # Get the webhook url
         res = await client.get(f"/workflows/{workflow_id}/webhook")
-        res.raise_for_status()
-        webhook = WebhookResponse.model_validate(res.json())
+        handle_response(res)
+        webhook = res.json()
     content = orjson.dumps(payload) if payload else None
     if proxy:
         run_client = httpx.AsyncClient()
@@ -60,10 +57,10 @@ async def _run_workflow(
         res = await client.post(
             url,
             content=content,
-            headers={CustomHeaders.ENABLE_RUNTIME_TESTS: "true"} if test else None,
+            headers={"X-Tracecat-Enable-Runtime-Tests": "true"} if test else None,
         )
         try:
-            res.raise_for_status()
+            handle_response(res)
             rich.print(res.json())
         except json.JSONDecodeError:
             rich.print(res.text)
@@ -90,7 +87,7 @@ async def _create_workflow(title: str | None = None, description: str | None = N
         if description:
             params["description"] = description
         res = await client.post("/workflows", content=orjson.dumps(params))
-        res.raise_for_status()
+        handle_response(res)
         rich.print("Created workflow")
         return res.json()
 
@@ -100,26 +97,34 @@ async def _activate_workflow(workflow_id: str, with_webhook: bool = False):
         res = await client.patch(
             f"/workflows/{workflow_id}", content=orjson.dumps({"status": "online"})
         )
-        res.raise_for_status()
+        handle_response(res)
         if with_webhook:
             res = await client.patch(
                 f"/workflows/{workflow_id}/webhook",
                 content=orjson.dumps({"status": "online"}),
             )
-            res.raise_for_status()
+            handle_response(res)
 
 
 async def _list_workflows():
     async with user_client() as client:
         res = await client.get("/workflows")
-        res.raise_for_status()
+        handle_response(res)
     return res.json()
+
+
+async def _delete_workflows(workflow_ids: list[str]):
+    async with user_client() as client, asyncio.TaskGroup() as tg:
+        for workflow_id in workflow_ids:
+            tg.create_task(client.delete(f"/workflows/{workflow_id}"))
+
+    rich.print("Deleted workflows")
 
 
 async def _get_cases(workflow_id: str):
     async with user_client() as client:
         res = await client.get(f"/workflows/{workflow_id}/cases")
-        res.raise_for_status()
+        handle_response(res)
     return res.json()
 
 
@@ -225,17 +230,9 @@ def delete(
 ):
     """Delete workflows"""
 
-    async def _delete_workflows(workflow_ids: list[str]):
-        delete = typer.confirm(f"Are you sure you want to delete {workflow_ids!r}")
-        if not delete:
-            rich.print("Aborted")
-            return
-        async with user_client() as client, asyncio.TaskGroup() as tg:
-            for workflow_id in workflow_ids:
-                tg.create_task(client.delete(f"/workflows/{workflow_id}"))
-
-        rich.print("Deleted workflows")
-
+    if not typer.confirm(f"Are you sure you want to delete {workflow_ids!r}"):
+        rich.print("Aborted")
+        return
     asyncio.run(_delete_workflows(workflow_ids))
 
 
@@ -248,7 +245,7 @@ def inspect(
     async def _inspect_workflow():
         async with user_client() as client:
             res = await client.get(f"/workflows/{workflow_id}")
-            res.raise_for_status()
+            handle_response(res)
             return res.json()
 
     result = asyncio.run(_inspect_workflow())

@@ -6,8 +6,6 @@ import rich
 import typer
 from rich.console import Console
 
-from tracecat.types.api import CreateScheduleParams, UpdateScheduleParams
-
 from ._utils import (
     dynamic_table,
     handle_response,
@@ -36,18 +34,17 @@ def create(
 
     inputs = read_input(data) if data else None
 
-    params = CreateScheduleParams(
-        workflow_id=workflow_id,
-        every=every,
-        offset=offset,
-        inputs=inputs,
-    )
+    params = {}
+    if inputs:
+        params["inputs"] = inputs
+    if every:
+        params["every"] = every
+    if offset:
+        params["offset"] = offset
+    params["workflow_id"] = workflow_id
 
     with user_client_sync() as client:
-        res = client.post(
-            "/schedules",
-            json=params.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
-        )
+        res = client.post("/schedules", json=params)
         handle_response(res)
 
     rich.print(res.json())
@@ -115,17 +112,22 @@ def update(
     if online and offline:
         raise typer.BadParameter("Cannot set both online and offline")
 
-    params = UpdateScheduleParams(
-        inputs=read_input(inputs) if inputs else None,
-        every=every,
-        offset=offset,
-        status="online" if online else "offline",
-    )
+    params = {}
+    if inputs:
+        params["inputs"] = read_input(inputs)
+    if every:
+        params["every"] = every
+    if offset:
+        params["offset"] = offset
+    if online:
+        params["status"] = "online"
+    if offline:
+        params["status"] = "offline"
+
+    if not params:
+        raise typer.BadParameter("No parameters provided to update")
     with user_client_sync() as client:
-        res = client.post(
-            f"/schedules/{schedule_id}",
-            json=params.model_dump(exclude_unset=True, exclude_none=True, mode="json"),
-        )
+        res = client.post(f"/schedules/{schedule_id}", json=params)
         handle_response(res)
     rich.print(res.json())
 
