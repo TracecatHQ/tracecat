@@ -8,7 +8,8 @@ from pydantic import BaseModel
 
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
-from tracecat.dsl.common import DSLInput, get_temporal_client
+from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.workflow import DSLContext, DSLRunArgs, DSLWorkflow
 
 

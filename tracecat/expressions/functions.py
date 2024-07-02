@@ -8,7 +8,11 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
+import jsonpath_ng
+from jsonpath_ng.exceptions import JsonPathParserError
+
 from tracecat.expressions.validators import is_iterable
+from tracecat.types.exceptions import TracecatExpressionError
 
 
 def _bool(x: Any) -> bool:
@@ -119,3 +123,32 @@ def mappable(func: Callable[P, R]) -> Callable[P, R]:
 
 
 FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
+
+
+def cast(x: Any, typename: str) -> Any:
+    if typename not in BUILTIN_TYPE_NAPPING:
+        raise ValueError(f"Unknown type {typename!r} for cast operation.")
+    return BUILTIN_TYPE_NAPPING[typename](x)
+
+
+def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
+    if operand is None or not isinstance(operand, dict):
+        raise TracecatExpressionError(
+            "A dict-type operand is required for templated jsonpath."
+        )
+    try:
+        # Try to evaluate the expression
+        jsonpath_expr = jsonpath_ng.parse(expr)
+    except JsonPathParserError as e:
+        raise TracecatExpressionError(f"Invalid jsonpath {expr!r}") from e
+    matches = [found.value for found in jsonpath_expr.find(operand)]
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        return matches
+    else:
+        # We know that if this function is called, there was a templated field.
+        # Therefore, it means the jsonpath was valid but there was no match.
+        raise TracecatExpressionError(
+            f"Operand has no path {expr!r}. Operand: {operand}."
+        )

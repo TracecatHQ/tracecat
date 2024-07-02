@@ -19,8 +19,6 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
     3. Default role Role(type="service", service_id="tracecat-service")
     """
 
-    __default_service_id = "tracecat-service"
-
     def __init__(
         self,
         role: Role | None = None,
@@ -34,7 +32,7 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         )
         if self.role.type != "service":
             raise ValueError("AuthenticatedServiceClient can only be used by services")
-        self.headers["Service-Role"] = self.role.service_id or self.__default_service_id
+        self.headers["Service-Role"] = self.role.service_id
         self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
         if self.role.user_id:
             self.headers["Service-User-ID"] = self.role.user_id

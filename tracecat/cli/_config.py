@@ -13,7 +13,9 @@ load_dotenv(find_dotenv())
 @dataclass(frozen=True)
 class Config:
     role: Role = field(
-        default_factory=lambda: Role(type="service", user_id="default-tracecat-user")
+        default_factory=lambda: Role(
+            type="service", user_id="default-tracecat-user", service_id="tracecat-cli"
+        )
     )
     jwt_token: str = field(default="super-secret-jwt-token")
     docs_path: Path = field(default_factory=lambda: Path("docs"))

@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import re
 from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
-from tracecat.expressions.engine import ExprContext, TemplateExpression
+from tracecat.expressions.engine import Expression, TemplateExpression
+from tracecat.expressions.shared import ExprContext
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
@@ -94,3 +97,17 @@ def extract_templated_secrets(
 
     _eval_templated_obj_rec(templated_obj, operator)
     return list(secrets)
+
+
+def extract_expressions(templated_obj: Any) -> list[Expression]:
+    """Extract all templates from a templated object."""
+    exprs: list[Expression] = []
+
+    def operator(line: str) -> None:
+        exprs.extend(
+            Expression(match.group("expr"))
+            for match in re.finditer(patterns.TEMPLATE_STRING, line)
+        )
+
+    _eval_templated_obj_rec(templated_obj, operator)
+    return exprs

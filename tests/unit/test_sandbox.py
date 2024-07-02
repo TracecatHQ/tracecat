@@ -2,6 +2,7 @@ import httpx
 import pytest
 import pytest_mock
 
+from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
@@ -45,8 +46,14 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
 
 @pytest.mark.asyncio
 async def test_auth_sandbox_without_secrets(auth_sandbox):
-    async with AuthSandbox() as sandbox:
-        assert sandbox.secrets == {}
-        assert sandbox._role == Role(
-            type="service", user_id="test-tracecat-user", service_id="tracecat-testing"
-        )
+    # Auth sandbox has a different role.
+    with TemporaryRole(
+        type="service", user_id="test-tracecat-user", service_id="tracecat-testing"
+    ):
+        async with AuthSandbox() as sandbox:
+            assert sandbox.secrets == {}
+            assert sandbox._role == Role(
+                type="service",
+                user_id="test-tracecat-user",
+                service_id="tracecat-testing",
+            )
