@@ -138,7 +138,6 @@ def create(
     ),
 ):
     """Create a new workflow."""
-    rich.print("Creating a new workflow")
 
     async def tasks():
         result = await _create_workflow(title=title, description=description)
