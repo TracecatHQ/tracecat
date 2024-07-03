@@ -66,8 +66,6 @@ jobs:
 
       - name: Run tests (headless mode)
         env:
-          # To call temporal from outside docker service (otherwise defaults to http://temporal:7233)
-          TEMPORAL__CLUSTER_URL: http://localhost:7233
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
           LOG_LEVEL: WARNING
         run: |
