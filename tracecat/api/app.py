@@ -784,10 +784,10 @@ async def commit_workflow(
                 return CommitWorkflowResponse(
                     workflow_id=workflow_id,
                     status="failure",
-                    message=f"{len(val_errors)} validation errors",
+                    message=f"{len(val_errors)} validation error(s)",
                     errors=[
-                        UDFArgsValidationResponse.from_validation_result(e)
-                        for e in val_errors
+                        UDFArgsValidationResponse.from_validation_result(val_res)
+                        for val_res in val_errors
                     ],
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
                 ).to_orjson(status.HTTP_400_BAD_REQUEST)

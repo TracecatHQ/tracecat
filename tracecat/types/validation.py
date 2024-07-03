@@ -22,7 +22,7 @@ class RegistryValidationResult(ValidationResult):
 class ExprValidationResult(ValidationResult):
     """Result of visiting an expression node."""
 
-    type: ExprType
+    exprssion_type: ExprType
 
 
 class SecretValidationResult(ValidationResult):
