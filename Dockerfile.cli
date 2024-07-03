@@ -8,20 +8,19 @@ RUN groupadd --gid 1000 appuser && \
 
 WORKDIR /app
 
-COPY cli/project.toml /app/
+COPY cli/pyproject.toml /app/
 COPY cli/tracecat_cli /app/tracecat_cli
 COPY LICENSE cli/README.md /app/
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc && \
-    pip install --no-cache-dir -r project.toml && \
-    apt-get purge -y --auto-remove gcc && \
-    rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && rm -rf /var/lib/apt/lists/*
 RUN chown -R appuser:appuser /app
 
 USER appuser
 
+RUN pip install --upgrade pip
 RUN pip install .
+
+# Add the directory where pip installs executables to the PATH
+ENV PATH="/home/appuser/.local/bin:$PATH"
 
 ENTRYPOINT ["tracecat"]
