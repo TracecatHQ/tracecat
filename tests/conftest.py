@@ -12,7 +12,7 @@ from loguru import logger
 
 from tracecat.dsl.common import DSLInput
 
-DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
+DATA_PATH = Path(__file__).parent.joinpath("data/workflows")
 
 
 def pytest_addoption(parser: pytest.Parser):
