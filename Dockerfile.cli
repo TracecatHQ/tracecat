@@ -25,5 +25,3 @@ USER appuser
 RUN pip install .
 
 ENTRYPOINT ["tracecat"]
-
-CMD ["--help"]
