@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -44,3 +45,20 @@ def parse_child_webhook(
         "path": path,
         "secret": secret,
     }
+
+
+def traverse_leaves(obj: Any, parent_key: str = "") -> Iterator[tuple[str, Any]]:
+    """Iterate through the leaves of a nested dictionary.
+
+    Each iterations returns the location (jsonpath) and the value.
+    """
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            new_key = f"{parent_key}.{key}" if parent_key else key
+            yield from traverse_leaves(value, new_key)
+    elif isinstance(obj, list):
+        for i, item in enumerate(obj):
+            new_key = f"{parent_key}[{i}]"
+            yield from traverse_leaves(item, new_key)
+    else:
+        yield parent_key, obj
