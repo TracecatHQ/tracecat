@@ -151,7 +151,7 @@ def _commit_workflow(yaml_path: Path, workflow_id: str):
             rich.print(f"Successfully committed to workflow {workflow_id!r}!")
     except httpx.HTTPStatusError as e:
         rich.print(f"[red]Failed to commit to workflow {workflow_id!r}![/red]")
-        rich.print(e.response.json())
+        rich.print(orjson.dumps(e.response.json(), option=orjson.OPT_INDENT_2).decode())
 
 
 def _run_workflow(
