@@ -6,13 +6,8 @@ import rich
 import typer
 from rich.console import Console
 
-from ._utils import (
-    dynamic_table,
-    handle_response,
-    read_input,
-    user_client,
-    user_client_sync,
-)
+from ._client import Client
+from ._utils import dynamic_table, read_input
 
 app = typer.Typer(no_args_is_help=True, help="Manage schedules.")
 
@@ -43,11 +38,11 @@ def create(
         params["offset"] = offset
     params["workflow_id"] = workflow_id
 
-    with user_client_sync() as client:
+    with Client() as client:
         res = client.post("/schedules", json=params)
-        handle_response(res)
+        result = Client.handle_response(res)
 
-    rich.print(res.json())
+    rich.print(result)
 
 
 @app.command(name="list", help="List all schedules")
@@ -60,16 +55,15 @@ def list_schedules(
     params = {}
     if workflow_id:
         params["workflow_id"] = workflow_id
-    with user_client_sync() as client:
+    with Client() as client:
         res = client.get("/schedules", params=params)
-        handle_response(res)
+        result = Client.handle_response(res)
 
-    result = res.json()
     if as_table:
         table = dynamic_table(result, "Schedules")
         Console().print(table)
     else:
-        rich.print(result)
+        rich.print(result if len(result) > 1 else "[cyan]No schedules found[/cyan]")
 
 
 @app.command(help="Delete schedules", no_args_is_help=True)
@@ -86,11 +80,12 @@ def delete(
         return
 
     async def _delete():
-        async with user_client() as client, asyncio.TaskGroup() as tg:
+        async with Client() as client, asyncio.TaskGroup() as tg:
             for sch_id in schedule_ids:
                 tg.create_task(client.delete(f"/schedules/{sch_id}"))
 
     asyncio.run(_delete())
+    rich.print("Deleted schedules successfully!")
 
 
 @app.command(help="Update a schedule", no_args_is_help=True)
@@ -126,10 +121,10 @@ def update(
 
     if not params:
         raise typer.BadParameter("No parameters provided to update")
-    with user_client_sync() as client:
+    with Client() as client:
         res = client.post(f"/schedules/{schedule_id}", json=params)
-        handle_response(res)
-    rich.print(res.json())
+        result = Client.handle_response(res)
+    rich.print(result)
 
 
 @app.command(help="Inspect a schedule", no_args_is_help=True)
@@ -138,7 +133,7 @@ def inspect(
 ):
     """Inspect a schedule"""
 
-    with user_client_sync() as client:
+    with Client() as client:
         res = client.get(f"/schedules/{schedule_id}")
-        handle_response(res)
-    rich.print(res.json())
+        result = Client.handle_response(res)
+    rich.print(result)
