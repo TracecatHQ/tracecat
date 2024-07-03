@@ -1,20 +1,20 @@
 from pydantic import BaseModel
 
-from tracecat.dsl.common import ActionStatement, DSLInput
+from tracecat.dsl.common import ActionStatement, DSLEntrypoint, DSLInput
 from tracecat.dsl.graph import RFGraph, TriggerNode
 
 
 class TestMetadata(BaseModel):
     title: str
     description: str
-    entrypoint: str
+    entrypoint: DSLEntrypoint
     trigger: TriggerNode
 
 
 metadata = TestMetadata(
     title="TEST_WORKFLOW",
     description="TEST_DESCRIPTION",
-    entrypoint="action_a",
+    entrypoint={"ref": "action_a"},
     trigger={
         "id": "trigger-TEST_WORKFLOW_ID",
         "type": "trigger",
