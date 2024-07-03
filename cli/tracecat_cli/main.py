@@ -9,9 +9,9 @@ app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 
 def version_callback(value: bool):
     if value:
-        from tracecat import __version__
+        from tracecat_cli import __version__
 
-        typer.echo(f"Tracecat version: {__version__}")
+        typer.echo(__version__)
         raise typer.Exit()
 
 

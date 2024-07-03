@@ -1,0 +1,26 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+COPY cli/pyproject.toml /app/
+COPY cli/tracecat_cli /app/tracecat_cli
+COPY LICENSE cli/README.md /app/
+
+RUN apt-get update && rm -rf /var/lib/apt/lists/*
+RUN chown -R appuser:appuser /app
+
+USER appuser
+
+RUN pip install --upgrade pip
+RUN pip install .
+
+# Add the directory where pip installs executables to the PATH
+ENV PATH="/home/appuser/.local/bin:$PATH"
+
+ENTRYPOINT ["tracecat"]

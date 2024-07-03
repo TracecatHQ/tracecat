@@ -108,7 +108,54 @@ jobs:
             NODE_ENV=$NODE_ENV
           push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.meta.outputs.tags }}
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  push-cli-to-ghcr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/tracecathq/tracecat-cli
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cli
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'ghcr.io/tracecathq/tracecat-cli:latest' || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Verify Docker CLI commands
+        run: |
+          docker run --rm ghcr.io/tracecathq/tracecat-cli
+          docker run --rm ghcr.io/tracecathq/tracecat-cli --version
