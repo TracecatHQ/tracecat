@@ -21,24 +21,18 @@ classifiers = [
     "Topic :: System :: Monitoring",
     "Topic :: System :: Systems Administration",
 ]
-dependencies = ["typer==0.12.3", "python-dotenv==1.0.1", "orjson==3.10.3"]
+dependencies = [
+    "orjson==3.10.3",
+    "python-dotenv==1.0.1",
+    "PyYAML==6.0.1",
+    "typer==0.12.3",
+]
 dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
-
-[project.optional-dependencies]
-dev = [
-    "respx",
-    "pytest",
-    "pytest-asyncio",
-    "pytest-mock==3.14.0",
-    "minio",
-    "mypy",
-    "pre-commit",
-]
 
 [project.scripts]
 tracecat = "tracecat_cli.__main__:main"
