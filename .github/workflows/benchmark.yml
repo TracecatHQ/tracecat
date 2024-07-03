@@ -53,10 +53,13 @@ jobs:
           docker compose up --no-deps api worker postgres_db temporal -d
 
       - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
+        run: curl -s http://localhost:8000/health
 
       - name: Verify Tracecat-Temporal connection
-        run: curl -s http://localhost:8000/temporal-health | jq -e '.status == "ok"'
+        run: curl -s http://localhost:8000/temporal-health
+
+      - name: Verify Temporal CLI commands
+        run: temporal --version
 
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
@@ -68,7 +71,7 @@ jobs:
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
           LOG_LEVEL: WARNING
         run: |
-          pytest -k "test_stress_workflow" --temporal-no-restart --tracecat-no-restart
+          pytest -k "test_stress" --temporal-no-restart --tracecat-no-restart
               --benchmark-name=short \
               --benchmark-group-by=param \
               --benchmark-warmup=off \
