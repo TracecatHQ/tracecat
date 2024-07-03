@@ -3,7 +3,8 @@ title: Concat tree Workflow with webhook
 #    /\
 #   B  c
 description: Use this for testing webhook correctness
-entrypoint: a
+entrypoint:
+  ref: a
 
 triggers:
   - type: webhook

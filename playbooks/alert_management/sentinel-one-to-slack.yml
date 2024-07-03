@@ -2,7 +2,8 @@ title: Send Slack notifications for SentinelOne alerts
 description: |
   Pulls SentinelOne alerts and sends them to Slack.
   Also sends a message if no alerts available.
-entrypoint: pull_sentinelone_alerts
+entrypoint:
+  ref: pull_sentinelone_alerts
 triggers:
   - type: webhook
     ref: sentinelone_alerts_webhook

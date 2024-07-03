@@ -4,7 +4,8 @@ description: |
   `alert_ids` and `status` provided in the Slack action payload.
 config:
   enable_runtime_tests: true
-entrypoint: extract_slack_payload
+entrypoint:
+  ref: extract_slack_payload
 triggers:
   - type: webhook
     ref: slack_actions_webhook

@@ -1,0 +1,39 @@
+title: Fatal error Workflow
+#    A
+#    |
+#    B
+description: Use this to test error handling
+config:
+  scheduler: dynamic
+entrypoint:
+  ref: a
+  # Expect a json object
+  expects:
+    value: int
+    another_invalid: str
+    invalid: int
+
+inputs:
+  invalid: 1
+  value:
+    another_invalid: ${{ACTIONS.a.result -> int}}
+
+triggers:
+  - type: webhook
+    ref: my_webhook
+    entrypoint: a # This can be any
+
+actions:
+  - ref: a
+    action: core.transform.forward
+    args:
+      # This will throw because no result is available
+      value: ${{ INPUTS.invalid }}
+
+  - ref: b
+    action: example.add
+    args:
+      lhs: ${{ ACTIONS.a.result -> int }}
+      rhs: ${{ INPUTS.value.another_invalid }}
+    depends_on:
+      - a

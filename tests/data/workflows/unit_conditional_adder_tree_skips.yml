@@ -5,7 +5,8 @@ title: Adder tree skips
 description: Test that the condition returns false and C does not run
 config:
   scheduler: dynamic
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   another_url: http://api:8000
   value: 1

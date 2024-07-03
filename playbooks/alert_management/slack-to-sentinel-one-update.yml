@@ -2,7 +2,8 @@ title: Update SentinelOne alerts via Slack
 description: |
   Receives a Slack action and updates SentinelOne alerts based on
   `alert_ids` and `status` provided in the Slack action payload.
-entrypoint: extract_slack_payload
+entrypoint:
+  ref: extract_slack_payload
 triggers:
   - type: webhook
     ref: slack_actions_webhook
@@ -12,7 +13,7 @@ actions:
   - ref: extract_slack_payload
     action: core.transform.forward
     # Check if action received is as expected
-    run_if: ${{ FN.equal(TRIGGER.action.action_id, 'update_sentinelone_alert') }}
+    run_if: ${{ FN.is_equal(TRIGGER.action.action_id, 'update_sentinelone_alert') }}
     args:
       value:
         username: ${{ TRIGGER.user.username }}

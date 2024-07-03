@@ -1,7 +1,8 @@
 title: Send Virustotal report to email
 description: Scan a malicious hash on Virustotal and send the results to an email address
 
-entrypoint: call_virustotal
+entrypoint:
+  ref: call_virustotal
 triggers:
   - type: webhook
     ref: my_webhook

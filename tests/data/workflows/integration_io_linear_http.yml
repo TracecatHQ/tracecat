@@ -2,7 +2,8 @@ title: Send Slack notifications for GuardDuty findings
 description: Tests that we can wait on external IO.
 config:
   scheduler: dynamic
-entrypoint: pull_aws_guardduty_findings
+entrypoint:
+  ref: pull_aws_guardduty_findings
 inputs:
   uim_url: http://host.docker.internal:8005
   num_days: 1

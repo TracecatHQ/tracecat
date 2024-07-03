@@ -15,7 +15,8 @@ description: |
   - D still runs
 config:
   scheduler: dynamic
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   another_url: http://api:8000
   value: 1
