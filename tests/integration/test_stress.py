@@ -31,6 +31,6 @@ def test_concurrent_workflows(
         dispatch_workflow(dsl=dsl, wf_id=generate_wf_id()) for _ in range(num_workflows)
     ]
     workflow_runs = benchmark.pedantic(
-        lambda: asyncio.gather(tasks()), iterations=3, rounds=1
+        lambda: asyncio.gather(tasks), iterations=3, rounds=1
     )
     assert all(run.done() for run in workflow_runs)
