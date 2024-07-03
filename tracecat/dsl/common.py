@@ -11,10 +11,12 @@ from typing import Annotated, Any, Literal, Self, TypedDict
 
 import fsspec
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from tracecat.expressions import patterns
 from tracecat.expressions.validators import TemplateValidator
 from tracecat.logging import logger
+from tracecat.parse import traverse_leaves
 from tracecat.types.exceptions import TracecatDSLError
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -173,8 +175,9 @@ class DSLInput(BaseModel):
         dsl_dict = yaml.safe_load(yaml_str)
         try:
             return DSLInput.model_validate(dsl_dict)
-        except Exception as e:
-            raise TracecatDSLError(e) from e
+        except* TracecatDSLError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            raise eg
 
     def to_yaml(self, path: str | Path) -> None:
         with Path(path).expanduser().resolve().open("w") as f:
@@ -184,7 +187,7 @@ class DSLInput(BaseModel):
         return yaml.dump(self.model_dump())
 
     @model_validator(mode="after")
-    def validate_input(self) -> Self:
+    def validate_structure(self) -> Self:
         if not self.actions:
             raise TracecatDSLError("At least one action must be defined")
         if len({action.ref for action in self.actions}) != len(self.actions):
@@ -203,6 +206,28 @@ class DSLInput(BaseModel):
         if invalid_refs:
             raise TracecatDSLError(f"Invalid action refs in tests: {invalid_refs}")
         return self
+
+    @field_validator("inputs")
+    @classmethod
+    def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
+        try:
+            exceptions = []
+            for loc, value in traverse_leaves(inputs):
+                if not isinstance(value, str):
+                    continue
+                for match in patterns.TEMPLATE_STRING.finditer(value):
+                    template = match.group("template")
+                    exceptions.append(
+                        TracecatDSLError(
+                            "Static `INPUTS` context cannot contain expressions,"
+                            f" but found {template!r} in INPUTS.{loc}"
+                        )
+                    )
+            if exceptions:
+                raise ExceptionGroup("Static `INPUTS` validation failed", exceptions)
+            return inputs
+        except* TracecatDSLError as eg:
+            raise eg
 
 
 class DSLNodeResult(TypedDict):

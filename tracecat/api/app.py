@@ -750,14 +750,31 @@ async def commit_workflow(
             # Perform Tiered Validation
             # Tier 1: DSLInput validation
             # Verify that the workflow DSL is structurally sound
-            if yaml_file:
-                # Uploaded YAML file overrides the workflow in the database
-                dsl = DSLInput.from_yaml(yaml_file.file)
-                logger.info("Commiting workflow from yaml file")
-            else:
-                # Convert the workflow into a WorkflowDefinition
-                dsl = converters.workflow_to_dsl(workflow)
-                logger.info("Commiting workflow from database")
+            dsl_construction_error = None
+            try:
+                if yaml_file:
+                    # Uploaded YAML file overrides the workflow in the database
+                    dsl = DSLInput.from_yaml(yaml_file.file)
+                    logger.info("Commiting workflow from yaml file")
+                else:
+                    # Convert the workflow into a WorkflowDefinition
+                    dsl = converters.workflow_to_dsl(workflow)
+                    logger.info("Commiting workflow from database")
+            except* TracecatValidationError as eg:
+                logger.error(eg.message, error=eg.exceptions)
+                dsl_construction_error = CommitWorkflowResponse(
+                    workflow_id=workflow_id,
+                    status="failure",
+                    message=f"Workflow definition construction failed with {len(eg.exceptions)} errors: {eg.message}",
+                    errors=[
+                        UDFArgsValidationResponse.from_validation_exc(e)
+                        for e in eg.exceptions
+                    ],
+                    metadata={"filename": yaml_file.filename} if yaml_file else None,
+                )
+
+            if dsl_construction_error:
+                return dsl_construction_error.to_orjson(status.HTTP_400_BAD_REQUEST)
 
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
