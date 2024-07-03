@@ -2,43 +2,13 @@ import json
 import os
 import subprocess
 
-import httpx
 import pytest
 from dotenv import load_dotenv
 from loguru import logger
 
+import tests.integration.shared as shared
+
 load_dotenv()
-
-
-def user_client() -> httpx.AsyncClient:
-    """Returns an asynchronous httpx client with the user's JWT token."""
-    return httpx.AsyncClient(
-        headers={"Authorization": "Bearer super-secret-jwt-token"},
-        base_url=os.environ.get("TRACECAT__PUBLIC_API_URL", "http://localhost:8000"),
-    )
-
-
-async def _create_workflow(title: str | None = None, description: str | None = None):
-    async with user_client() as client:
-        # Get the webhook url
-        params = {}
-        if title:
-            params["title"] = title
-        if description:
-            params["description"] = description
-        res = await client.post("/workflows", json=params)
-        return res.json()
-
-
-async def _activate_workflow(workflow_id: str, with_webhook: bool = False):
-    async with user_client() as client:
-        res = await client.patch(f"/workflows/{workflow_id}", json={"status": "online"})
-        res.raise_for_status()
-        if with_webhook:
-            res = await client.patch(
-                f"/workflows/{workflow_id}/webhook", json={"status": "online"}
-            )
-            res.raise_for_status()
 
 
 # Fixture to create Tracecat secrets
@@ -139,9 +109,9 @@ async def test_playbook(path_to_playbook, trigger_data):
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
     description = f"Test playbook: {filename}"
-    workflow = await _create_workflow(filename, description)
+    workflow = await shared.create_workflow(filename, description)
     workflow_id = workflow["id"]
-    await _activate_workflow(workflow_id, with_webhook=True)
+    await shared.activate_workflow(workflow_id, with_webhook=True)
     # 2. Run the workflow
     output = subprocess.run(
         [
