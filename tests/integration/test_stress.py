@@ -12,7 +12,7 @@ TEST_WF_ID = "wf-00000000000000000000000000000000"
 
 @pytest.mark.parametrize(
     "dsl",
-    [DATA_PATH / "stress_adder_tree.yml"],
+    ["stress_adder_tree"],
     ids=lambda path: path.stem,
     indirect=True,
 )
