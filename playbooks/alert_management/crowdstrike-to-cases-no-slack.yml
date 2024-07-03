@@ -4,10 +4,13 @@
 # (1) Create, commit, and activate the workflow (+webhook) in one step with the following command:
 # >>> tracecat workflow create --commit playbooks/alert_management/crowdstrike-to-cases.yml --activate --webhook
 #
-# (2) To run the workflow, run the following command with the workflow ID (replace with your own):
-# >>> tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"my": "data", "for": "the", "workflow": "run"}'
+# (2) List all workflows and take note of the workflow ID
+# >>> tracecat workflow list
+#
+# (3) To run the workflow, run the following command with the workflow ID (replace with your own):
+# >>> tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"start_time": "2024-01-01", "end_time": "2024-01-02"}'
 # To run workflow with action tests:
-# >>> tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"my": "data", "for": "the", "workflow": "run"}' --test
+# >>> tracecat workflow run wf-XXXXXXXXXXXXXXXXXXXXXXXXXX --data '{"start_time": "2024-01-01", "end_time": "2024-01-02"}' --test
 #
 # TRIGGER DATA SHAPE:
 # - start_time: ISO8601 string

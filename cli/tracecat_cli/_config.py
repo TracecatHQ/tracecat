@@ -4,9 +4,14 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from tracecat.types.auth import Role
-
 load_dotenv(find_dotenv())
+
+
+@dataclass
+class Role:
+    type: str
+    user_id: str | None
+    service_id: str
 
 
 # In reality we should use the user's id from config.toml
