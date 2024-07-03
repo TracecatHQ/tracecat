@@ -21,6 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
@@ -750,7 +751,7 @@ async def commit_workflow(
             # Perform Tiered Validation
             # Tier 1: DSLInput validation
             # Verify that the workflow DSL is structurally sound
-            dsl_construction_error = None
+            construction_errors = []
             try:
                 if yaml_file:
                     # Uploaded YAML file overrides the workflow in the database
@@ -762,19 +763,26 @@ async def commit_workflow(
                     logger.info("Commiting workflow from database")
             except* TracecatValidationError as eg:
                 logger.error(eg.message, error=eg.exceptions)
-                dsl_construction_error = CommitWorkflowResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"Workflow definition construction failed with {len(eg.exceptions)} errors: {eg.message}",
-                    errors=[
-                        UDFArgsValidationResponse.from_validation_exc(e)
-                        for e in eg.exceptions
-                    ],
-                    metadata={"filename": yaml_file.filename} if yaml_file else None,
+                construction_errors.extend(
+                    UDFArgsValidationResponse.from_dsl_validation_error(e)
+                    for e in eg.exceptions
                 )
 
-            if dsl_construction_error:
-                return dsl_construction_error.to_orjson(status.HTTP_400_BAD_REQUEST)
+            except* ValidationError as eg:
+                logger.error(eg.message, error=eg.exceptions)
+                construction_errors.extend(
+                    UDFArgsValidationResponse.from_pydantic_validation_error(e)
+                    for e in eg.exceptions
+                )
+
+            if construction_errors:
+                return CommitWorkflowResponse(
+                    workflow_id=workflow_id,
+                    status="failure",
+                    message=f"Workflow definition construction failed with {len(construction_errors)} errors",
+                    errors=construction_errors,
+                    metadata={"filename": yaml_file.filename} if yaml_file else None,
+                ).to_orjson(status.HTTP_400_BAD_REQUEST)
 
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
