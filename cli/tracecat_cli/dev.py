@@ -434,3 +434,66 @@ def generate_secret_tables(
         file.unlink(missing_ok=True)
     with file.open("w") as f:
         f.write(page_content)
+
+
+@app.command(name="delete-test-resources", help="Generate UDF documentation.")
+def delete_test_resources(
+    delete_workflow: bool = typer.Option(
+        False, "--workflow", help="Delete all test workflows."
+    ),
+    delete_secrets: bool = typer.Option(
+        False, "--secrets", help="Delete all test secrets."
+    ),
+    prefix: str = typer.Option(
+        "__test", "--prefix", help="Prefix of the test resources."
+    ),
+):
+    if delete_workflow:
+        cmd = f"tracecat workflow list --json | jq '[.[] | select(.title | startswith(\"{prefix}\"))]'"
+        res = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+        if res.returncode != 0:
+            return rich.print("[red]Failed to list test resources.[/red]")
+
+        workflows = orjson.loads(res.stdout)
+        rich.print(workflows)
+        if not res.stdout:
+            return rich.print("No test resources found.")
+
+        to_delete = [
+            f"{workflow['title']} ({workflow['id']})" for workflow in workflows
+        ]
+        if not typer.confirm(
+            f"Are you sure you want to delete workflows: {to_delete}?"
+        ):
+            return rich.print("Aborted.")
+        rich.print(f"Deleting {len(workflows)} test workflows...")
+        all_ids = " ".join(workflow["id"] for workflow in workflows)
+        cmd = f"echo 'y' | tracecat workflow delete {all_ids} > /dev/null"
+        delete_res = subprocess.run(cmd, shell=True, text=True)
+        if delete_res.returncode != 0:
+            return rich.print(
+                "[red]Failed to delete test workflows.[/red]", delete_res.stderr
+            )
+
+    if delete_secrets:
+        cmd = f"tracecat secret list --json | jq '[.[] | select(.name | startswith(\"{prefix}\"))]'"
+        res = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+        if res.returncode != 0:
+            return rich.print("[red]Failed to list test resources.[/red]")
+
+        secrets = orjson.loads(res.stdout)
+        if not secrets:
+            return rich.print("No test resources found.")
+
+        to_delete = [f"{secret['name']} ({secret['id']})" for secret in secrets]
+        if not typer.confirm(f"Are you sure you want to delete secrets: {to_delete}?"):
+            return rich.print("Aborted.")
+
+        rich.print(f"Deleting {len(secrets)} test secrets...")
+        all_ids = " ".join(secret["id"] for secret in secrets)
+        cmd = f"echo 'y' | tracecat secret delete {all_ids} > /dev/null"
+        delete_res = subprocess.run(cmd, shell=True, text=True)
+        if delete_res.returncode != 0:
+            return rich.print(
+                "[red]Failed to delete test secrets.[/red]", delete_res.stderr
+            )
