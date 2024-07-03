@@ -6,7 +6,7 @@ import pytest
 from dotenv import load_dotenv
 from loguru import logger
 
-from tracecat.cli.workflow import _activate_workflow, _create_workflow
+import tests.integration.shared as shared
 
 load_dotenv()
 
@@ -96,10 +96,10 @@ def create_secrets():
                     "source_ip": "192.168.1.10",
                     "destination_ip": "203.0.113.5",
                     "url": "http://malicious-example.com",
-                    "additional_info": "Detected command and control communication attempt."
-                }
-            }
-        )
+                    "additional_info": "Detected command and control communication attempt.",
+                },
+            },
+        ),
     ],
 )
 @pytest.mark.asyncio
@@ -109,9 +109,9 @@ async def test_playbook(path_to_playbook, trigger_data):
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"
     description = f"Test playbook: {filename}"
-    workflow = await _create_workflow(filename, description)
+    workflow = await shared.create_workflow(filename, description)
     workflow_id = workflow["id"]
-    await _activate_workflow(workflow_id, with_webhook=True)
+    await shared.activate_workflow(workflow_id, with_webhook=True)
     # 2. Run the workflow
     output = subprocess.run(
         [

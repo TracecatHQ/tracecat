@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tracecat.cli.workflow import _commit_workflow, _create_workflow
+import tests.integration.shared as shared
 
 DATA_PATH = Path(__file__).parent.parent.parent.joinpath("playbooks/alert_management")
 TEST_WF_ID = "wf-00000000000000000000000000000000"
@@ -22,5 +22,5 @@ def filename(request: pytest.FixtureRequest) -> Path:
 async def test_workflow_commit(filename, auth_sandbox):
     print(filename)
     title = f"Test workflow: {filename}"
-    workflow_result = await _create_workflow(title)
-    await _commit_workflow(filename, workflow_result["id"])
+    workflow_result = await shared.create_workflow(title)
+    await shared.commit_workflow(filename, workflow_result["id"])

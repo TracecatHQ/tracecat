@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import shutil
 import subprocess
@@ -15,18 +14,19 @@ import typer
 import yaml
 from pydantic import BaseModel
 
+from ._client import Client
 from ._config import config
-from ._utils import read_input, user_client
+from ._utils import read_input
 
 app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 
 
-async def hit_api_endpoint(
+def hit_api_endpoint(
     method: str, endpoint: str, payload: dict[str, str] | None
 ) -> dict[str, Any]:
-    async with user_client() as client:
+    with Client() as client:
         content = orjson.dumps(payload) if payload else None
-        res = await client.request(method=method, url=endpoint, content=content)
+        res = client.request(method=method, url=endpoint, content=content)
         res.raise_for_status()
     return res.json()
 
@@ -40,7 +40,7 @@ def api(
     """Commit a workflow definition to the database."""
 
     payload = read_input(data) if data else None
-    result = asyncio.run(hit_api_endpoint(method, endpoint, payload))
+    result = hit_api_endpoint(method, endpoint, payload)
     rich.print("Hit the endpoint successfully!")
     rich.print(result, len(result))
 
