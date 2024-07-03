@@ -136,6 +136,11 @@ def resolve_string_or_uri(string_or_uri: str) -> Any:
         return string_or_uri
 
 
+class DSLEntrypoint(BaseModel):
+    ref: str = Field(..., description="The entrypoint action ref")
+    expects: dict[str, Any] = Field(default_factory=dict, description="Expected input")
+
+
 class DSLInput(BaseModel):
     """DSL definition for a workflow.
 
@@ -149,7 +154,7 @@ class DSLInput(BaseModel):
 
     title: str
     description: str
-    entrypoint: str = Field(..., description="The entrypoint action ref")
+    entrypoint = DSLEntrypoint
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
@@ -193,7 +198,7 @@ class DSLInput(BaseModel):
         if len({action.ref for action in self.actions}) != len(self.actions):
             raise TracecatDSLError("All task.ref must be unique")
         valid_actions = tuple(action.ref for action in self.actions)
-        if self.entrypoint not in valid_actions:
+        if self.entrypoint.ref not in valid_actions:
             raise TracecatDSLError(
                 f"Entrypoint must be one of the actions {valid_actions!r}"
             )
