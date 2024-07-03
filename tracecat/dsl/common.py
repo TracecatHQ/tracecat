@@ -154,7 +154,7 @@ class DSLInput(BaseModel):
 
     title: str
     description: str
-    entrypoint = DSLEntrypoint
+    entrypoint: DSLEntrypoint
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
