@@ -7,59 +7,18 @@ It's the fastest way to interact with Tracecat and is perfect for automating tas
 
 ## Installation
 
-To install the Tracecat CLI, you will need Python 3.12 installed.
-We recommend using `micromamba` to help with managing multiple Python environments.
-
-<Note>
-  We are working on making our CLI tool more portable so you don't have to use
-  `micromamba` in the future.
-</Note>
-
-### Setup a Micromamba environment
-
-Micromamba is a standalone, pure C++ implementation of the mamba package manager, designed as a smaller and faster alternative to conda.
-It is distributed as a single, statically linked executable file that does not require a base environment or a default Python installation.
-
-Full installation instructions [here](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#operating-system-package-managers)
-
-<CodeGroup>
-
-```bash MacOS
-brew install micromamba
-```
-
-```bash Linux + WSL
-"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
-# You might have to add the binary to your PATH, then follow on-screen instructions
-# to restart and initialize your shell to complete the installation
-```
-
-</CodeGroup>
-
-With `micromamba` installed, you can now install the Tracecat CLI.
-We create a virtual environment for Tracecat to avoid conflicts with other Python packages.
+To install and run the Tracecat CLI, you will need `docker`.
 
 ```bash
-micromamba env create -n tracecat python=3.12
-micromamba activate tracecat
-```
+# Pull the latest image
+docker pull ghcr.io/tracecathq/tracecat-cli
 
-If the environment is activated correctly, you should see something like this in your shell:
+# Create an alias to run the CLI in a container
+alias tracecat='docker run --rm tracecat-cli $@'
 
-```bash
-(tracecat) ~/tracecat $
-```
-
-Now from the root of the Tracecat repository, you can install the CLI using `pip`:
-
-```bash /path/to/tracecat
-pip install ".[cli]"
-```
-
-If installed correctly, you should be able to run the `tracecat` command and see the help output:
-
-```bash
-tracecat
+# Finally source your shell profile
+# NOTE: can be ~/.bashrc, ~/.zshrc, etc.
+source ~/.bashrc
 ```
 
 ## Workflow Management
