@@ -1,0 +1,29 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+COPY cli/project.toml /app/
+COPY cli/tracecat_cli /app/tracecat_cli
+COPY LICENSE cli/README.md /app/
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc && \
+    pip install --no-cache-dir -r project.toml && \
+    apt-get purge -y --auto-remove gcc && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
+
+RUN pip install .
+
+ENTRYPOINT ["tracecat"]
+
+CMD ["--help"]
