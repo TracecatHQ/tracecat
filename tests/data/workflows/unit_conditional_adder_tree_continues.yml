@@ -5,7 +5,8 @@ title: Adder tree continues
 description: Test that the condition returns true and C runs
 config:
   scheduler: dynamic
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   another_url: http://api:8000
   value: 1

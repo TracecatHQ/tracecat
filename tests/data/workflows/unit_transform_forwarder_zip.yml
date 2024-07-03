@@ -1,6 +1,7 @@
 title: Forwarder loop with a list of iterables (zip)
 description: Test that we can loop
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   first: 1
   second: 2

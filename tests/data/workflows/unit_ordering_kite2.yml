@@ -4,7 +4,8 @@ config:
   # Static -> node execution order is fixed, less performant
   # Dynamic -> node execution order is not fixed
   scheduler: dynamic
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   another_url: "http://api:8000"
   value: 1
@@ -13,7 +14,7 @@ triggers:
   - type: webhook
     ref: my_webhook
     id: wh-XXXXXX
-    entrypoint: a # This can be any
+
     args:
       url: http://api:8000/test/items/1
       method: GET

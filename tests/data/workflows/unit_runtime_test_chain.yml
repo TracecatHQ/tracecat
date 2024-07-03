@@ -3,7 +3,8 @@ title: Forward chain with runtime tests
 description: |
   Tests correctness, templates + type casting, context passing, tests.
   A and C get overridden by tests
-entrypoint: a
+entrypoint:
+  ref: a
 actions:
   - ref: a
     action: core.transform.forward

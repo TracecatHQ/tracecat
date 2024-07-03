@@ -2,7 +2,8 @@ title: Send Slack notifications for GuardDuty findings
 description: |
   Pulls GuardDuty findings from AWS and sends them to Slack.
   Also sends a message if no findings available.
-entrypoint: pull_aws_guardduty_findings
+entrypoint:
+  ref: pull_aws_guardduty_findings
 triggers:
   - type: webhook
     ref: guardduty_findings_webhook

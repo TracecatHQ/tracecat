@@ -3,7 +3,8 @@ description: |
   Given a security alert, this playbook extracts URLs and IP addresses from the alert
   enriches them using VirusTotal, and provides triage advice for further investigation.
 
-entrypoint: enrich_iocs
+entrypoint:
+  ref: receive_alert
 triggers:
   - type: webhook
     ref: alert_webhook

@@ -5,7 +5,8 @@ title: Adder tree Workflow with runtime tests
 description: |
   Tests correctness, templates + type casting, context passing, tests.
   B gets overridden by a test, but C's override is disabled.
-entrypoint: a
+entrypoint:
+  ref: a
 actions:
   - ref: a
     action: core.transform.forward

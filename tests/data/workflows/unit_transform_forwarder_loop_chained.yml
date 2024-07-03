@@ -1,6 +1,7 @@
 title: Chained forwarder loop
 description: Test that we can chain for loops back to back
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   first: 1
   second: 2

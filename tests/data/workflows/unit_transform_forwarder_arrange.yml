@@ -1,6 +1,7 @@
 title: Reshape data
 description: Test that we can use a forwarder to reshape data
-entrypoint: flatten
+entrypoint:
+  ref: flatten
 inputs:
   details:
     name: John Doe

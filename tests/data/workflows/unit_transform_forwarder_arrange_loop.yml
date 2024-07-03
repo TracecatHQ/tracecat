@@ -1,6 +1,7 @@
 title: Reshape data in a loop
 description: Test that we can use a forwarder to reshape data from a list of mappings to a list of key-value pairs
-entrypoint: flatten
+entrypoint:
+  ref: flatten
 inputs:
   contacts:
     - name: John Doe

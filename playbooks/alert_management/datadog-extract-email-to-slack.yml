@@ -3,7 +3,8 @@ description: |
   Pulls Datadog SIEM signals (alerts), extracts emails contains within the signal,
   finds Slack users associated with the emails, and tags the Slack users in a notification.
   Requires `datadog` and `slack` secrets.
-entrypoint: pull_datadog_signals
+entrypoint:
+  ref: pull_datadog_signals
 inputs:
   dd_region: us5
   dd_api_url: https://api.us5.datadoghq.com

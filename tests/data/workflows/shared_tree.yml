@@ -7,7 +7,8 @@ title: Tree Workflow
 description: Mainly tests correctness, templates, and context passing
 config:
   scheduler: dynamic
-entrypoint: a
+entrypoint:
+  ref: a
 inputs:
   another_url: "http://api:8000"
   value: 1
