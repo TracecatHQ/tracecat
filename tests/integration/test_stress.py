@@ -27,10 +27,11 @@ def test_concurrent_workflows(
     def generate_wf_id():
         return f"wf-{uuid.uuid4()}"
 
-    tasks = [
-        dispatch_workflow(dsl=dsl, wf_id=generate_wf_id()) for _ in range(num_workflows)
-    ]
-    workflow_runs = benchmark.pedantic(
-        lambda: asyncio.gather(tasks), iterations=3, rounds=1
-    )
-    assert all(run.done() for run in workflow_runs)
+    async def run_workflows():
+        tasks = [
+            dispatch_workflow(dsl=dsl, wf_id=generate_wf_id())
+            for _ in range(num_workflows)
+        ]
+        return await asyncio.gather(*tasks)
+
+    benchmark.pedantic(lambda: asyncio.run(run_workflows()), iterations=3, rounds=1)
