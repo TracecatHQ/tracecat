@@ -21,6 +21,7 @@ from tracecat.expressions.functions import eval_jsonpath
 from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.expressions.visitors import ExprEvaluatorVisitor
+from tracecat.expressions.visitors.validator import ExprValidationContext
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.secrets import SecretKeyValue
 from tracecat.types.validation import ValidationResult
@@ -659,13 +660,32 @@ def assert_validation_result(
                 },
             ],
         ),
+        (
+            {
+                "test": {
+                    "data": "INLINE: ${{ INPUTS.invalid }}",
+                },
+            },
+            [
+                {
+                    "type": ExprType.INPUT,
+                    "status": "error",
+                    "contains_msg": "'invalid'",
+                },
+            ],
+        ),
     ],
 )
 async def test_extract_expressions_errors(expr, expected, auth_sandbox):
     # The only defined action reference is "my_action"
-    act_refs = {"my_action"}
+    validation_context = ExprValidationContext(
+        action_refs={"my_action"},
+        inputs_context={"arg": 2},
+    )
     async with GatheringTaskGroup() as tg:
-        visitor = default_validator_visitor(task_group=tg, action_refs=act_refs)
+        visitor = default_validator_visitor(
+            task_group=tg, validation_context=validation_context
+        )
         exprs = extract_expressions(expr)
         for expr in exprs:
             # This queues up all the coros in the taskgroup
@@ -673,5 +693,6 @@ async def test_extract_expressions_errors(expr, expected, auth_sandbox):
             expr.validate(visitor)
 
     # NOTE: We are using results to get ALL validation results
-    for actual, ex in zip(visitor.errors(), expected, strict=True):
+    errors = list(visitor.errors())
+    for actual, ex in zip(errors, expected, strict=True):
         assert_validation_result(actual, **ex)

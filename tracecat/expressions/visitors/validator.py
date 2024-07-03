@@ -5,13 +5,24 @@ from collections.abc import Awaitable, Iterable, Iterator
 from itertools import chain
 from typing import Any, Literal, override
 
+from pydantic import BaseModel, Field
+
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.common import DSLNodeResult
 from tracecat.expressions import functions, patterns
 from tracecat.expressions.shared import ExprType
 from tracecat.expressions.visitors.base import ExprVisitor
 from tracecat.logging import logger
+from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.validation import ExprValidationResult
+
+
+class ExprValidationContext(BaseModel):
+    """Container for the validation context of an expression tree."""
+
+    action_refs: set[str]
+    inputs_context: Any = Field(default_factory=dict)
+    trigger_context: Any = Field(default_factory=dict)
 
 
 class ExprValidatorVisitor(ExprVisitor):
@@ -22,11 +33,12 @@ class ExprValidatorVisitor(ExprVisitor):
     def __init__(
         self,
         task_group: GatheringTaskGroup,
-        action_refs: set[str],
+        validation_context: ExprValidationContext,
         validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
     ) -> None:
         self._task_group = task_group
-        self._action_refs = action_refs
+        # Contextual information
+        self._context = validation_context
         self._results: list[ExprValidationResult] = []
 
         # External validators
@@ -76,7 +88,7 @@ class ExprValidatorVisitor(ExprVisitor):
     def visit_action_expr(self, expr: str) -> None:
         self.logger.trace("Visit action expression", expr=expr)
         ref, prop, *_ = expr.split(".")
-        if ref not in self._action_refs:
+        if ref not in self._context.action_refs:
             self.add(
                 status="error",
                 msg=f"Invalid action reference {ref!r} in ACTION expression {expr!r}",
@@ -111,7 +123,16 @@ class ExprValidatorVisitor(ExprVisitor):
 
     def visit_input_expr(self, expr: str) -> None:
         self.logger.trace("Visit input expression", expr=expr)
-        self.add(status="success", type=ExprType.INPUT)
+        # Check that the input exists in the inputs context
+        try:
+            functions.eval_jsonpath(expr, self._context.inputs_context)
+            self.add(status="success", type=ExprType.INPUT)
+        except TracecatExpressionError as e:
+            return self.add(
+                status="error",
+                msg=f"Invalid input expression: {expr!r}. {e}",
+                type=ExprType.INPUT,
+            )
 
     def visit_trigger_expr(self, expr: str) -> None:
         self.logger.trace("Visit trigger expression", expr=expr)
