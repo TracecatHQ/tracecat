@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from tracecat import identifiers
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
@@ -349,8 +349,16 @@ class UDFArgsValidationResponse(BaseModel):
         )
 
     @staticmethod
-    def from_validation_exc(exc: TracecatValidationError):
+    def from_dsl_validation_error(exc: TracecatValidationError):
         return UDFArgsValidationResponse(ok=False, message=str(exc), detail=exc.detail)
+
+    @staticmethod
+    def from_pydantic_validation_error(exc: ValidationError):
+        return UDFArgsValidationResponse(
+            ok=False,
+            message=f"Schema validation error: {exc.title}",
+            detail=exc.errors(),
+        )
 
 
 class CommitWorkflowResponse(BaseModel):
