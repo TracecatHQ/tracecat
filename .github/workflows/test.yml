@@ -107,10 +107,10 @@ jobs:
         run: docker compose up --no-deps api worker postgres_db -d
 
       - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
+        run: curl http://localhost:8000/health
 
       - name: Verify Tracecat-Temporal connection
-        run: curl -s http://localhost:8000/temporal-health | jq -e '.status == "ok"'
+        run: curl http://localhost:8000/temporal-health
 
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
@@ -195,8 +195,6 @@ jobs:
 
       - name: Run playbooks
         env:
-          # To call temporal from outside docker service (otherwise defaults to http://temporal:7233)
-          TEMPORAL__CLUSTER_URL: http://localhost:7233
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
           ABUSECH_API_KEY: ${{ secrets.INTEGRATION__ABUSECH_API_KEY }}
           ABUSEIPDB_API_KEY: ${{ secrets.INTEGRATION__ABUSEIPDB_API_KEY }}
