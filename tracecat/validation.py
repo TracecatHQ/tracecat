@@ -23,7 +23,7 @@ Advanced
 
 ## INPUTS
 Note that static inputs are defined at the top of the file
-[ ] Check that there are no templated expressions in the inputs
+[x] Check that there are no templated expressions in the inputs
 [x] Check that input expressions are all valid (i.e. attempt to evaluate it, since it's static)
  - for now, performing checks on static inputs are redundant as they can be evlauted immediately
 
