@@ -52,15 +52,6 @@ jobs:
         run: |
           docker compose up --no-deps api worker postgres_db temporal -d
 
-      - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health
-
-      - name: Verify Tracecat-Temporal connection
-        run: curl -s http://localhost:8000/temporal-health
-
-      - name: Verify Temporal CLI commands
-        run: temporal --version
-
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
 

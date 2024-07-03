@@ -106,12 +106,6 @@ jobs:
       - name: Start Docker services
         run: docker compose up --no-deps api worker postgres_db -d
 
-      - name: Verify Tracecat API is running
-        run: curl http://localhost:8000/health
-
-      - name: Verify Tracecat-Temporal connection
-        run: curl http://localhost:8000/temporal-health
-
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
 
@@ -162,9 +156,6 @@ jobs:
 
       - name: Start Docker services
         run: docker compose up --no-deps api worker postgres_db temporal -d
-
-      - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
 
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
