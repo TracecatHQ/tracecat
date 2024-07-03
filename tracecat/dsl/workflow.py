@@ -137,7 +137,7 @@ class DSLScheduler:
 
     async def dynamic_start(self) -> None:
         """Run the scheduler in dynamic mode."""
-        self.queue.put_nowait(self.dsl.entrypoint)
+        self.queue.put_nowait(self.dsl.entrypoint.ref)
         while not self.queue.empty() or len(self.completed_tasks) < len(self.tasks):
             try:
                 task_ref = await asyncio.wait_for(

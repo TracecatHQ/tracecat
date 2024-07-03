@@ -24,7 +24,7 @@ from tracecat.expressions.visitors import ExprEvaluatorVisitor
 from tracecat.expressions.visitors.validator import ExprValidationContext
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.secrets import SecretKeyValue
-from tracecat.types.validation import ValidationResult
+from tracecat.types.validation import ExprValidationResult
 from tracecat.validation import default_validator_visitor
 
 
@@ -546,14 +546,14 @@ def test_expression_parser(expr, expected):
 
 
 def assert_validation_result(
-    res: ValidationResult,
+    res: ExprValidationResult,
     *,
     type: ExprType,
     status: Literal["success", "error"],
     contains_msg: str | None = None,
     contains_detail: str | None = None,
 ):
-    assert res.type == type
+    assert res.exprssion_type == type
     assert res.status == status
     if contains_msg:
         assert contains_msg in res.msg
@@ -670,7 +670,7 @@ def assert_validation_result(
                 {
                     "type": ExprType.INPUT,
                     "status": "error",
-                    "contains_msg": "'invalid'",
+                    "contains_msg": "invalid",
                 },
             ],
         ),

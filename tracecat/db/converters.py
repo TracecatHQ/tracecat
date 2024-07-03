@@ -23,7 +23,11 @@ def workflow_to_dsl(workflow: Workflow) -> DSLInput:
     return DSLInput(
         title=workflow.title,
         description=workflow.description,
-        entrypoint=graph.logical_entrypoint.ref,
+        entrypoint={
+            "ref": graph.logical_entrypoint.ref,
+            # TODO: Add expects for UI -> DSL
+            "expects": {},
+        },
         actions=graph.action_statements(workflow),
         # config=workflow.config,
         # triggers=workflow.triggers,
@@ -67,7 +71,7 @@ def dsl_to_graph(workflow: Workflow, dsl: DSLInput) -> RFGraph:
                 src_key = identifiers.action.key(wf_id, src_ref)
                 edges.append(RFEdge(source=src_key, target=dst_key))
 
-        entrypoint_id = identifiers.action.key(wf_id, dsl.entrypoint)
+        entrypoint_id = identifiers.action.key(wf_id, dsl.entrypoint.ref)
         # Add trigger edge
         edges.append(
             RFEdge(source=trigger.id, target=entrypoint_id, label="⚡ Trigger")
