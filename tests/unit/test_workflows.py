@@ -28,8 +28,8 @@ from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
-SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
-ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
+SHARED_TEST_DEFNS = [path.stem for path in DATA_PATH.glob("shared_*.yml")]
+ORDERING_TEST_DEFNS = [path.stem for path in DATA_PATH.glob("unit_ordering_*.yml")]
 
 
 TEST_WF_ID = "wf-00000000000000000000000000000000"
