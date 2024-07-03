@@ -132,9 +132,9 @@ def cast(x: Any, typename: str) -> Any:
 
 
 def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
-    if operand is None or not isinstance(operand, dict):
+    if operand is None or not isinstance(operand, dict | list):
         raise TracecatExpressionError(
-            "A dict-type operand is required for templated jsonpath."
+            "A dict or list operand is required for templated jsonpath."
         )
     try:
         # Try to evaluate the expression
