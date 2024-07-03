@@ -129,16 +129,16 @@ async def secret_validator(name: str, key: str) -> ExprValidationResult:
             return ExprValidationResult(
                 status="error",
                 msg=f"Secret {name!r} is missing key: {key!r}",
-                type=ExprType.SECRET,
+                exprssion_type=ExprType.SECRET,
             )
-        return ExprValidationResult(status="success", type=ExprType.SECRET)
+        return ExprValidationResult(status="success", exprssion_type=ExprType.SECRET)
     except httpx.HTTPStatusError:
         logger.error("Missing secret in SECRET context usage", secret_name=name)
         return ExprValidationResult(
             status="error",
             msg=f"Failed to retrieve secret {name!r}. Please check whether you've defined"
             " it correctly and it exists in the secret manager.",
-            type=ExprType.SECRET,
+            exprssion_type=ExprType.SECRET,
         )
 
 
@@ -154,7 +154,9 @@ def default_validator_visitor(
 
 async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
-    validation_context = ExprValidationContext(action_refs={a.ref for a in dsl.actions})
+    validation_context = ExprValidationContext(
+        action_refs={a.ref for a in dsl.actions}, inputs_context=dsl.inputs
+    )
     async with GatheringTaskGroup() as tg:
         visitor = default_validator_visitor(
             task_group=tg, validation_context=validation_context
@@ -239,7 +241,10 @@ async def validate_actions_have_defined_secrets(
 
 
 async def validate_dsl(dsl: DSLInput) -> list[ValidationResult]:
-    """Validate the DSL at commit time."""
+    """Validate the DSL at commit time.
+
+    This function calls and combines all results from each validation tier.
+    """
     # Tier 1: Done by pydantic model
 
     # Tier 2: UDF Args validation

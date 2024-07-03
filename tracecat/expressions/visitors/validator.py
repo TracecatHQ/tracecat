@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.common import DSLNodeResult
 from tracecat.expressions import functions, patterns
-from tracecat.expressions.shared import ExprType
+from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.expressions.visitors.base import ExprVisitor
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
@@ -75,7 +75,9 @@ class ExprValidatorVisitor(ExprVisitor):
         msg: str = "",
         type: ExprType = ExprType.GENERIC,
     ) -> None:
-        self._results.append(ExprValidationResult(status=status, msg=msg, type=type))
+        self._results.append(
+            ExprValidationResult(status=status, msg=msg, exprssion_type=type)
+        )
 
     def results(self) -> Iterator[ExprValidationResult]:
         """Return all validation results."""
@@ -125,14 +127,12 @@ class ExprValidatorVisitor(ExprVisitor):
         self.logger.trace("Visit input expression", expr=expr)
         # Check that the input exists in the inputs context
         try:
-            functions.eval_jsonpath(expr, self._context.inputs_context)
+            functions.eval_jsonpath(
+                expr, self._context.inputs_context, context_type=ExprContext.INPUTS
+            )
             self.add(status="success", type=ExprType.INPUT)
         except TracecatExpressionError as e:
-            return self.add(
-                status="error",
-                msg=f"Invalid input expression: {expr!r}. {e}",
-                type=ExprType.INPUT,
-            )
+            return self.add(status="error", msg=str(e), type=ExprType.INPUT)
 
     def visit_trigger_expr(self, expr: str) -> None:
         self.logger.trace("Visit trigger expression", expr=expr)

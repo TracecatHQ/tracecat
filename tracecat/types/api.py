@@ -10,9 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from tracecat import identifiers
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.common import DSLInput
+from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
 from tracecat.types.secrets import SecretKeyValue
-from tracecat.types.validation import RegistryValidationResult
+from tracecat.types.validation import ValidationResult
 
 # TODO: Consistent API design
 # Action and Workflow create / update params
@@ -338,13 +339,18 @@ class UDFArgsValidationResponse(BaseModel):
 
     @staticmethod
     def from_validation_result(
-        result: RegistryValidationResult,
+        result: ValidationResult,
     ) -> UDFArgsValidationResponse:
         return UDFArgsValidationResponse(
             ok=result.status == "success",
             message=result.msg,
-            detail=result.detail,
+            # Dump this to get subclass-specific fields
+            detail=result.model_dump(exclude={"status", "msg"}, exclude_none=True),
         )
+
+    @staticmethod
+    def from_validation_exc(exc: TracecatValidationError):
+        return UDFArgsValidationResponse(ok=False, message=str(exc), detail=exc.detail)
 
 
 class CommitWorkflowResponse(BaseModel):
@@ -355,7 +361,9 @@ class CommitWorkflowResponse(BaseModel):
     metadata: dict[str, Any] | None = None
 
     def to_orjson(self, status_code: int) -> ORJSONResponse:
-        return ORJSONResponse(status_code=status_code, content=self.model_dump())
+        return ORJSONResponse(
+            status_code=status_code, content=self.model_dump(exclude_none=True)
+        )
 
 
 class ServiceCallbackAction(BaseModel):

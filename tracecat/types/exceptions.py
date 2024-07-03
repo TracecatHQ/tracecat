@@ -11,6 +11,10 @@ through FastAPI exception handlers, which match the exception type.
 class TracecatException(Exception):
     """Tracecat generic user-facing exception"""
 
+    def __init__(self, *args, detail=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.detail = detail
+
 
 class TracecatValidationError(TracecatException):
     """Tracecat user-facting validation error"""

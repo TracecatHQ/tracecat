@@ -11,7 +11,9 @@ import jsonpath_ng
 import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
 
+from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validators import is_iterable
+from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 
@@ -131,16 +133,27 @@ def cast(x: Any, typename: str) -> Any:
     return BUILTIN_TYPE_NAPPING[typename](x)
 
 
-def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
+def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
+    return f"{context_type}.{expr}" if context_type else expr
+
+
+def eval_jsonpath(
+    expr: str, operand: dict[str, Any], *, context_type: ExprContext | None = None
+) -> Any:
     if operand is None or not isinstance(operand, dict | list):
+        logger.error("Invalid operand for jsonpath", operand=operand)
         raise TracecatExpressionError(
-            "A dict or list operand is required for templated jsonpath."
+            "A dict or list operand is required as jsonpath target."
         )
     try:
         # Try to evaluate the expression
         jsonpath_expr = jsonpath_ng.parse(expr)
     except JsonPathParserError as e:
-        raise TracecatExpressionError(f"Invalid jsonpath {expr!r}") from e
+        logger.errro(
+            "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
+        )
+        formatted_expr = _expr_with_context(expr, context_type)
+        raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
     matches = [found.value for found in jsonpath_expr.find(operand)]
     if len(matches) == 1:
         return matches[0]
@@ -149,6 +162,9 @@ def eval_jsonpath(expr: str, operand: dict[str, Any]) -> Any:
     else:
         # We know that if this function is called, there was a templated field.
         # Therefore, it means the jsonpath was valid but there was no match.
+        logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
+        formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(
-            f"Operand has no path {expr!r}. Operand: {operand}."
+            f"Couldn't resolve expression {formatted_expr!r} in the given context: {operand}.",
+            detail="No match found.",
         )
