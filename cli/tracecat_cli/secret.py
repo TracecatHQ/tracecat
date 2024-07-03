@@ -1,3 +1,4 @@
+import asyncio
 from typing import TypedDict
 
 import orjson
@@ -48,8 +49,8 @@ def create(
     rich.print("[green]Secret created successfully![/green]")
 
 
-@app.command(help="List all secrets")
-def list(
+@app.command(name="list", help="List all secrets")
+def list_secrets(
     as_json: bool = typer.Option(False, "--json", help="Display as JSON"),
 ):
     """
@@ -59,29 +60,36 @@ def list(
         res = client.get("/secrets")
         result = Client.handle_response(res)
 
-    if not result:
-        rich.print("[cyan]No secrets found[/cyan]")
-        return
-
     if as_json:
-        rich.print(result)
+        out = orjson.dumps(result, option=orjson.OPT_INDENT_2).decode()
+        rich.print(out)
+    elif not result:
+        rich.print("[cyan]No secrets found[/cyan]")
     else:
         table = dynamic_table(title="Secrets", data=result)
         Console().print(table)
 
 
-@app.command(no_args_is_help=True, help="Delete a secret.")
-def delete(secret_name: str = typer.Argument(..., help="Secret name")):
+@app.command(no_args_is_help=True, help="Delete secrets.")
+def delete(
+    secret_names: list[str] = typer.Argument(
+        ..., help="List of secret names to delete"
+    ),
+):
     """
     Delete a secret.
 
     Args:
         secret_name (str): Secret name.
     """
-    if not typer.confirm(f"Are you sure you want to delete {secret_name!r}"):
+    if not typer.confirm(f"Are you sure you want to delete {secret_names!r}"):
         rich.print("Aborted")
         return
-    with Client() as client:
-        res = client.delete(f"/secrets/{secret_name}")
-        Client.handle_response(res)
+
+    async def _delete():
+        async with Client() as client, asyncio.TaskGroup() as tg:
+            for name in secret_names:
+                tg.create_task(client.delete(f"/secrets/{name}"))
+
+    asyncio.run(_delete())
     rich.print("[green]Secret deleted successfully![/green]")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import orjson
 import rich
 import typer
 from rich.console import Console
@@ -48,7 +49,7 @@ def create(
 @app.command(name="list", help="List all schedules")
 def list_schedules(
     workflow_id: str = typer.Argument(None, help="Workflow ID"),
-    as_table: bool = typer.Option(False, "--table", "-t", help="Display as table"),
+    as_json: bool = typer.Option(False, "--json", "-t", help="Display as JSON"),
 ):
     """List all schedules."""
 
@@ -59,11 +60,14 @@ def list_schedules(
         res = client.get("/schedules", params=params)
         result = Client.handle_response(res)
 
-    if as_table:
+    if as_json:
+        out = orjson.dumps(result, option=orjson.OPT_INDENT_2).decode()
+        rich.print(out)
+    elif not result:
+        rich.print("[cyan]No schedules found[/cyan]")
+    else:
         table = dynamic_table(result, "Schedules")
         Console().print(table)
-    else:
-        rich.print(result if len(result) > 1 else "[cyan]No schedules found[/cyan]")
 
 
 @app.command(help="Delete schedules", no_args_is_help=True)
@@ -74,8 +78,7 @@ def delete(
 ):
     """Delete schedules"""
 
-    delete = typer.confirm(f"Are you sure you want to delete {schedule_ids!r}")
-    if not delete:
+    if not typer.confirm(f"Are you sure you want to delete {schedule_ids!r}"):
         rich.print("Aborted")
         return
 

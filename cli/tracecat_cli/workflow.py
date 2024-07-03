@@ -55,11 +55,11 @@ def list_workflows(
 ):
     """Commit a workflow definition to the database."""
     result = _list_workflows()
-    if not result:
-        rich.print("[cyan]No workflows found[/cyan]")
-        return
     if as_json:
-        rich.print(result)
+        out = orjson.dumps(result, option=orjson.OPT_INDENT_2).decode()
+        rich.print(out)
+    elif not result:
+        rich.print("[cyan]No workflows found[/cyan]")
     else:
         table = dynamic_table(result, "Workflows")
         Console().print(table)
