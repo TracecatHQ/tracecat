@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 
 import pytest
-import yaml
 from loguru import logger
 from slugify import slugify
 from temporalio.common import RetryPolicy
@@ -42,55 +41,6 @@ def generate_test_exec_id(name: str) -> str:
         + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
         + slugify(name, separator="_")
     )
-
-
-@pytest.fixture
-def mock_registry():
-    """Mock registry for testing UDFs.
-
-    Note
-    ----
-    - This fixture is used to test the integration of UDFs with the workflow.
-    - It's unreachable by an external worker, as the worker will not have access
-    to these functions when it starts up.
-    """
-    from tracecat.registry import registry
-
-    # NOTE!!!!!!!: Didn't want to spend too much time figuring out how
-    # to grab the actual execution order using the client, so I'm using a
-    # hacky way to get the order of execution. TO FIX LATER
-    # The counter doesn't get reset properly so you should never use this outside
-    # of the 'ordering' tests
-    def counter():
-        i = 0
-        while True:
-            yield i
-            i += 1
-
-    counter_gen = counter()
-    if "integration_test.count" not in registry:
-
-        @registry.register(
-            description="Counts up from 0",
-            namespace="integration_test",
-        )
-        def count(arg: str | None = None) -> int:
-            order = next(counter_gen)
-            return order
-
-    if "integration_test.passthrough" not in registry:
-
-        @registry.register(
-            description="passes through",
-            namespace="integration_test",
-        )
-        async def passthrough(num: int) -> int:
-            await asyncio.sleep(0.1)
-            return num
-
-    registry.init()
-    yield registry
-    counter_gen = counter()  # Reset the counter generator
 
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
@@ -188,20 +138,6 @@ async def test_workflow_ordering_is_correct(
     assert_respectful_exec_order(dsl, result)
 
 
-# Get the paths from the test name
-@pytest.fixture
-def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
-    test_name = request.param
-    data_path = DATA_PATH / f"{test_name}.yml"
-    expected_path = DATA_PATH / f"{test_name}_expected.yml"
-    dsl = DSLInput.from_yaml(data_path)
-    with expected_path.open() as f:
-        yaml_data = f.read()
-    data = yaml.safe_load(yaml_data)
-    expected_result = {key: (value or {}) for key, value in data.items()}
-    return dsl, expected_result
-
-
 @pytest.mark.parametrize(
     "dsl_with_expected",
     [
@@ -250,7 +186,7 @@ async def test_workflow_completes_and_correct(
 
 @pytest.mark.parametrize(
     "dsl",
-    [DATA_PATH / "unit_conditional_adder_diamond_skip_with_join_strong_dep_fails.yml"],
+    ["unit_conditional_adder_diamond_skip_with_join_strong_dep_fails"],
     indirect=True,
 )
 @pytest.mark.asyncio

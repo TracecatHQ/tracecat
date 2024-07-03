@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import time
@@ -5,10 +6,13 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import yaml
 from cryptography.fernet import Fernet
 from loguru import logger
 
 from tracecat.dsl.common import DSLInput
+
+DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 
 
 def pytest_addoption(parser: pytest.Parser):
@@ -177,7 +181,70 @@ def tracecat_worker(env_sandbox):
 
 
 @pytest.fixture
+def mock_registry():
+    """Mock registry for testing UDFs.
+
+    Note
+    ----
+    - This fixture is used to test the integration of UDFs with the workflow.
+    - It's unreachable by an external worker, as the worker will not have access
+    to these functions when it starts up.
+    """
+    from tracecat.registry import registry
+
+    # NOTE!!!!!!!: Didn't want to spend too much time figuring out how
+    # to grab the actual execution order using the client, so I'm using a
+    # hacky way to get the order of execution. TO FIX LATER
+    # The counter doesn't get reset properly so you should never use this outside
+    # of the 'ordering' tests
+    def counter():
+        i = 0
+        while True:
+            yield i
+            i += 1
+
+    counter_gen = counter()
+    if "integration_test.count" not in registry:
+
+        @registry.register(
+            description="Counts up from 0",
+            namespace="integration_test",
+        )
+        def count(arg: str | None = None) -> int:
+            order = next(counter_gen)
+            return order
+
+    if "integration_test.passthrough" not in registry:
+
+        @registry.register(
+            description="passes through",
+            namespace="integration_test",
+        )
+        async def passthrough(num: int) -> int:
+            await asyncio.sleep(0.1)
+            return num
+
+    registry.init()
+    yield registry
+    counter_gen = counter()  # Reset the counter generator
+
+
+@pytest.fixture
 def dsl(request: pytest.FixtureRequest) -> DSLInput:
-    path: list[Path] = request.param
-    dsl = DSLInput.from_yaml(path)
+    test_name = request.param
+    data_path = DATA_PATH / f"{test_name}.yml"
+    dsl = DSLInput.from_yaml(data_path)
     return dsl
+
+
+@pytest.fixture
+def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
+    test_name = request.param
+    data_path = DATA_PATH / f"{test_name}.yml"
+    expected_path = DATA_PATH / f"{test_name}_expected.yml"
+    dsl = DSLInput.from_yaml(data_path)
+    with expected_path.open() as f:
+        yaml_data = f.read()
+    data = yaml.safe_load(yaml_data)
+    expected_result = {key: (value or {}) for key, value in data.items()}
+    return dsl, expected_result
