@@ -56,6 +56,7 @@ from tracecat.db.schemas import (
     WorkflowRun,
 )
 from tracecat.dsl import dispatcher, schedules
+from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
@@ -225,12 +226,24 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.get("/", include_in_schema=False)
 def root() -> dict[str, str]:
-    return {"message": "Hello world. I am the API."}
+    return {"message": "ok"}
 
 
 @app.get("/health")
 def check_health() -> dict[str, str]:
-    return {"message": "Hello world. I am the API. This is the health endpoint."}
+    return {"message": "ok"}
+
+
+@app.get("/temporal-health")
+async def check_temporal_health() -> dict[str, str]:
+    try:
+        await get_temporal_client()
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error connecting to Temporal",
+        ) from e
+    return {"message": "ok"}
 
 
 # ----- Trigger handlers ----- #

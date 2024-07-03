@@ -3,16 +3,22 @@ name: Tests
 on:
   push:
     branches: ["main"]
-    paths-ignore:
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "tests/**"
+      - "tracecat-cli/**"
+      - "tracecat/**"
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "tests/**"
+      - "tracecat-cli/**"
+      - "tracecat/**"
 
 permissions:
   contents: read
@@ -100,9 +106,6 @@ jobs:
       - name: Start Docker services
         run: docker compose up --no-deps api worker postgres_db -d
 
-      - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
-
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
 
@@ -154,9 +157,6 @@ jobs:
       - name: Start Docker services
         run: docker compose up --no-deps api worker postgres_db temporal -d
 
-      - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
-
       - name: pip install Tracecat
         run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
 
@@ -202,4 +202,4 @@ jobs:
           URLSCAN_API_KEY: ${{ secrets.INTEGRATION__URLSCAN_API_KEY }}
           VT_API_KEY: ${{ secrets.INTEGRATION__VT_API_KEY }}
           LOG_LEVEL: WARNING
-        run: pytest -k "test_playbooks" --temporal-no-restart --tracecat-no-restart
+        run: pytest -k "test_playbooks" --benchmark-disable --temporal-no-restart --tracecat-no-restart

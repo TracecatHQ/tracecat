@@ -20,7 +20,6 @@ def filename(request: pytest.FixtureRequest) -> Path:
 )
 @pytest.mark.asyncio
 async def test_workflow_commit(filename, auth_sandbox):
-    print(filename)
     title = f"Test workflow: {filename}"
     workflow_result = await shared.create_workflow(title)
     await shared.commit_workflow(filename, workflow_result["id"])

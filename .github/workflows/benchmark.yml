@@ -1,0 +1,67 @@
+name: Benchmark
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "tests/**"
+      - "tracecat-cli/**"
+      - "tracecat/**"
+  pull_request:
+    branches: ["main"]
+    paths: [".github/workflows/benchmark.yml"]
+
+jobs:
+  stress-test:
+    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        num_workers: ["1", "2", "4", "8"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run environment setup script
+        run: bash env.sh
+
+      - name: Get image tag
+        id: set-image-tag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "TRACECAT__IMAGE_TAG=main" >> $GITHUB_ENV
+          else
+            echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          fi
+
+      - name: Start Docker services
+        env:
+          NUM_WORKERS: ${{ matrix.num_workers }}
+        run: |
+          docker compose up --no-deps api worker postgres_db temporal -d
+
+      - name: pip install Tracecat
+        run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
+
+      - name: Run tests (headless mode)
+        env:
+          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
+          LOG_LEVEL: WARNING
+        run: |
+          pytest -k "test_stress" --temporal-no-restart --tracecat-no-restart
+              --benchmark-name=short \
+              --benchmark-group-by=param \
+              --benchmark-warmup=off \
+              --benchmark-columns=min,max,mean,median,stddev,iterations \
