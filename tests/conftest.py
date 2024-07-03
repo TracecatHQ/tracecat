@@ -1,11 +1,14 @@
 import os
 import subprocess
 import time
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
 from loguru import logger
+
+from tracecat.dsl.common import DSLInput
 
 
 def pytest_addoption(parser: pytest.Parser):
@@ -171,3 +174,10 @@ def tracecat_worker(env_sandbox):
             ["docker", "compose", "down", "--remove-orphans", "worker"], check=True
         )
         logger.info("Stopped Tracecat Temporal worker")
+
+
+@pytest.fixture
+def dsl(request: pytest.FixtureRequest) -> DSLInput:
+    path: list[Path] = request.param
+    dsl = DSLInput.from_yaml(path)
+    return dsl

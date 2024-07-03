@@ -11,7 +11,6 @@ Objectives
 import asyncio
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
@@ -92,24 +91,6 @@ def mock_registry():
     registry.init()
     yield registry
     counter_gen = counter()  # Reset the counter generator
-
-
-# Fixture to load workflow DSLs from YAML files
-@pytest.fixture
-def dsl(request: pytest.FixtureRequest) -> DSLInput:
-    path: list[Path] = request.param
-    dsl = DSLInput.from_yaml(path)
-    return dsl
-
-
-# Fixture to load yaml files from name
-@pytest.fixture
-def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
-    path: Path = request.param
-    with path.open() as f:
-        yaml_data = f.read()
-    data = yaml.safe_load(yaml_data)
-    return {key: (value or {}) for key, value in data.items()}
 
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
@@ -207,13 +188,6 @@ async def test_workflow_ordering_is_correct(
     assert_respectful_exec_order(dsl, result)
 
 
-def _get_expected(path: Path) -> dict[str, Any]:
-    with path.open() as f:
-        yaml_data = f.read()
-    data = yaml.safe_load(yaml_data)
-    return {key: (value or {}) for key, value in data.items()}
-
-
 # Get the paths from the test name
 @pytest.fixture
 def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
@@ -221,8 +195,11 @@ def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
     data_path = DATA_PATH / f"{test_name}.yml"
     expected_path = DATA_PATH / f"{test_name}_expected.yml"
     dsl = DSLInput.from_yaml(data_path)
-    expected = _get_expected(expected_path)
-    return dsl, expected
+    with expected_path.open() as f:
+        yaml_data = f.read()
+    data = yaml.safe_load(yaml_data)
+    expected_result = {key: (value or {}) for key, value in data.items()}
+    return dsl, expected_result
 
 
 @pytest.mark.parametrize(
