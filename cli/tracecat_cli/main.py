@@ -11,7 +11,7 @@ def version_callback(value: bool):
     if value:
         from tracecat_cli import __version__
 
-        typer.echo(f"Tracecat version: {__version__}")
+        typer.echo(__version__)
         raise typer.Exit()
 
 
