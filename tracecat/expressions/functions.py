@@ -1,6 +1,5 @@
 import base64
 import itertools
-import json
 import operator
 import re
 from collections.abc import Callable
@@ -9,6 +8,7 @@ from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
 import jsonpath_ng
+import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
 
 from tracecat.expressions.validators import is_iterable
@@ -92,8 +92,8 @@ _FUNCTION_MAPPING = {
     "not": lambda a: not a,
     # Type conversion
     # Convert JSON to string
-    "serialize_json": json.dumps,
-    "deserialize_json": json.loads,
+    "serialize_json": lambda x: orjson.dumps(x).decode(),
+    "deserialize_json": lambda x: orjson.loads(x),
     # Convert timestamp to datetime
     "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
     # Base64
