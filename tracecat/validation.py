@@ -1,4 +1,41 @@
-"""Tracecat validation module."""
+"""Tracecat validation module.
+
+Validation tiers
+----------------
+# (1) Validate DSLInput on pydantic model creation
+
+# (2) Validate the arguments in each of the action statements in the DSL against the registry UDFs
+[x] Checks that the action referenced a valid UDF
+[x] Checks that the arguments to each UDF are correctly named and typed
+
+# (3) Validate the expressions in the DSL
+We find all expressions in the DSL and validate them depending on their type.
+
+## SECRETS
+[x] Check if the secret is defined in the secrets manager
+
+## ACTIONS
+Basic
+[x] Check if the action is a valid reference (no structural check)
+[x] Check that it's used correctly e.g. `ref.[result|result_typemane]`
+Advanced
+[ ] Check that the action is correctly referencing an ancestor action (won't just randomly fail)
+
+## INPUTS
+Note that static inputs are defined at the top of the file
+[ ] Check that there are no templated expressions in the inputs
+[x] Check that input expressions are all valid (i.e. attempt to evaluate it, since it's static)
+ - for now, performing checks on static inputs are redundant as they can be evlauted immediately
+
+## TRIGGERS
+Trigger data is dynamic input data. It's not defined in the DSL, but is passed in at runtime.
+Let's shift the responsibility of the trigger data validation to the user.
+Meaning, let the user define a simple schema for the trigger data and validate it at runtime.
+[ ] Check that the trigger data is valid
+
+
+
+"""
 
 from __future__ import annotations
 
@@ -15,6 +52,7 @@ from tracecat.db import schemas
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.shared import ExprType
 from tracecat.expressions.visitors import ExprValidationResult, ExprValidatorVisitor
+from tracecat.expressions.visitors.validator import ExprValidationContext
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.types.auth import Role
@@ -105,20 +143,22 @@ async def secret_validator(name: str, key: str) -> ExprValidationResult:
 
 
 def default_validator_visitor(
-    task_group: GatheringTaskGroup, action_refs: set[str]
+    task_group: GatheringTaskGroup, validation_context: ExprValidationContext
 ) -> ExprValidatorVisitor:
     return ExprValidatorVisitor(
         task_group=task_group,
-        action_refs=action_refs,
+        validation_context=validation_context,
         validators={ExprType.SECRET: secret_validator},
     )
 
 
 async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
-    refs = {a.ref for a in dsl.actions}
+    validation_context = ExprValidationContext(action_refs={a.ref for a in dsl.actions})
     async with GatheringTaskGroup() as tg:
-        visitor = default_validator_visitor(task_group=tg, action_refs=refs)
+        visitor = default_validator_visitor(
+            task_group=tg, validation_context=validation_context
+        )
         for act_stmt in dsl.actions:
             # This batches all the coros inside the taskgroup
             # and launches them concurrently on __aexit__
