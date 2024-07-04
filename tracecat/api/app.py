@@ -105,6 +105,7 @@ from tracecat.types.api import (
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.types.validation import ValidationResult
 
 engine: Engine
 
@@ -364,8 +365,17 @@ async def incoming_webhook(
     dsl_input = DSLInput(**defn.content)
 
     # Set runtime configuration
+    match validation.validate_trigger_inputs(dsl_input, payload):
+        case ValidationResult(status="error", msg=msg, detail=detail):
+            logger.error(msg, detail=detail)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"msg": msg, "detail": detail},
+            )
+
     if payload:
         dsl_input.trigger_inputs = payload
+
     dsl_input.config.enable_runtime_tests = x_tracecat_enable_runtime_tests in (
         "1",
         "true",

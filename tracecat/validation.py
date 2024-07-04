@@ -42,8 +42,10 @@ from __future__ import annotations
 from itertools import chain
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import sqlmodel
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from slugify import slugify
 
 from tracecat.concurrency import GatheringTaskGroup, apartial
 from tracecat.expressions.eval import extract_expressions
@@ -54,6 +56,7 @@ from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.service import SecretsService
 from tracecat.types.validation import (
+    VALIDATION_TYPES,
     RegistryValidationResult,
     SecretValidationResult,
     ValidationResult,
@@ -247,3 +250,45 @@ async def validate_dsl(
     # For secrets we also need to check if any used actions have undefined secrets
     udf_missing_secrets = await validate_actions_have_defined_secrets(session, dsl)
     return list(chain(dsl_args_errs, expr_errs, udf_missing_secrets))
+
+
+def generate_model_from_schema(schema: dict[str, str], model_name: str) -> BaseModel:
+    fields = {}
+    for field_name, field_type in schema.items():
+        field_info = Field(default=...)  # Required
+        fields[field_name] = (VALIDATION_TYPES[field_type], field_info)
+    return create_model(
+        f"{model_name}__trigger_input_validator",
+        __config__=ConfigDict(extra="forbid"),
+        **fields,
+    )
+
+
+def validate_trigger_inputs(
+    dsl: DSLInput, payload: dict[str, Any] | None = None
+) -> ValidationResult:
+    if dsl.entrypoint.expects is None:
+        # If there's no expected trigger input schema, we don't validate it
+        # as its ignored anyways
+        return ValidationResult(
+            status="success", msg="No trigger input schema, skipping validation."
+        )
+    val_model = generate_model_from_schema(
+        dsl.entrypoint.expects, slugify(dsl.title, separator="_")
+    )
+    if payload is None:
+        return ValidationResult(
+            status="error",
+            msg="Trigger input schema is defined but no payload was provided.",
+            detail={"schema": val_model.model_json_schema()},
+        )
+
+    try:
+        val_model.model_validate(payload)
+        return ValidationResult(status="success", msg="Trigger inputs are valid.")
+    except ValidationError as e:
+        return ValidationResult(
+            status="error",
+            msg=f"Validation error in trigger inputs ({e.title}). Please refer to the schema for more details.",
+            detail={"errors": e.errors(), "schema": val_model.model_json_schema()},
+        )

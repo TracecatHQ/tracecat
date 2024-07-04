@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -27,3 +28,14 @@ class ExprValidationResult(ValidationResult):
 
 class SecretValidationResult(ValidationResult):
     """Result of validating credentials."""
+
+
+VALIDATION_TYPES = {
+    "duration": timedelta,
+    "datetime": datetime,
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    # Add more types as needed
+}
