@@ -2340,3 +2340,101 @@ def validate_udf_args(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unexpected error validating UDF args",
         ) from e
+
+
+@app.post("/validate-workflow")
+async def validate_workflow(
+    role: Annotated[Role, Depends(authenticate_user)],
+    definition: UploadFile = File(...),
+    payload: UploadFile = File(None),
+) -> list[UDFArgsValidationResponse]:
+    """Validate a workflow.
+
+    This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
+
+    # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
+    logger.info("Workflow definition", filename=definition.filename)
+    logger.info("Payload", filename=payload)
+
+    with logger.contextualize(role=role):
+        # Perform Tiered Validation
+        # Tier 1: DSLInput validation
+        # Verify that the workflow DSL is structurally sound
+        construction_errors = []
+        try:
+            # Uploaded YAML file overrides the workflow in the database
+            dsl = DSLInput.from_yaml(definition.file)
+        except* TracecatValidationError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            construction_errors.extend(
+                UDFArgsValidationResponse.from_dsl_validation_error(e).model_dump(
+                    exclude_none=True
+                )
+                for e in eg.exceptions
+            )
+        except* ValidationError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            construction_errors.extend(
+                UDFArgsValidationResponse.from_pydantic_validation_error(e).model_dump(
+                    exclude_none=True
+                )
+                for e in eg.exceptions
+            )
+
+        if construction_errors:
+            return ORJSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "failure",
+                    "message": f"Workflow definition construction failed with {len(construction_errors)} errors",
+                    "errors": construction_errors,
+                    "metadata": {"filename": definition.filename}
+                    if definition
+                    else None,
+                },
+            )
+
+        # When we're here, we've verified that the workflow DSL is structurally sound
+        # Now, we have to ensure that the arguments are sound
+
+        if expr_errors := await validation.validate_dsl(dsl):
+            logger.warning("Validation errors", errors=expr_errors)
+            return ORJSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "failure",
+                    "message": f"{len(expr_errors)} validation error(s)",
+                    "errors": [
+                        UDFArgsValidationResponse.from_validation_result(
+                            val_res
+                        ).model_dump(exclude_none=True)
+                        for val_res in expr_errors
+                    ],
+                    "metadata": {"filename": definition.filename}
+                    if definition
+                    else None,
+                },
+            )
+
+        # Check for input errors
+        if payload:
+            payload_data = orjson.loads(payload.file.read())
+            payload_val_res = validation.validate_trigger_inputs(dsl, payload_data)
+            if payload_val_res.status == "error":
+                return ORJSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "status": "failure",
+                        "message": "Trigger input validation error",
+                        "errors": [
+                            UDFArgsValidationResponse.from_validation_result(
+                                payload_val_res
+                            ).model_dump(exclude_none=True)
+                        ],
+                        "metadata": {"filename": definition.filename},
+                    },
+                )
+        return ORJSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "success", "message": "Workflow passed validation"},
+        )
