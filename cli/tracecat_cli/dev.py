@@ -84,7 +84,6 @@ def validate_workflow(
     else:
         files = [file]
 
-    # print(files)
     for file in files:
         validate_file(file)
 
