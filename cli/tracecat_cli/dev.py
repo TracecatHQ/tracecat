@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import subprocess
@@ -8,6 +9,7 @@ from itertools import chain
 from pathlib import Path
 from typing import Any
 
+import httpx
 import orjson
 import rich
 import typer
@@ -29,6 +31,62 @@ def hit_api_endpoint(
         res = client.request(method=method, url=endpoint, content=content)
         res.raise_for_status()
     return res.json()
+
+
+@app.command(name="validate", help="Validate a workflow definition.")
+def validate_workflow(
+    file: Path = typer.Option(
+        None, "--file", "-f", help="Path to the workflow definition YAML file"
+    ),
+    all: bool = typer.Option(False, "--all", "-a", help="Validate all yaml files"),
+    data: str = typer.Option(
+        None, "--data", "-d", help="Pass a JSON Payload to be validated"
+    ),
+):
+    """Validate a workflow definition."""
+    if not file and not all:
+        return rich.print("[red]Must specify either --file or --all[/red]")
+
+    if data and not file:
+        return rich.print(
+            "[red]Payload provided but no file specified - please provide a workflow definition yaml.[/red]"
+        )
+
+    payload = read_input(data) if data else None
+
+    def validate_file(file: Path):
+        with file.open() as f:
+            yaml_content = f.read()
+        files = {}
+        files["definition"] = (file.name, yaml_content, "application/yaml")
+        if payload:
+            payload_bytes = io.BytesIO(orjson.dumps(payload))
+            files["payload"] = ("payload", payload_bytes, "application/json")
+        rich.print(f"Validating {file.name}")
+        try:
+            with Client() as client:
+                res = client.post("/validate-workflow", files=files)
+                result = Client.handle_response(res)
+                rich.print(result)
+        except httpx.HTTPStatusError as e:
+            rich.print("[red]Failed to validate workflow![/red]")
+            rich.print(
+                orjson.dumps(e.response.json(), option=orjson.OPT_INDENT_2).decode()
+            )
+
+    if all:
+        playbooks_path = Path.cwd().joinpath("playbooks")
+        playbooks = list(playbooks_path.glob("**/*.yml"))
+
+        # unit_tests_path = Path.cwd().joinpath("tests/data/workflows")
+        # test_yamls = list(unit_tests_path.glob("**/*.yml"))
+        files = playbooks  # + test_yamls
+    else:
+        files = [file]
+
+    # print(files)
+    for file in files:
+        validate_file(file)
 
 
 @app.command(help="Hit the API endpoint with an authenticated service client.")
