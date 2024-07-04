@@ -2004,7 +2004,7 @@ async def streaming_autofill_case_fields(
 # ----- Users ----- #
 
 
-@app.put("/users", status_code=status.HTTP_201_CREATED, tags=["users"])
+@app.post("/users", status_code=status.HTTP_201_CREATED, tags=["users"])
 def create_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
@@ -2141,11 +2141,7 @@ def get_secret(
         return secret
 
 
-@app.put(
-    "/secrets",
-    status_code=status.HTTP_201_CREATED,
-    tags=["secrets"],
-)
+@app.post("/secrets", status_code=status.HTTP_201_CREATED, tags=["secrets"])
 def create_secret(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     params: CreateSecretParams,

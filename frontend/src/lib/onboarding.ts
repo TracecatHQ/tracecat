@@ -14,7 +14,7 @@ export async function newUserFlow(): Promise<void> {
   console.log("Start new user flow")
 
   try {
-    const response = await client.put("/users")
+    const response = await client.post("/users")
     if (response.status !== 201) {
       throw new Error("Unexpected response status")
     }
