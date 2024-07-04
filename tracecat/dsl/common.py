@@ -7,18 +7,18 @@ import json
 from collections.abc import Coroutine
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Annotated, Any, ClassVar, Literal, Self, TypedDict
+from typing import Annotated, Any, Literal, Self, TypedDict
 
 import fsspec
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from tracecat import validation
 from tracecat.expressions import patterns
 from tracecat.expressions.validators import TemplateValidator
 from tracecat.logging import logger
 from tracecat.parse import traverse_leaves
-from tracecat.types.exceptions import TracecatDSLError
-from tracecat.types.validation import VALIDATION_TYPES
+from tracecat.types.exceptions import TracecatDSLError, TracecatValidationError
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -138,39 +138,23 @@ def resolve_string_or_uri(string_or_uri: str) -> Any:
 
 
 class DSLEntrypoint(BaseModel):
-    SUPPORTED_VALIDATION_TYPES: ClassVar[dict[str, type]] = VALIDATION_TYPES
     ref: str = Field(..., description="The entrypoint action ref")
     expects: Any | None = Field(None, description="Expected trigger input shape")
     """Trigger input schema."""
 
     @field_validator("expects")
-    def validate_expects(cls, expects: Any) -> dict[str, Any]:
+    def validate_expects(cls, expects: Any) -> Any:
+        if not expects:
+            return expects
         logger.info("Validating expects", expects=expects)
         try:
-            exceptions = []
-            for loc, value in traverse_leaves(expects):
-                if not isinstance(value, str):
-                    # Check that the leaf values are strings
-                    exceptions.append(
-                        TracecatDSLError(
-                            f"`entrypoint.expects` values must be strings, but found {value!r} of type {type(value)}",
-                            detail=loc,
-                        )
-                    )
-                if value not in DSLEntrypoint.SUPPORTED_VALIDATION_TYPES:
-                    # Check that the leaf values are valid string values like "str"
-                    exceptions.append(
-                        TracecatDSLError(
-                            f"Invalid type for `entrypoint.expects` value {value!r}",
-                            detail=loc,
-                        )
-                    )
-            if exceptions:
-                raise ExceptionGroup(
-                    "Entrypoint expects context validation failed", exceptions
-                )
+            factory = validation.SchemaValidatorFactory(expects)
+            _ = factory.create()
             return expects
-        except* TracecatDSLError as eg:
+        except* TracecatValidationError as eg:
+            logger.error(
+                "Failed to validate `entrypoint.expects`", errors=eg.exceptions
+            )
             raise eg
 
 

@@ -37,5 +37,5 @@ VALIDATION_TYPES = {
     "int": int,
     "float": float,
     "bool": bool,
-    # Add more types as needed
+    "any": Any,
 }
