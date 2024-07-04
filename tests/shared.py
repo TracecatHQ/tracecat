@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from pathlib import Path
 
 import httpx
 
@@ -29,6 +31,7 @@ async def create_workflow(title: str | None = None, description: str | None = No
         if description:
             params["description"] = description
         res = await client.post("/workflows", json=params)
+        res.raise_for_status()
         return res.json()
 
 
@@ -65,3 +68,39 @@ def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:
             kv.key: kv.value.get_secret_value() for kv in secret.encrypted_keys
         }
     return secret_dict
+
+
+async def commit_workflow(yaml_path: Path, workflow_id: str):
+    kwargs = {}
+    if yaml_path:
+        with yaml_path.open() as f:
+            yaml_content = f.read()
+        kwargs["files"] = {
+            "yaml_file": (yaml_path.name, yaml_content, "application/yaml")
+        }
+
+    async with user_client() as client:
+        res = await client.post(f"/workflows/{workflow_id}/commit", **kwargs)
+        res.raise_for_status()
+        return res.json()
+
+
+def handle_response(res: httpx.Response):
+    """Handle API responses.
+
+    1. Checks for specific status codes and raises exceptions.
+    2. Raise for status
+    3. Try to decode JSON response
+    4. If 3 fails, return the response text.
+    """
+    if res.status_code == 422:
+        # Unprocessable entity
+        raise ValueError(res.json())
+    if res.status_code == 204:
+        # No content
+        return None
+    res.raise_for_status()
+    try:
+        return res.json()
+    except json.JSONDecodeError:
+        return res.text
