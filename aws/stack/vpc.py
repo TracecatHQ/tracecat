@@ -22,7 +22,7 @@ class VpcStack(Stack):
         # Create security group for core tracecat services
         core_security_group = ec2.SecurityGroup(
             self,
-            "InternalSecurityGroup",
+            "CoreSecurityGroup",
             vpc=self.vpc,
             description="Security group for core Tracecat services",
         )
@@ -33,14 +33,14 @@ class VpcStack(Stack):
         )
 
         # Create security grop for tracecat <-> temporal communication
-        core_security_group = ec2.SecurityGroup(
+        temporal_security_group = ec2.SecurityGroup(
             self,
-            "InternalSecurityGroup",
+            "TemporalSecurityGroup",
             vpc=self.vpc,
-            description="Security group for core Tracecat services",
+            description="Security group for communication between Tracecat and Temporal services",
         )
-        core_security_group.add_ingress_rule(
-            peer=core_security_group,
+        temporal_security_group.add_ingress_rule(
+            peer=temporal_security_group,
             connection=ec2.Port.tcp_range(8000, 8002),
-            description="Allow internal communication between core Tracecat services",
+            description="Allow internal communication between Tracecat and Temporal services",
         )
