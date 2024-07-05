@@ -61,6 +61,7 @@ from tracecat.dsl.common import DSLInput
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.dsl.graph import RFGraph
+from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.parse import parse_child_webhook
@@ -2419,7 +2420,7 @@ async def validate_workflow(
         # Check for input errors
         if payload:
             payload_data = orjson.loads(payload.file.read())
-            payload_val_res = validation.validate_trigger_inputs(dsl, payload_data)
+            payload_val_res = validate_trigger_inputs(dsl, payload_data)
             if payload_val_res.status == "error":
                 return ORJSONResponse(
                     status_code=status.HTTP_400_BAD_REQUEST,

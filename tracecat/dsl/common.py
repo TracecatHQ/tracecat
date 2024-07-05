@@ -13,7 +13,7 @@ import fsspec
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tracecat import validation
+from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
 from tracecat.expressions.validators import TemplateValidator
 from tracecat.logging import logger
@@ -148,7 +148,7 @@ class DSLEntrypoint(BaseModel):
             return expects
         logger.info("Validating expects", expects=expects)
         try:
-            factory = validation.SchemaValidatorFactory(expects)
+            factory = SchemaValidatorFactory(expects)
             _ = factory.create()
             return expects
         except* TracecatValidationError as eg:

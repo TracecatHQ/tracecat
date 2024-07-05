@@ -1,7 +1,7 @@
 import pydantic
 import pytest
 
-from tracecat.validation import SchemaValidatorFactory
+from tracecat.dsl.validation import SchemaValidatorFactory
 
 
 def test_validate_schema_success():
