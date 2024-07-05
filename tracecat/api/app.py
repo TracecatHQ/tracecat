@@ -361,7 +361,7 @@ async def incoming_webhook(
     )
 
     # Fetch the DSL from the workflow object
-    dsl_input = defn.content
+    dsl_input = DSLInput(**defn.content)
 
     # Set runtime configuration
     if payload:
@@ -491,7 +491,7 @@ async def webhook_callback(
             )
 
             # Fetch the DSL from the workflow object
-            dsl_input = defn.content
+            dsl_input = DSLInput(**defn.content)
 
             # Set runtime configuration
             if payload:
@@ -729,6 +729,7 @@ async def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     yaml_file: UploadFile = File(None),
+    session: Session = Depends(get_session),
 ) -> ORJSONResponse:
     """Commit a workflow.
 
@@ -736,7 +737,7 @@ async def commit_workflow(
 
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
 
-    with Session(engine) as session, logger.contextualize(role=role):
+    with logger.contextualize(role=role):
         try:
             # Validate that our target workflow exists
             # Grab workflow and actions from tables
@@ -793,7 +794,7 @@ async def commit_workflow(
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
 
-            if val_errors := await validation.validate_dsl(dsl):
+            if val_errors := await validation.validate_dsl(session, dsl):
                 logger.warning("Validation errors", errors=val_errors)
                 return CommitWorkflowResponse(
                     workflow_id=workflow_id,
@@ -1213,7 +1214,7 @@ async def create_schedule(
         )
         session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
-        dsl = defn.content
+        dsl = DSLInput(**defn.content)
         if params.inputs:
             dsl.trigger_inputs = params.inputs
 
@@ -2123,7 +2124,8 @@ def list_secrets(
 
 @app.get("/secrets/{secret_name}", tags=["secrets"])
 def get_secret(
-    role: Annotated[Role, Depends(authenticate_user)],
+    # NOTE(auth): Worker service can also access secrets
+    role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
 ) -> Secret:
     """Get a secret."""
