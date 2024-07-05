@@ -26,7 +26,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config, identifiers, validation
+from tracecat import config, converters, identifiers, validation
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -39,7 +39,6 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db import converters
 from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
 from tracecat.db.schemas import (
     Action,
