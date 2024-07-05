@@ -73,7 +73,7 @@ services:
       - core
 
   postgres_db:
-    image: postgres:16.2-bullseye
+    image: postgres:16
     container_name: tracecat_postgres_db
     ports:
       - 5432:5432
@@ -88,7 +88,7 @@ services:
       - core-db:/var/lib/postgresql/data
 
   temporal_postgres_db:
-    image: postgres:${TEMPORAL__POSTGRESQL_VERSION}
+    image: postgres:13
     container_name: tracecat_temporal_postgres_db
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
