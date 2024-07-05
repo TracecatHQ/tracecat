@@ -105,9 +105,6 @@ class AuthSandbox:
     async def _get_secrets(self) -> list[Secret]:
         """Retrieve secrets from the secrets API."""
 
-        # XXX: This import is necessary to avoid horrendous circular import errors
-        from tracecat.db.schemas import Secret
-
         logger.info(
             "Retrieving secrets from the secrets API",
             secret_names=self._secret_paths,

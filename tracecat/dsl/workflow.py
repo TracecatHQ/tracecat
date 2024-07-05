@@ -28,7 +28,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import ActionStatement, DSLInput, ActionTest, DSLNodeResult
     from tracecat.logging import logger
     from tracecat.registry import registry
-    from tracecat.db.schemas import Secret  # noqa
     from tracecat.identifiers import WorkflowID
 
 
