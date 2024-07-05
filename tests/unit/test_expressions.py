@@ -21,12 +21,15 @@ from tracecat.expressions.functions import eval_jsonpath
 from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.expressions.visitors import ExprEvaluatorVisitor
-from tracecat.expressions.visitors.validator import ExprValidationContext
+from tracecat.expressions.visitors.validator import (
+    ExprValidationContext,
+    ExprValidatorVisitor,
+)
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.validation import ExprValidationResult
-from tracecat.validation import default_validator_visitor
+from tracecat.validation import get_validators
 
 
 @pytest.fixture(scope="session")
@@ -691,15 +694,18 @@ def assert_validation_result(
         ),
     ],
 )
-async def test_extract_expressions_errors(expr, expected, auth_sandbox):
+async def test_extract_expressions_errors(
+    expr, expected, auth_sandbox, env_sandbox, mock_secrets_service
+):
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
         action_refs={"my_action"},
         inputs_context={"arg": 2},
     )
+    validators = get_validators(secrets_service=mock_secrets_service)
     async with GatheringTaskGroup() as tg:
-        visitor = default_validator_visitor(
-            task_group=tg, validation_context=validation_context
+        visitor = ExprValidatorVisitor(
+            task_group=tg, validation_context=validation_context, validators=validators
         )
         exprs = extract_expressions(expr)
         for expr in exprs:
