@@ -1,7 +1,8 @@
 from pydantic import BaseModel
 
-from tracecat.dsl.common import ActionStatement, DSLEntrypoint, DSLInput
+from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.graph import RFGraph, TriggerNode
+from tracecat.dsl.models import ActionStatement
 
 
 class TestMetadata(BaseModel):

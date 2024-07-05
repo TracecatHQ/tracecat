@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from tracecat import identifiers
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
-from tracecat.dsl.common import DSLInput
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
@@ -336,10 +335,6 @@ class SecretResponse(BaseModel):
 class CaseEventParams(BaseModel):
     type: str
     data: dict[str, str | None] | None
-
-
-class UpsertWorkflowDefinitionParams(BaseModel):
-    content: DSLInput
 
 
 class UDFArgsValidationResponse(BaseModel):

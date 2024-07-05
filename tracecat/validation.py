@@ -48,8 +48,11 @@ from pydantic import ValidationError
 from tracecat.concurrency import GatheringTaskGroup, apartial
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.shared import ExprType
-from tracecat.expressions.visitors import ExprValidationResult, ExprValidatorVisitor
-from tracecat.expressions.visitors.validator import ExprValidationContext
+from tracecat.expressions.visitors.validator import (
+    ExprValidationContext,
+    ExprValidationResult,
+    ExprValidatorVisitor,
+)
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.service import SecretsService
@@ -115,7 +118,6 @@ async def secret_validator(
 ) -> ExprValidationResult:
     # (1) Check if the secret is defined
     defined_secret = await service.aget_secret_by_name(name)
-    logger.error("Secret validator", defined_secret=defined_secret, name=name, key=key)
     if not defined_secret:
         logger.error("Missing secret in SECRET context usage", secret_name=name)
         return ExprValidationResult(
@@ -223,7 +225,7 @@ async def validate_actions_have_defined_secrets(
 
 
 async def validate_dsl(
-    session: sqlmodel.Session, dsl: DSLInput
+    *, session: sqlmodel.Session, dsl: DSLInput
 ) -> list[ValidationResult]:
     """Validate the DSL at commit time.
 

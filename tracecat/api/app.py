@@ -26,7 +26,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config, converters, identifiers, validation
+from tracecat import config, identifiers, validation
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -61,6 +61,7 @@ from tracecat.dsl.common import DSLInput
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
 from tracecat.dsl.graph import RFGraph
+from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.parse import parse_child_webhook
@@ -364,8 +365,17 @@ async def incoming_webhook(
     dsl_input = DSLInput(**defn.content)
 
     # Set runtime configuration
+    validation_result = validate_trigger_inputs(dsl=dsl_input, payload=payload)
+    if validation_result.status == "error":
+        logger.error(validation_result.msg, detail=validation_result.detail)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"msg": validation_result.msg, "detail": validation_result.detail},
+        )
+
     if payload:
         dsl_input.trigger_inputs = payload
+
     dsl_input.config.enable_runtime_tests = x_tracecat_enable_runtime_tests in (
         "1",
         "true",
@@ -766,7 +776,7 @@ async def commit_workflow(
                     logger.info("Commiting workflow from yaml file")
                 else:
                     # Convert the workflow into a WorkflowDefinition
-                    dsl = converters.workflow_to_dsl(workflow)
+                    dsl = DSLInput.from_workflow(workflow)
                     logger.info("Commiting workflow from database")
             except* TracecatValidationError as eg:
                 logger.error(eg.message, error=eg.exceptions)
@@ -794,7 +804,7 @@ async def commit_workflow(
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
 
-            if val_errors := await validation.validate_dsl(session, dsl):
+            if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
                 logger.warning("Validation errors", errors=val_errors)
                 return CommitWorkflowResponse(
                     workflow_id=workflow_id,
@@ -810,7 +820,7 @@ async def commit_workflow(
             # Phase 1: Commit
             defn = _create_wf_definition(session, role, workflow_id, dsl)
             # Phase 2: Backpropagate
-            new_graph = converters.dsl_to_graph(workflow, dsl)
+            new_graph = dsl.to_graph(workflow)
 
             # Replace Actions
             del_stmt = delete(Action).where(
@@ -1328,23 +1338,32 @@ async def delete_schedule(
             Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
-        try:
-            schedule = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+        schedule = result.one_or_none()
+        if not schedule:
+            logger.warning(
+                "Schedule not found, attempt to delete underlying Temporal schedule...",
+                schedule_id=schedule_id,
+            )
 
         try:
+            # Delete the schedule from Temporal first
             await schedules.delete_schedule(schedule_id)
+
+            # If successful, delete the schedule from the database
+            if schedule:
+                session.delete(schedule)
+                session.commit()
+            else:
+                logger.warning(
+                    "Schedule was already deleted from the database",
+                    schedule_id=schedule_id,
+                )
         except Exception as e:
             logger.error("Error deleting schedule", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error deleting schedule",
             ) from e
-        session.delete(schedule)
-        session.commit()
 
 
 @app.get("/schedules/search", tags=["schedules"])
@@ -2330,3 +2349,102 @@ def validate_udf_args(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unexpected error validating UDF args",
         ) from e
+
+
+@app.post("/validate-workflow")
+async def validate_workflow(
+    role: Annotated[Role, Depends(authenticate_user)],
+    definition: UploadFile = File(...),
+    payload: UploadFile = File(None),
+    session: Session = Depends(get_session),
+) -> list[UDFArgsValidationResponse]:
+    """Validate a workflow.
+
+    This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
+
+    # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
+    logger.info("Workflow definition", filename=definition.filename)
+    logger.info("Payload", filename=payload)
+
+    with logger.contextualize(role=role):
+        # Perform Tiered Validation
+        # Tier 1: DSLInput validation
+        # Verify that the workflow DSL is structurally sound
+        construction_errors = []
+        try:
+            # Uploaded YAML file overrides the workflow in the database
+            dsl = DSLInput.from_yaml(definition.file)
+        except* TracecatValidationError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            construction_errors.extend(
+                UDFArgsValidationResponse.from_dsl_validation_error(e).model_dump(
+                    exclude_none=True
+                )
+                for e in eg.exceptions
+            )
+        except* ValidationError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            construction_errors.extend(
+                UDFArgsValidationResponse.from_pydantic_validation_error(e).model_dump(
+                    exclude_none=True
+                )
+                for e in eg.exceptions
+            )
+
+        if construction_errors:
+            return ORJSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "failure",
+                    "message": f"Workflow definition construction failed with {len(construction_errors)} errors",
+                    "errors": construction_errors,
+                    "metadata": {"filename": definition.filename}
+                    if definition
+                    else None,
+                },
+            )
+
+        # When we're here, we've verified that the workflow DSL is structurally sound
+        # Now, we have to ensure that the arguments are sound
+
+        if expr_errors := await validation.validate_dsl(session=session, dsl=dsl):
+            logger.warning("Validation errors", errors=expr_errors)
+            return ORJSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "failure",
+                    "message": f"{len(expr_errors)} validation error(s)",
+                    "errors": [
+                        UDFArgsValidationResponse.from_validation_result(
+                            val_res
+                        ).model_dump(exclude_none=True)
+                        for val_res in expr_errors
+                    ],
+                    "metadata": {"filename": definition.filename}
+                    if definition
+                    else None,
+                },
+            )
+
+        # Check for input errors
+        if payload:
+            payload_data = orjson.loads(payload.file.read())
+            payload_val_res = validate_trigger_inputs(dsl, payload_data)
+            if payload_val_res.status == "error":
+                return ORJSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "status": "failure",
+                        "message": "Trigger input validation error",
+                        "errors": [
+                            UDFArgsValidationResponse.from_validation_result(
+                                payload_val_res
+                            ).model_dump(exclude_none=True)
+                        ],
+                        "metadata": {"filename": definition.filename},
+                    },
+                )
+        return ORJSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "success", "message": "Workflow passed validation"},
+        )

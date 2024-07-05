@@ -6,8 +6,9 @@ from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
 from tracecat.expressions.shared import ExprContext, ExprType
-from tracecat.expressions.visitors import ExprValidatorVisitor, ExprVisitor
+from tracecat.expressions.visitors.base import ExprVisitor
 from tracecat.expressions.visitors.evaluator import ExprEvaluatorVisitor
+from tracecat.expressions.visitors.validator import ExprValidatorVisitor
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
