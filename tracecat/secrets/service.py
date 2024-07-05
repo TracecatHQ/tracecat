@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
 from sqlmodel import Session, select
@@ -40,6 +41,9 @@ class SecretsService:
             Secret.owner_id == self.role.user_id, Secret.name == secret_name
         )
         return self.session.exec(statement).one_or_none()
+
+    async def aget_secret_by_name(self, secret_name: str) -> Secret | None:
+        return await asyncio.to_thread(self.get_secret_by_name, secret_name)
 
     def create_secret(self, secret: Secret) -> Secret:
         """Create a new secret."""
