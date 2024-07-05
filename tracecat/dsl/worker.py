@@ -2,13 +2,14 @@ import asyncio
 import dataclasses
 import os
 
-from loguru import logger
 from temporalio import workflow
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
 )
+
+from tracecat.logging import logger
 
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
