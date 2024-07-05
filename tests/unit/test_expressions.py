@@ -6,10 +6,10 @@ import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
+from tests.shared import batch_get_secrets
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
-from tracecat.db.helpers import batch_get_secrets, format_secrets_as_json
 from tracecat.db.schemas import Secret
 from tracecat.expressions.engine import ExpressionParser, TemplateExpression
 from tracecat.expressions.eval import (
@@ -22,8 +22,9 @@ from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.expressions.visitors import ExprEvaluatorVisitor
 from tracecat.expressions.visitors.validator import ExprValidationContext
+from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
+from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.types.secrets import SecretKeyValue
 from tracecat.types.validation import ExprValidationResult
 from tracecat.validation import default_validator_visitor
 
@@ -235,15 +236,29 @@ async def test_evaluate_templated_secret(mock_api, auth_sandbox):
     }
 
     base_secrets_url = f"{config.TRACECAT__API_URL}/secrets"
+
+    def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:
+        """Format secrets as a dict."""
+        secret_dict = {}
+        for secret in secrets:
+            secret_dict[secret.name] = {
+                kv.key: kv.value.get_secret_value()
+                for kv in decrypt_keyvalues(
+                    secret.encrypted_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+                )
+            }
+        return secret_dict
+
     with respx.mock:
         # Mock workflow getter from API side
         for secret_name, secret_keys in TEST_SECRETS.items():
             secret = Secret(
-                type="custom",
                 name=secret_name,
                 owner_id="test_user_id",
+                encrypted_keys=encrypt_keyvalues(
+                    secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+                ),
             )
-            secret.keys = secret_keys  # Encrypt the secret
 
             # Mock hitting get secrets endpoint
             respx.get(f"{base_secrets_url}/{secret_name}").mock(

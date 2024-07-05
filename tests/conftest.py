@@ -7,6 +7,9 @@ import pytest
 from cryptography.fernet import Fernet
 from loguru import logger
 
+from tracecat.db.schemas import Secret
+from tracecat.secrets.models import SecretKeyValue
+
 
 def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
@@ -75,9 +78,6 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
 
 @pytest.fixture(scope="session")
 def create_mock_secret():
-    from tracecat.db.schemas import Secret
-    from tracecat.types.secrets import SecretKeyValue
-
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
         keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]
         new_secret = Secret(

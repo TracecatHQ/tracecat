@@ -48,7 +48,7 @@ from pydantic import ValidationError
 from tracecat.auth.clients import AuthenticatedAPIClient
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
-from tracecat.db import schemas
+from tracecat.db.schemas import Secret
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.shared import ExprType
 from tracecat.expressions.visitors import ExprValidationResult, ExprValidatorVisitor
@@ -117,7 +117,7 @@ async def secret_validator(name: str, key: str) -> ExprValidationResult:
             res = await client.get(f"/secrets/{name}")
             res.raise_for_status()  # Raise an exception for HTTP error codes
         # (2) Check if the secret has the correct keys
-        defined_secret = schemas.Secret.model_validate_json(res.content)
+        defined_secret = Secret.model_validate_json(res.content)
         defined_keys = {kv.key for kv in defined_secret.keys or []}
 
         if key not in defined_keys:
@@ -199,7 +199,7 @@ async def validate_actions_have_defined_secrets(
                 res = await client.get(f"/secrets/{registry_secret.name}")
                 res.raise_for_status()  # Raise an exception for HTTP error codes
                 # (2) Check if the secret has the correct keys
-                defined_secret = schemas.Secret.model_validate_json(res.content)
+                defined_secret = Secret.model_validate_json(res.content)
                 defined_keys = {kv.key for kv in defined_secret.keys or []}
                 required_keys = set(registry_secret.keys)
 

@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Any, Literal
 
 import httpx
-import orjson
 import psycopg
-from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
@@ -31,41 +28,6 @@ CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 IS_AUTH_DISABLED = str(os.environ.get("TRACECAT__DISABLE_AUTH")) in ("true", "1")
-
-
-def compute_hash(object_id: str) -> str:
-    return hashlib.sha256(
-        f"{object_id}{os.environ["TRACECAT__SIGNING_SECRET"]}".encode()
-    ).hexdigest()
-
-
-def encrypt(value: str) -> bytes:
-    key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-    cipher_suite = Fernet(key)
-    encrypted_value = cipher_suite.encrypt(value.encode())
-    return encrypted_value
-
-
-def decrypt(encrypted_value: bytes) -> str:
-    key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-    cipher_suite = Fernet(key)
-    decrypted_value = cipher_suite.decrypt(encrypted_value).decode()
-    return decrypted_value
-
-
-def encrypt_object(obj: dict[str, Any]) -> bytes:
-    key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-    cipher_suite = Fernet(key)
-    obj_bytes = orjson.dumps(obj)
-    encrypted_value = cipher_suite.encrypt(obj_bytes)
-    return encrypted_value
-
-
-def decrypt_object(encrypted_obj: bytes) -> dict[str, Any]:
-    key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-    cipher_suite = Fernet(key)
-    obj_bytes = cipher_suite.decrypt(encrypted_obj)
-    return orjson.loads(obj_bytes)
 
 
 # TODO: Fix this
@@ -141,7 +103,6 @@ if IS_AUTH_DISABLED:
         role = Role(
             type="user", user_id=_DEFAULT_TRACECAT_USER_ID, service_id="tracecat-api"
         )
-        ctx_role.set(role)
         return role
 
     async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
@@ -150,7 +111,6 @@ if IS_AUTH_DISABLED:
         role = _internal_get_role_from_service_key(
             user_id=user_id, service_role_name=service_role_name, api_key=api_key
         )
-        ctx_role.set(role)
         return role
 else:
 
@@ -203,7 +163,6 @@ else:
         #     logger.error("User not authenticated")
         #     raise CREDENTIALS_EXCEPTION
         role = Role(type="user", user_id=user_id, service_id="tracecat-api")
-        ctx_role.set(role)
         return role
 
     async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
@@ -212,7 +171,6 @@ else:
         role = _internal_get_role_from_service_key(
             user_id=user_id, service_role_name=service_role_name, api_key=api_key
         )
-        ctx_role.set(role)
         return role
 
 
@@ -221,11 +179,12 @@ async def authenticate_user(
 ) -> Role:
     """Authenticate a user JWT and return the 'sub' claim as the user_id.
 
-    `ctx_role` and `ctx_logger` ContextVars are set here.
+    `ctx_role` ContextVar is set here.
     """
     if not token:
         raise CREDENTIALS_EXCEPTION
     role = await _get_role_from_jwt(token)
+    ctx_role.set(role)
     return role
 
 
@@ -233,8 +192,12 @@ async def authenticate_service(
     request: Request,
     api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
 ) -> Role:
-    """Authenticate a service using an API key."""
+    """Authenticate a service using an API key.
+
+    `ctx_role` ContextVar is set here.
+    """
     role = await _get_role_from_service_key(request, api_key)
+    ctx_role.set(role)
     return role
 
 

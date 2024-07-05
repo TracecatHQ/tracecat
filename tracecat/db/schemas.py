@@ -1,18 +1,17 @@
 """Database schemas for Tracecat."""
 
+import hashlib
+import os
 from datetime import datetime, timedelta
-from typing import Any, Self
+from typing import Any
 
 import pyarrow as pa
 from pydantic import computed_field, field_validator
 from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
-from tracecat import config, registry
-from tracecat.auth.credentials import compute_hash, decrypt_object, encrypt_object
-from tracecat.dsl.common import DSLInput
+from tracecat import config
 from tracecat.identifiers import action, id_factory
-from tracecat.types.secrets import SECRET_FACTORY, SecretBase, SecretKeyValue
 
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
@@ -79,34 +78,12 @@ class Secret(Resource, table=True):
     )
     description: str | None = Field(default=None, max_length=255)
     # We store this object as encrypted bytes, but first validate that it's the correct type
-    encrypted_keys: bytes | None = Field(default=None, nullable=True)
+    encrypted_keys: bytes
     tags: dict[str, str] | None = Field(sa_column=Column(JSON))
     owner_id: str = Field(
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
     owner: User | None = Relationship(back_populates="secrets")
-
-    def _validate_obj(self, value: dict[str, Any]) -> SecretBase:
-        if self.type not in SECRET_FACTORY:
-            raise ValueError(f"Invalid secret type {self.type!r}")
-        return SECRET_FACTORY[self.type].model_validate(value)
-
-    @property
-    def keys(self) -> list[SecretKeyValue] | None:
-        """Getter: Decrypt the keys and return them as a list of SecretKeyValue objects."""
-        if not self.encrypted_keys:
-            return None
-        obj = decrypt_object(self.encrypted_keys)
-        kv = self._validate_obj(obj)
-        return [SecretKeyValue(key=k, value=v) for k, v in kv.model_dump().items()]
-
-    @keys.setter
-    def keys(self, value: list[SecretKeyValue]) -> None:
-        """Setter: Encrypt the keys and store them as bytes."""
-        # Convert to dict
-        kv = {item.key: item.value.get_secret_value() for item in value}
-        self._validate_obj(kv)
-        self.encrypted_keys = encrypt_object(kv)
 
 
 class CaseAction(Resource, table=True):
@@ -167,20 +144,6 @@ class UDFSpec(Resource, table=True):
     # Can put the icon url in the metadata
     meta: dict[str, Any] | None = Field(sa_column=Column(JSON))
 
-    @staticmethod
-    def from_registry_udf(
-        key: str, udf: registry.RegisteredUDF, owner_id: str = "tracecat"
-    ) -> Self:
-        return UDFSpec(
-            owner_id=owner_id,
-            key=key,
-            description=udf.description,
-            namespace=udf.namespace,
-            version=udf.version,
-            json_schema=udf.construct_schema(),
-            meta=udf.metadata,
-        )
-
 
 class WorkflowDefinition(Resource, table=True):
     """A workflow definition.
@@ -214,7 +177,7 @@ class WorkflowDefinition(Resource, table=True):
     )
 
     # DSL content
-    content: DSLInput = Field(sa_column=Column(JSON))
+    content: dict[str, Any] = Field(sa_column=Column(JSON))
     workflow: "Workflow" = Relationship(back_populates="definitions")
 
 
@@ -301,7 +264,10 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def secret(self) -> str:
-        return compute_hash(self.id)
+        secret = os.getenv("TRACECAT__SIGNING_SECRET")
+        if not secret:
+            raise ValueError("TRACECAT__SIGNING_SECRET is not set")
+        return hashlib.sha256(f"{self.id}{secret}".encode()).hexdigest()
 
     @computed_field
     @property

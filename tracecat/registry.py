@@ -16,9 +16,10 @@ from pydantic_core import ValidationError
 from typing_extensions import Doc
 
 from tracecat.auth.sandbox import AuthSandbox
+from tracecat.db.schemas import UDFSpec
 from tracecat.expressions.validators import TemplateValidator
+from tracecat.secrets.models import SecretKey, SecretName
 from tracecat.types.exceptions import TracecatException
-from tracecat.types.secrets import SecretKey, SecretName
 
 DEFAULT_NAMESPACE = "core"
 
@@ -127,6 +128,17 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
         if self.is_async:
             return await self.fn(**args)
         return await asyncio.to_thread(self.fn, **args)
+
+    def to_udf_spec(self, owner_id: str = "tracecat") -> UDFSpec:
+        return UDFSpec(
+            owner_id=owner_id,
+            key=self.key,
+            description=self.description,
+            namespace=self.namespace,
+            version=self.version,
+            json_schema=self.construct_schema(),
+            meta=self.metadata,
+        )
 
 
 class _Registry:

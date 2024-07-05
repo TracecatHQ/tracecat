@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING, Literal, Self
+from collections.abc import Iterator
+from typing import Literal, Self
 
 from loguru import logger
 
 from tracecat.auth.clients import AuthenticatedAPIClient
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Secret
+from tracecat.secrets.encryption import decrypt_keyvalues
+from tracecat.secrets.models import SecretKeyValue
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
-
-if TYPE_CHECKING:
-    from tracecat.db.schemas import Secret
-    from tracecat.types.auth import Role
 
 
 class AuthSandbox:
@@ -38,6 +39,9 @@ class AuthSandbox:
         self._secret_objs: list[Secret] = []
         self._target = target
         self._context = {}
+        self._encryption_key = os.getenv("TRACECAT__DB_ENCRYPTION_KEY")
+        if not self._encryption_key:
+            raise ValueError("TRACECAT__DB_ENCRYPTION_KEY is not set")
 
     def __enter__(self) -> Self:
         if self._secret_paths:
@@ -64,10 +68,13 @@ class AuthSandbox:
         """Return secret names mapped to their secret key value pairs."""
         return self._context
 
-    def _iter_secrets(self):
+    def _iter_secrets(self) -> Iterator[tuple[str, SecretKeyValue]]:
         """Iterate over the secrets."""
         for secret in self._secret_objs:
-            for kv in secret.keys or []:
+            keyvalues = decrypt_keyvalues(
+                secret.encrypted_keys, key=self._encryption_key
+            )
+            for kv in keyvalues:
                 yield secret.name, kv
 
     def _set_secrets(self):
