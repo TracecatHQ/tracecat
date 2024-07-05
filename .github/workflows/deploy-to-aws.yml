@@ -1,0 +1,141 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - "main"
+    tags:
+      - "*.*.*"
+
+jobs:
+  create-secrets:
+    name: Create AWS Secrets
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'preview' || 'production' }}
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+        with:
+          repository: TracecatHQ/tracecat
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActions
+          role-duration-seconds: 3600
+
+      - name: Create encryption keys
+        run: |
+          bash env.sh
+
+          # Get DB encryption key from .env file
+          DB_ENCRYPTION_KEY=$(grep TRACECAT__DB_ENCRYPTION_KEY .env | cut -d '=' -f2)
+          # Get service key
+          SERVICE_KEY=$(grep TRACECAT__SERVICE_KEY .env | cut -d '=' -f2)
+          # Get signing secret
+          SIGNING_SECRET=$(grep TRACECAT__SIGNING_SECRET .env | cut -d '=' -f2)
+
+          # Mask secrets
+          echo "::add-mask::${DB_ENCRYPTION_KEY}"
+          echo "::add-mask::${SERVICE_KEY}"
+          echo "::add-mask::${SIGNING_SECRET}"
+
+          # Create secrets
+          aws secretsmanager create-secret --name ${{ secrets.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ secrets.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ secrets.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Create Clerk secrets
+        env:
+          CLERK_FRONTEND_API_URL: ${{ secrets.CLERK_FRONTEND_API_URL }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: |
+          # Create secrets
+          aws secretsmanager create-secret --name ${{ secrets.CLERK_FRONTEND_API_URL_NAME }} --secret-string "${CLERK_FRONTEND_API_URL}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ secrets.CLERK_SECRET_KEY_NAME }} --secret-string "${CLERK_SECRET_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+
+  deploy:
+    name: Deploy AWS CDK Stack
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'preview' || 'production' }}
+    needs: create-secrets
+    timeout-minutes: 20
+    env:
+      CDK_VERSION: 2.147
+    permissions:
+      id-token: write # This line allows GitHub Actions to request an OIDC token
+      contents: read
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+        with:
+          repository: TracecatHQ/tracecat
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActions
+          role-duration-seconds: 3600
+
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk@${{ env.CDK_VERSION }} && cdk --version
+
+      - name: Install Python CDK
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install aws-cdk-lib==${{ env.CDK_VERSION }}
+
+      - name: Get SHA
+        id: get-sha
+        run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
+
+      - name: CDK synth, bootstrap and deploy
+        env:
+          # Backend
+          TRACECAT__APP_ENV: production
+          TRACECAT__API_URL: http://api-service:8000
+          TRACECAT__PUBLIC_RUNNER_URL: http://runner-service:8000
+          # Frontend
+          NODE_ENV: production
+          NEXT_PUBLIC_APP_ENV: production
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_API_URL: http://api-service:8000
+          NEXT_SERVER_API_URL: http://api-service:8000
+          # Authentication
+          TRACECAT__DISABLE_AUTH: false
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_CLERK_SIGN_OUT_URL: /sign-out
+          # Temporal
+          TEMPORAL__CLUSTER_URL: temporal:7233
+          TEMPORAL__CLUSTER_QUEUE: tracecat-task-queue
+          TEMPORAL__CLUSTER_NAMESPACE: tracecat
+          TEMPORAL__VERSION=: .24.2
+          TEMPORAL__POSTGRES_USER: temporal
+          TEMPORAL__POSTGRES_PASSWORD: temporal
+          TEMPORAL__ELASTICSEARCH_VERSION: 7.16.2
+          TEMPORAL__ADMINTOOLS_VERSION: 1.24.2-tctl-1.18.1-cli-0.13.0
+          TEMPORAL__UI_VERSION: 2.26.2
+          TEMPORAL__POSTGRESQL_VERSION: 13
+          # Posthog
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+          NEXT_PUBLIC_DISABLE_SESSION_RECORDING: false
+          # AWS Secret names
+          DB_ENCRYPTION_KEY_NAME: ${{ secrets.DB_ENCRYPTION_KEY_NAME }}
+          SERVICE_KEY_NAME: ${{ secrets.SERVICE_KEY_NAME }}
+          SIGNING_SECRET_NAME: ${{ secrets.SIGNING_SECRET_NAME }}
+          CLERK_FRONTEND_API_URL_NAME: ${{ secrets.CLERK_FRONTEND_API_URL_NAME }}
+          CLERK_SECRET_KEY_NAME: ${{ secrets.CLERK_SECRET_KEY_NAME }}
+        run: |
+          cd aws
+          cdk synth --app "python3 app.py"
+          cdk bootstrap --app cdk.out
+          cdk deploy --app cdk.out --require-approval never
