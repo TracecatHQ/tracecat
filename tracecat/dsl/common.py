@@ -29,7 +29,7 @@ class DSLEntrypoint(BaseModel):
     def validate_expects(cls, expects: Any) -> Any:
         if not expects:
             return expects
-        logger.info("Validating expects", expects=expects)
+        logger.trace("Validating expects", expects=expects)
         try:
             factory = SchemaValidatorFactory(expects)
             _ = factory.create()

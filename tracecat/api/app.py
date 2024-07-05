@@ -2363,9 +2363,6 @@ async def validate_workflow(
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
 
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
-    logger.info("Workflow definition", filename=definition.filename)
-    logger.info("Payload", filename=payload)
-
     with logger.contextualize(role=role):
         # Perform Tiered Validation
         # Tier 1: DSLInput validation
@@ -2392,11 +2389,13 @@ async def validate_workflow(
             )
 
         if construction_errors:
+            msg = f"Workflow definition construction failed with {len(construction_errors)} errors"
+            logger.error(msg)
             return ORJSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": "failure",
-                    "message": f"Workflow definition construction failed with {len(construction_errors)} errors",
+                    "message": msg,
                     "errors": construction_errors,
                     "metadata": {"filename": definition.filename}
                     if definition
@@ -2408,12 +2407,13 @@ async def validate_workflow(
         # Now, we have to ensure that the arguments are sound
 
         if expr_errors := await validation.validate_dsl(session=session, dsl=dsl):
-            logger.warning("Validation errors", errors=expr_errors)
+            msg = f"{len(expr_errors)} validation error(s)"
+            logger.error(msg)
             return ORJSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": "failure",
-                    "message": f"{len(expr_errors)} validation error(s)",
+                    "message": msg,
                     "errors": [
                         UDFArgsValidationResponse.from_validation_result(
                             val_res
@@ -2431,11 +2431,13 @@ async def validate_workflow(
             payload_data = orjson.loads(payload.file.read())
             payload_val_res = validate_trigger_inputs(dsl, payload_data)
             if payload_val_res.status == "error":
+                msg = "Trigger input validation error"
+                logger.error(msg)
                 return ORJSONResponse(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     content={
                         "status": "failure",
-                        "message": "Trigger input validation error",
+                        "message": msg,
                         "errors": [
                             UDFArgsValidationResponse.from_validation_result(
                                 payload_val_res
