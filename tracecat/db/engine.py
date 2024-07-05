@@ -99,7 +99,7 @@ def initialize_db() -> Engine:
         # Add integrations to integrations table regardless of whether it's empty
         session.exec(delete(UDFSpec))
         registry.init()
-        udfs = [UDFSpec.from_registry_udf(key, udf) for key, udf in registry]
+        udfs = [udf.to_udf_spec() for _, udf in registry]
         logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
         session.add_all(udfs)
         session.commit()

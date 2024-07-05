@@ -7,6 +7,11 @@ import pytest
 from cryptography.fernet import Fernet
 from loguru import logger
 
+from tracecat.db.schemas import Secret
+from tracecat.secrets.encryption import encrypt_keyvalues
+from tracecat.secrets.models import SecretKeyValue
+from tracecat.secrets.service import SecretsService
+
 
 def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
@@ -74,10 +79,7 @@ def env_sandbox(monkeysession, request: pytest.FixtureRequest):
 
 
 @pytest.fixture(scope="session")
-def create_mock_secret():
-    from tracecat.db.schemas import Secret
-    from tracecat.types.secrets import SecretKeyValue
-
+def create_mock_secret(auth_sandbox):
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
         keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]
         new_secret = Secret(
@@ -85,11 +87,27 @@ def create_mock_secret():
             id=uuid4().hex,  # Generate a unique ID for each secret
             name=secret_name,
             type="custom",  # Assuming a fixed type; adjust as necessary
+            encrypted_keys=encrypt_keyvalues(
+                keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+            ),
         )
-        new_secret.keys = keys
         return new_secret
 
     return _get_secret
+
+
+@pytest.fixture(scope="session")
+def mock_secrets_service(auth_sandbox):
+    from sqlmodel import Session
+
+    from tracecat.db.engine import get_engine
+
+    print(os.environ["TRACECAT__DB_URI"])
+
+    engine = get_engine()
+    with Session(engine) as session:
+        service = SecretsService(session)
+        yield service
 
 
 @pytest.fixture(scope="session")

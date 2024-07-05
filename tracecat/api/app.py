@@ -26,7 +26,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config, identifiers, validation
+from tracecat import config, converters, identifiers, validation
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -39,7 +39,6 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db import converters
 from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
 from tracecat.db.schemas import (
     Action,
@@ -65,6 +64,7 @@ from tracecat.dsl.graph import RFGraph
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.parse import parse_child_webhook
+from tracecat.secrets.service import SecretsService
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
@@ -234,6 +234,12 @@ def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
 
 
+# ----- Dependencies ----- #
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+
 # ----- Trigger handlers ----- #
 
 
@@ -355,7 +361,7 @@ async def incoming_webhook(
     )
 
     # Fetch the DSL from the workflow object
-    dsl_input = defn.content
+    dsl_input = DSLInput(**defn.content)
 
     # Set runtime configuration
     if payload:
@@ -485,7 +491,7 @@ async def webhook_callback(
             )
 
             # Fetch the DSL from the workflow object
-            dsl_input = defn.content
+            dsl_input = DSLInput(**defn.content)
 
             # Set runtime configuration
             if payload:
@@ -723,6 +729,7 @@ async def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     yaml_file: UploadFile = File(None),
+    session: Session = Depends(get_session),
 ) -> ORJSONResponse:
     """Commit a workflow.
 
@@ -730,7 +737,7 @@ async def commit_workflow(
 
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
 
-    with Session(engine) as session, logger.contextualize(role=role):
+    with logger.contextualize(role=role):
         try:
             # Validate that our target workflow exists
             # Grab workflow and actions from tables
@@ -787,7 +794,7 @@ async def commit_workflow(
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
 
-            if val_errors := await validation.validate_dsl(dsl):
+            if val_errors := await validation.validate_dsl(session, dsl):
                 logger.warning("Validation errors", errors=val_errors)
                 return CommitWorkflowResponse(
                     workflow_id=workflow_id,
@@ -1207,7 +1214,7 @@ async def create_schedule(
         )
         session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
-        dsl = defn.content
+        dsl = DSLInput(**defn.content)
         if params.inputs:
             dsl.trigger_inputs = params.inputs
 
@@ -2004,7 +2011,7 @@ async def streaming_autofill_case_fields(
 # ----- Users ----- #
 
 
-@app.put("/users", status_code=status.HTTP_201_CREATED, tags=["users"])
+@app.post("/users", status_code=status.HTTP_201_CREATED, tags=["users"])
 def create_user(
     role: Annotated[Role, Depends(authenticate_user)],
 ) -> User:
@@ -2097,27 +2104,27 @@ def delete_user(
 
 @app.get("/secrets", tags=["secrets"])
 def list_secrets(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
+    session: Session = Depends(get_session),
 ) -> list[SecretResponse]:
     """List user secrets."""
-    with Session(engine) as session:
-        statement = select(Secret).where(Secret.owner_id == role.user_id)
-        result = session.exec(statement)
-        secrets = result.all()
-        return [
-            SecretResponse(
-                id=secret.id,
-                type=secret.type,
-                name=secret.name,
-                description=secret.description,
-                keys=secret.keys or [],
-            )
-            for secret in secrets
-        ]
+    service = SecretsService(session, role)
+    secrets = service.list_secrets()
+    return [
+        SecretResponse(
+            id=secret.id,
+            type=secret.type,
+            name=secret.name,
+            description=secret.description,
+            keys=[kv.key for kv in service.decrypt_keys(secret.encrypted_keys)],
+        )
+        for secret in secrets
+    ]
 
 
 @app.get("/secrets/{secret_name}", tags=["secrets"])
 def get_secret(
+    # NOTE(auth): Worker service can also access secrets
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
 ) -> Secret:
@@ -2141,97 +2148,73 @@ def get_secret(
         return secret
 
 
-@app.put(
-    "/secrets",
-    status_code=status.HTTP_201_CREATED,
-    tags=["secrets"],
-)
+@app.post("/secrets", status_code=status.HTTP_201_CREATED, tags=["secrets"])
 def create_secret(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
     params: CreateSecretParams,
+    session: Session = Depends(get_session),
 ) -> None:
     """Create a secret."""
-    with Session(engine) as session:
-        # Check if secret exists
-        statement = (
-            select(Secret)
-            .where(Secret.owner_id == role.user_id, Secret.name == params.name)
-            .limit(1)
+    service = SecretsService(session, role)
+    secret = service.get_secret_by_name(params.name)
+    if secret is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         )
-        result = session.exec(statement)
-        secret = result.one_or_none()
-        if secret is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
-            )
-        new_secret = Secret(
-            owner_id=role.user_id,
-            name=params.name,
-            type=params.type,
-            description=params.description,
-            tags=params.tags,
-        )
-        new_secret.keys = params.keys  # Set and encrypt the key
 
-        session.add(new_secret)
-        session.commit()
-        session.refresh(new_secret)
+    new_secret = Secret(
+        owner_id=role.user_id,
+        name=params.name,
+        type=params.type,
+        description=params.description,
+        tags=params.tags,
+        encrypted_keys=service.encrypt_keys(params.keys),
+    )
+    service.create_secret(new_secret)
 
 
 @app.post(
-    "/secrets",
-    status_code=status.HTTP_201_CREATED,
-    tags=["secrets"],
+    "/secrets/{secret_name}", status_code=status.HTTP_201_CREATED, tags=["secrets"]
 )
 def update_secret(
     role: Annotated[Role, Depends(authenticate_user)],
+    secret_name: str,
     params: UpdateSecretParams,
+    session: Session = Depends(get_session),
 ) -> Secret:
     """Update a secret"""
-    with Session(engine) as session:
-        # Check if secret exists
-        statement = (
-            select(Secret)
-            .where(Secret.owner_id == role.user_id, Secret.name == params.name)
-            .limit(1)
+    service = SecretsService(session, role)
+    secret = service.get_secret_by_name(secret_name)
+    if secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
         )
-        result = session.exec(statement)
-        secret = result.one_or_none()
-        if secret is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
-            )
-        secret.keys = params.keys  # Set and encrypt the key
-        session.add(secret)
-        session.commit()
-        session.refresh(secret)
+    maybe_clashing_secret = service.get_secret_by_name(params.name)
+    if maybe_clashing_secret is not None and maybe_clashing_secret.id != secret.id:
+        name = maybe_clashing_secret.name
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Secret with name {name} already exists",
+        )
+    return service.update_secret(secret, params)
 
 
 @app.delete(
-    "/secrets/{secret_name}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["secrets"],
+    "/secrets/{secret_name}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"]
 )
 def delete_secret(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
     secret_name: str,
+    session: Session = Depends(get_session),
 ) -> None:
     """Delete a secret."""
-    with Session(engine) as session:
-        # Check if secret exists
-        statement = (
-            select(Secret)
-            .where(Secret.owner_id == role.user_id, Secret.name == secret_name)
-            .limit(1)
+    service = SecretsService(session, role)
+    secret = service.get_secret_by_name(secret_name)
+    if secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
         )
-        result = session.exec(statement)
-        secret = result.one_or_none()
-        if secret is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
-            )
-        session.delete(secret)
-        session.commit()
+    service.delete_secret(secret)
 
 
 @app.post("/secrets/search", tags=["secrets"])

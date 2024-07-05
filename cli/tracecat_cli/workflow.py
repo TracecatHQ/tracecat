@@ -167,10 +167,10 @@ def _run_workflow(
     content = orjson.dumps(payload) if payload else None
     if proxy:
         run_client = httpx.Client()
-        url = webhook.url
+        url = webhook["url"]
     else:
         run_client = Client()
-        url = f"/webhooks/{workflow_id}/{webhook.secret}"
+        url = f"/webhooks/{workflow_id}/{webhook["secret"]}"
 
     with run_client as client:
         res = client.post(

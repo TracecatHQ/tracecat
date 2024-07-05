@@ -4,33 +4,9 @@ import pytest
 from httpx import AsyncClient
 
 from tracecat.auth.clients import AuthenticatedAPIClient, AuthenticatedServiceClient
-from tracecat.auth.credentials import (
-    decrypt,
-    decrypt_object,
-    encrypt,
-    encrypt_object,
-)
 from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_role
 from tracecat.types.auth import Role
-
-
-def test_encrypt_decrypt():
-    api_key = "mock_api_key"
-    encrypted_api_key = encrypt(api_key)
-    decrypted_api_key = decrypt(encrypted_api_key)
-    assert decrypted_api_key == api_key
-
-
-def test_encrypt_decrypt_object():
-    obj = {
-        "client_id": "TEST_CLIENT_ID",
-        "client_secret": "TEST_CLIENT_SECRET",
-        "metadata": {"value": 1},
-    }
-    encrypted_obj = encrypt_object(obj)
-    decrypted_obj = decrypt_object(encrypted_obj)
-    assert decrypted_obj == obj
 
 
 @pytest.mark.asyncio

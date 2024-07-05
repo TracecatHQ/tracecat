@@ -44,7 +44,7 @@ def create(
     """
     params = {"name": secret_name, "keys": keyvalues_from_str(keyvalues)}
     with Client() as client:
-        res = client.put("/secrets", content=orjson.dumps(params))
+        res = client.post("/secrets", content=orjson.dumps(params))
         Client.handle_response(res)
     rich.print("[green]Secret created successfully![/green]")
 
@@ -93,3 +93,24 @@ def delete(
 
     asyncio.run(_delete())
     rich.print("[green]Secret deleted successfully![/green]")
+
+
+@app.command(no_args_is_help=True, help="Update a secret.")
+def update(
+    secret_name: str = typer.Argument(..., help="Secret name"),
+    keyvalues: list[str] = typer.Argument(
+        ..., help="Space-separated KEY-VALUE items, e.g. `KEY1=VAL1 KEY2=VAL2 ...`."
+    ),
+):
+    """
+    Update a secret.
+
+    Args:
+        secret_name (str): Secret name.
+        keyvalues (list[str]): Space-separated KEY-VALUE items.
+    """
+    params = {"keys": keyvalues_from_str(keyvalues)}
+    with Client() as client:
+        res = client.post(f"/secrets/{secret_name}", content=orjson.dumps(params))
+        Client.handle_response(res)
+    rich.print("[green]Secret updated successfully![/green]")

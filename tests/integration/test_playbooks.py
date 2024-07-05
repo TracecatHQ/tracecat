@@ -6,7 +6,7 @@ import pytest
 from dotenv import load_dotenv
 from loguru import logger
 
-import tests.integration.shared as shared
+import tests.shared as shared
 
 load_dotenv()
 

@@ -1,8 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from tracecat import identifiers
-from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
 from tracecat.logging import logger
+
+if TYPE_CHECKING:
+    from tracecat.db.schemas import Workflow
 
 
 def workflow_to_dsl(workflow: Workflow) -> DSLInput:

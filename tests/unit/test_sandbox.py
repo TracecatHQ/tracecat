@@ -1,3 +1,5 @@
+import os
+
 import httpx
 import pytest
 import pytest_mock
@@ -6,8 +8,9 @@ from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
+from tracecat.secrets.encryption import encrypt_keyvalues
+from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.auth import Role
-from tracecat.types.secrets import SecretKeyValue
 
 
 @pytest.mark.asyncio
@@ -16,8 +19,13 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
     assert role is not None
 
     mock_secret_keys = [SecretKeyValue(key="SECRET_KEY", value="my_secret_key")]
-    mock_secret = Secret(name="my_secret", owner_id=role.user_id)
-    mock_secret.keys = mock_secret_keys
+    mock_secret = Secret(
+        name="my_secret",
+        owner_id=role.user_id,
+        encrypted_keys=encrypt_keyvalues(
+            mock_secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+        ),
+    )
 
     # Mock httpx.Response
     mock_response = mocker.Mock(spec=httpx.Response)

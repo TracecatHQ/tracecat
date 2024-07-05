@@ -5,7 +5,7 @@ import { client } from "@/lib/api"
 
 export async function createSecret(secret: Secret) {
   try {
-    await client.put("/secrets", JSON.stringify(secret), {
+    await client.post("/secrets", JSON.stringify(secret), {
       headers: {
         "Content-Type": "application/json",
       },

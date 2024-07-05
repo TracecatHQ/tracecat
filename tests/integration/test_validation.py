@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-import tests.integration.shared as shared
+import tests.shared as shared
 
 DATA_PATH = Path(__file__).parent.parent.parent.joinpath("playbooks/alert_management")
 TEST_WF_ID = "wf-00000000000000000000000000000000"

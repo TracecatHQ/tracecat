@@ -1,4 +1,16 @@
 import asyncio
+from collections.abc import Coroutine
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+def apartial(coro: Coroutine[T], /, *bind_args, **bind_kwargs):
+    async def wrapped(*args, **kwargs):
+        keywords = {**bind_kwargs, **kwargs}
+        return await coro(*bind_args, *args, **keywords)
+
+    return wrapped
 
 
 class GatheringTaskGroup[T](asyncio.TaskGroup):

@@ -10,9 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from tracecat import identifiers
 from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
 from tracecat.dsl.common import DSLInput
+from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
-from tracecat.types.secrets import SecretKeyValue
 from tracecat.types.validation import ValidationResult
 
 # TODO: Consistent API design
@@ -216,9 +216,6 @@ class CreateSecretParams(BaseModel):
         keys = [SecretKeyValue.from_str(kv) for kv in keyvalues]
         return CreateSecretParams(name=name, keys=keys)
 
-    def reveal_keys(self) -> dict[str, str]:
-        return [kv.reveal() for kv in self.keys]
-
     @field_validator("keys")
     def validate_keys(cls, v, values):
         if not v:
@@ -229,7 +226,20 @@ class CreateSecretParams(BaseModel):
         return v
 
 
-UpdateSecretParams = CreateSecretParams
+class UpdateSecretParams(BaseModel):
+    """Create a new secret.
+
+    Secret types
+    ------------
+    - `custom`: Arbitrary user-defined types
+    - `token`: A token, e.g. API Key, JWT Token (TBC)
+    - `oauth2`: OAuth2 Client Credentials (TBC)"""
+
+    type: Literal["custom"] | None = None
+    name: str | None = None
+    description: str | None = None
+    keys: list[SecretKeyValue] | None = None
+    tags: dict[str, str] | None = None
 
 
 class SearchSecretsParams(BaseModel):
@@ -320,7 +330,7 @@ class SecretResponse(BaseModel):
     type: Literal["custom"]  # Support other types later
     name: str
     description: str | None = None
-    keys: list[SecretKeyValue]
+    keys: list[str]
 
 
 class CaseEventParams(BaseModel):
