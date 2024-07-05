@@ -99,6 +99,7 @@ if IS_AUTH_DISABLED:
 
     async def _get_role_from_jwt(token: str | bytes) -> Role:
         if token != _DEFAULT_TRACECAT_JWT:
+            logger.error("Auth disabled, please use the default JWT")
             raise HTTP_EXC(f"Auth disabled, please use {_DEFAULT_TRACECAT_JWT!r}.")
         role = Role(
             type="user", user_id=_DEFAULT_TRACECAT_USER_ID, service_id="tracecat-api"
@@ -124,9 +125,13 @@ else:
                 }:
                     clerk_public_key = await get_clerk_public_key(kid=kid)
                 case _:
-                    raise HTTP_EXC("Invalid JWT headers")
+                    msg = "Invalid JWT headers"
+                    logger.error(msg)
+                    raise HTTP_EXC(msg)
             if clerk_public_key is None:
-                raise HTTP_EXC("Could not get public key")
+                msg = "Could not get public key"
+                logger.error(msg)
+                raise HTTP_EXC(msg)
             payload = jwt.decode(
                 token,
                 key=clerk_public_key,
