@@ -1,7 +1,7 @@
-import asyncio
+from __future__ import annotations
+
 import json
-import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from pydantic import BaseModel
@@ -9,8 +9,10 @@ from pydantic import BaseModel
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput
 from tracecat.dsl.workflow import DSLContext, DSLRunArgs, DSLWorkflow
+
+if TYPE_CHECKING:
+    from tracecat.dsl.common import DSLInput
 
 
 class DispatchResult(BaseModel):
@@ -38,10 +40,3 @@ async def dispatch_workflow(
     )
     logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
     return DispatchResult(wf_id=wf_id, final_context=result)
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise RuntimeError("Expected single argument for YAML file")
-    path = sys.argv[1]
-    asyncio.run(dispatch_workflow(DSLInput.from_yaml(path)))

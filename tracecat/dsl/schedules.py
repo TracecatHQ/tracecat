@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import re
 from datetime import datetime, timedelta
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import ValidationInfo, ValidatorFunctionWrapHandler, WrapValidator
 from temporalio.client import (
@@ -16,9 +18,11 @@ from temporalio.client import (
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput
 from tracecat.dsl.workflow import DSLRunArgs, DSLWorkflow
 from tracecat.types.api import UpdateScheduleParams
+
+if TYPE_CHECKING:
+    from tracecat.dsl.common import DSLInput
 
 T = TypeVar("T")
 
