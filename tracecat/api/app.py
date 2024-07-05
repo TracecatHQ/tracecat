@@ -1339,23 +1339,32 @@ async def delete_schedule(
             Schedule.owner_id == role.user_id, Schedule.id == schedule_id
         )
         result = session.exec(statement)
-        try:
-            schedule = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+        schedule = result.one_or_none()
+        if not schedule:
+            logger.warning(
+                "Schedule not found, attempt to delete underlying Temporal schedule...",
+                schedule_id=schedule_id,
+            )
 
         try:
+            # Delete the schedule from Temporal first
             await schedules.delete_schedule(schedule_id)
+
+            # If successful, delete the schedule from the database
+            if schedule:
+                session.delete(schedule)
+                session.commit()
+            else:
+                logger.warning(
+                    "Schedule was already deleted from the database",
+                    schedule_id=schedule_id,
+                )
         except Exception as e:
             logger.error("Error deleting schedule", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error deleting schedule",
             ) from e
-        session.delete(schedule)
-        session.commit()
 
 
 @app.get("/schedules/search", tags=["schedules"])
