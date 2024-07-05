@@ -16,7 +16,10 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     from pydantic import BaseModel
 
+    from tracecat.dsl.models import ActionStatement, DSLNodeResult
+    from tracecat.dsl.io import resolve_success_output
     from tracecat.expressions.shared import ExprContext, IterableExpr
+    from tracecat.dsl.models import ActionTest
     from tracecat.expressions.engine import TemplateExpression
     from tracecat.expressions.eval import (
         eval_templated_object,
@@ -25,7 +28,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.types.auth import Role
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-    from tracecat.dsl.common import ActionStatement, DSLInput, ActionTest, DSLNodeResult
+    from tracecat.dsl.common import DSLInput
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.identifiers import WorkflowID
@@ -362,7 +365,7 @@ class DSLActivities:
             )
             if act_test.validate_args:
                 udf.validate_args(**args)
-            result = await act_test.resolve_success_output()
+            result = await resolve_success_output(act_test)
 
         elif task.for_each:
             # If there's a loop, we need to process this action in parallel

@@ -8,7 +8,7 @@ from typing import Any, Literal, override
 from pydantic import BaseModel, Field
 
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.dsl.common import DSLNodeResult
+from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions import functions, patterns
 from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.expressions.visitors.base import ExprVisitor

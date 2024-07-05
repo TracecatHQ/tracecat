@@ -13,7 +13,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-from tracecat.dsl.common import ActionStatement
+from tracecat.dsl.models import ActionStatement
 from tracecat.identifiers import action
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatValidationError

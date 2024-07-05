@@ -2,139 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-from collections.abc import Coroutine
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Annotated, Any, Literal, Self, TypedDict
+from typing import Any, Self
 
-import fsspec
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from tracecat import identifiers
+from tracecat.db.schemas import Workflow
+from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
+from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
-from tracecat.expressions.validators import TemplateValidator
 from tracecat.logging import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.exceptions import TracecatDSLError, TracecatValidationError
-
-SLUG_PATTERN = r"^[a-z0-9_]+$"
-ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
-
-
-class ActionStatement(BaseModel):
-    id: str | None = Field(
-        default=None,
-        exclude=True,
-        description=(
-            "The action ID. If this is populated means there is a corresponding action"
-            "in the database `Action` table."
-        ),
-    )
-
-    ref: str = Field(pattern=SLUG_PATTERN, description="Unique reference for the task")
-
-    description: str = ""
-
-    action: str = Field(
-        pattern=ACTION_TYPE_PATTERN,
-        description="Action type. Equivalent to the UDF key.",
-    )
-    """Action type. Equivalent to the UDF key."""
-
-    args: dict[str, Any] = Field(
-        default_factory=dict, description="Arguments for the action"
-    )
-
-    depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
-
-    run_if: Annotated[
-        str | None,
-        Field(default=None, description="Condition to run the task"),
-        TemplateValidator(),
-    ]
-
-    for_each: Annotated[
-        str | list[str] | None,
-        Field(
-            default=None,
-            description="Iterate over a list of items and run the task for each item.",
-        ),
-        TemplateValidator(),
-    ]
-
-    @property
-    def title(self) -> str:
-        return self.ref.capitalize().replace("_", " ")
-
-
-class DSLConfig(BaseModel):
-    scheduler: Literal["static", "dynamic"] = "dynamic"
-    enable_runtime_tests: bool = Field(
-        default=False,
-        description="Enable runtime action tests. This is dynamically set on workflow entry.",
-    )
-
-
-class Trigger(BaseModel):
-    type: Literal["schedule", "webhook"]
-    ref: str = Field(pattern=SLUG_PATTERN)
-    args: dict[str, Any] = Field(default_factory=dict)
-
-
-class ActionTest(BaseModel):
-    ref: str = Field(..., pattern=SLUG_PATTERN, description="Action reference")
-    enable: bool = True
-    validate_args: bool = True
-    success: Any = Field(
-        ...,
-        description=(
-            "Patched success output. This can be any data structure."
-            "If it's a fsspec file, it will be read and the contents will be used."
-        ),
-    )
-    failure: Any = Field(default=None, description="Patched failure output")
-
-    async def resolve_success_output(self) -> Any:
-        def resolver_coro(_obj: Any) -> Coroutine:
-            return asyncio.to_thread(resolve_string_or_uri, _obj)
-
-        obj = self.success
-        match obj:
-            case str():
-                return await resolver_coro(obj)
-            case list():
-                tasks = []
-                async with asyncio.TaskGroup() as tg:
-                    for item in obj:
-                        task = tg.create_task(resolver_coro(item))
-                        tasks.append(task)
-                return [task.result() for task in tasks]
-            case _:
-                return obj
-
-
-def resolve_string_or_uri(string_or_uri: str) -> Any:
-    try:
-        of = fsspec.open(string_or_uri, "rb")
-        with of as f:
-            data = f.read()
-
-        return json.loads(data)
-
-    except (FileNotFoundError, ValueError) as e:
-        if "protocol not known" in str(e).lower():
-            raise TracecatDSLError(
-                f"Failed to read fsspec file, protocol not known: {string_or_uri}"
-            ) from e
-        logger.info(
-            "String input did not match fsspec, handling as normal",
-            string_or_uri=string_or_uri,
-            error=e,
-        )
-        return string_or_uri
 
 
 class DSLEntrypoint(BaseModel):
@@ -183,31 +66,6 @@ class DSLInput(BaseModel):
     )
     tests: list[ActionTest] = Field(default_factory=list, description="Action tests")
 
-    @staticmethod
-    def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:
-        """Read a DSL definition from a YAML file."""
-        # Handle binaryIO
-        if isinstance(path, str | Path):
-            with Path(path).open("r") as f:
-                yaml_str = f.read()
-        elif isinstance(path, SpooledTemporaryFile):
-            yaml_str = path.read().decode()
-        else:
-            raise TracecatDSLError(f"Invalid file/path type {type(path)}")
-        dsl_dict = yaml.safe_load(yaml_str)
-        try:
-            return DSLInput.model_validate(dsl_dict)
-        except* TracecatDSLError as eg:
-            logger.error(eg.message, error=eg.exceptions)
-            raise eg
-
-    def to_yaml(self, path: str | Path) -> None:
-        with Path(path).expanduser().resolve().open("w") as f:
-            yaml.dump(self.model_dump(), f)
-
-    def dump_yaml(self) -> str:
-        return yaml.dump(self.model_dump())
-
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
         if not self.actions:
@@ -217,7 +75,7 @@ class DSLInput(BaseModel):
         valid_actions = tuple(action.ref for action in self.actions)
         if self.entrypoint.ref not in valid_actions:
             raise TracecatDSLError(
-                f"Entrypoint must be one of the actions {valid_actions!r}"
+                f"Entrypoint reference must be one of the actions {valid_actions!r}"
             )
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
         if n_entrypoints != 1:
@@ -251,7 +109,102 @@ class DSLInput(BaseModel):
         except* TracecatDSLError as eg:
             raise eg
 
+    @staticmethod
+    def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:
+        """Read a DSL definition from a YAML file."""
+        # Handle binaryIO
+        if isinstance(path, str | Path):
+            with Path(path).open("r") as f:
+                yaml_str = f.read()
+        elif isinstance(path, SpooledTemporaryFile):
+            yaml_str = path.read().decode()
+        else:
+            raise TracecatDSLError(f"Invalid file/path type {type(path)}")
+        dsl_dict = yaml.safe_load(yaml_str)
+        try:
+            return DSLInput.model_validate(dsl_dict)
+        except* TracecatDSLError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            raise eg
 
-class DSLNodeResult(TypedDict):
-    result: Any
-    result_typename: str
+    def to_yaml(self, path: str | Path) -> None:
+        with Path(path).expanduser().resolve().open("w") as f:
+            yaml.dump(self.model_dump(), f)
+
+    def dump_yaml(self) -> str:
+        return yaml.dump(self.model_dump())
+
+    @staticmethod
+    def from_workflow(workflow: Workflow) -> DSLInput:
+        """Converter for Workflow to DSLInput.
+
+        Use Case: Committing a Workflow into a Workflow Definition
+        """
+        # NOTE: Must only call inside a db session
+        # Check that we're inside an open
+        if not workflow.object:
+            raise ValueError("Empty workflow graph object. Is `workflow.object` set?")
+        if not workflow.actions:
+            raise ValueError(
+                "Empty actions list. Please hydrate the workflow by "
+                "calling `workflow.actions` inside an open db session."
+            )
+        graph = RFGraph.from_workflow(workflow)
+        return DSLInput(
+            title=workflow.title,
+            description=workflow.description,
+            entrypoint={
+                "ref": graph.logical_entrypoint.ref,
+                # TODO: Add expects for UI -> DSL
+                "expects": {},
+            },
+            actions=graph.action_statements(workflow),
+            # config=workflow.config,
+            # triggers=workflow.triggers,
+            # inputs=workflow.inputs,
+        )
+
+    def to_graph(self, workflow: Workflow) -> RFGraph:
+        """Converter for DSLInput to Workflow.
+
+        Use Case: Syncing headless to the frontend.
+
+        Warning
+        -------
+        If called outside of a db session, `actions` will be empty.
+        """
+        if not self.actions:
+            raise ValueError("Empty actions list")
+        wf_id = workflow.id
+        graph = RFGraph.from_workflow(workflow)
+        trigger = graph.trigger
+
+        # Create nodes and edges
+        nodes: list[RFEdge] = [trigger]
+        edges: list[RFEdge] = []
+        try:
+            for action in self.actions:
+                # Get updated nodes
+                dst_key = identifiers.action.key(wf_id, action.ref)
+                node = UDFNode(
+                    id=dst_key,
+                    data=UDFNodeData(
+                        title=action.title,
+                        type=action.action,
+                    ),
+                )
+                nodes.append(node)
+
+                for src_ref in action.depends_on:
+                    src_key = identifiers.action.key(wf_id, src_ref)
+                    edges.append(RFEdge(source=src_key, target=dst_key))
+
+            entrypoint_id = identifiers.action.key(wf_id, self.entrypoint.ref)
+            # Add trigger edge
+            edges.append(
+                RFEdge(source=trigger.id, target=entrypoint_id, label="⚡ Trigger")
+            )
+            return RFGraph(nodes=nodes, edges=edges)
+        except Exception as e:
+            logger.opt(exception=e).error("Error creating graph")
+            raise e

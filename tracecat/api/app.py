@@ -26,7 +26,7 @@ from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
-from tracecat import config, converters, identifiers, validation
+from tracecat import config, identifiers, validation
 from tracecat.api.completions import (
     CategoryConstraint,
     FieldCons,
@@ -106,7 +106,6 @@ from tracecat.types.api import (
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.types.validation import ValidationResult
 
 engine: Engine
 
@@ -366,13 +365,13 @@ async def incoming_webhook(
     dsl_input = DSLInput(**defn.content)
 
     # Set runtime configuration
-    match validation.validate_trigger_inputs(dsl_input, payload):
-        case ValidationResult(status="error", msg=msg, detail=detail):
-            logger.error(msg, detail=detail)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"msg": msg, "detail": detail},
-            )
+    validation_result = validate_trigger_inputs(dsl=dsl_input, payload=payload)
+    if validation_result.status == "error":
+        logger.error(validation_result.msg, detail=validation_result.detail)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"msg": validation_result.msg, "detail": validation_result.detail},
+        )
 
     if payload:
         dsl_input.trigger_inputs = payload
@@ -777,7 +776,7 @@ async def commit_workflow(
                     logger.info("Commiting workflow from yaml file")
                 else:
                     # Convert the workflow into a WorkflowDefinition
-                    dsl = converters.workflow_to_dsl(workflow)
+                    dsl = DSLInput.from_workflow(workflow)
                     logger.info("Commiting workflow from database")
             except* TracecatValidationError as eg:
                 logger.error(eg.message, error=eg.exceptions)
@@ -805,7 +804,7 @@ async def commit_workflow(
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
 
-            if val_errors := await validation.validate_dsl(session, dsl):
+            if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
                 logger.warning("Validation errors", errors=val_errors)
                 return CommitWorkflowResponse(
                     workflow_id=workflow_id,
@@ -821,7 +820,7 @@ async def commit_workflow(
             # Phase 1: Commit
             defn = _create_wf_definition(session, role, workflow_id, dsl)
             # Phase 2: Backpropagate
-            new_graph = converters.dsl_to_graph(workflow, dsl)
+            new_graph = dsl.to_graph(workflow)
 
             # Replace Actions
             del_stmt = delete(Action).where(
@@ -2357,6 +2356,7 @@ async def validate_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     definition: UploadFile = File(...),
     payload: UploadFile = File(None),
+    session: Session = Depends(get_session),
 ) -> list[UDFArgsValidationResponse]:
     """Validate a workflow.
 
@@ -2407,7 +2407,7 @@ async def validate_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        if expr_errors := await validation.validate_dsl(dsl):
+        if expr_errors := await validation.validate_dsl(session=session, dsl=dsl):
             logger.warning("Validation errors", errors=expr_errors)
             return ORJSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
