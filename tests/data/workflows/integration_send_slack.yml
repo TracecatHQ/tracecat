@@ -1,0 +1,30 @@
+title: Test send Slack notification
+description: Test sending a Slack notification
+
+entrypoint:
+  ref: send_slack_notifications
+  expects:
+    header: str
+    description: str
+
+triggers:
+  - type: webhook
+    ref: send_slack_webhook
+    entrypoint: send_slack_notifications
+
+actions:
+  - ref: send_slack_notifications
+    action: integrations.chat.slack.post_slack_message
+    args:
+      channel: ${{ SECRETS.slack_chatops.SLACK_CHANNEL }}
+      text: Integration Test
+      blocks:
+        - type: header
+          text:
+            type: plain_text
+            text: ${{ TRIGGER.header }}
+            emoji: true
+        - type: section
+          text:
+            type: mrkdwn
+            text: ${{ TRIGGER.description }}
