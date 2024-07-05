@@ -4,6 +4,7 @@ import os
 
 from sqlmodel import Session, select
 
+from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
 from tracecat.logging import logger
 from tracecat.types.api import UpdateSecretParams
@@ -16,8 +17,8 @@ from .models import SecretKeyValue
 class SecretsService:
     """Secrets manager service."""
 
-    def __init__(self, session: Session, role: Role):
-        self.role = role
+    def __init__(self, session: Session, role: Role | None = None):
+        self.role = role or ctx_role.get()
         self.session = session
         self._encryption_key = os.getenv("TRACECAT__DB_ENCRYPTION_KEY")
         if not self._encryption_key:
