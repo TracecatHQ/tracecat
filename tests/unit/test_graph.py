@@ -1,3 +1,4 @@
+import pytest
 from pydantic import BaseModel
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
@@ -5,29 +6,32 @@ from tracecat.dsl.graph import RFGraph, TriggerNode
 from tracecat.dsl.models import ActionStatement
 
 
-class TestMetadata(BaseModel):
-    title: str
-    description: str
-    entrypoint: DSLEntrypoint
-    trigger: TriggerNode
+@pytest.fixture(scope="session")
+def metadata():
+    class TestMetadata(BaseModel):
+        title: str
+        description: str
+        entrypoint: DSLEntrypoint
+        trigger: TriggerNode
 
-
-metadata = TestMetadata(
-    title="TEST_WORKFLOW",
-    description="TEST_DESCRIPTION",
-    entrypoint={"ref": "action_a"},
-    trigger={
-        "id": "trigger-TEST_WORKFLOW_ID",
-        "type": "trigger",
-        "data": {
+    metadata = TestMetadata(
+        title="TEST_WORKFLOW",
+        description="TEST_DESCRIPTION",
+        entrypoint={"ref": "action_a"},
+        trigger={
+            "id": "trigger-TEST_WORKFLOW_ID",
             "type": "trigger",
-            "title": "Trigger",
-            "status": "online",
-            "isConfigured": True,
-            "webhook": {},
+            "data": {
+                "type": "trigger",
+                "title": "Trigger",
+                "status": "online",
+                "isConfigured": True,
+                "webhook": {},
+            },
         },
-    },
-)
+    )
+
+    return metadata
 
 
 def build_actions(graph: RFGraph) -> list[ActionStatement]:
@@ -44,7 +48,7 @@ def build_actions(graph: RFGraph) -> list[ActionStatement]:
     ]
 
 
-def test_parse_dag_simple_sequence():
+def test_parse_dag_simple_sequence(metadata):
     """Simple sequence
 
     trigger -> A -> B -> C
@@ -118,7 +122,7 @@ def test_parse_dag_simple_sequence():
     assert dsl.actions == expected_wf_ir
 
 
-def test_kite():
+def test_kite(metadata):
     r"""Kite shape:
 
        trigger -> A
@@ -203,7 +207,7 @@ def test_kite():
     assert dsl.actions == expected_wf_ir
 
 
-def test_double_kite():
+def test_double_kite(metadata):
     r"""Double kite shape:
 
        trigger -> A
@@ -343,7 +347,7 @@ def test_double_kite():
     assert dsl.actions == expected_wf_ir
 
 
-def test_tree_1():
+def test_tree_1(metadata):
     r"""Tree 1 shape:
 
        trigger -> A
@@ -418,7 +422,7 @@ def test_tree_1():
     assert dsl.actions == expected_wf_ir
 
 
-def test_tree_2():
+def test_tree_2(metadata):
     r"""Tree 2 shape:
 
          trigger -> A
@@ -494,7 +498,7 @@ def test_tree_2():
     assert dsl.actions == expected_wf_ir
 
 
-def test_complex_dag_1():
+def test_complex_dag_1(metadata):
     r"""Complex DAG shape:
 
          trigger -> A
@@ -585,7 +589,7 @@ def test_complex_dag_1():
     assert dsl.actions == expected_wf_ir
 
 
-def test_complex_dag_2():
+def test_complex_dag_2(metadata):
     r"""Complex DAG shape:
 
          trigger -> A
@@ -702,7 +706,7 @@ def test_complex_dag_2():
     assert dsl.actions == expected_wf_ir
 
 
-def test_complex_dag_3():
+def test_complex_dag_3(metadata):
     r"""Complex DAG shape:
 
          trigger -> A
