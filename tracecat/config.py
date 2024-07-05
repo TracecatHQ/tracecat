@@ -30,6 +30,13 @@ TRACECAT__EXECUTIONS_DIR.mkdir(parents=True, exist_ok=True)
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = ["tracecat-runner", "tracecat-api", "tracecat-cli"]
 
+# CORS settings
+# NOTE: If you are using Tracecat self-hosted, please replace with your
+# own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.
+TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
+if TRACECAT__ALLOW_ORIGINS:
+    TRACECAT__ALLOW_ORIGINS = TRACECAT__ALLOW_ORIGINS.split(",")
+
 # Temporal configs
 TEMPORAL__CLUSTER_URL = os.environ.get(
     "TEMPORAL__CLUSTER_URL", "http://localhost:7233"
