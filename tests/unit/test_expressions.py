@@ -20,7 +20,7 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.functions import eval_jsonpath
 from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType
-from tracecat.expressions.visitors import ExprEvaluatorVisitor
+from tracecat.expressions.visitors.evaluator import ExprEvaluatorVisitor
 from tracecat.expressions.visitors.validator import (
     ExprValidationContext,
     ExprValidatorVisitor,

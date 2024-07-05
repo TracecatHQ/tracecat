@@ -50,8 +50,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 from tracecat.concurrency import GatheringTaskGroup, apartial
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.shared import ExprType
-from tracecat.expressions.visitors import ExprValidationResult, ExprValidatorVisitor
-from tracecat.expressions.visitors.validator import ExprValidationContext
+from tracecat.expressions.visitors.validator import (
+    ExprValidationContext,
+    ExprValidationResult,
+    ExprValidatorVisitor,
+)
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.service import SecretsService
