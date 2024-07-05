@@ -3,8 +3,6 @@ from typing import Any
 import orjson
 from cryptography.fernet import Fernet
 
-from tracecat.logging import logger
-
 from .models import SecretBase, SecretKeyValue
 
 
@@ -31,5 +29,4 @@ def decrypt_keyvalues(
 
 def encrypt_keyvalues(keyvalues: list[SecretKeyValue], *, key: str) -> bytes:
     obj = {kv.key: kv.value.get_secret_value() for kv in keyvalues}
-    logger.info("Encrypting keyvalues", keyvalues=obj)
     return encrypt_bytes(obj, key=key)
