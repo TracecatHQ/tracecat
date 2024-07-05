@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from tracecat.concurrency import GatheringTaskGroup
+from tracecat.concurrency import GatheringTaskGroup, apartial
 
 
 @pytest.mark.asyncio
@@ -21,3 +21,22 @@ async def test_gathering_task_group():
 
     # Check the results
     assert group.results() == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_apartial():
+    async def mock_coroutine(a, b, c):
+        await asyncio.sleep(0.1)
+        return a + b + c
+
+    partial_coroutine = apartial(mock_coroutine, 1, 2, c=3)
+    result = await partial_coroutine()
+    assert result == 6
+
+    partial_coroutine = apartial(mock_coroutine, 1, c=3)
+    result = await partial_coroutine(2)
+    assert result == 6
+
+    partial_coroutine = apartial(mock_coroutine, 1, 2)
+    result = await partial_coroutine(3)
+    assert result == 6
