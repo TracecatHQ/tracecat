@@ -100,7 +100,7 @@ jobs:
           # General
           LOG_LEVEL: info
           # "main" if trigger on main, else get version from tag
-          TRACECAT_VERSION: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref_name }}
+          TRACECAT__VERSION: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref_name }}
           # Backend
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000
@@ -121,7 +121,6 @@ jobs:
           TEMPORAL__CLUSTER_QUEUE: tracecat-task-queue
           TEMPORAL__CLUSTER_NAMESPACE: tracecat
           TEMPORAL__VERSION: 1.24.2
-          TEMPORAL__ADMINTOOLS_VERSION: 1.24.2-tctl-1.18.1-cli-0.13.0
           TEMPORAL__UI_VERSION: 2.26.2
           # Posthog
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
