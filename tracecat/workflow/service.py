@@ -1,5 +1,7 @@
-from temporalio.client import Client as TemporalClient
+from __future__ import annotations
+
 from temporalio.client import (
+    Client,
     WorkflowExecution,
     WorkflowExecutionDescription,
     WorkflowExecutionStatus,
@@ -8,6 +10,7 @@ from temporalio.client import (
 
 from tracecat import identifiers
 from tracecat.contexts import ctx_role
+from tracecat.dsl.client import get_temporal_client
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 
@@ -15,10 +18,16 @@ from tracecat.types.auth import Role
 class WorkflowExecutionsService:
     """Workflow executions service."""
 
-    def __init__(self, client: TemporalClient, role: Role | None = None):
+    def __init__(self, client: Client, role: Role | None = None):
         self.role = role or ctx_role.get()
         self._client = client
         self.logger = logger.bind(service="workflow_executions")
+
+    @staticmethod
+    async def connect() -> WorkflowExecutionsService:
+        """Initialize and connect to the service."""
+        client = await get_temporal_client()
+        return WorkflowExecutionsService(client=client)
 
     def handle(self, wf_exec_id: identifiers.WorkflowExecutionID) -> WorkflowHandle:
         return self._client.get_workflow_handle(wf_exec_id)

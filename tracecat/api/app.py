@@ -25,7 +25,6 @@ from pydantic import ValidationError
 from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
-from temporalio.client import Client as TemporalClient
 
 from tracecat import config, identifiers, validation
 from tracecat.api.completions import (
@@ -55,7 +54,6 @@ from tracecat.db.schemas import (
     WorkflowDefinition,
 )
 from tracecat.dsl import dispatcher, schedules
-from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
@@ -106,14 +104,12 @@ from tracecat.workflow.models import WorkflowExecutionResponse
 from tracecat.workflow.service import WorkflowExecutionsService
 
 engine: Engine
-temporal_client: TemporalClient
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, temporal_client
+    global engine
     engine = get_engine()
-    temporal_client = await get_temporal_client()
     yield
 
 
@@ -958,7 +954,7 @@ async def list_workflow_executions(
 ) -> list[WorkflowExecutionResponse]:
     """List all workflow executions."""
     with logger.contextualize(role=role):
-        service = WorkflowExecutionsService(client=temporal_client)
+        service = await WorkflowExecutionsService.connect()
         if workflow_id:
             executions = await service.list_executions_by_workflow_id(workflow_id)
         else:
@@ -976,7 +972,7 @@ async def get_workflow_execution(
 ) -> WorkflowExecutionResponse:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
-        service = WorkflowExecutionsService(client=temporal_client)
+        service = await WorkflowExecutionsService.connect()
         execution = await service.get_execution(execution_id)
         return WorkflowExecutionResponse.from_dataclass(execution)
 
