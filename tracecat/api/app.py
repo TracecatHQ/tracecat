@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
+from temporalio.client import Client as TemporalClient
 
 from tracecat import config, identifiers, validation
 from tracecat.api.completions import (
@@ -42,7 +43,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
 from tracecat.db.schemas import (
     Action,
-    ActionRun,
     CaseAction,
     CaseContext,
     CaseEvent,
@@ -53,9 +53,9 @@ from tracecat.db.schemas import (
     Webhook,
     Workflow,
     WorkflowDefinition,
-    WorkflowRun,
 )
 from tracecat.dsl import dispatcher, schedules
+from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
@@ -69,8 +69,6 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.api import (
     ActionMetadataResponse,
     ActionResponse,
-    ActionRunEventParams,
-    ActionRunResponse,
     CaseActionParams,
     CaseContextParams,
     CaseEventParams,
@@ -100,20 +98,22 @@ from tracecat.types.api import (
     WebhookResponse,
     WorkflowMetadataResponse,
     WorkflowResponse,
-    WorkflowRunEventParams,
-    WorkflowRunResponse,
 )
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.workflow.models import WorkflowExecutionResponse
+from tracecat.workflow.service import WorkflowExecutionsService
 
 engine: Engine
+temporal_client: TemporalClient
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, temporal_client
     engine = get_engine()
+    temporal_client = await get_temporal_client()
     yield
 
 
@@ -947,113 +947,38 @@ def get_workflow_definition(
             ) from e
 
 
-# ----- Workflow Runs ----- #
+# ----- Workflow Executions ----- #
 
 
-@app.get("/workflows/{workflow_id}/runs", tags=["workflows"])
-def list_workflow_runs(
+@app.get("/workflow-executions", tags=["workflow-executions"])
+async def list_workflow_executions(
     role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    limit: int | None = None,
-) -> list[WorkflowRunResponse]:
-    """**[DEPRECATED]** List all runs for a workflow."""
-    with Session(engine) as session:
-        # Being here means the user has access to the workflow
-        statement = select(WorkflowRun).where(
-            WorkflowRun.owner_id == role.user_id,
-            WorkflowRun.workflow_id == workflow_id,
-        )
-        if limit is not None:
-            statement = statement.limit(limit)
-        results = session.exec(statement)
-        workflow_runs = results.all()
-
-    workflow_runs_metadata = [
-        WorkflowRunResponse(**workflow_run.model_dump())
-        for workflow_run in workflow_runs
-    ]
-    return workflow_runs_metadata
+    # Filters
+    workflow_id: identifiers.WorkflowID | None = Query(None),
+) -> list[WorkflowExecutionResponse]:
+    """List all workflow executions."""
+    with logger.contextualize(role=role):
+        service = WorkflowExecutionsService(client=temporal_client)
+        if workflow_id:
+            executions = await service.list_executions_by_workflow_id(workflow_id)
+        else:
+            executions = await service.list_executions()
+        return [
+            WorkflowExecutionResponse.from_dataclass(execution)
+            for execution in executions
+        ]
 
 
-@app.post(
-    "/workflows/{workflow_id}/runs",
-    status_code=status.HTTP_201_CREATED,
-    tags=["workflows"],
-)
-def create_workflow_run(
-    role: Annotated[Role, Depends(authenticate_service)],  # M2M
-    workflow_id: str,
-    params: WorkflowRunEventParams,
-) -> None:
-    """**[DEPRECATED]** Create a workflow run."""
-
-    with Session(engine) as session:
-        workflow_run = WorkflowRun(workflow_id=workflow_id, **params.model_dump())
-        session.add(workflow_run)
-        session.commit()
-        session.refresh(workflow_run)
-
-
-@app.get("/workflows/{workflow_id}/runs/{workflow_run_id}", tags=["workflows"])
-def get_workflow_run(
+@app.get("/workflow-executions/{execution_id}", tags=["workflow-executions"])
+async def get_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    workflow_run_id: str,
-) -> WorkflowRunResponse:
-    """**[DEPRECATED]** Get a workflow run."""
-
-    with Session(engine) as session:
-        # Get Workflow given workflow_id
-        statement = select(WorkflowRun).where(
-            WorkflowRun.owner_id == role.user_id,
-            WorkflowRun.id == workflow_run_id,
-            WorkflowRun.workflow_id == workflow_id,  # Redundant, but for clarity
-        )
-        result = session.exec(statement)
-        try:
-            workflow_run = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        # Need this classmethod to instantiate the lazy-laoded action_runs list
-        return WorkflowRunResponse.from_orm(workflow_run)
-
-
-@app.post(
-    "/workflows/{workflow_id}/runs/{workflow_run_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def update_workflow_run(
-    role: Annotated[Role, Depends(authenticate_service)],  # M2M
-    workflow_id: str,
-    workflow_run_id: str,
-    params: WorkflowRunEventParams,
-) -> None:
-    """**[DEPRECATED]** Update a workflow run."""
-
-    with Session(engine) as session:
-        statement = select(WorkflowRun).where(
-            WorkflowRun.owner_id == role.user_id,
-            WorkflowRun.id == workflow_run_id,
-            WorkflowRun.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow_run = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        workflow_run.status = params.status
-        # NOTE: We shouldn't use the DB updated_at field like this, but for now we will
-        workflow_run.updated_at = params.created_at
-
-        session.add(workflow_run)
-        session.commit()
-        session.refresh(workflow_run)
+    execution_id: identifiers.WorkflowExecutionID,
+) -> WorkflowExecutionResponse:
+    """Get a workflow execution."""
+    with logger.contextualize(role=role):
+        service = WorkflowExecutionsService(client=temporal_client)
+        execution = await service.get_execution(execution_id)
+        return WorkflowExecutionResponse.from_dataclass(execution)
 
 
 # ----- Workflow Controls ----- #
@@ -1552,118 +1477,6 @@ def delete_action(
         # If the user doesn't own this workflow, they can't delete the action
         session.delete(action)
         session.commit()
-
-
-# ----- Action Runs ----- #
-
-
-@app.get("/actions/{action_id}/runs", tags=["actions"])
-def list_action_runs(
-    role: Annotated[Role, Depends(authenticate_user)],
-    action_id: str,
-    limit: int | None = None,
-) -> list[ActionRunResponse]:
-    """**[DEPRECATED]** List all action Runs for an action."""
-    with Session(engine) as session:
-        # Being here means the user has access to the action
-        statement = select(ActionRun).where(
-            ActionRun.owner_id == role.user_id,
-            ActionRun.action_id == action_id,
-        )
-        if limit is not None:
-            statement = statement.limit(limit)
-        results = session.exec(statement)
-        action_runs = results.all()
-
-    action_runs_metadata = [
-        ActionRunResponse.from_orm(action_run) for action_run in action_runs
-    ]
-    return action_runs_metadata
-
-
-@app.post(
-    "/actions/{action_id}/runs", status_code=status.HTTP_201_CREATED, tags=["actions"]
-)
-def create_action_run(
-    role: Annotated[Role, Depends(authenticate_service)],  # M2M
-    action_id: str,
-    params: ActionRunEventParams,
-) -> ActionRunResponse:
-    """**[DEPRECATED]** Create an action Run."""
-
-    action_run = ActionRun(action_id=action_id, **params.model_dump())
-    with Session(engine) as session:
-        session.add(action_run)
-        session.commit()
-        session.refresh(action_run)
-
-    return ActionRunResponse.from_orm(action_run)
-
-
-@app.get("/actions/{action_id}/runs/{action_run_id}", tags=["actions"])
-def get_action_run(
-    role: Annotated[Role, Depends(authenticate_user)],
-    action_id: str,
-    action_run_id: str,
-) -> ActionRunResponse:
-    """**[DEPRECATED]** Get an action run."""
-
-    with Session(engine) as session:
-        # Get action given action_id
-        statement = select(ActionRun).where(
-            ActionRun.owner_id == role.user_id,
-            ActionRun.id == action_run_id,
-            ActionRun.action_id == action_id,  # Redundant, but for clarity
-        )
-        result = session.exec(statement)
-        try:
-            action_run = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-    return ActionRunResponse.from_orm(action_run)
-
-
-@app.post(
-    "/actions/{action_id}/runs/{action_run_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["actions"],
-)
-def update_action_run(
-    role: Annotated[Role, Depends(authenticate_service)],  # M2M
-    action_id: str,
-    action_run_id: str,
-    params: ActionRunEventParams,
-) -> None:
-    """**[DEPRECATED]** Update an action run."""
-
-    with Session(engine) as session:
-        statement = select(ActionRun).where(
-            ActionRun.owner_id == role.user_id,
-            ActionRun.id == action_run_id,
-            ActionRun.action_id == action_id,
-        )
-        result = session.exec(statement)
-        try:
-            action_run = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        action_run.status = params.status
-        # NOTE: We shouldn't use the DB updated_at field like this, but for now we will
-        action_run.updated_at = params.created_at
-        if params.error_msg is not None:
-            action_run.error_msg = params.error_msg
-        if params.result is not None:
-            action_run.result = params.result
-
-        session.add(action_run)
-        session.commit()
-        session.refresh(action_run)
 
 
 # ----- Events Management ----- #
