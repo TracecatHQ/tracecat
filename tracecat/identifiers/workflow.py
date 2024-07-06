@@ -36,7 +36,7 @@ Not to be confused with the run ID, which is a UUID for each run/retry of the ex
 
 Examples
 --------
-- 'wf-1234567890abcdef1234567890abcdef:run-140a425a577932a0c95edcfb8465a1a'
+- 'wf-1234567890abcdef1234567890abcdef:exec-140a425a577932a0c95edcfb8465a1a'
 
 References
 ----------
