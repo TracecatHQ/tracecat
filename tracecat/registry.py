@@ -17,7 +17,7 @@ from typing_extensions import Doc
 
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.db.schemas import UDFSpec
-from tracecat.expressions.validators import TemplateValidator
+from tracecat.expressions.validation import TemplateValidator
 from tracecat.secrets.models import SecretKey, SecretName
 from tracecat.types.exceptions import TracecatException
 
