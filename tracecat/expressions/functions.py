@@ -103,6 +103,22 @@ _FUNCTION_MAPPING = {
     "from_base64": _b64_to_str,
 }
 
+OPERATORS = {
+    "||": lambda x, y: x or y,
+    "&&": lambda x, y: x and y,
+    "==": lambda x, y: x == y,
+    "!=": lambda x, y: x != y,
+    "<": lambda x, y: x < y,
+    "<=": lambda x, y: x <= y,
+    ">": lambda x, y: x > y,
+    ">=": lambda x, y: x >= y,
+    "+": lambda x, y: x + y,
+    "-": lambda x, y: x - y,
+    "*": lambda x, y: x * y,
+    "/": lambda x, y: x / y,
+    "%": lambda x, y: x % y,
+    "!": lambda x: not x,
+}
 
 P = ParamSpec("P")
 R = TypeVar("R")
