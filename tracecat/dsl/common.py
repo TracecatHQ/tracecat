@@ -85,6 +85,15 @@ class DSLInput(BaseModel):
         invalid_refs = {t.ref for t in self.tests} - valid_actions
         if invalid_refs:
             raise TracecatDSLError(f"Invalid action refs in tests: {invalid_refs}")
+
+        # Validate that all the refs in depends_on are valid actions
+        dependencies = {dep for a in self.actions for dep in a.depends_on}
+        invalid_deps = dependencies - valid_actions
+        if invalid_deps:
+            raise TracecatDSLError(
+                f"Invalid depends_on refs in actions: {invalid_deps}."
+                f" Valid actions: {valid_actions}"
+            )
         return self
 
     @field_validator("inputs")
