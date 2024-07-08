@@ -97,14 +97,13 @@ def create_mock_secret(auth_sandbox):
 
 
 @pytest.fixture(scope="session")
-def mock_secrets_service(auth_sandbox):
+def mock_secrets_service(auth_sandbox, env_sandbox):
     from sqlmodel import Session
 
     from tracecat.db.engine import get_engine
 
-    print(os.environ["TRACECAT__DB_URI"])
-
     engine = get_engine()
+
     with Session(engine) as session:
         service = SecretsService(session)
         yield service

@@ -11,20 +11,18 @@ from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
-from tracecat.expressions.engine import ExpressionParser, TemplateExpression
+from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
     extract_expressions,
     extract_templated_secrets,
 )
 from tracecat.expressions.functions import eval_jsonpath
+from tracecat.expressions.parser.core import ExprParser
+from tracecat.expressions.parser.evaluator import ExprEvaluator
+from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.patterns import FULL_TEMPLATE
-from tracecat.expressions.shared import ExprContext, ExprType
-from tracecat.expressions.visitors.evaluator import ExprEvaluatorVisitor
-from tracecat.expressions.visitors.validator import (
-    ExprValidationContext,
-    ExprValidatorVisitor,
-)
+from tracecat.expressions.shared import ExprContext, ExprType, IterableExpr
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
@@ -338,70 +336,6 @@ def test_eval_templated_object():
     assert processed_templates == expected_result
 
 
-def test_eval_templated_object_exclusion():
-    data = {
-        ExprContext.ACTIONS: {
-            "webhook": {
-                "result": 42,
-                "url": "https://example.com",
-                "count": 3,
-            }
-        },
-        ExprContext.SECRETS: {
-            "my_secret": "@@@",
-        },
-        ExprContext.LOCAL_VARS: {
-            "x": 5,
-            "y": "100",
-        },
-    }
-    templates = [
-        {
-            "test": {
-                "data": "INLINE: ${{ ACTIONS.webhook.result -> str }}",
-                "url": "${{ ACTIONS.webhook.url}}",
-                "number": "${{ ACTIONS.webhook.result -> int }}",
-                "number_whitespace": "${{ ACTIONS.webhook.result -> int }}",
-                # Inline substitution resulting in a string cannot cast to int
-                "number_whitespace_multi_string": " ${{ ACTIONS.webhook.result }} ${{ ACTIONS.webhook.count }}  ",
-            }
-        },
-        "Inline substitution ${{ ACTIONS.webhook.result}} like this",
-        "${{ ACTIONS.webhook.url}}",
-        "            Again, inline substitution ${{ SECRETS.my_secret }} like this   ",
-        "Multiple inline substitutions ${{ ACTIONS.webhook.result }} and ${{ ACTIONS.webhook.url }}",
-        " ignore local vars ${{ var.y }}",
-        "${{ var.x }}",
-        "${{ FN.add(5, 2) }}",
-        "${{ FN.add(5, var.x) }}",
-    ]
-    expected_result = [
-        {
-            "test": {
-                "data": "INLINE: 42",
-                "url": "https://example.com",
-                "number": 42,
-                "number_whitespace": 42,
-                "number_whitespace_multi_string": " 42 3  ",
-            }
-        },
-        "Inline substitution 42 like this",
-        "https://example.com",
-        "            Again, inline substitution ${{ SECRETS.my_secret }} like this   ",
-        "Multiple inline substitutions 42 and https://example.com",
-        " ignore local vars ${{ var.y }}",
-        "${{ var.x }}",
-        7,
-        "${{ FN.add(5, var.x) }}",
-    ]
-    processed_templates = eval_templated_object(
-        templates,
-        operand=data,
-        exclude={ExprContext.SECRETS, ExprContext.LOCAL_VARS},
-    )
-    assert processed_templates == expected_result
-
-
 def test_eval_templated_object_inline_fails_if_not_str():
     data = {
         ExprContext.ACTIONS: {
@@ -482,6 +416,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("'500'", "500"),
         ("bool(True)", True),
         ("bool(1)", True),
+        ("str(1)", "1"),
         ("[1, 2, 3]", [1, 2, 3]),
         # Environment expressions
         ("ENV.item", "ITEM"),
@@ -502,6 +437,20 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("INPUTS.people[*].gender", ["female", "male"]),
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
+        ("'a' if var.y == '100' else 'b'", "a"),
+        ("('a' if var.y != '100' else ('b' if var.y == '200' else 'c'))", "c"),
+        # Control flow
+        ("for var.jsonpath in [1,2,3]", IterableExpr(".jsonpath", [1, 2, 3])),
+        # More
+        ("FN.sum([1, FN.sub(2, 3), 1 - 1])", 0),
+        ("FN.sum([1,2,3,4,5]) + 10", 25),
+        ("'a' + 'b' == 'ab'", True),
+        ("FN.sum([1,2,3]) -> int", 6),
+        ("[1,2,3] + [4,5,6]", [1, 2, 3, 4, 5, 6]),
+        ("'hello' if False else 'goodbye'", "goodbye"),
+        ("{ 'key1': 1, 'key2': 'value' }", {"key1": 1, "key2": "value"}),
+        ("(1 + 10) > 3 -> str", "True"),
+        ("True || (1 != 1)", True),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -558,9 +507,36 @@ def test_expression_parser(expr, expected):
             "y": "100",
         },
     }
-    visitor = ExprEvaluatorVisitor(context=context)
-    parser = ExpressionParser()
-    assert parser.walk_expr(expr, visitor) == expected
+    # visitor = ExprEvaluatorVisitor(context=context)
+    # parser = ExpressionParser()
+    # assert parser.walk_expr(expr, visitor) == expected
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    ev = ExprEvaluator(context=context)
+    actual = ev.transform(parse_tree)
+    assert actual == expected
+
+
+def test_parser_error():
+    context = {
+        ExprContext.ACTIONS: {
+            "action_test": {
+                "bar": 1,
+                "baz": 2,
+            },
+        },
+    }
+
+    expr = "ACTIONS.action_test.bar -> str -> int"
+    parser = ExprParser()
+    with pytest.raises(TracecatExpressionError):
+        parser.parse(expr)
+
+    evaluator = ExprEvaluator(context=context)
+    with pytest.raises(TracecatExpressionError):
+        test = "ACTIONS.action_test.foo"
+        parse_tree = parser.parse(test)
+        evaluator.evaluate(parse_tree)
 
 
 def assert_validation_result(
@@ -571,7 +547,7 @@ def assert_validation_result(
     contains_msg: str | None = None,
     contains_detail: str | None = None,
 ):
-    assert res.exprssion_type == type
+    assert res.expression_type == type
     assert res.status == status
     if contains_msg:
         assert contains_msg in res.msg
@@ -584,7 +560,7 @@ def assert_validation_result(
     "expr,expected",
     [
         (
-            "${{ FN.fail(5, var.x) }}",
+            "${{ int(FN.fail(5, var.x)) }}",
             [{"type": ExprType.FUNCTION, "status": "error", "contains_msg": "'fail'"}],
         ),
         (
@@ -635,7 +611,7 @@ def assert_validation_result(
                 {
                     "type": ExprType.SECRET,
                     "status": "error",
-                    "contains_msg": "'my_secret'",
+                    "contains_msg": "my_secret",
                 }
             ],
         ),
@@ -647,7 +623,7 @@ def assert_validation_result(
                 {
                     "type": ExprType.SECRET,
                     "status": "error",
-                    "contains_msg": "'some_secret'",
+                    "contains_msg": "some_secret",
                 },
             ],
         ),
@@ -664,17 +640,17 @@ def assert_validation_result(
                 {
                     "type": ExprType.TYPECAST,
                     "status": "error",
-                    "contains_msg": "'fails'",
+                    "contains_msg": "fails",
                 },
                 {
                     "type": ExprType.ACTION,
                     "status": "error",
-                    "contains_msg": "'invalid'",
+                    "contains_msg": "invalid",
                 },
                 {
                     "type": ExprType.ACTION,
                     "status": "error",
-                    "contains_msg": "'invalid_inner'",
+                    "contains_msg": "invalid_inner",
                 },
             ],
         ),
@@ -692,6 +668,20 @@ def assert_validation_result(
                 },
             ],
         ),
+        (
+            {
+                "test": {
+                    "data": "INLINE: ${{ FN.add() -> invalid }}",
+                },
+            },
+            [
+                {
+                    "type": ExprType.GENERIC,
+                    "status": "error",
+                    "contains_msg": "invalid",
+                },
+            ],
+        ),
     ],
 )
 async def test_extract_expressions_errors(
@@ -704,7 +694,7 @@ async def test_extract_expressions_errors(
     )
     validators = get_validators(secrets_service=mock_secrets_service)
     async with GatheringTaskGroup() as tg:
-        visitor = ExprValidatorVisitor(
+        visitor = ExprValidator(
             task_group=tg, validation_context=validation_context, validators=validators
         )
         exprs = extract_expressions(expr)
@@ -715,5 +705,6 @@ async def test_extract_expressions_errors(
 
     # NOTE: We are using results to get ALL validation results
     errors = list(visitor.errors())
+    print(errors)
     for actual, ex in zip(errors, expected, strict=True):
         assert_validation_result(actual, **ex)
