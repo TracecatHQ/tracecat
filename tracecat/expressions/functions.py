@@ -12,7 +12,7 @@ import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
 
 from tracecat.expressions.shared import ExprContext
-from tracecat.expressions.validators import is_iterable
+from tracecat.expressions.validation import is_iterable
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
@@ -47,7 +47,7 @@ def _b64_to_str(x: str) -> str:
     return base64.b64decode(x).decode()
 
 
-BUILTIN_TYPE_NAPPING = {
+BUILTIN_TYPE_MAPPING = {
     "int": int,
     "float": float,
     "str": str,
@@ -103,6 +103,22 @@ _FUNCTION_MAPPING = {
     "from_base64": _b64_to_str,
 }
 
+OPERATORS = {
+    "||": lambda x, y: x or y,
+    "&&": lambda x, y: x and y,
+    "==": lambda x, y: x == y,
+    "!=": lambda x, y: x != y,
+    "<": lambda x, y: x < y,
+    "<=": lambda x, y: x <= y,
+    ">": lambda x, y: x > y,
+    ">=": lambda x, y: x >= y,
+    "+": lambda x, y: x + y,
+    "-": lambda x, y: x - y,
+    "*": lambda x, y: x * y,
+    "/": lambda x, y: x / y,
+    "%": lambda x, y: x % y,
+    "!": lambda x: not x,
+}
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -128,9 +144,9 @@ FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
 
 
 def cast(x: Any, typename: str) -> Any:
-    if typename not in BUILTIN_TYPE_NAPPING:
+    if typename not in BUILTIN_TYPE_MAPPING:
         raise ValueError(f"Unknown type {typename!r} for cast operation.")
-    return BUILTIN_TYPE_NAPPING[typename](x)
+    return BUILTIN_TYPE_MAPPING[typename](x)
 
 
 def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
@@ -149,7 +165,7 @@ def eval_jsonpath(
         # Try to evaluate the expression
         jsonpath_expr = jsonpath_ng.parse(expr)
     except JsonPathParserError as e:
-        logger.errro(
+        logger.error(
             "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
         )
         formatted_expr = _expr_with_context(expr, context_type)

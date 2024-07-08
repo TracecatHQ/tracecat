@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 import re
 from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
-from tracecat.expressions.engine import Expression, TemplateExpression
+from tracecat.expressions.core import Expression, TemplateExpression
 from tracecat.expressions.shared import ExprContext
 
 T = TypeVar("T", str, list[Any], dict[str, Any])

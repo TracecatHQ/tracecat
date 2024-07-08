@@ -2,7 +2,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from tracecat.expressions.validators import TemplateValidator
+from tracecat.expressions.validation import TemplateValidator
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"

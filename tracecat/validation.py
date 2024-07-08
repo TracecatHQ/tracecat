@@ -47,12 +47,12 @@ from pydantic import ValidationError
 
 from tracecat.concurrency import GatheringTaskGroup, apartial
 from tracecat.expressions.eval import extract_expressions
-from tracecat.expressions.shared import ExprType
-from tracecat.expressions.visitors.validator import (
+from tracecat.expressions.parser.validator import (
     ExprValidationContext,
     ExprValidationResult,
-    ExprValidatorVisitor,
+    ExprValidator,
 )
+from tracecat.expressions.shared import ExprType
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.service import SecretsService
@@ -123,7 +123,7 @@ async def secret_validator(
         return ExprValidationResult(
             status="error",
             msg=f"Secret {name!r} is not defined in the secrets manager.",
-            exprssion_type=ExprType.SECRET,
+            expression_type=ExprType.SECRET,
         )
     decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
     defined_keys = {kv.key for kv in decrypted_keys}
@@ -138,9 +138,9 @@ async def secret_validator(
         return ExprValidationResult(
             status="error",
             msg=f"Secret {name!r} is missing key: {key!r}",
-            exprssion_type=ExprType.SECRET,
+            expression_type=ExprType.SECRET,
         )
-    return ExprValidationResult(status="success", exprssion_type=ExprType.SECRET)
+    return ExprValidationResult(status="success", expression_type=ExprType.SECRET)
 
 
 async def validate_dsl_expressions(
@@ -153,7 +153,7 @@ async def validate_dsl_expressions(
     secrets_service = SecretsService(session)
     validators = get_validators(secrets_service=secrets_service)
     async with GatheringTaskGroup() as tg:
-        visitor = ExprValidatorVisitor(
+        visitor = ExprValidator(
             task_group=tg, validation_context=validation_context, validators=validators
         )
         for act_stmt in dsl.actions:
@@ -198,7 +198,7 @@ async def validate_actions_have_defined_secrets(
             if not defined_secret:
                 msg = (
                     f"Secret {registry_secret.name!r} is not defined in the secrets manager."
-                    f" Please add it using the CLI or UI. This secret requires keys: {registry_secret.keys}",
+                    f" Please add it using the CLI or UI. This secret requires keys: {registry_secret.keys}"
                 )
                 results.append(SecretValidationResult(status="error", msg=msg))
                 continue
