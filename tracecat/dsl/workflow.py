@@ -18,9 +18,10 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.dsl.models import ActionStatement, DSLNodeResult
     from tracecat.dsl.io import resolve_success_output
-    from tracecat.expressions.shared import ExprContext, IterableExpr
+    from tracecat.expressions.shared import IterableExpr, ExprContext
     from tracecat.dsl.models import ActionTest
-    from tracecat.expressions.engine import TemplateExpression
+    from tracecat.expressions.core import TemplateExpression
+
     from tracecat.expressions.eval import (
         eval_templated_object,
         extract_templated_secrets,
