@@ -14,8 +14,10 @@ from tracecat.contexts import RunContext
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
+    import lark  # noqa
     from pydantic import BaseModel
 
+    from tracecat.concurrency import GatheringTaskGroup
     from tracecat.dsl.models import ActionStatement, DSLNodeResult
     from tracecat.dsl.io import resolve_success_output
     from tracecat.expressions.shared import IterableExpr, ExprContext
@@ -334,7 +336,7 @@ class DSLActivities:
         # Set
         # If there's a for loop, we need to process this action in parallel
 
-        # Evaluate `SECRETS` context
+        # Evaluate `SECRETS` context (XXX: You likely should use the secrets manager instead)
         # --------------------------
         # Securely inject secrets into the task arguments
         # 1. Find all secrets in the task arguments
@@ -343,28 +345,34 @@ class DSLActivities:
         # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
         secret_refs = extract_templated_secrets(task.args)
         async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
-            # Skip evaluation of action-local expressions
-            args = eval_templated_object(
-                task.args,
-                operand={**input.exec_context, ExprContext.SECRETS: sandbox.secrets},
-                exclude={ExprContext.LOCAL_VARS},
-            )
+            context_with_sec = {
+                **input.exec_context,
+                ExprContext.SECRETS: sandbox.secrets.copy(),
+            }
+
         # When we're here, we've populated the task arguments with shared context values
         type = task.action
         ctx_logger.set(act_logger)
 
         udf = registry[type]
         act_logger.info(
-            "Run udf", task_ref=task.ref, type=type, is_async=udf.is_async, args=args
+            "Run udf",
+            task_ref=task.ref,
+            type=type,
+            is_async=udf.is_async,
+            args=task.args,
         )
 
+        # We manually control the cache here for now.
         act_test = input.action_test
         if act_test and act_test.enable:
+            # XXX: This will fail if we run it against a loop
             act_logger.warning(
                 f"Action test enabled, mocking the output of {task.ref!r}."
                 " You should not use this in production workflows."
             )
             if act_test.validate_args:
+                args = eval_templated_object(task.args, operand=context_with_sec)
                 udf.validate_args(**args)
             result = await resolve_success_output(act_test)
 
@@ -393,36 +401,36 @@ class DSLActivities:
             if len({len(expr.collection) for expr in iterable_exprs}) != 1:
                 raise ValueError("All iterables must be of the same length")
 
-            tasks: list[asyncio.Task] = []
-
             # Create a generator that zips the iterables together
-
-            async with asyncio.TaskGroup() as tg:
+            async with GatheringTaskGroup() as tg:
                 for i, items in enumerate(zip(*iterable_exprs, strict=False)):
                     act_logger.debug("Loop iteration", iteration=i)
                     # Patch the context with the loop item and evaluate the action-local expressions
                     # We're copying this so that we don't pollute the original context
                     # Currently, the only source of action-local expressions is the loop iteration
                     # In the future, we may have other sources of action-local expressions
-                    patched_context = input.exec_context.copy()
+                    patched_context = context_with_sec.copy()
                     act_logger.debug(
                         "Context before patch", patched_context=patched_context
                     )
                     for iterator_path, iterator_value in items:
                         patch_object(
-                            patched_context, path=iterator_path, value=iterator_value
+                            patched_context,
+                            path=ExprContext.LOCAL_VARS + iterator_path,
+                            value=iterator_value,
                         )
                     act_logger.debug("Patched context", patched_context=patched_context)
+                    # Exclude secrets because we've already patched them
                     patched_args = eval_templated_object(
-                        args, operand=patched_context, exclude={ExprContext.SECRETS}
+                        task.args, operand=patched_context
                     )
                     act_logger.debug("Patched args", patched_args=patched_args)
-                    task = tg.create_task(udf.run_async(patched_args))
-                    tasks.append(task)
+                    tg.create_task(udf.run_async(patched_args))
 
-            result = [task.result() for task in tasks]
+            result = tg.results()
 
         else:
+            args = eval_templated_object(task.args, operand=context_with_sec)
             result = await udf.run_async(args)
 
         act_logger.debug("Result", result=result)
@@ -434,10 +442,3 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
     for key in stem:
         obj = obj.setdefault(key, {})
     obj[leaf] = value
-
-
-if __name__ == "__main__":
-    print(DSLActivities.load())
-    registry.init()
-    DSLActivities.init()
-    print(DSLActivities.load())
