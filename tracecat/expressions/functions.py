@@ -154,7 +154,11 @@ def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
 
 
 def eval_jsonpath(
-    expr: str, operand: dict[str, Any], *, context_type: ExprContext | None = None
+    expr: str,
+    operand: dict[str, Any],
+    *,
+    context_type: ExprContext | None = None,
+    strict: bool = False,
 ) -> Any:
     if operand is None or not isinstance(operand, dict | list):
         logger.error("Invalid operand for jsonpath", operand=operand)
@@ -173,7 +177,7 @@ def eval_jsonpath(
     matches = [found.value for found in jsonpath_expr.find(operand)]
     if len(matches) == 1:
         return matches[0]
-    elif len(matches) > 1:
+    if not strict or matches:
         return matches
     else:
         # We know that if this function is called, there was a templated field.

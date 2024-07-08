@@ -62,8 +62,11 @@ def test_eval_jsonpath():
     assert eval_jsonpath("$.webhook.data.name", operand) == "John"
     assert eval_jsonpath("$.webhook.data.age", operand) == 30
     with pytest.raises(TracecatExpressionError) as e:
-        _ = eval_jsonpath("$.webhook.data.nonexistent", operand) is None
+        _ = eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=True)
         assert "Operand has no path" in str(e.value)
+    assert (
+        eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=False) == []
+    )
 
 
 @pytest.mark.parametrize(
