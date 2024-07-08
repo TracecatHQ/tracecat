@@ -1,3 +1,4 @@
+import ast
 import base64
 import itertools
 import operator
@@ -47,6 +48,94 @@ def _b64_to_str(x: str) -> str:
     return base64.b64decode(x).decode()
 
 
+class SafeEvaluator(ast.NodeVisitor):
+    SAFE_NODES = {
+        ast.arguments,
+        ast.Load,
+        ast.arg,
+        ast.Name,
+        ast.Compare,
+        ast.BinOp,
+        ast.BoolOp,
+        ast.And,
+        ast.Or,
+        ast.UnaryOp,
+        ast.Not,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Constant,
+        ast.In,
+        ast.List,
+        ast.Call,
+        ast.NotIn,
+    }
+
+    ALLOWED_FUNCTIONS = {"len"}
+    ALLOWED_SYMBOLS = {"x", "len"}
+
+    def visit(self, node):
+        if type(node) not in self.SAFE_NODES:
+            raise ValueError(
+                f"Unsafe node {type(node).__name__} detected in expression"
+            )
+        if isinstance(node, ast.Call) and node.func.id not in self.ALLOWED_FUNCTIONS:
+            raise ValueError("Only len() function calls are allowed in expression")
+        if isinstance(node, ast.Name) and node.id not in self.ALLOWED_SYMBOLS:
+            raise ValueError("Only variable x is allowed in expression")
+        self.generic_visit(node)
+
+
+T = TypeVar("T")
+
+
+def custom_filter(items: list[T], constraint: str | list[T]) -> list[T]:
+    if isinstance(constraint, list):
+        cons = set(constraint)
+        return [item for item in items if item in cons]
+    if isinstance(constraint, str):
+        return lambda_filter(collection=items, filter_expr=constraint)
+
+
+def lambda_filter(collection: list[T], filter_expr: str) -> list[T]:
+    """Filter a collection based on a condition.
+
+    This function references each collection item as `x` in the lambda expression.
+
+    e.g. `x > 2` will filter out all items less than or equal to 2.
+    """
+    # Check if the string has any blacklisted symbols
+    if any(
+        word in filter_expr
+        for word in ("eval", "lambda", "import", "from", "os", "sys", "exec")
+    ):
+        raise ValueError("Expression contains blacklisted symbols")
+    expr_ast = ast.parse(filter_expr, mode="eval").body
+
+    # Ensure the parsed AST is a comparison or logical expression
+    if not isinstance(expr_ast, ast.Compare | ast.BoolOp | ast.BinOp | ast.UnaryOp):
+        raise ValueError("Expression must be a Comparison")
+
+    # Ensure the expression complies with the SafeEvaluator
+    SafeEvaluator().visit(expr_ast)
+    # Check the AST for safety
+    lambda_expr_ast = ast.parse(f"lambda x: {filter_expr}", mode="eval").body
+
+    # Compile the AST node into a code object
+    code = compile(ast.Expression(lambda_expr_ast), "<string>", "eval")
+
+    # Create a function from the code object
+    lambda_func = eval(code)
+
+    # Apply the lambda function to filter the collection
+    filtered_collection = list(filter(lambda_func, collection))
+
+    return filtered_collection
+
+
 BUILTIN_TYPE_MAPPING = {
     "int": int,
     "float": float,
@@ -88,6 +177,7 @@ _FUNCTION_MAPPING = {
     "join": lambda items, sep: sep.join(items),
     "concat": lambda *items: "".join(items),
     "format": _format_string,
+    "filter": custom_filter,
     # Logical
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
