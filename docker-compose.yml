@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:0.2.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.2.0}
     container_name: tracecat_api
     ports:
       - 8000:8000
