@@ -83,3 +83,6 @@ class VpcStack(Stack):
             connection=ec2.Port.tcp(8001),
             description="Allow internal traffic from Tracecat Worker service on port 8001",
         )
+
+        self.core_security_group = core_security_group
+        self.temporal_security_group = temporal_security_group
