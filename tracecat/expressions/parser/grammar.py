@@ -57,7 +57,7 @@ JSONPATH: ( "." CNAME ("[" JSONPATH_INDEX "]")?  )+
 JSONPATH_INDEX: /\d+/ | "*"
 OPERATOR: "+" | "-" | "*" | "/" | "%" | "==" | "!=" | ">" | "<" | ">=" | "<=" | "&&" | "||" | "in"
 TYPE_SPECIFIER: "int" | "float" | "str" | "bool"
-STRING_LITERAL: /'[^']*'/
+STRING_LITERAL: /'(?:[^'\\]|\\.)*'/ | /"(?:[^"\\]|\\.)*"/
 BOOL_LITERAL: "True" | "False"
 NUMERIC_LITERAL: /\d+(\.\d+)?/
 NONE_LITERAL: "None"
