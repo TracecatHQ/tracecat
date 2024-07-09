@@ -115,7 +115,16 @@ async def test_playbook(path_to_playbook, trigger_data):
     # 2. Run the workflow
     output = subprocess.run(
         [
-            "tracecat",
+            "docker",
+            "run",
+            "--network",
+            "host",
+            "-v",
+            "$PWD/playbooks:/playbooks",
+            "-v",
+            "$PWD/tests:/tests",
+            "--rm",
+            "ghcr.io/tracecathq/tracecat-cli",
             "workflow",
             "run",
             workflow_id,

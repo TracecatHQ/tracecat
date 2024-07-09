@@ -202,9 +202,7 @@ jobs:
         run: |
           # Pull in CLI
           docker pull ghcr.io/tracecathq/tracecat-cli:$TRACECAT__IMAGE_TAG
-          echo 'alias tracecat="docker run --volume ./playbooks:/playbooks --volume ./tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli \"\$@\""' >> ~/.bashrc
-          source ~/.bashrc
-          tracecat --version
+          docker run --network host --rm ghcr.io/tracecathq/tracecat-cli --version
 
       - name: Mask sensitive data
         run: |
