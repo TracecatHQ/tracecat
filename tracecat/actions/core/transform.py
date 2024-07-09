@@ -6,7 +6,12 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from tracecat.expressions.functions import custom_filter
+from tracecat.expressions import functions
+from tracecat.expressions.functions import (
+    FunctionConstraint,
+    OperatorConstraint,
+    custom_filter,
+)
 from tracecat.registry import registry
 
 
@@ -33,7 +38,7 @@ def forward(
 def filter(
     items: Annotated[list[Any], Field(..., description="A collection of items.")],
     constraint: Annotated[
-        str | list[Any],
+        str | list[Any] | FunctionConstraint | OperatorConstraint,
         Field(
             ...,
             description=(
@@ -46,3 +51,27 @@ def filter(
     ],
 ) -> Any:
     return custom_filter(items, constraint)
+
+
+@registry.register(
+    namespace="core.transform",
+    version="0.1.0",
+    description="Build a reference table from a collection of items.",
+    default_title="Build Reference Table",
+    display_group="Data Transform",
+)
+def build_reference_table(
+    items: Annotated[list[Any], Field(..., description="A collection of items.")],
+    key: Annotated[
+        str, Field(..., description="The key to index the reference table.")
+    ],
+) -> Any:
+    # Key is a jsonpath that references a field
+    # This field will be used as the dict key
+    mapping = {}
+    for item in items:
+        _key = functions.eval_jsonpath(key, operand=item)
+        if not isinstance(_key, int | str):
+            continue
+        mapping[_key] = item
+    return mapping
