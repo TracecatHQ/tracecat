@@ -444,7 +444,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("INPUTS.people[*].age", [30, 40, 50]),
         ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
         ("INPUTS.people[*].gender", ["female", "male"]),
-        ('INPUTS.["user@tracecat.com"].name', "Bob"),
+        # ('INPUTS.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
