@@ -1,5 +1,3 @@
-import os
-
 from aws_cdk import Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
@@ -9,6 +7,8 @@ from aws_cdk import aws_route53 as route53
 from aws_cdk.aws_route53_targets import LoadBalancerTarget
 from constructs import Construct
 
+from .config import ALB_ALLOWED_CIDR_BLOCKS
+
 
 class AlbStack(Stack):
     def __init__(
@@ -16,7 +16,8 @@ class AlbStack(Stack):
         scope: Construct,
         id: str,
         cluster: ecs.Cluster,
-        certificate: acm.Certificate,
+        hosted_zone: route53.HostedZone | None = None,
+        certificate: acm.Certificate | None = None,
         **kwargs,
     ):
         super().__init__(scope, id, **kwargs)
@@ -44,20 +45,19 @@ class AlbStack(Stack):
         )
 
         # Main HTTPS listener
+        certificates = None
+        if certificate is not None:
+            certificates = [certificate]
         listener = alb.add_listener(
             "DefaultHttpsListener",
             port=443,
-            certificates=[certificate],
+            certificates=certificates,
             default_action=elbv2.ListenerAction.fixed_response(404),
         )
         self.listener = listener
 
-        # (Optional) Point the domain to the load balancer
-        app_domain_name = os.getenv("APP_DOMAIN_NAME")
-        if app_domain_name is not None:
-            hosted_zone = route53.HostedZone.from_lookup(
-                self, "HostedZone", domain_name=app_domain_name
-            )
+        # Point the domain to the load balancer
+        if hosted_zone is not None:
             route53.ARecord(
                 self,
                 "AliasRecord",
@@ -67,8 +67,7 @@ class AlbStack(Stack):
             )
 
         # (Optional) Block all traffic except from the specified CIDR blocks
-        if os.getenv("ALB_ALLOWED_CIDR_BLOCKS"):
-            for cidr_block in os.getenv("ALB_ALLOWED_CIDR_BLOCKS").split(","):
-                alb.connections.allow_from(
-                    ec2.Peer.ipv4(cidr_block), ec2.Port.all_traffic()
-                )
+        for cidr_block in ALB_ALLOWED_CIDR_BLOCKS:
+            alb.connections.allow_from(
+                ec2.Peer.ipv4(cidr_block), ec2.Port.all_traffic()
+            )
