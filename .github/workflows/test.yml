@@ -110,7 +110,7 @@ jobs:
         run: |
           # Pull in CLI
           docker pull ghcr.io/tracecathq/tracecat-cli:0.2.4
-          alias tracecat='docker run --volume /playbooks:/playbooks --volume /tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli "$@"'
+          echo 'alias tracecat="docker run --volume ./playbooks:/playbooks --volume ./tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli \"\$@\""' >> ~/.bashrc
           source ~/.bashrc
           tracecat --version
 
@@ -165,7 +165,7 @@ jobs:
         run: |
           # Pull in CLI
           docker pull ghcr.io/tracecathq/tracecat-cli:0.2.4
-          alias tracecat='docker run --volume /playbooks:/playbooks --volume /tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli "$@"'
+          echo 'alias tracecat="docker run --volume ./playbooks:/playbooks --volume ./tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli \"\$@\""' >> ~/.bashrc
           source ~/.bashrc
           tracecat --version
 
