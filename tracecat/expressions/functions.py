@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ast
 import base64
 import itertools
@@ -6,7 +8,7 @@ import re
 from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypedDict, TypeVar
 
 import jsonpath_ng
 import orjson
@@ -16,6 +18,23 @@ from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import is_iterable
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
+
+OPERATORS = {
+    "||": lambda x, y: x or y,
+    "&&": lambda x, y: x and y,
+    "==": lambda x, y: x == y,
+    "!=": lambda x, y: x != y,
+    "<": lambda x, y: x < y,
+    "<=": lambda x, y: x <= y,
+    ">": lambda x, y: x > y,
+    ">=": lambda x, y: x >= y,
+    "+": lambda x, y: x + y,
+    "-": lambda x, y: x - y,
+    "*": lambda x, y: x * y,
+    "/": lambda x, y: x / y,
+    "%": lambda x, y: x % y,
+    "!": lambda x: not x,
+}
 
 
 def _bool(x: Any) -> bool:
@@ -92,12 +111,52 @@ class SafeEvaluator(ast.NodeVisitor):
 T = TypeVar("T")
 
 
-def custom_filter(items: list[T], constraint: str | list[T]) -> list[T]:
-    if isinstance(constraint, list):
-        cons = set(constraint)
-        return [item for item in items if item in cons]
-    if isinstance(constraint, str):
-        return lambda_filter(collection=items, filter_expr=constraint)
+class FunctionConstraint(TypedDict):
+    jsonpath: str | None
+    function: str
+
+
+class OperatorConstraint(TypedDict):
+    jsonpath: str | None
+    operator: str
+    target: Any
+
+
+def custom_filter(
+    items: list[T], constraint: str | list[T] | FunctionConstraint | OperatorConstraint
+) -> list[T]:
+    logger.warning("Using custom filter function")
+    match constraint:
+        case str():
+            return lambda_filter(collection=items, filter_expr=constraint)
+        case list():
+            cons = set(constraint)
+            return [item for item in items if item in cons]
+        case {"jsonpath": jsonpath, "operator": operator, "target": target}:
+            logger.warning("Using jsonpath filter")
+
+            def op(a, b):
+                return OPERATORS[operator](a, b)
+
+            return [item for item in items if op(eval_jsonpath(jsonpath, item), target)]
+
+        case {"function": func_name, **kwargs}:
+            logger.warning("Using function filter", func_name=func_name, kwargs=kwargs)
+            # Test the function on the jsonpath of each item
+            fn = FUNCTION_MAPPING[func_name]
+
+            match kwargs:
+                case {"jsonpath": jsonpath, **fn_args}:
+                    return [
+                        item
+                        for item in items
+                        if fn(eval_jsonpath(jsonpath, item), **fn_args)
+                    ]
+            return [item for item in items if fn(item)]
+        case _:
+            raise ValueError(
+                f"Invalid constraint type {constraint!r} for filter operation."
+            )
 
 
 def lambda_filter(collection: list[T], filter_expr: str) -> list[T]:
@@ -134,103 +193,6 @@ def lambda_filter(collection: list[T], filter_expr: str) -> list[T]:
     filtered_collection = list(filter(lambda_func, collection))
 
     return filtered_collection
-
-
-BUILTIN_TYPE_MAPPING = {
-    "int": int,
-    "float": float,
-    "str": str,
-    "bool": _bool,
-    # TODO: Perhaps support for URLs for files?
-}
-
-# Supported Formulas / Functions
-_FUNCTION_MAPPING = {
-    # Comparison
-    "less_than": operator.lt,
-    "less_than_or_equal": operator.le,
-    "greater_than": operator.gt,
-    "greater_than_or_equal": operator.ge,
-    "not_equal": operator.ne,
-    "is_equal": operator.eq,
-    "not_null": lambda x: x is not None,
-    "is_null": lambda x: x is None,
-    # Regex
-    "regex_extract": lambda pattern, text: re.search(pattern, text).group(0),
-    "regex_match": lambda pattern, text: bool(re.match(pattern, text)),
-    "regex_not_match": lambda pattern, text: not bool(re.match(pattern, text)),
-    # Collections
-    "contains": lambda item, container: item in container,
-    "does_not_contain": lambda item, container: item not in container,
-    "length": len,
-    "is_empty": lambda x: len(x) == 0,
-    "not_empty": lambda x: len(x) > 0,
-    # Math
-    "add": operator.add,
-    "sub": operator.sub,
-    "mul": operator.mul,
-    "div": operator.truediv,
-    "mod": operator.mod,
-    "pow": operator.pow,
-    "sum": sum,
-    # Transform
-    "join": lambda items, sep: sep.join(items),
-    "concat": lambda *items: "".join(items),
-    "format": _format_string,
-    "filter": custom_filter,
-    # Logical
-    "and": lambda a, b: a and b,
-    "or": lambda a, b: a or b,
-    "not": lambda a: not a,
-    # Type conversion
-    # Convert JSON to string
-    "serialize_json": lambda x: orjson.dumps(x).decode(),
-    "deserialize_json": lambda x: orjson.loads(x),
-    # Convert timestamp to datetime
-    "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
-    # Base64
-    "to_base64": _str_to_b64,
-    "from_base64": _b64_to_str,
-}
-
-OPERATORS = {
-    "||": lambda x, y: x or y,
-    "&&": lambda x, y: x and y,
-    "==": lambda x, y: x == y,
-    "!=": lambda x, y: x != y,
-    "<": lambda x, y: x < y,
-    "<=": lambda x, y: x <= y,
-    ">": lambda x, y: x > y,
-    ">=": lambda x, y: x >= y,
-    "+": lambda x, y: x + y,
-    "-": lambda x, y: x - y,
-    "*": lambda x, y: x * y,
-    "/": lambda x, y: x / y,
-    "%": lambda x, y: x % y,
-    "!": lambda x: not x,
-}
-
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def mappable(func: Callable[P, R]) -> Callable[P, R]:
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-
-    def broadcast_map(*args: Any) -> list[Any]:
-        iterables = (arg if is_iterable(arg) else itertools.repeat(arg) for arg in args)
-
-        # Zip the iterables together and call the function for each set of arguments
-        zipped_args = zip(*iterables, strict=False)
-        return [func(*zipped) for zipped in zipped_args]
-
-    wrapper.map = broadcast_map
-    return wrapper
-
-
-FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
 
 
 def cast(x: Any, typename: str) -> Any:
@@ -278,3 +240,92 @@ def eval_jsonpath(
             f"Couldn't resolve expression {formatted_expr!r} in the given context: {operand}.",
             detail="No match found.",
         )
+
+
+BUILTIN_TYPE_MAPPING = {
+    "int": int,
+    "float": float,
+    "str": str,
+    "bool": _bool,
+    # TODO: Perhaps support for URLs for files?
+}
+
+# Supported Formulas / Functions
+_FUNCTION_MAPPING = {
+    # Comparison
+    "less_than": operator.lt,
+    "less_than_or_equal": operator.le,
+    "greater_than": operator.gt,
+    "greater_than_or_equal": operator.ge,
+    "not_equal": operator.ne,
+    "is_equal": operator.eq,
+    "not_null": lambda x: x is not None,
+    "is_null": lambda x: x is None,
+    # Regex
+    "regex_extract": lambda pattern, text: re.search(pattern, text).group(0),
+    "regex_match": lambda pattern, text: bool(re.match(pattern, text)),
+    "regex_not_match": lambda pattern, text: not bool(re.match(pattern, text)),
+    # Collections
+    "contains": lambda item, container: item in container,
+    "does_not_contain": lambda item, container: item not in container,
+    "length": len,
+    "is_empty": lambda x: len(x) == 0,
+    "not_empty": lambda x: len(x) > 0,
+    "flatten": lambda iterables: list(itertools.chain(*iterables)),
+    "unique": lambda items: list(set(items)),
+    # Math
+    "add": operator.add,
+    "sub": operator.sub,
+    "mul": operator.mul,
+    "div": operator.truediv,
+    "mod": operator.mod,
+    "pow": operator.pow,
+    "sum": sum,
+    # Transform
+    "join": lambda items, sep: sep.join(items),
+    "concat": lambda *items: "".join(items),
+    "format": _format_string,
+    "filter": custom_filter,
+    "jsonpath": eval_jsonpath,
+    # Logical
+    "and": lambda a, b: a and b,
+    "or": lambda a, b: a or b,
+    "not": lambda a: not a,
+    # Type conversion
+    # Convert JSON to string
+    "serialize_json": lambda x: orjson.dumps(x).decode(),
+    "deserialize_json": lambda x: orjson.loads(x),
+    # Convert timestamp to datetime
+    "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
+    # Base64
+    "to_base64": _str_to_b64,
+    "from_base64": _b64_to_str,
+    # Utils
+    "lookup": lambda d, k: d.get(k),
+}
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def mappable(func: Callable[P, R]) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    def broadcast_map(*args: Any) -> list[Any]:
+        if not any(is_iterable(arg) for arg in args):
+            return [func(*args)]
+        # If all arguments are not iterable, return the result of the function
+        iterables = (arg if is_iterable(arg) else itertools.repeat(arg) for arg in args)
+
+        # Zip the iterables together and call the function for each set of arguments
+        zipped_args = zip(*iterables, strict=False)
+        return [func(*zipped) for zipped in zipped_args]
+
+    wrapper.map = broadcast_map
+    return wrapper
+
+
+FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
