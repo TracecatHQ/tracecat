@@ -216,6 +216,8 @@ class DSLWorkflow:
         await self.scheduler.start()
 
         self.logger.info("DSL workflow completed")
+        # XXX: Don't return ENV context for now
+        self.context.pop(ExprContext.ENV, None)
         return self.context
 
     async def execute_task(self, task: ActionStatement) -> None:
