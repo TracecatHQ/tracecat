@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from loguru import logger
-from pydantic import BaseModel
 
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
@@ -16,7 +15,7 @@ if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
 
 
-class DispatchResult(BaseModel):
+class DispatchResult(TypedDict):
     wf_id: identifiers.WorkflowID
     final_context: DSLContext
 

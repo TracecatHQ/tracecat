@@ -43,7 +43,7 @@ class DSLRunArgs(BaseModel):
     wf_id: WorkflowID
 
 
-class DSLContext(TypedDict):
+class DSLContext(TypedDict, total=False):
     INPUTS: dict[str, Any]
     """DSL Static Inputs context"""
 
