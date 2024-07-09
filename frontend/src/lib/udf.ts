@@ -7,6 +7,20 @@ import { client } from "@/lib/api"
 //////////////////////////////////////////
 // UDF related
 //////////////////////////////////////////
+export const UDFMetadataSchema = z
+  .object({
+    display_group: z.string().nullable(),
+    default_title: z.string().nullable(),
+    include_in_schema: z.boolean(),
+  })
+  .passthrough()
+export type UDFMetadata = z.infer<typeof UDFMetadataSchema>
+
+export const UDFRegistrySecretSchema = z.object({
+  name: z.string(),
+  keys: z.array(z.string()),
+})
+export type UDFRegistrySecret = z.infer<typeof UDFRegistrySecretSchema>
 
 export const UDFSchema = z.object({
   args: z.record(z.string(), z.unknown()),
@@ -14,9 +28,9 @@ export const UDFSchema = z.object({
   description: z.string(),
   key: z.string(),
   version: z.string().nullable(),
-  metadata: z.record(z.string(), z.unknown()).nullable(),
+  metadata: UDFMetadataSchema.nullable(),
   namespace: z.string(),
-  secrets: z.array(z.string()).nullable(),
+  secrets: z.array(UDFRegistrySecretSchema).nullable(),
 })
 
 export type UDF = z.infer<typeof UDFSchema>
@@ -41,8 +55,13 @@ export async function fetchAllUDFs(namespaces: string[]): Promise<UDF[]> {
   const response = await client.get<UDF[]>("/udfs", {
     params,
   })
-  const udfspecs = await z.array(UDFSpecSchema).parseAsync(response.data)
-  return udfspecs.map((u) => u.json_schema)
+  try {
+    const udfspecs = await z.array(UDFSpecSchema).parseAsync(response.data)
+    return udfspecs.map((u) => u.json_schema)
+  } catch (e) {
+    console.error("Error parsing UDFs", e)
+    throw e
+  }
 }
 
 export async function fetchUDF(key: string, namespace?: string): Promise<UDF> {

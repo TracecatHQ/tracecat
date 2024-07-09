@@ -28,7 +28,7 @@ const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
   const groups = {} as Record<string, UDF[]>
   udfs.forEach((udf) => {
     const displayGroup = (
-      udf.metadata?.["display_group"] || TOP_LEVEL_GROUP
+      udf.metadata?.display_group || TOP_LEVEL_GROUP
     ).toString()
     if (!groups[displayGroup]) {
       groups[displayGroup] = []
@@ -44,7 +44,7 @@ const onDragStart = (event: DragEvent<HTMLDivElement>, udf: UDF) => {
     "application/json",
     JSON.stringify({
       type: udf.key,
-      title: udf.metadata?.["default_title"] || udf.key,
+      title: udf.metadata?.default_title || udf.key,
       namespace: udf.namespace,
       status: "offline",
       isConfigured: false,
@@ -72,7 +72,7 @@ export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
 
       const newNodeData = {
         type: udf.key,
-        title: udf.metadata?.["default_title"] || udf.key,
+        title: udf.metadata?.default_title || udf.key,
         namespace: udf.namespace,
         status: "offline",
         isConfigured: false,
@@ -115,6 +115,7 @@ export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
   )
 
   if (error) {
+    console.error("Failed to load UDFs", error)
     return <AlertNotification level="error" message="Failed to load UDFs" />
   }
   if (!udfs || udfsLoading) {
@@ -193,7 +194,7 @@ function UDFCatalogItem({
   handleTileClick: (udf: UDF) => void
   isAvailable?: boolean
 }) {
-  const defaultTitle = (udf.metadata?.["default_title"] || udf.key).toString()
+  const defaultTitle = (udf.metadata?.default_title || udf.key).toString()
   return (
     <Tooltip delayDuration={0}>
       <TooltipTrigger asChild>
