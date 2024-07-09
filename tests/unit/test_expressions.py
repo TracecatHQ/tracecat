@@ -399,6 +399,10 @@ def test_eval_templated_object_inline_fails_if_not_str():
                 "Hello, Charlie! You are happy.",
             ],
         ),
+        (
+            "FN.flatten([[1, 2, 3], [4, 5, 6], [7, 8, 9]])",
+            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        ),
         # Ternary expressions
         (
             "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
@@ -438,6 +442,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("INPUTS.people[*].age", [30, 40, 50]),
         ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
         ("INPUTS.people[*].gender", ["female", "male"]),
+        ('INPUTS.["user@tracecat.com"].name', "Bob"),
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
@@ -493,6 +498,9 @@ def test_expression_parser(expr, expected):
                     "age": 50,
                 },
             ],
+            "user@tracecat.com": {
+                "name": "Bob",
+            },
         },
         ExprContext.ENV: {
             "item": "ITEM",

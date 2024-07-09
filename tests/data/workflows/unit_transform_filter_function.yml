@@ -1,0 +1,18 @@
+title: Reshape data
+description: Test that we can use a forwarder to reshape data
+entrypoint:
+  ref: filter_empty
+inputs: #2D list
+  matrix:
+    - [1, 2, 3]
+    - [4, 5, 6]
+    - []
+    - [7, 8, 9]
+    - [10, 11, 12]
+    - []
+
+actions:
+  - ref: filter_empty
+    action: core.transform.forward
+    args:
+      value: ${{ FN.filter(INPUTS.matrix, 'len(x) > 0') }}
