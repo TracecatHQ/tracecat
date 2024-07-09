@@ -107,6 +107,6 @@ async def list_slack_users(
 
     if emails:
         # Filter for users with matching email
-        users = [user for user in users if user["profile"]["email"] in emails]
-
+        filter_by = set(emails)
+        users = [user for user in users if user["profile"].get("email") in filter_by]
     return users
