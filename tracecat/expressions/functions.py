@@ -242,6 +242,16 @@ def eval_jsonpath(
         )
 
 
+def _to_datetime(x: Any) -> datetime:
+    if isinstance(x, datetime):
+        return x
+    if isinstance(x, int):
+        return datetime.fromtimestamp(x)
+    if isinstance(x, str):
+        return datetime.fromisoformat(x)
+    raise ValueError(f"Invalid datetime value {x!r}")
+
+
 BUILTIN_TYPE_MAPPING = {
     "int": int,
     "float": float,
@@ -299,6 +309,7 @@ _FUNCTION_MAPPING = {
     "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
     "now": lambda: datetime.now(),
     "minutes": lambda minutes: timedelta(minutes=minutes),
+    "to_datetime": lambda x: _to_datetime(x),
     # Base64
     "to_base64": _str_to_b64,
     "from_base64": _b64_to_str,
