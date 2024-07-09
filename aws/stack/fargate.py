@@ -10,7 +10,13 @@ from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
-from .config import TEMPORAL_IMAGE, TEMPORAL_UI_IMAGE, TRACECAT_IMAGE, TRACECAT_UI_IMAGE
+from .config import (
+    APP_DOMAIN_NAME,
+    TEMPORAL_IMAGE,
+    TEMPORAL_UI_IMAGE,
+    TRACECAT_IMAGE,
+    TRACECAT_UI_IMAGE,
+)
 
 
 class FargateStack(Stack):
@@ -349,8 +355,7 @@ class FargateStack(Stack):
         )
 
         ### (Optional) Enable external access to the UI
-        app_domain_name = os.getenv("APP_DOMAIN_NAME")
-        if app_domain_name is not None:
+        if APP_DOMAIN_NAME is not None:
             ui_target_group = elbv2.ApplicationTargetGroup(
                 self,
                 "TracecatUiTargetGroup",
@@ -374,6 +379,6 @@ class FargateStack(Stack):
             listener.add_action(
                 "TracecatUiTarget",
                 priority=10,
-                conditions=[elbv2.ListenerCondition.host_headers([app_domain_name])],
+                conditions=[elbv2.ListenerCondition.host_headers([APP_DOMAIN_NAME])],
                 action=elbv2.ListenerAction.forward(target_groups=[ui_target_group]),
             )
