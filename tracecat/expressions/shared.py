@@ -4,7 +4,12 @@ from enum import StrEnum, auto
 from typing import Any
 
 
-class ExprContext(StrEnum):
+class TracecatEnum(StrEnum):
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class ExprContext(TracecatEnum):
     ACTIONS = "ACTIONS"
     SECRETS = "SECRETS"
     FN = "FN"
@@ -14,7 +19,7 @@ class ExprContext(StrEnum):
     LOCAL_VARS = "var"  # Action-local variables
 
 
-class ExprType(StrEnum):
+class ExprType(TracecatEnum):
     GENERIC = auto()
     ACTION = auto()
     SECRET = auto()
@@ -27,9 +32,6 @@ class ExprType(StrEnum):
     ITERATOR = auto()
     TERNARY = auto()
     TRIGGER = auto()
-
-    def __repr__(self) -> str:
-        return str(self)
 
 
 ExprContextType = dict[ExprContext, Any]
