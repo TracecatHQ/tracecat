@@ -230,6 +230,8 @@ correctness_test_cases = [
     "unit_conditional_adder_tree_continues",
     "unit_conditional_adder_tree_skip_propagates",
     "unit_conditional_adder_diamond_skip_with_join_weak_dep",
+    "unit_transform_filter",
+    "unit_transform_filter_dict",
     "unit_transform_forwarder_loop",
     "unit_transform_forwarder_loop_chained",
     "unit_transform_forwarder_arrange",
@@ -238,6 +240,7 @@ correctness_test_cases = [
     "unit_transform_forwarder_map_loop",
     "unit_runtime_test_adder_tree",
     "unit_runtime_test_chain",
+    "unit_transform_filter",
 ]
 
 
@@ -269,7 +272,13 @@ async def test_workflow_completes_and_correct(
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
             id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,
+                non_retryable_error_types=[
+                    "tracecat.types.exceptions.TracecatExpressionError"
+                    "TracecatValidationError"
+                ],
+            ),
         )
     assert result == expected
 
