@@ -230,8 +230,6 @@ correctness_test_cases = [
     "unit_conditional_adder_tree_continues",
     "unit_conditional_adder_tree_skip_propagates",
     "unit_conditional_adder_diamond_skip_with_join_weak_dep",
-    "unit_transform_filter",
-    "unit_transform_filter_dict",
     "unit_transform_forwarder_loop",
     "unit_transform_forwarder_loop_chained",
     "unit_transform_forwarder_arrange",
@@ -240,7 +238,8 @@ correctness_test_cases = [
     "unit_transform_forwarder_map_loop",
     "unit_runtime_test_adder_tree",
     "unit_runtime_test_chain",
-    "unit_transform_filter",
+    "unit_transform_filter_dict",
+    "unit_transform_filter_function",
 ]
 
 
