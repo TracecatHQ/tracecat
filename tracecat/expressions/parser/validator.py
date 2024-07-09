@@ -36,11 +36,14 @@ class ExprValidator(Visitor):
         task_group: GatheringTaskGroup,
         validation_context: ExprValidationContext,
         validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
+        *,
+        strict: bool = True,
     ) -> None:
         self._task_group = task_group
         # Contextual information
         self._context = validation_context
         self._results: list[ExprValidationResult] = []
+        self._strict = strict
 
         # External validators
         self._validators = validators or {}
@@ -145,7 +148,10 @@ class ExprValidator(Visitor):
         self.logger.trace("Visit input expression", jsonpath=jsonpath)
         try:
             functions.eval_jsonpath(
-                jsonpath, self._context.inputs_context, context_type=ExprContext.INPUTS
+                jsonpath,
+                self._context.inputs_context,
+                context_type=ExprContext.INPUTS,
+                strict=self._strict,
             )
             self.add(status="success", type=ExprType.INPUT)
         except TracecatExpressionError as e:
