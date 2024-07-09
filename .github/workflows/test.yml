@@ -137,17 +137,7 @@ jobs:
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
 
       - name: pip install Tracecat
-        run: python -m pip install --upgrade pip && pip install ".[dev]"
-
-      - name: Install CLI via Docker
-        env:
-          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
-        run: |
-          # Pull in CLI
-          docker pull ghcr.io/tracecathq/tracecat-cli:$TRACECAT__IMAGE_TAG
-          echo 'alias tracecat="docker run --volume ./playbooks:/playbooks --volume ./tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli \"\$@\""' >> ~/.bashrc
-          source ~/.bashrc
-          tracecat --version
+        run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
