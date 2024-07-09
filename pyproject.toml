@@ -77,9 +77,6 @@ dev = [
     "pre-commit",
 ]
 
-[project.scripts]
-tracecat = "tracecat.__main__:main"
-
 [tool.hatch.version]
 path = "tracecat/__init__.py"
 
