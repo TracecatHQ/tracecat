@@ -86,7 +86,7 @@ def create_secrets():
             },
         ),
         (
-            "enrichment/triage-using-llms.yml",
+            "playbooks/enrichment/triage-using-llms.yml",
             {
                 "alert_id": "1234567890abcdef",
                 "timestamp": "2024-07-01T12:34:56Z",

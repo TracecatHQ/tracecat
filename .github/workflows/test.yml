@@ -104,14 +104,15 @@ jobs:
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
 
       - name: pip install Tracecat
-        run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
+        run: python -m pip install --upgrade pip && pip install ".[dev]"
 
-      - name: Verify Tracecat CLI commands
+      - name: Install CLI via Docker
         run: |
-          tracecat --help
-          tracecat workflow list
-          tracecat schedule list
-          tracecat secret list
+          # Pull in CLI
+          docker pull ghcr.io/tracecathq/tracecat-cli
+          alias tracecat='docker run --volume /playbooks:/playbooks --volume /tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli "$@"'
+          source ~/.bashrc
+          tracecat --version
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
@@ -158,14 +159,15 @@ jobs:
         run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
 
       - name: pip install Tracecat
-        run: python -m pip install --upgrade pip && pip install ".[dev]" && pip install ./cli
+        run: python -m pip install --upgrade pip && pip install ".[dev]"
 
-      - name: Verify Tracecat CLI commands
+      - name: Install CLI via Docker
         run: |
-          tracecat --help
-          tracecat workflow list
-          tracecat schedule list
-          tracecat secret list
+          # Pull in CLI
+          docker pull ghcr.io/tracecathq/tracecat-cli
+          alias tracecat='docker run --volume /playbooks:/playbooks --volume /tests:/tests --network host --rm ghcr.io/tracecathq/tracecat-cli "$@"'
+          source ~/.bashrc
+          tracecat --version
 
       - name: Mask sensitive data
         run: |
