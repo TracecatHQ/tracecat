@@ -201,15 +201,17 @@ export async function triggerWorkflow(
 export async function fetchWorkflowRuns(
   workflowId: string
 ): Promise<WorkflowRun[]> {
-  try {
-    const response = await client.get<WorkflowRun[]>(
-      `/workflows/${workflowId}/runs`
-    )
-    return z.array(workflowRunSchema).parse(response.data)
-  } catch (error) {
-    console.error("Error fetching workflow runs:", error)
-    throw error
-  }
+  // TODO: Hit workflow executions service
+  return []
+  // try {
+  //   const response = await client.get<WorkflowRun[]>(
+  //     `/workflows/${workflowId}/runs`
+  //   )
+  //   return z.array(workflowRunSchema).parse(response.data)
+  // } catch (error) {
+  //   console.error("Error fetching workflow runs:", error)
+  //   throw error
+  // }
 }
 
 export async function fetchWorkflowRun(

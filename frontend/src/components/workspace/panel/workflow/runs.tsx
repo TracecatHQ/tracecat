@@ -96,7 +96,10 @@ export function WorkflowRunsView({
                     ))}
                 </Accordion>
               ) : (
-                <NoContent className="my-8" message="No runs available" />
+                <NoContent
+                  className="my-8"
+                  message="Workflow runs UI is being upgraded."
+                />
               )}
             </ScrollArea>
           </div>{" "}
