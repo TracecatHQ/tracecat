@@ -53,6 +53,9 @@ class DSLContext(TypedDict):
     TRIGGER: dict[str, Any]
     """DSL Trigger dynamic inputs context"""
 
+    ENV: dict[str, Any]
+    """DSL Environment context. Has metadata about the workflow."""
+
 
 class TaskMarker(StrEnum):
     SKIP = auto()
@@ -187,12 +190,13 @@ class DSLWorkflow:
         self.role = args.role
         self.tracecat_wf_id = args.wf_id
         # Temporal workflow execution ID == Tracecat workflow run ID
-        self.tracecat_wf_run_id = workflow.info().workflow_id
+        wf_info = workflow.info()
+        self.tracecat_wf_run_id = wf_info.workflow_id
 
         self.run_ctx = RunContext(
             wf_id=args.wf_id,
-            wf_exec_id=workflow.info().workflow_id,
-            wf_run_id=workflow.info().run_id,
+            wf_exec_id=wf_info.workflow_id,
+            wf_run_id=wf_info.run_id,
         )
         self.logger = logger.bind(run_ctx=self.run_ctx, role=self.role)
         ctx_logger.set(self.logger)
@@ -202,6 +206,7 @@ class DSLWorkflow:
             ACTIONS={},
             INPUTS=self.dsl.inputs,
             TRIGGER=self.dsl.trigger_inputs,
+            ENV={"workflow": {"start_time": wf_info.start_time}},
         )
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
@@ -211,6 +216,8 @@ class DSLWorkflow:
         await self.scheduler.start()
 
         self.logger.info("DSL workflow completed")
+        # XXX: Don't return ENV context for now
+        self.context.pop(ExprContext.ENV, None)
         return self.context
 
     async def execute_task(self, task: ActionStatement) -> None:

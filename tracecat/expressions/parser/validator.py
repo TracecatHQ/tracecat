@@ -36,11 +36,14 @@ class ExprValidator(Visitor):
         task_group: GatheringTaskGroup,
         validation_context: ExprValidationContext,
         validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
+        *,
+        strict: bool = True,
     ) -> None:
         self._task_group = task_group
         # Contextual information
         self._context = validation_context
         self._results: list[ExprValidationResult] = []
+        self._strict = strict
 
         # External validators
         self._validators = validators or {}
@@ -101,6 +104,7 @@ class ExprValidator(Visitor):
     def actions(self, node: Tree):
         self.logger.trace("Visit action expression", expr=node)
         jsonpath = node.children[0].lstrip(".")
+        # ACTIONS.<ref>.<prop> [INDEX] [ATTRIBUTE ACCESS]
         ref, prop, *_ = jsonpath.split(".")
         if ref not in self._context.action_refs:
             self.add(
@@ -108,12 +112,14 @@ class ExprValidator(Visitor):
                 msg=f"Invalid action reference {ref!r} in ACTION expression {jsonpath!r}",
                 type=ExprType.ACTION,
             )
-        elif prop not in DSLNodeResult.__annotations__:
-            valid = list(DSLNodeResult.__annotations__.keys())
+        # Check prop
+        valid_properties = "|".join(DSLNodeResult.__annotations__.keys())
+        pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
+        if not re.match(pattern, prop):
             self.add(
                 status="error",
                 msg=f"Invalid property {prop!r} for action reference {ref!r} in ACTION expression {jsonpath!r}."
-                f" Use one of {valid}, e.g. `{ref}.{valid[0]}`",
+                f" Use one of {valid_properties}, e.g. `{ref}.{valid_properties[0]}`",
                 type=ExprType.ACTION,
             )
         else:
@@ -142,7 +148,10 @@ class ExprValidator(Visitor):
         self.logger.trace("Visit input expression", jsonpath=jsonpath)
         try:
             functions.eval_jsonpath(
-                jsonpath, self._context.inputs_context, context_type=ExprContext.INPUTS
+                jsonpath,
+                self._context.inputs_context,
+                context_type=ExprContext.INPUTS,
+                strict=self._strict,
             )
             self.add(status="success", type=ExprType.INPUT)
         except TracecatExpressionError as e:

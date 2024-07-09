@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -38,5 +39,12 @@ async def dispatch_workflow(
         task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         **kwargs,
     )
-    logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
+    # Write result to file for debugging
+    if os.getenv("DUMP_TRACECAT_RESULT", "0") in ("1", "true"):
+        path = config.TRACECAT__EXECUTIONS_DIR / f"{wf_exec_id}.json"
+        path.touch()
+        with path.open("w") as f:
+            json.dump(result, f, indent=2)
+    else:
+        logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
     return DispatchResult(wf_id=wf_id, final_context=result)

@@ -27,8 +27,9 @@ class TracecatTransformer(Transformer):
 class ExprEvaluator(TracecatTransformer):
     _visitor_name = "ExprEvaluator"
 
-    def __init__(self, context: ExprContextType) -> None:
+    def __init__(self, context: ExprContextType, strict: bool = True) -> None:
         self._context = context
+        self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
 
     @v_args(inline=True)
@@ -98,27 +99,37 @@ class ExprEvaluator(TracecatTransformer):
     @v_args(inline=True)
     def actions(self, jsonpath: str):
         logger.trace("Visiting actions:", args=jsonpath)
-        return functions.eval_jsonpath(ExprContext.ACTIONS + jsonpath, self._context)
+        return functions.eval_jsonpath(
+            ExprContext.ACTIONS + jsonpath, self._context, strict=self._strict
+        )
 
     @v_args(inline=True)
     def secrets(self, jsonpath: str):
         logger.trace("Visiting secrets:", jsonpath=jsonpath)
-        return functions.eval_jsonpath(ExprContext.SECRETS + jsonpath, self._context)
+        return functions.eval_jsonpath(
+            ExprContext.SECRETS + jsonpath, self._context, strict=self._strict
+        )
 
     @v_args(inline=True)
     def inputs(self, jsonpath: str):
         logger.trace("Visiting inputs:", args=jsonpath)
-        return functions.eval_jsonpath(ExprContext.INPUTS + jsonpath, self._context)
+        return functions.eval_jsonpath(
+            ExprContext.INPUTS + jsonpath, self._context, strict=self._strict
+        )
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
-        return functions.eval_jsonpath(ExprContext.ENV + jsonpath, self._context)
+        return functions.eval_jsonpath(
+            ExprContext.ENV + jsonpath, self._context, strict=self._strict
+        )
 
     @v_args(inline=True)
     def local_vars(self, jsonpath: str):
         logger.trace("Visiting local_vars:", args=jsonpath)
-        return functions.eval_jsonpath(ExprContext.LOCAL_VARS + jsonpath, self._context)
+        return functions.eval_jsonpath(
+            ExprContext.LOCAL_VARS + jsonpath, self._context, strict=self._strict
+        )
 
     @v_args(inline=True)
     def local_vars_assignment(self, jsonpath: str):
@@ -128,7 +139,9 @@ class ExprEvaluator(TracecatTransformer):
     @v_args(inline=True)
     def trigger(self, jsonpath: str):
         logger.trace("Visiting trigger:", args=jsonpath)
-        return functions.eval_jsonpath(ExprContext.TRIGGER + jsonpath, self._context)
+        return functions.eval_jsonpath(
+            ExprContext.TRIGGER + jsonpath, self._context, strict=self._strict
+        )
 
     @v_args(inline=True)
     def function(self, fn_name: str, fn_args: Sequence[Any]):

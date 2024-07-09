@@ -29,7 +29,7 @@ actions:
       - pull_aws_guardduty_findings
     run_if: ${{ FN.is_empty(ACTIONS.pull_aws_guardduty_findings.result) }}
     args:
-      url: ${{ SECRETS.slack_chatops.SLACK_WEBHOOK }}
+      url: ${{ SECRETS.slack.SLACK_WEBHOOK }}
       method: POST
       headers:
         Content-Type: application/json
@@ -67,7 +67,7 @@ actions:
     # Assign each SMAC finding to a variable named `smac`
     for_each: ${{ for var.smac in ACTIONS.reshape_findings_into_smac.result }}
     args:
-      channel: ${{ SECRETS.slack_chatops.SLACK_CHANNEL }}
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
       text: GuardDuty findings
       blocks:
         - type: header

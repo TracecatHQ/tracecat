@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from typing import Literal
 
 import pytest
@@ -23,6 +24,7 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType, IterableExpr
+from tracecat.logging import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
@@ -62,8 +64,11 @@ def test_eval_jsonpath():
     assert eval_jsonpath("$.webhook.data.name", operand) == "John"
     assert eval_jsonpath("$.webhook.data.age", operand) == 30
     with pytest.raises(TracecatExpressionError) as e:
-        _ = eval_jsonpath("$.webhook.data.nonexistent", operand) is None
+        _ = eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=True)
         assert "Operand has no path" in str(e.value)
+    assert (
+        eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=False) == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -396,6 +401,10 @@ def test_eval_templated_object_inline_fails_if_not_str():
                 "Hello, Charlie! You are happy.",
             ],
         ),
+        (
+            "FN.flatten([[1, 2, 3], [4, 5, 6], [7, 8, 9]])",
+            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        ),
         # Ternary expressions
         (
             "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
@@ -435,6 +444,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("INPUTS.people[*].age", [30, 40, 50]),
         ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
         ("INPUTS.people[*].gender", ["female", "male"]),
+        # ('INPUTS.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
@@ -490,6 +500,9 @@ def test_expression_parser(expr, expected):
                     "age": 50,
                 },
             ],
+            "user@tracecat.com": {
+                "name": "Bob",
+            },
         },
         ExprContext.ENV: {
             "item": "ITEM",
@@ -515,6 +528,37 @@ def test_expression_parser(expr, expected):
     ev = ExprEvaluator(context=context)
     actual = ev.transform(parse_tree)
     assert actual == expected
+
+
+def test_time_funcs():
+    time_now_expr = "${{ FN.now() }}"
+    dt = eval_templated_object(time_now_expr)
+    logger.info(dt)
+    assert isinstance(dt, datetime)
+
+    time_now_expr = "${{ FN.minutes(5) }}"
+    td = eval_templated_object(time_now_expr)
+    logger.info(td)
+    assert isinstance(td, timedelta)
+
+    mins_ago_expr = "${{ FN.now() - FN.minutes(5) }}"
+    dt = eval_templated_object(mins_ago_expr)
+    logger.info(dt)
+    assert isinstance(dt, datetime)
+
+    context = {
+        ExprContext.ENV: {
+            "workflow": {
+                "start_time": datetime(2024, 1, 1, 0, 0, 0),
+            }
+        }
+    }
+
+    time_now_expr = "${{ ENV.workflow.start_time + FN.minutes(5) }}"
+    dt = eval_templated_object(time_now_expr, operand=context)
+    logger.info(dt)
+    assert isinstance(dt, datetime)
+    assert dt == datetime(2024, 1, 1, 0, 5, 0)
 
 
 def test_parser_error():

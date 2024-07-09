@@ -8,12 +8,16 @@ services:
     volumes:
       - ./tracecat:/app/tracecat
       - core-app:/var/lib/tracecat
+    environment:
+      DUMP_TRACECAT_RESULT: 1
 
   worker:
     build: .
     volumes:
       - ./tracecat:/app/tracecat
       - core-app:/var/lib/tracecat
+    environment:
+      DUMP_TRACECAT_RESULT: 1
 
   ui:
     build:

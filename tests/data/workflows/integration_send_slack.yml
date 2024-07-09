@@ -16,7 +16,7 @@ actions:
   - ref: send_slack_notifications
     action: integrations.chat.slack.post_slack_message
     args:
-      channel: ${{ SECRETS.slack_chatops.SLACK_CHANNEL }}
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
       text: Integration Test
       blocks:
         - type: header
