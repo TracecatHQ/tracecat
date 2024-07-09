@@ -41,10 +41,8 @@ async def dispatch_workflow(
     )
     # Write result to file for debugging
     if os.getenv("DUMP_TRACECAT_RESULT", "0") in ("1", "true"):
-        from pathlib import Path
-
-        path = Path(os.getenv("TRACECAT_DIR")) / f"{wf_exec_id}.json"
-        path.touch(mode=0o666)
+        path = config.TRACECAT__EXECUTIONS_DIR / f"{wf_exec_id}.json"
+        path.touch()
         with path.open("w") as f:
             json.dump(result, f, indent=2)
     else:

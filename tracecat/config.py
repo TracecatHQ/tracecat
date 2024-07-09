@@ -24,6 +24,8 @@ TRACECAT__DB_URI = os.environ.get(
 TRACECAT__TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
 TRACECAT__TRIAGE_DIR = TRACECAT_DIR / "triage"
 TRACECAT__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
+TRACECAT__EXECUTIONS_DIR = TRACECAT_DIR / "executions"
+TRACECAT__EXECUTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = ["tracecat-runner", "tracecat-api", "tracecat-cli"]
