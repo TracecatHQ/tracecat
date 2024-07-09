@@ -14,7 +14,7 @@ To install and run the Tracecat CLI, you will need `docker`.
 docker pull ghcr.io/tracecathq/tracecat-cli
 
 # Create an alias to run the CLI in a container
-alias tracecat='docker run --rm ghcr.io/tracecathq/tracecat-cli "$@"'
+alias tracecat='docker run --network host --rm ghcr.io/tracecathq/tracecat-cli "$@"'
 
 # Finally source your shell profile
 # NOTE: can be ~/.bashrc, ~/.zshrc, etc.
