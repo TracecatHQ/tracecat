@@ -14,6 +14,9 @@ def is_full_template(template: str) -> bool:
 def is_iterable(value: Any, *, container_only: bool = True) -> bool:
     try:
         iter(value)
+        if isinstance(value, dict):
+            # We don't consider dictionaries as iterables
+            return False
         if container_only:
             return not isinstance(value, str | bytes)
         return True
