@@ -4,7 +4,7 @@ import { Label } from "@radix-ui/react-label"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PlusCircle, Trash2Icon } from "lucide-react"
 
-import { Secret } from "@/types/schemas"
+import { TCreateSecret } from "@/types/schemas"
 import { deleteSecret, fetchAllSecrets } from "@/lib/secrets"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,12 +40,12 @@ export default function CredentialsPage() {
     data: secrets,
     isLoading,
     error,
-  } = useQuery<Secret[], Error>({
+  } = useQuery<TCreateSecret[], Error>({
     queryKey: ["secrets"],
     queryFn: async () => await fetchAllSecrets(),
   })
   const { mutate } = useMutation({
-    mutationFn: async (secret: Secret) => {
+    mutationFn: async (secret: TCreateSecret) => {
       await deleteSecret(secret.name)
     },
     onSuccess: () => {
@@ -110,8 +110,8 @@ function SecretsTable({
   secret,
   deleteFn,
 }: {
-  secret: Secret
-  deleteFn: (secret: Secret) => void
+  secret: TCreateSecret
+  deleteFn: (secret: TCreateSecret) => void
 }) {
   return (
     <Card className="w-full border">
@@ -143,7 +143,7 @@ function SecretsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {secret.keys.map(({ key }, idx) => (
+            {secret.keys.map((key, idx) => (
               <TableRow key={idx} className="grid grid-cols-2">
                 <TableCell className="col-span-1">
                   <Label htmlFor="stock-1" className="sr-only">

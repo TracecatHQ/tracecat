@@ -1,9 +1,9 @@
 import { z } from "zod"
 
-import { Secret, secretSchema } from "@/types/schemas"
+import { getSecretSchema, TCreateSecret, TGetSecret } from "@/types/schemas"
 import { client } from "@/lib/api"
 
-export async function createSecret(secret: Secret) {
+export async function createSecret(secret: TCreateSecret) {
   try {
     await client.post("/secrets", JSON.stringify(secret), {
       headers: {
@@ -17,8 +17,8 @@ export async function createSecret(secret: Secret) {
 
 export async function fetchAllSecrets() {
   try {
-    const repsonse = await client.get<Secret[]>("/secrets")
-    return z.array(secretSchema).parse(repsonse.data)
+    const response = await client.get<TGetSecret[]>("/secrets")
+    return z.array(getSecretSchema).parse(response.data)
   } catch (error) {
     console.error("Failed to add new credentials", error)
     throw error

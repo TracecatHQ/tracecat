@@ -193,20 +193,25 @@ export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
 export const secretTypes = ["custom", "token", "oauth2"] as const
 export type SecretType = (typeof secretTypes)[number]
 
-const secretNameRegex = /^[a-z]+([_-][a-z]+)*$/
-export const secretSchema = z.object({
+export const createSecretSchema = z.object({
   id: z.string().min(1).optional(),
   type: z.enum(secretTypes),
-  name: z
-    .string()
-    .min(1, "Please enter a secret name.")
-    .regex(secretNameRegex, "Secret name must be snake case."),
+  name: z.string().min(1, "Please enter a secret name."),
   description: z.string().max(255).nullish(),
-  // Can take different types of secrets
   keys: z.array(keyValueSchema),
 })
 
-export type Secret = z.infer<typeof secretSchema>
+export type TCreateSecret = z.infer<typeof createSecretSchema>
+
+export const getSecretSchema = z.object({
+  id: z.string().min(1).optional(),
+  type: z.enum(secretTypes),
+  name: z.string().min(1, "Please enter a secret name."),
+  description: z.string().max(255).nullish(),
+  keys: z.array(z.string()),
+})
+
+export type TGetSecret = z.infer<typeof getSecretSchema>
 
 export const caseEventTypes = [
   "status_changed",
