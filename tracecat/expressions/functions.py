@@ -6,7 +6,7 @@ import itertools
 import operator
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, ParamSpec, TypedDict, TypeVar
 
@@ -295,8 +295,10 @@ _FUNCTION_MAPPING = {
     # Convert JSON to string
     "serialize_json": lambda x: orjson.dumps(x).decode(),
     "deserialize_json": lambda x: orjson.loads(x),
-    # Convert timestamp to datetime
+    # Time related
     "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
+    "now": lambda: datetime.now(),
+    "minutes": lambda minutes: timedelta(minutes=minutes),
     # Base64
     "to_base64": _str_to_b64,
     "from_base64": _b64_to_str,

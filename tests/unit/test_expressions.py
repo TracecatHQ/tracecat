@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from typing import Literal
 
 import pytest
@@ -23,6 +24,7 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType, IterableExpr
+from tracecat.logging import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
@@ -526,6 +528,37 @@ def test_expression_parser(expr, expected):
     ev = ExprEvaluator(context=context)
     actual = ev.transform(parse_tree)
     assert actual == expected
+
+
+def test_time_funcs():
+    time_now_expr = "${{ FN.now() }}"
+    dt = eval_templated_object(time_now_expr)
+    logger.info(dt)
+    assert isinstance(dt, datetime)
+
+    time_now_expr = "${{ FN.minutes(5) }}"
+    td = eval_templated_object(time_now_expr)
+    logger.info(td)
+    assert isinstance(td, timedelta)
+
+    mins_ago_expr = "${{ FN.now() - FN.minutes(5) }}"
+    dt = eval_templated_object(mins_ago_expr)
+    logger.info(dt)
+    assert isinstance(dt, datetime)
+
+    context = {
+        ExprContext.ENV: {
+            "workflow": {
+                "start_time": datetime(2024, 1, 1, 0, 0, 0),
+            }
+        }
+    }
+
+    time_now_expr = "${{ ENV.workflow.start_time + FN.minutes(5) }}"
+    dt = eval_templated_object(time_now_expr, operand=context)
+    logger.info(dt)
+    assert isinstance(dt, datetime)
+    assert dt == datetime(2024, 1, 1, 0, 5, 0)
 
 
 def test_parser_error():
