@@ -5,6 +5,10 @@ description: |
   Requires `datadog` and `slack` secrets.
 entrypoint:
   ref: pull_datadog_signals
+  expects:
+    start_time: datetime
+    end_time: datetime
+
 inputs:
   dd_region: us5
   dd_api_url: https://api.us5.datadoghq.com
@@ -12,7 +16,7 @@ inputs:
 triggers:
   - type: webhook
     ref: datadog_webhook
-    entrypoint: pull_datadog_siem_signals
+    entrypoint: pull_datadog_signals
 
 actions:
   - ref: pull_datadog_signals
@@ -22,12 +26,32 @@ actions:
       end_time: ${{ TRIGGER.end_time }}
       limit: 10
 
+  - ref: no_signals_message
+    action: integrations.chat.slack.post_slack_message
+    depends_on:
+      - pull_datadog_signals
+    run_if: ${{ FN.is_empty(ACTIONS.pull_datadog_signals.result) }}
+    args:
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      text: No Datadog signals found
+      blocks:
+        - type: header
+          text:
+            type: plain_text
+            text: No Datadog signals found
+            emoji: true
+        - type: section
+          text:
+            type: mrkdwn
+            text: No signals between ${{ TRIGGER.start_time }} and ${{ TRIGGER.end_time }}.
+
   - ref: reshape_signals
+    # Reshape incoming signals into a list of flat json objects
     action: core.transform.forward
     depends_on:
-      - pull_datadog_siem_signals
-    run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_siem_signals.result) }}
-    for_each: ${{ for var.signal in ACTIONS.pull_datadog_siem_signals.result }}
+      - pull_datadog_signals
+    run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result) }}
+    for_each: ${{ for var.signal in ACTIONS.pull_datadog_signals.result }}
     args:
       value:
         title: ${{ var.signal.attributes.attributes.title }}
@@ -36,44 +60,98 @@ actions:
         first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
         last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
         samples: ${{ var.signal.attributes.attributes.samples }}
-        link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.EventID }}
+        link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.id }}
+    # Returns: list[signal]
+    # Each signal can produce multiple emails
+    # We need to associate each email back to the signal
 
-  - ref: extract_emails
-    # Returns a list of list of emails per alert
+  - ref: extract_emails_from_signals
     action: core.extraction.extract_emails
     depends_on:
       - reshape_signals
+    # Iterate over the list[signal]
     for_each: ${{ for var.signal in ACTIONS.reshape_signals.result }}
     args:
-      text: ${{ FN.serialize_json(var.signal.samples) }}
+      texts: ${{ FN.serialize_json.map(var.signal.samples) }}
+      normalize: true # user+test@domain -> user@domain
+    # Returns: list[list[email]]
 
-  - ref: find_slack_users
-    # Returns a list of list of Slack users per alert
-    action: integrations.slack.find_slack_users
-    depends_on:
-      - extract_emails
-    for_each: ${{ for var.emails in ACTIONS.extract_emails.result }}
-    args:
-      emails: ${{ var.emails }}
-
-  - ref: extract_slack_user_ids
-    # Returns a list of list of Slack user IDs per alert
+  - ref: enrich_with_emails
     action: core.transform.forward
     depends_on:
-      - find_slack_users
-    for_each: ${{ for var.user_ids in ACTIONS.find_slack_users.result }}
+      - extract_emails_from_signals
+    for_each: # Zip the signals with the emails
+      - ${{ for var.signal in ACTIONS.reshape_signals.result }}
+      - ${{ for var.email_list in ACTIONS.extract_emails_from_signals.result }}
     args:
-      tags: ${{ FN.format.map('<@{}>', var.user_ids) }}
+      value:
+        signal: ${{ var.signal }}
+        emails: ${{ FN.unique(var.email_list) }} # Internal order doesn't matter
+
+  - ref: drop_signals_with_empty_emails
+    action: core.transform.filter
+    depends_on:
+      - enrich_with_emails
+    args:
+      # Filter out only relevant emails
+      items: ${{ ACTIONS.enrich_with_emails.result }}
+      constraint:
+        jsonpath: $.emails
+        function: not_empty
+    # Returns: list[slack_user]h
+
+  - ref: find_slack_users
+    action: integrations.chat.slack.list_slack_users
+    depends_on:
+      - drop_signals_with_empty_emails
+    args:
+      # Filter out only relevant emails
+      emails: ${{ FN.flatten(ACTIONS.extract_emails_from_signals.result) }}
+    # Returns: list[slack_user]
+
+  - ref: slack_user_mapping
+    action: core.transform.build_reference_table
+    depends_on:
+      - find_slack_users
+    args:
+      items: ${{ ACTIONS.find_slack_users.result }}
+      key: $.profile.email
+    # Returns a mapping of email to slack_user object at ACTIONS.slack_user_mapping.result
+
+  - ref: enrich_with_slack_info
+    action: core.transform.forward
+    depends_on:
+      - drop_signals_with_empty_emails
+      - slack_user_mapping
+    for_each:
+      - ${{ for var.combined in ACTIONS.drop_signals_with_empty_emails.result }}
+    args:
+      value:
+        signal: ${{ var.combined.signal }}
+        emails: ${{ var.combined.emails }}
+        # Lookup the slack user ref table with a list of emails
+        slack_info: ${{ FN.lookup.map(ACTIONS.slack_user_mapping.result, var.combined.emails) }}
+
+  # Need to get the user ids from the slack users
+  - ref: extract_slack_tags
+    action: core.transform.forward
+    depends_on:
+      - enrich_with_slack_info
+    # This is now a list[slack_user]
+    for_each: ${{ for var.enriched_signal in ACTIONS.enrich_with_slack_info.result }}
+    args:
+      # Use jsonpath to pull the id fields as a list of ids
+      value: ${{ FN.format.map('<@{}>', var.enriched_signal.slack_info[*].id) }}
 
   - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
     depends_on:
-      - find_slack_users
-      - reshape_signals
+      - extract_slack_tags
+      - enrich_with_slack_info
     run_if: ${{ FN.not_empty(ACTIONS.find_slack_users.result) }}
     for_each:
-      - ${{ for var.signal in ACTIONS.reshape_signals.result }}
-      - ${{ for var.user_ids in ACTIONS.extract_slack_user_ids.result }}
+      - ${{ for var.enriched_signal in ACTIONS.enrich_with_slack_info.result }}
+      - ${{ for var.user_tags in ACTIONS.extract_slack_tags.result }}
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
       text: Datadog alerts
@@ -81,28 +159,28 @@ actions:
         - type: header
           text:
             type: plain_text
-            text: ${{ var.signal.title }}
+            text: ${{ var.enriched_signal.signal.title }}
             emoji: true
         - type: context
           elements:
             - type: plain_text
-              text: "*Link to signal:* ${{ var.signal.link_to_signal }}"
+              text: "*Link to signal:* ${{ var.enriched_signal.signal.link_to_signal }}"
         # Tag Slack users
         - type: context
           elements:
             - type: plain_text
-              text: "*Tagged users:* ${{ var.user_ids.tags }}"
+              text: "*Tagged users:* ${{ FN.join(var.user_tags, ', ') }}"
         - type: context
           elements:
             - type: plain_text
-              text: "*Status:* ${{ var.signal.status }}"
+              text: "*Status:* ${{ var.enriched_signal.signal.status }}"
         - type: context
           elements:
             - type: plain_text
-              text: "*First seen:* ${{ FN.from_timestamp(var.signal.first_seen, 'ms') }}"
+              text: "*First seen:* ${{ FN.from_timestamp(var.enriched_signal.signal.first_seen, 'ms') }}"
             - type: plain_text
-              text: "*Last seen:* ${{ FN.from_timestamp(var.signal.last_seen, 'ms') }}"
+              text: "*Last seen:* ${{ FN.from_timestamp(var.enriched_signal.signal.last_seen, 'ms') }}"
         - type: section
           text:
             type: mrkdwn
-            text: ${{ var.signal.description }}
+            text: ${{ var.enriched_signal.signal.description }}
