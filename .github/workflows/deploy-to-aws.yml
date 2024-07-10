@@ -41,18 +41,15 @@ jobs:
           echo "::add-mask::${SIGNING_SECRET}"
 
           # Create secrets
-          aws secretsmanager create-secret --name ${{ secrets.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws secretsmanager create-secret --name ${{ secrets.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws secretsmanager create-secret --name ${{ secrets.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ vars.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ vars.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ vars.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }}
 
       - name: Create Clerk secrets
-        env:
-          CLERK_FRONTEND_API_URL: ${{ secrets.CLERK_FRONTEND_API_URL }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
         run: |
           # Create secrets
-          aws secretsmanager create-secret --name ${{ secrets.CLERK_FRONTEND_API_URL_NAME }} --secret-string "${CLERK_FRONTEND_API_URL}" --region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws secretsmanager create-secret --name ${{ secrets.CLERK_SECRET_KEY_NAME }} --secret-string "${CLERK_SECRET_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ vars.CLERK_FRONTEND_API_URL_NAME }} --secret-string ${{ secrets.CLERK_FRONTEND_API_URL }} --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
 
   deploy:
     name: Deploy AWS CDK Stack
@@ -121,11 +118,11 @@ jobs:
           NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
           NEXT_PUBLIC_DISABLE_SESSION_RECORDING: false
           # AWS Secret names
-          DB_ENCRYPTION_KEY_NAME: ${{ secrets.DB_ENCRYPTION_KEY_NAME }}
-          SERVICE_KEY_NAME: ${{ secrets.SERVICE_KEY_NAME }}
-          SIGNING_SECRET_NAME: ${{ secrets.SIGNING_SECRET_NAME }}
-          CLERK_FRONTEND_API_URL_NAME: ${{ secrets.CLERK_FRONTEND_API_URL_NAME }}
-          CLERK_SECRET_KEY_NAME: ${{ secrets.CLERK_SECRET_KEY_NAME }}
+          DB_ENCRYPTION_KEY_NAME: ${{ vars.DB_ENCRYPTION_KEY_NAME }}
+          SERVICE_KEY_NAME: ${{ vars.SERVICE_KEY_NAME }}
+          SIGNING_SECRET_NAME: ${{ vars.SIGNING_SECRET_NAME }}
+          CLERK_FRONTEND_API_URL_NAME: ${{ vars.CLERK_FRONTEND_API_URL_NAME }}
+          CLERK_SECRET_KEY_NAME: ${{ vars.CLERK_SECRET_KEY_NAME }}
         run: |
           cd aws
           cdk synth --app "python3 app.py"
