@@ -19,6 +19,7 @@ with workflow.unsafe.imports_passed_through():
     import lark  # noqa
     from pydantic import BaseModel
 
+    import httpx
     from pydantic import ValidationError
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.concurrency import GatheringTaskGroup
@@ -551,6 +552,13 @@ class DSLActivities:
         except ApplicationError as e:
             act_logger.error("ApplicationError occurred", error=e)
             raise
+        except httpx.HTTPStatusError as e:
+            act_logger.error("HTTP status error occurred", error=e)
+            raise ApplicationError(
+                f"HTTP status error {e.response.status_code}",
+                non_retryable=True,
+                type=e.__class__.__name__,
+            ) from e
         except Exception as e:
             act_logger.exception("Unexpected error occurred")
             raise ApplicationError(
