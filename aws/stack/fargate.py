@@ -37,7 +37,7 @@ class FargateStack(Stack):
 
         ### Gather secrets
         tracecat_secrets = {
-            "TRAECCAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
+            "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
                 secretsmanager.Secret.from_secret_partial_arn(
                     self,
                     "TracecatDbEncryptionKey",
@@ -73,17 +73,6 @@ class FargateStack(Stack):
         }
 
         tracecat_ui_secrets = {
-            "CLERK_FRONTEND_API_URL": ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
-                    self,
-                    "ClerkFrontendApiUrl",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                        self,
-                        "ClerkPartialFrontendApiUrl",
-                        secret_name=os.environ["CLERK_FRONTEND_API_URL"],
-                    ).secret_arn,
-                )
-            ),
             "CLERK_SECRET_KEY": ecs.Secret.from_secrets_manager(
                 secretsmanager.Secret.from_secret_partial_arn(
                     self,
@@ -145,16 +134,6 @@ class FargateStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        ### Shared environment
-        tracecat_environment = {
-            "LOG_LEVEL": os.environ["LOG_LEVEL"],
-            "TRACECAT__API_URL": os.environ["TRACECAT__API_URL"],
-            "TRACECAT__APP_ENV": os.environ["TRACECAT__APP_ENV"],
-            "TRACECAT__DB_URI": core_database.db_instance_endpoint_address,
-            "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
-            "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
-        }
-
         # NOTE: Change the capacity according to your needs
         # We use spot instances by default to reduce costs
         capacity_provider_strategy = ecs.CapacityProviderStrategy(
@@ -191,6 +170,16 @@ class FargateStack(Stack):
             ),
         )
 
+        ### Shared API / worker environment
+        tracecat_environment = {
+            "LOG_LEVEL": os.environ["LOG_LEVEL"],
+            "TRACECAT__API_URL": os.environ["TRACECAT__API_URL"],
+            "TRACECAT__APP_ENV": os.environ["TRACECAT__APP_ENV"],
+            "TRACECAT__DB_URI": core_database.db_instance_endpoint_address,
+            "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
+            "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
+        }
+
         ### API Service
         api_task_definition = ecs.FargateTaskDefinition(
             self,
@@ -202,7 +191,20 @@ class FargateStack(Stack):
             "ApiContainer",
             image=TRACECAT_IMAGE,
             environment=tracecat_environment,
-            secrets=tracecat_secrets,
+            secrets={
+                **tracecat_secrets,
+                "CLERK_FRONTEND_API_URL": ecs.Secret.from_secrets_manager(
+                    secretsmanager.Secret.from_secret_partial_arn(
+                        self,
+                        "ClerkFrontendApiUrl",
+                        secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                            self,
+                            "ClerkPartialFrontendApiUrl",
+                            secret_name=os.environ["CLERK_FRONTEND_API_URL"],
+                        ).secret_arn,
+                    )
+                ),
+            },
             port_mappings=[
                 ecs.PortMapping(
                     container_port=8000,
@@ -262,6 +264,17 @@ class FargateStack(Stack):
         )
 
         ### UI Service
+        tracecat_ui_environment = {
+            "NEXT_PUBLIC_API_URL": os.environ["TRACECAT__API_URL"],
+            "NEXT_PUBLIC_APP_ENV": os.environ["TRACECAT__APP_ENV"],
+            "NEXT_PUBLIC_APP_URL": os.environ["TRACECAT__APP_URL"],
+            "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ["CLERK_PUBLISHABLE_KEY"],
+            "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ["CLERK_SIGN_IN_URL"],
+            "NEXT_PUBLIC_CLERK_SIGN_UP_URL": os.environ["CLERK_SIGN_UP_URL"],
+            "NEXT_PUBLIC_DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
+            "NEXT_SERVER_API_URL": os.environ["TRACECAT__API_URL"],
+            "NODE_ENV": os.environ["TRACECAT__APP_ENV"],
+        }
         ui_task_definition = ecs.FargateTaskDefinition(
             self,
             "TracecatUiTaskDefinition",
@@ -271,7 +284,7 @@ class FargateStack(Stack):
         ui_task_definition.add_container(  # noqa
             "TracecatUiContainer",
             image=TRACECAT_UI_IMAGE,
-            environment=tracecat_environment,
+            environment=tracecat_ui_environment,
             ui_secrets=tracecat_ui_secrets,
             port_mappings=[
                 ecs.PortMapping(
