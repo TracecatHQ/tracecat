@@ -385,30 +385,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /workflows/{workflow_id}/runs:
+  /workflow-executions:
     get:
       tags:
-      - workflows
-      summary: List Workflow Runs
-      description: '**[DEPRECATED]** List all runs for a workflow.'
-      operationId: list_workflow_runs_workflows__workflow_id__runs_get
+      - workflow-executions
+      summary: List Workflow Executions
+      description: List all workflow executions.
+      operationId: list_workflow_executions_workflow_executions_get
       security:
       - OAuth2PasswordBearer: []
       parameters:
       - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
-      - name: limit
         in: query
         required: false
         schema:
           anyOf:
-          - type: integer
+          - type: string
+            pattern: wf-[0-9a-f]{32}
           - type: 'null'
-          title: Limit
+          title: Workflow Id
       responses:
         '200':
           description: Successful Response
@@ -417,112 +412,38 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/WorkflowRunResponse'
-                title: Response List Workflow Runs Workflows  Workflow Id  Runs Get
+                  $ref: '#/components/schemas/WorkflowExecutionResponse'
+                title: Response List Workflow Executions Workflow Executions Get
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - workflows
-      summary: Create Workflow Run
-      description: '**[DEPRECATED]** Create a workflow run.'
-      operationId: create_workflow_run_workflows__workflow_id__runs_post
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WorkflowRunEventParams'
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /workflows/{workflow_id}/runs/{workflow_run_id}:
+  /workflow-executions/{execution_id}:
     get:
       tags:
-      - workflows
-      summary: Get Workflow Run
-      description: '**[DEPRECATED]** Get a workflow run.'
-      operationId: get_workflow_run_workflows__workflow_id__runs__workflow_run_id__get
+      - workflow-executions
+      summary: Get Workflow Execution
+      description: Get a workflow execution.
+      operationId: get_workflow_execution_workflow_executions__execution_id__get
       security:
       - OAuth2PasswordBearer: []
       parameters:
-      - name: workflow_id
+      - name: execution_id
         in: path
         required: true
         schema:
           type: string
-          title: Workflow Id
-      - name: workflow_run_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Run Id
+          pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          title: Execution Id
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkflowRunResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - workflows
-      summary: Update Workflow Run
-      description: '**[DEPRECATED]** Update a workflow run.'
-      operationId: update_workflow_run_workflows__workflow_id__runs__workflow_run_id__post
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: workflow_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Id
-      - name: workflow_run_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Workflow Run Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WorkflowRunEventParams'
-      responses:
-        '204':
-          description: Successful Response
+                $ref: '#/components/schemas/WorkflowExecutionResponse'
         '422':
           description: Validation Error
           content:
@@ -985,151 +906,6 @@ paths:
         schema:
           type: string
           title: Action Id
-      responses:
-        '204':
-          description: Successful Response
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /actions/{action_id}/runs:
-    get:
-      tags:
-      - actions
-      summary: List Action Runs
-      description: '**[DEPRECATED]** List all action Runs for an action.'
-      operationId: list_action_runs_actions__action_id__runs_get
-      security:
-      - OAuth2PasswordBearer: []
-      parameters:
-      - name: action_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Action Id
-      - name: limit
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Limit
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ActionRunResponse'
-                title: Response List Action Runs Actions  Action Id  Runs Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - actions
-      summary: Create Action Run
-      description: '**[DEPRECATED]** Create an action Run.'
-      operationId: create_action_run_actions__action_id__runs_post
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: action_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Action Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ActionRunEventParams'
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ActionRunResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /actions/{action_id}/runs/{action_run_id}:
-    get:
-      tags:
-      - actions
-      summary: Get Action Run
-      description: '**[DEPRECATED]** Get an action run.'
-      operationId: get_action_run_actions__action_id__runs__action_run_id__get
-      security:
-      - OAuth2PasswordBearer: []
-      parameters:
-      - name: action_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Action Id
-      - name: action_run_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Action Run Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ActionRunResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - actions
-      summary: Update Action Run
-      description: '**[DEPRECATED]** Update an action run.'
-      operationId: update_action_run_actions__action_id__runs__action_run_id__post
-      security:
-      - APIKeyHeader: []
-      parameters:
-      - name: action_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Action Id
-      - name: action_run_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Action Run Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ActionRunEventParams'
       responses:
         '204':
           description: Successful Response
@@ -1673,21 +1449,6 @@ paths:
                 $ref: '#/components/schemas/User'
       security:
       - OAuth2PasswordBearer: []
-    put:
-      tags:
-      - users
-      summary: Create User
-      description: Create new user.
-      operationId: create_user_users_put
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
-      security:
-      - OAuth2PasswordBearer: []
     post:
       tags:
       - users
@@ -1741,13 +1502,12 @@ paths:
                 title: Response List Secrets Secrets Get
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
-    put:
+    post:
       tags:
       - secrets
       summary: Create Secret
       description: Create a secret.
-      operationId: create_secret_secrets_put
+      operationId: create_secret_secrets_post
       requestBody:
         content:
           application/json:
@@ -1760,34 +1520,6 @@ paths:
           content:
             application/json:
               schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
-    post:
-      tags:
-      - secrets
-      summary: Update Secret
-      description: Update a secret
-      operationId: update_secret_secrets_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateSecretParams'
-        required: true
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Secret'
         '422':
           description: Validation Error
           content:
@@ -1826,6 +1558,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - secrets
+      summary: Update Secret
+      description: Update a secret
+      operationId: update_secret_secrets__secret_name__post
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: secret_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Secret Name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSecretParams'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Secret'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
       - secrets
@@ -1834,7 +1600,6 @@ paths:
       operationId: delete_secret_secrets__secret_name__delete
       security:
       - OAuth2PasswordBearer: []
-      - APIKeyHeader: []
       parameters:
       - name: secret_name
         in: path
@@ -2027,6 +1792,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /validate-workflow:
+    post:
+      summary: Validate Workflow
+      description: 'Validate a workflow.
+
+
+        This deploys the workflow and updates its version. If a YAML file is provided,
+        it will override the workflow in the database.'
+      operationId: validate_workflow_validate_workflow_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_validate_workflow_validate_workflow_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/UDFArgsValidationResponse'
+                type: array
+                title: Response Validate Workflow Validate Workflow Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - OAuth2PasswordBearer: []
 components:
   schemas:
     ActionMetadataResponse:
@@ -2095,213 +1893,6 @@ components:
       - inputs
       - key
       title: ActionResponse
-    ActionRun:
-      properties:
-        owner_id:
-          type: string
-          title: Owner Id
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-        id:
-          type: string
-          title: Id
-        status:
-          type: string
-          title: Status
-          default: pending
-        action_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Action Id
-        workflow_run_id:
-          type: string
-          title: Workflow Run Id
-        error_msg:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Error Msg
-        result:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Result
-      type: object
-      required:
-      - owner_id
-      - created_at
-      - updated_at
-      - action_id
-      - workflow_run_id
-      title: ActionRun
-    ActionRunEventParams:
-      properties:
-        id:
-          type: string
-          title: Id
-        owner_id:
-          type: string
-          title: Owner Id
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-        status:
-          type: string
-          enum:
-          - pending
-          - running
-          - failure
-          - success
-          - canceled
-          title: Status
-        workflow_run_id:
-          type: string
-          title: Workflow Run Id
-        error_msg:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Error Msg
-        result:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Result
-      type: object
-      required:
-      - id
-      - owner_id
-      - created_at
-      - updated_at
-      - status
-      - workflow_run_id
-      title: ActionRunEventParams
-    ActionRunResponse:
-      properties:
-        id:
-          type: string
-          title: Id
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-        action_id:
-          type: string
-          title: Action Id
-        workflow_run_id:
-          type: string
-          title: Workflow Run Id
-        status:
-          type: string
-          title: Status
-        error_msg:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Error Msg
-        result:
-          anyOf:
-          - type: object
-          - type: 'null'
-          title: Result
-      type: object
-      required:
-      - id
-      - created_at
-      - updated_at
-      - action_id
-      - workflow_run_id
-      - status
-      title: ActionRunResponse
-    ActionStatement:
-      properties:
-        ref:
-          type: string
-          pattern: ^[a-z0-9_]+$
-          title: Ref
-          description: Unique reference for the task
-        description:
-          type: string
-          title: Description
-          default: ''
-        action:
-          type: string
-          pattern: ^[a-z0-9_.]+$
-          title: Action
-          description: Action type / UDF key
-        args:
-          type: object
-          title: Args
-          description: Arguments for the action
-        depends_on:
-          items:
-            type: string
-          type: array
-          title: Depends On
-          description: Task dependencies
-        run_if:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Run If
-          description: Condition to run the task
-        for_each:
-          anyOf:
-          - type: string
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: For Each
-          description: Iterate over a list of items and run the task for each item.
-      type: object
-      required:
-      - ref
-      - action
-      title: ActionStatement
-    ActionTest:
-      properties:
-        ref:
-          type: string
-          pattern: ^[a-z0-9_]+$
-          title: Ref
-          description: Action reference
-        enable:
-          type: boolean
-          title: Enable
-          default: true
-        validate_args:
-          type: boolean
-          title: Validate Args
-          default: true
-        success:
-          title: Success
-          description: Patched success output. This can be any data structure.If it's
-            a fsspec file, it will be read and the contents will be used.
-        failure:
-          title: Failure
-          description: Patched failure output
-      type: object
-      required:
-      - ref
-      - success
-      title: ActionTest
     Body_commit_workflow_workflows__workflow_id__commit_post:
       properties:
         yaml_file:
@@ -2327,6 +1918,20 @@ components:
       - cases
       - fields
       title: Body_streaming_autofill_case_fields_completions_cases_stream_post
+    Body_validate_workflow_validate_workflow_post:
+      properties:
+        definition:
+          type: string
+          format: binary
+          title: Definition
+        payload:
+          type: string
+          format: binary
+          title: Payload
+      type: object
+      required:
+      - definition
+      title: Body_validate_workflow_validate_workflow_post
     Case-Input:
       properties:
         id:
@@ -2903,81 +2508,6 @@ components:
           title: Description
       type: object
       title: CreateWorkflowParams
-    DSLConfig:
-      properties:
-        scheduler:
-          type: string
-          enum:
-          - static
-          - dynamic
-          title: Scheduler
-          default: dynamic
-        enable_runtime_tests:
-          type: boolean
-          title: Enable Runtime Tests
-          description: Enable runtime action tests. This is dynamically set on workflow
-            entry.
-          default: false
-      type: object
-      title: DSLConfig
-    DSLInput:
-      properties:
-        title:
-          type: string
-          title: Title
-        description:
-          type: string
-          title: Description
-        entrypoint:
-          type: string
-          title: Entrypoint
-          description: The entrypoint action ref
-        actions:
-          items:
-            $ref: '#/components/schemas/ActionStatement'
-          type: array
-          title: Actions
-        config:
-          $ref: '#/components/schemas/DSLConfig'
-        triggers:
-          items:
-            $ref: '#/components/schemas/Trigger'
-          type: array
-          title: Triggers
-        inputs:
-          type: object
-          title: Inputs
-          description: Static input parameters
-        trigger_inputs:
-          type: object
-          title: Trigger Inputs
-          description: Dynamic input parameters
-        tests:
-          items:
-            $ref: '#/components/schemas/ActionTest'
-          type: array
-          title: Tests
-          description: Action tests
-      type: object
-      required:
-      - title
-      - description
-      - entrypoint
-      - actions
-      title: DSLInput
-      description: 'DSL definition for a workflow.
-
-
-        The difference between this and a normal workflow engine is that here,
-
-        our workflow execution order is defined by the DSL itself, independent
-
-        of a workflow scheduler.
-
-
-        With a traditional
-
-        This allows the execution of the workflow to be fully deterministic.'
     Event:
       properties:
         published_at:
@@ -3232,10 +2762,8 @@ components:
           - type: 'null'
           title: Description
         encrypted_keys:
-          anyOf:
-          - type: string
-            format: binary
-          - type: 'null'
+          type: string
+          format: binary
           title: Encrypted Keys
         tags:
           anyOf:
@@ -3250,6 +2778,7 @@ components:
       - created_at
       - updated_at
       - name
+      - encrypted_keys
       - tags
       title: Secret
     SecretKeyValue:
@@ -3285,7 +2814,7 @@ components:
           title: Description
         keys:
           items:
-            $ref: '#/components/schemas/SecretKeyValue'
+            type: string
           type: array
           title: Keys
       type: object
@@ -3342,26 +2871,6 @@ components:
       - tag
       - value
       title: Tag
-    Trigger:
-      properties:
-        type:
-          type: string
-          enum:
-          - schedule
-          - webhook
-          title: Type
-        ref:
-          type: string
-          pattern: ^[a-z0-9_]+$
-          title: Ref
-        args:
-          type: object
-          title: Args
-      type: object
-      required:
-      - type
-      - ref
-      title: Trigger
     TriggerWorkflowRunParams:
       properties:
         action_key:
@@ -3526,6 +3035,51 @@ components:
           title: Status
       type: object
       title: UpdateScheduleParams
+    UpdateSecretParams:
+      properties:
+        type:
+          anyOf:
+          - const: custom
+          - type: 'null'
+          title: Type
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        keys:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/SecretKeyValue'
+            type: array
+          - type: 'null'
+          title: Keys
+        tags:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Tags
+      type: object
+      title: UpdateSecretParams
+      description: 'Create a new secret.
+
+
+        Secret types
+
+        ------------
+
+        - `custom`: Arbitrary user-defined types
+
+        - `token`: A token, e.g. API Key, JWT Token (TBC)
+
+        - `oauth2`: OAuth2 Client Credentials (TBC)'
     UpdateWorkflowParams:
       properties:
         title:
@@ -3727,7 +3281,8 @@ components:
           type: string
           title: Workflow Id
         content:
-          $ref: '#/components/schemas/DSLInput'
+          type: object
+          title: Content
       type: object
       required:
       - owner_id
@@ -3769,6 +3324,58 @@ components:
         -------------
 
         - 1 Workflow to many WorkflowDefinitions'
+    WorkflowExecutionResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: The ID of the workflow execution
+        run_id:
+          type: string
+          title: Run Id
+          description: The run ID of the workflow execution
+        start_time:
+          type: string
+          format: date-time
+          title: Start Time
+          description: The start time of the workflow execution
+        execution_time:
+          type: string
+          format: date-time
+          title: Execution Time
+          description: When this workflow run started or should start.
+        close_time:
+          type: string
+          format: date-time
+          title: Close Time
+          description: When the workflow was closed if closed.
+        status:
+          type: string
+          enum:
+          - RUNNING
+          - COMPLETED
+          - FAILED
+          - CANCELED
+          - TERMINATED
+          - CONTINUED_AS_NEW
+          - TIMED_OUT
+        workflow_type:
+          type: string
+          title: Workflow Type
+        task_queue:
+          type: string
+          title: Task Queue
+      type: object
+      required:
+      - id
+      - run_id
+      - start_time
+      - execution_time
+      - close_time
+      - status
+      - workflow_type
+      - task_queue
+      title: WorkflowExecutionResponse
     WorkflowMetadataResponse:
       properties:
         id:
@@ -3869,72 +3476,6 @@ components:
       - schedules
       - entrypoint
       title: WorkflowResponse
-    WorkflowRunEventParams:
-      properties:
-        id:
-          type: string
-          title: Id
-        owner_id:
-          type: string
-          title: Owner Id
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-        status:
-          type: string
-          enum:
-          - pending
-          - running
-          - failure
-          - success
-          - canceled
-          title: Status
-      type: object
-      required:
-      - id
-      - owner_id
-      - created_at
-      - updated_at
-      - status
-      title: WorkflowRunEventParams
-    WorkflowRunResponse:
-      properties:
-        id:
-          type: string
-          title: Id
-        workflow_id:
-          type: string
-          title: Workflow Id
-        status:
-          type: string
-          title: Status
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-        action_runs:
-          items:
-            $ref: '#/components/schemas/ActionRun'
-          type: array
-          title: Action Runs
-          default: []
-      type: object
-      required:
-      - id
-      - workflow_id
-      - status
-      - created_at
-      - updated_at
-      title: WorkflowRunResponse
     tracecat__db__schemas__CaseContext:
       properties:
         owner_id:

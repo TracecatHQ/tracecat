@@ -102,7 +102,8 @@
             {
               "group": "API Reference",
               "pages": [
-                "api-reference/reference/check-health"
+                "api-reference/reference/check-health",
+                "api-reference/reference/validate-workflow"
               ]
             },
             {
@@ -123,11 +124,14 @@
                 "api-reference/reference/workflows/copy-workflow",
                 "api-reference/reference/workflows/commit-workflow",
                 "api-reference/reference/workflows/get-workflow-definition",
-                "api-reference/reference/workflows/list-workflow-runs",
-                "api-reference/reference/workflows/create-workflow-run",
-                "api-reference/reference/workflows/get-workflow-run",
-                "api-reference/reference/workflows/update-workflow-run",
                 "api-reference/reference/workflows/trigger-workflow-run"
+              ]
+            },
+            {
+              "group": "workflow-executions",
+              "pages": [
+                "api-reference/reference/workflow-executions/list-workflow-executions",
+                "api-reference/reference/workflow-executions/get-workflow-execution"
               ]
             },
             {
@@ -156,11 +160,7 @@
                 "api-reference/reference/actions/create-action",
                 "api-reference/reference/actions/get-action",
                 "api-reference/reference/actions/update-action",
-                "api-reference/reference/actions/delete-action",
-                "api-reference/reference/actions/list-action-runs",
-                "api-reference/reference/actions/create-action-run",
-                "api-reference/reference/actions/get-action-run",
-                "api-reference/reference/actions/update-action-run"
+                "api-reference/reference/actions/delete-action"
               ]
             },
             {
@@ -193,7 +193,6 @@
               "group": "users",
               "pages": [
                 "api-reference/reference/users/get-user",
-                "api-reference/reference/users/create-user",
                 "api-reference/reference/users/update-user",
                 "api-reference/reference/users/delete-user"
               ]
@@ -203,8 +202,8 @@
               "pages": [
                 "api-reference/reference/secrets/list-secrets",
                 "api-reference/reference/secrets/create-secret",
-                "api-reference/reference/secrets/update-secret",
                 "api-reference/reference/secrets/get-secret",
+                "api-reference/reference/secrets/update-secret",
                 "api-reference/reference/secrets/delete-secret",
                 "api-reference/reference/secrets/search-secrets"
               ]
