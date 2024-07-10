@@ -134,7 +134,17 @@ class AuthSandbox:
 
                     tg.create_task(fetcher(secret_name))
         except* TracecatCredentialsError as eg:
-            raise eg
+            raise TracecatCredentialsError(
+                "Failed to retrieve secrets",
+                detail={
+                    "errors": [
+                        str(x)
+                        for x in eg.exceptions
+                        if isinstance(x, TracecatCredentialsError)
+                    ],
+                    "secrets": self._secret_paths,
+                },
+            ) from eg
 
         return [
             Secret.model_validate_json(secret_bytes.content)

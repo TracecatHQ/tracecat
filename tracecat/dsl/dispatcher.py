@@ -4,12 +4,18 @@ import json
 import os
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from loguru import logger
+from temporalio.client import WorkflowFailureError
 
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.workflow import DSLContext, DSLRunArgs, DSLWorkflow
+from tracecat.dsl.workflow import (
+    DSLContext,
+    DSLRunArgs,
+    DSLWorkflow,
+    retry_policies,
+)
+from tracecat.logging import logger
 
 if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
@@ -31,13 +37,21 @@ async def dispatch_workflow(
     )
     client = await get_temporal_client()
     # Run workflow
-    result = await client.execute_workflow(
-        DSLWorkflow.run,
-        DSLRunArgs(dsl=dsl, role=role, wf_id=wf_id),
-        id=wf_exec_id,
-        task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-        **kwargs,
-    )
+    try:
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(dsl=dsl, role=role, wf_id=wf_id),
+            id=wf_exec_id,
+            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+            retry_policy=retry_policies["workflow:fail_fast"],
+            **kwargs,
+        )
+    except WorkflowFailureError as e:
+        logger.exception(str(e), role=role, wf_exec_id=wf_exec_id, e=e)
+        raise e
+    except Exception as e:
+        logger.exception("Workflow exception", role=role, wf_exec_id=wf_exec_id, e=e)
+        raise e
     # Write result to file for debugging
     if os.getenv("DUMP_TRACECAT_RESULT", "0") in ("1", "true"):
         path = config.TRACECAT__EXECUTIONS_DIR / f"{wf_exec_id}.json"

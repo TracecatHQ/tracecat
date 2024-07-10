@@ -237,8 +237,8 @@ def eval_jsonpath(
         logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
         formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(
-            f"Couldn't resolve expression {formatted_expr!r} in the given context: {operand}.",
-            detail="No match found.",
+            f"Couldn't resolve expression {formatted_expr!r} in the context",
+            detail={"expression": formatted_expr, "operand": operand},
         )
 
 

@@ -8,6 +8,8 @@ from enum import StrEnum, auto
 from typing import Any, TypedDict
 
 from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.contexts import RunContext
 
@@ -17,24 +19,30 @@ with workflow.unsafe.imports_passed_through():
     import lark  # noqa
     from pydantic import BaseModel
 
+    from pydantic import ValidationError
+    from tracecat.auth.sandbox import AuthSandbox
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.dsl.models import ActionStatement, DSLNodeResult
+    from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+    from tracecat.dsl.common import DSLInput
     from tracecat.dsl.io import resolve_success_output
-    from tracecat.expressions.shared import IterableExpr, ExprContext
-    from tracecat.dsl.models import ActionTest
+    from tracecat.dsl.models import ActionStatement, ActionTest, DSLNodeResult
     from tracecat.expressions.core import TemplateExpression
-
     from tracecat.expressions.eval import (
         eval_templated_object,
         extract_templated_secrets,
     )
-    from tracecat.types.auth import Role
-    from tracecat.auth.sandbox import AuthSandbox
-    from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-    from tracecat.dsl.common import DSLInput
+    from tracecat.expressions.shared import ExprContext, IterableExpr
+    from tracecat.identifiers import WorkflowID
     from tracecat.logging import logger
     from tracecat.registry import registry
-    from tracecat.identifiers import WorkflowID
+    from tracecat.types.auth import Role
+    from tracecat.types.exceptions import (
+        TracecatException,
+        TracecatExpressionError,
+        TracecatCredentialsError,
+        TracecatDSLError,
+        TracecatValidationError,
+    )
 
 
 class DSLRunArgs(BaseModel):
@@ -55,6 +63,33 @@ class DSLContext(TypedDict, total=False):
 
     ENV: dict[str, Any]
     """DSL Environment context. Has metadata about the workflow."""
+
+
+non_retryable_error_types = [
+    # General
+    ValueError.__name__,
+    # Pydantic
+    ValidationError.__name__,
+    # Tracecat
+    TracecatException.__name__,
+    TracecatExpressionError.__name__,
+    TracecatValidationError.__name__,
+    TracecatDSLError.__name__,
+    TracecatCredentialsError.__name__,
+]
+
+
+retry_policies = {
+    "activity:fail_fast": RetryPolicy(
+        # XXX: Do not set max attempts to 0, it will default to unlimited
+        maximum_attempts=1,
+        non_retryable_error_types=non_retryable_error_types,
+    ),
+    "workflow:fail_fast": RetryPolicy(
+        # XXX: Do not set max attempts to 0, it will default to unlimited
+        maximum_attempts=1,
+    ),
+}
 
 
 class TaskMarker(StrEnum):
@@ -92,10 +127,10 @@ class DSLScheduler:
         # This is useful for tasks that are
         self.marked_tasks: dict[str, TaskMarker] = {}
         self.skip_strategy = skip_strategy
-        self._task_exceptions = {}
+        self.task_exceptions = {}
 
         self.executor = activity_coro
-        self.logger = ctx_logger.get(logger)
+        self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
 
         for task in dsl.actions:
             self.tasks[task.ref] = task
@@ -112,41 +147,63 @@ class DSLScheduler:
         2. Manage the indegrees of the tasks
         """
         task = self.tasks[task_ref]
-        await self.executor(task)
+        try:
+            await self.executor(task)
 
-        # For now, tasks that were marked to skip also join this set
-        self.completed_tasks.add(task_ref)
-        self.logger.info("Task completed", task_ref=task_ref)
+            # For now, tasks that were marked to skip also join this set
+            self.completed_tasks.add(task_ref)
+            self.logger.info("Task completed", task_ref=task_ref)
 
-        # Update child indegrees
-        # ----------------------
-        # Treat a skipped task as completed, update as usual.
-        # Any child task whose indegree reaches 0 must check if all its parent
-        # dependencies we skipped. if ALL parents were skipped, then the child
-        # task is also marked for skipping. If ANY parent was not skipped, then
-        # the child task is added to the queue.
+            # Update child indegrees
+            # ----------------------
+            # Treat a skipped task as completed, update as usual.
+            # Any child task whose indegree reaches 0 must check if all its parent
+            # dependencies we skipped. if ALL parents were skipped, then the child
+            # task is also marked for skipping. If ANY parent was not skipped, then
+            # the child task is added to the queue.
 
-        # The intuition here is that if you have a task that becomes unreachable,
-        # then some of its children will also become unreachable. A node becomes unreachable
-        # if there is no one successful oath that leads to it.
+            # The intuition here is that if you have a task that becomes unreachable,
+            # then some of its children will also become unreachable. A node becomes unreachable
+            # if there is no one successful oath that leads to it.
 
-        # This allows us to have diamond-shaped graphs where some branches can be skipped
-        # but at the join point, if any parent was not skipped, then the child can still be executed.
-        async with asyncio.TaskGroup() as tg:
-            for next_task_ref in self.adj[task_ref]:
-                self.indegrees[next_task_ref] -= 1
-                if self.indegrees[next_task_ref] == 0:
-                    if (
-                        self.skip_strategy == SkipStrategy.PROPAGATE
-                        and self.task_is_reachable(next_task_ref)
-                    ):
-                        self.mark_task(next_task_ref, TaskMarker.SKIP)
-                    tg.create_task(self.queue.put(next_task_ref))
+            # This allows us to have diamond-shaped graphs where some branches can be skipped
+            # but at the join point, if any parent was not skipped, then the child can still be executed.
+            async with asyncio.TaskGroup() as tg:
+                for next_task_ref in self.adj[task_ref]:
+                    self.indegrees[next_task_ref] -= 1
+                    if self.indegrees[next_task_ref] == 0:
+                        if (
+                            self.skip_strategy == SkipStrategy.PROPAGATE
+                            and self.task_is_reachable(next_task_ref)
+                        ):
+                            self.mark_task(next_task_ref, TaskMarker.SKIP)
+                        tg.create_task(self.queue.put(next_task_ref))
+        except ActivityError as e:
+            self.logger.error(
+                "Activity error in DSLScheduler",
+                task_ref=task_ref,
+                msg=e.message,
+                retry_state=e.retry_state,
+            )
+            self.task_exceptions[task_ref] = e
+        except Exception as e:
+            self.logger.error(
+                "Unexpected error in DSLScheduler", task_ref=task_ref, error=e
+            )
+            self.task_exceptions[task_ref] = e
 
     async def dynamic_start(self) -> None:
         """Run the scheduler in dynamic mode."""
         self.queue.put_nowait(self.dsl.entrypoint.ref)
-        while not self.queue.empty() or len(self.completed_tasks) < len(self.tasks):
+        while not self.task_exceptions and (
+            not self.queue.empty() or len(self.completed_tasks) < len(self.tasks)
+        ):
+            self.logger.trace(
+                "Waiting for tasks.",
+                qsize=self.queue.qsize(),
+                n_completed=len(self.completed_tasks),
+                n_tasks=len(self.tasks),
+            )
             try:
                 task_ref = await asyncio.wait_for(
                     self.queue.get(), timeout=self._queue_wait_timeout
@@ -155,6 +212,17 @@ class DSLScheduler:
                 continue
 
             asyncio.create_task(self._dynamic_task(task_ref))
+        if self.task_exceptions:
+            self.logger.error(
+                "DSLScheduler got task exceptions, stopping...",
+                n_exceptions=len(self.task_exceptions),
+                exceptions=self.task_exceptions,
+                n_completed=len(self.completed_tasks),
+                n_tasks=len(self.tasks),
+            )
+            raise ApplicationError(
+                "Task exceptions occurred", *self.task_exceptions.values()
+            )
         self.logger.info("All tasks completed")
 
     def mark_task(self, task_ref: str, marker: TaskMarker) -> None:
@@ -198,7 +266,9 @@ class DSLWorkflow:
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=wf_info.run_id,
         )
-        self.logger = logger.bind(run_ctx=self.run_ctx, role=self.role)
+        self.logger = logger.bind(
+            run_ctx=self.run_ctx, role=self.role, unit="dsl-workflow-runner"
+        )
         ctx_logger.set(self.logger)
 
         self.dsl = args.dsl
@@ -213,12 +283,27 @@ class DSLWorkflow:
         self.logger.info("Running DSL task workflow")
 
         self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=self.dsl)
-        await self.scheduler.start()
-
-        self.logger.info("DSL workflow completed")
-        # XXX: Don't return ENV context for now
-        self.context.pop(ExprContext.ENV, None)
-        return self.context
+        try:
+            await self.scheduler.start()
+            self.logger.info("DSL workflow completed")
+            # XXX: Don't return ENV context for now
+            self.context.pop(ExprContext.ENV, None)
+            return self.context
+        except ApplicationError as e:
+            self.logger.error(
+                "DSL workflow execution failed",
+                error=e.message,
+                type=e.__class__.__name__,
+                details=e.details,
+            )
+            raise
+        except Exception as e:
+            self.logger.error(
+                "DSL workflow execution failed with unexpected error",
+                error=str(e),
+                type=e.__class__.__name__,
+            )
+            raise
 
     async def execute_task(self, task: ActionStatement) -> None:
         """Purely execute a task and manage the results.
@@ -243,21 +328,31 @@ class DSLWorkflow:
             )
             self.logger.info("Executing task", act_test=act_test)
             # TODO: Set a retry policy for the activity
-            activity_result = await workflow.execute_activity(
-                _udf_key_to_activity_name(task.action),
-                arg=UDFActionInput(
-                    task=task,
-                    role=self.role,
-                    run_context=self.run_ctx,
-                    exec_context=self.context,
-                    action_test=act_test,
-                ),
-                start_to_close_timeout=timedelta(minutes=1),
-            )
-            self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
-                result=activity_result,
-                result_typename=type(activity_result).__name__,
-            )
+            try:
+                activity_result = await workflow.execute_activity(
+                    _udf_key_to_activity_name(task.action),
+                    arg=UDFActionInput(
+                        task=task,
+                        role=self.role,
+                        run_context=self.run_ctx,
+                        exec_context=self.context,
+                        action_test=act_test,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=retry_policies["activity:fail_fast"],
+                )
+                self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
+                    result=activity_result,
+                    result_typename=type(activity_result).__name__,
+                )
+            except ActivityError as e:
+                self.logger.error("Activity execution failed", error=e.message)
+                raise
+            except Exception as e:
+                self.logger.error(
+                    "Activity execution failed with unexpected error", error=str(e)
+                )
+                raise
 
     def _should_skip_execution(self, task: ActionStatement) -> bool:
         if self.scheduler.marked_tasks.get(task.ref) == TaskMarker.SKIP:
@@ -334,114 +429,133 @@ class DSLActivities:
             task_ref=task.ref, wf_id=input.run_context.wf_id, role=input.role
         )
 
-        # Multi-phase expression resolution
-        # ---------------------------------
-        # 1. Resolve all expressions in all shared (non action-local) contexts
-        # 2. Enter loop iteration (if any)
-        # 3. Resolve all action-local expressions
+        try:
+            # Multi-phase expression resolution
+            # ---------------------------------
+            # 1. Resolve all expressions in all shared (non action-local) contexts
+            # 2. Enter loop iteration (if any)
+            # 3. Resolve all action-local expressions
 
-        # Set
-        # If there's a for loop, we need to process this action in parallel
+            # Set
+            # If there's a for loop, we need to process this action in parallel
 
-        # Evaluate `SECRETS` context (XXX: You likely should use the secrets manager instead)
-        # --------------------------
-        # Securely inject secrets into the task arguments
-        # 1. Find all secrets in the task arguments
-        # 2. Load the secrets
-        # 3. Inject the secrets into the task arguments using an enriched context
-        # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
-        secret_refs = extract_templated_secrets(task.args)
-        async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
-            context_with_sec = {
-                **input.exec_context,
-                ExprContext.SECRETS: sandbox.secrets.copy(),
-            }
+            # Evaluate `SECRETS` context (XXX: You likely should use the secrets manager instead)
+            # --------------------------
+            # Securely inject secrets into the task arguments
+            # 1. Find all secrets in the task arguments
+            # 2. Load the secrets
+            # 3. Inject the secrets into the task arguments using an enriched context
+            # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
+            secret_refs = extract_templated_secrets(task.args)
+            async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
+                context_with_sec = {
+                    **input.exec_context,
+                    ExprContext.SECRETS: sandbox.secrets.copy(),
+                }
 
-        # When we're here, we've populated the task arguments with shared context values
-        type = task.action
-        ctx_logger.set(act_logger)
+            # When we're here, we've populated the task arguments with shared context values
+            type = task.action
+            ctx_logger.set(act_logger)
 
-        udf = registry[type]
-        act_logger.info(
-            "Run udf",
-            task_ref=task.ref,
-            type=type,
-            is_async=udf.is_async,
-            args=task.args,
-        )
-
-        # We manually control the cache here for now.
-        act_test = input.action_test
-        if act_test and act_test.enable:
-            # XXX: This will fail if we run it against a loop
-            act_logger.warning(
-                f"Action test enabled, mocking the output of {task.ref!r}."
-                " You should not use this in production workflows."
+            udf = registry[type]
+            act_logger.info(
+                "Run udf",
+                task_ref=task.ref,
+                type=type,
+                is_async=udf.is_async,
+                args=task.args,
             )
-            if act_test.validate_args:
-                args = eval_templated_object(task.args, operand=context_with_sec)
-                udf.validate_args(**args)
-            result = await resolve_success_output(act_test)
 
-        elif task.for_each:
-            # If there's a loop, we need to process this action in parallel
-
-            # Evaluate the loop expression
-            iterable_exprs: IterableExpr | list[IterableExpr] = eval_templated_object(
-                task.for_each, operand=input.exec_context
-            )
-            if isinstance(iterable_exprs, IterableExpr):
-                iterable_exprs = [iterable_exprs]
-            elif not (
-                isinstance(iterable_exprs, list)
-                and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
-            ):
-                raise ValueError(
-                    "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
+            # We manually control the cache here for now.
+            act_test = input.action_test
+            if act_test and act_test.enable:
+                # XXX: This will fail if we run it against a loop
+                act_logger.warning(
+                    f"Action test enabled, mocking the output of {task.ref!r}."
+                    " You should not use this in production workflows."
                 )
+                if act_test.validate_args:
+                    args = eval_templated_object(task.args, operand=context_with_sec)
+                    udf.validate_args(**args)
+                result = await resolve_success_output(act_test)
 
-            act_logger.info("Running in loop")
-            act_logger.debug("Iterables", iter_expr=iterable_exprs)
+            elif task.for_each:
+                # If there's a loop, we need to process this action in parallel
 
-            # Assert that all length of the iterables are the same
-            # This is a requirement for parallel processing
-            if len({len(expr.collection) for expr in iterable_exprs}) != 1:
-                raise ValueError("All iterables must be of the same length")
-
-            # Create a generator that zips the iterables together
-            async with GatheringTaskGroup() as tg:
-                for i, items in enumerate(zip(*iterable_exprs, strict=False)):
-                    act_logger.debug("Loop iteration", iteration=i)
-                    # Patch the context with the loop item and evaluate the action-local expressions
-                    # We're copying this so that we don't pollute the original context
-                    # Currently, the only source of action-local expressions is the loop iteration
-                    # In the future, we may have other sources of action-local expressions
-                    patched_context = context_with_sec.copy()
-                    act_logger.debug(
-                        "Context before patch", patched_context=patched_context
+                # Evaluate the loop expression
+                iterable_exprs: IterableExpr | list[IterableExpr] = (
+                    eval_templated_object(task.for_each, operand=input.exec_context)
+                )
+                if isinstance(iterable_exprs, IterableExpr):
+                    iterable_exprs = [iterable_exprs]
+                elif not (
+                    isinstance(iterable_exprs, list)
+                    and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
+                ):
+                    raise ValueError(
+                        "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
                     )
-                    for iterator_path, iterator_value in items:
-                        patch_object(
-                            patched_context,
-                            path=ExprContext.LOCAL_VARS + iterator_path,
-                            value=iterator_value,
+
+                act_logger.info("Running in loop")
+                act_logger.debug("Iterables", iter_expr=iterable_exprs)
+
+                # Assert that all length of the iterables are the same
+                # This is a requirement for parallel processing
+                if len({len(expr.collection) for expr in iterable_exprs}) != 1:
+                    raise ValueError("All iterables must be of the same length")
+
+                # Create a generator that zips the iterables together
+                async with GatheringTaskGroup() as tg:
+                    for i, items in enumerate(zip(*iterable_exprs, strict=False)):
+                        act_logger.debug("Loop iteration", iteration=i)
+                        # Patch the context with the loop item and evaluate the action-local expressions
+                        # We're copying this so that we don't pollute the original context
+                        # Currently, the only source of action-local expressions is the loop iteration
+                        # In the future, we may have other sources of action-local expressions
+                        patched_context = context_with_sec.copy()
+                        act_logger.debug(
+                            "Context before patch", patched_context=patched_context
                         )
-                    act_logger.debug("Patched context", patched_context=patched_context)
-                    # Exclude secrets because we've already patched them
-                    patched_args = eval_templated_object(
-                        task.args, operand=patched_context
-                    )
-                    act_logger.debug("Patched args", patched_args=patched_args)
-                    tg.create_task(udf.run_async(patched_args))
+                        for iterator_path, iterator_value in items:
+                            patch_object(
+                                patched_context,
+                                path=ExprContext.LOCAL_VARS + iterator_path,
+                                value=iterator_value,
+                            )
+                        act_logger.debug(
+                            "Patched context", patched_context=patched_context
+                        )
+                        # Exclude secrets because we've already patched them
+                        patched_args = eval_templated_object(
+                            task.args, operand=patched_context
+                        )
+                        act_logger.debug("Patched args", patched_args=patched_args)
+                        tg.create_task(udf.run_async(patched_args))
 
-            result = tg.results()
+                result = tg.results()
 
-        else:
-            args = eval_templated_object(task.args, operand=context_with_sec)
-            result = await udf.run_async(args)
+            else:
+                args = eval_templated_object(task.args, operand=context_with_sec)
+                result = await udf.run_async(args)
 
-        act_logger.debug("Result", result=result)
-        return result
+            act_logger.debug("Result", result=result)
+            return result
+
+        except TracecatException as e:
+            err_type = e.__class__.__name__
+            msg = str(e)
+            act_logger.error(f"{err_type} occurred: {msg}", error=e)
+            raise ApplicationError(
+                msg, e.detail, non_retryable=True, type=err_type
+            ) from e
+        except ApplicationError as e:
+            act_logger.error("ApplicationError occurred", error=e)
+            raise
+        except Exception as e:
+            act_logger.exception("Unexpected error occurred")
+            raise ApplicationError(
+                "Unexpected error", non_retryable=True, type=e.__class__.__name__
+            ) from e
 
 
 def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
