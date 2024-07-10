@@ -9,7 +9,7 @@ import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
-import { createSecretSchema, TCreateSecret } from "@/types/schemas"
+import { CreateSecretParams, createSecretSchema } from "@/types/schemas"
 import { createSecret } from "@/lib/secrets"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,7 +46,7 @@ export function NewCredentialsDialog({
   const queryClient = useQueryClient()
 
   const { mutate } = useMutation({
-    mutationFn: async (secret: TCreateSecret) => {
+    mutationFn: async (secret: CreateSecretParams) => {
       return await createSecret(secret)
     },
     onSuccess: () => {
@@ -65,7 +65,7 @@ export function NewCredentialsDialog({
     },
   })
 
-  const methods = useForm<TCreateSecret>({
+  const methods = useForm<CreateSecretParams>({
     resolver: zodResolver(createSecretSchema),
     defaultValues: {
       name: "",
@@ -85,10 +85,10 @@ export function NewCredentialsDialog({
     mutate(values)
   }
   const inputKey = "keys"
-  const typedKey = inputKey as FieldPath<TCreateSecret>
-  const { fields, append, remove } = useFieldArray<TCreateSecret>({
+  const typedKey = inputKey as FieldPath<CreateSecretParams>
+  const { fields, append, remove } = useFieldArray<CreateSecretParams>({
     control,
-    name: inputKey as ArrayPath<TCreateSecret>,
+    name: inputKey as ArrayPath<CreateSecretParams>,
   })
 
   return (

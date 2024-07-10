@@ -201,9 +201,9 @@ export const createSecretSchema = z.object({
   keys: z.array(keyValueSchema),
 })
 
-export type TCreateSecret = z.infer<typeof createSecretSchema>
+export type CreateSecretParams = z.infer<typeof createSecretSchema>
 
-export const getSecretSchema = z.object({
+export const secretSchema = z.object({
   id: z.string().min(1).optional(),
   type: z.enum(secretTypes),
   name: z.string().min(1, "Please enter a secret name."),
@@ -211,7 +211,7 @@ export const getSecretSchema = z.object({
   keys: z.array(z.string()),
 })
 
-export type TGetSecret = z.infer<typeof getSecretSchema>
+export type Secret = z.infer<typeof secretSchema>
 
 export const caseEventTypes = [
   "status_changed",

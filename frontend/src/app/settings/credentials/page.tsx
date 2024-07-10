@@ -4,7 +4,7 @@ import { Label } from "@radix-ui/react-label"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PlusCircle, Trash2Icon } from "lucide-react"
 
-import { TCreateSecret } from "@/types/schemas"
+import { Secret } from "@/types/schemas"
 import { deleteSecret, fetchAllSecrets } from "@/lib/secrets"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,7 +14,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
   Table,
@@ -40,12 +39,12 @@ export default function CredentialsPage() {
     data: secrets,
     isLoading,
     error,
-  } = useQuery<TCreateSecret[], Error>({
+  } = useQuery<Secret[], Error>({
     queryKey: ["secrets"],
     queryFn: async () => await fetchAllSecrets(),
   })
   const { mutate } = useMutation({
-    mutationFn: async (secret: TCreateSecret) => {
+    mutationFn: async (secret: Secret) => {
       await deleteSecret(secret.name)
     },
     onSuccess: () => {
@@ -110,8 +109,8 @@ function SecretsTable({
   secret,
   deleteFn,
 }: {
-  secret: TCreateSecret
-  deleteFn: (secret: TCreateSecret) => void
+  secret: Secret
+  deleteFn: (secret: Secret) => void
 }) {
   return (
     <Card className="w-full border">
@@ -139,29 +138,16 @@ function SecretsTable({
           <TableHeader>
             <TableRow className="grid h-6 grid-cols-2 text-xs">
               <TableHead className="col-span-1">Key</TableHead>
-              <TableHead className="col-span-1">Value</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {secret.keys.map((key, idx) => (
-              <TableRow key={idx} className="grid grid-cols-2">
+              <TableRow key={idx}>
                 <TableCell className="col-span-1">
                   <Label htmlFor="stock-1" className="sr-only">
                     Key
                   </Label>
                   <span className="text-sm">{key}</span>
-                </TableCell>
-                <TableCell className="col-span-1">
-                  <Label htmlFor="price-1" className="sr-only">
-                    Value
-                  </Label>
-                  <Input
-                    className="border-none p-0 text-sm shadow-none"
-                    type="password"
-                    value="DUMMY_VALUE"
-                    readOnly
-                    disabled
-                  />
                 </TableCell>
               </TableRow>
             ))}
