@@ -56,7 +56,7 @@
     "lucide-react": "^0.359.0",
     "next": "14.1.1",
     "next-themes": "^0.2.1",
-    "posthog-js": "^1.131.4",
+    "posthog-js": "^1.146.0",
     "react": "^18.3.1",
     "react-confetti-explosion": "^2.1.2",
     "react-day-picker": "8.10.0",
