@@ -15,9 +15,6 @@ jobs:
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
-        with:
-          repository: TracecatHQ/tracecat
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -71,9 +68,6 @@ jobs:
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
-        with:
-          repository: TracecatHQ/tracecat
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -108,7 +102,7 @@ jobs:
           # Frontend
           NODE_ENV: production
           NEXT_PUBLIC_APP_ENV: production
-          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_APP_URL: ${{ github.ref == 'refs/heads/main' && 'https://app.tracecat-staging.com' || 'https://app.tracecat.com' }}
           NEXT_PUBLIC_API_URL: http://api-service:8000
           NEXT_SERVER_API_URL: http://api-service:8000
           # Authentication
@@ -124,8 +118,7 @@ jobs:
           TEMPORAL__UI_VERSION: 2.26.2
           # Posthog
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
-          NEXT_PUBLIC_POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+          NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
           NEXT_PUBLIC_DISABLE_SESSION_RECORDING: false
           # AWS Secret names
           DB_ENCRYPTION_KEY_NAME: ${{ secrets.DB_ENCRYPTION_KEY_NAME }}

@@ -6,8 +6,7 @@ import { PostHogProvider } from "posthog-js/react"
 if (typeof window !== "undefined") {
   const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY || "" // Ensure that the variable is defined
   posthog.init(posthogKey, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_INGEST_HOST,
-    ui_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     persistence: "memory", // We don't use cookies for analytics!
     capture_pageview: false,
     // Disable session recording by default
