@@ -104,6 +104,9 @@ ignore = [
     "W191", # indentation contains tabs
 ]
 
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers", "-vvrP"]
@@ -115,7 +118,3 @@ markers = [
     "webtest: marks test that require the web",
     "slow: marks tests as slow",
 ]
-
-[tool.ruff.pyupgrade]
-# Preserve types, even if a file imports `from __future__ import annotations`.
-keep-runtime-typing = true
