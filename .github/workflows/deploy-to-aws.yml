@@ -95,16 +95,16 @@ jobs:
           # Backend
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000
-          TRACECAT__PUBLIC_RUNNER_URL: http://runner-service:8000
+          TRACECAT__PUBLIC_RUNNER_URL: ${{ github.ref == 'refs/heads/main' && 'https://api.tracecat-staging.com' || 'https://api.tracecat.com' }}
           # Frontend
           NODE_ENV: production
           NEXT_PUBLIC_APP_ENV: production
           NEXT_PUBLIC_APP_URL: ${{ github.ref == 'refs/heads/main' && 'https://app.tracecat-staging.com' || 'https://app.tracecat.com' }}
-          NEXT_PUBLIC_API_URL: http://api-service:8000
+          NEXT_PUBLIC_API_URL: ${{ github.ref == 'refs/heads/main' && 'https://api.tracecat-staging.com' || 'https://api.tracecat.com' }}
           NEXT_SERVER_API_URL: http://api-service:8000
           # Authentication
           TRACECAT__DISABLE_AUTH: false
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
           NEXT_PUBLIC_CLERK_SIGN_OUT_URL: /sign-out
           # Temporal
@@ -114,7 +114,7 @@ jobs:
           TEMPORAL__VERSION: 1.24.2
           TEMPORAL__UI_VERSION: 2.26.2
           # Posthog
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
           NEXT_PUBLIC_DISABLE_SESSION_RECORDING: false
           # AWS Secret names
