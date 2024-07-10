@@ -7,16 +7,11 @@ config:
   scheduler: dynamic
 entrypoint:
   ref: a
-  # Expect a json object
-  expects:
-    value: int
-    another_invalid: str
-    invalid: int
 
 inputs:
-  invalid: 1
+  valid: 1
   value:
-    another_invalid: ${{ACTIONS.a.result -> int}}
+    another_valid: 2
 
 triggers:
   - type: webhook
@@ -27,13 +22,14 @@ actions:
   - ref: a
     action: core.transform.forward
     args:
-      # This will throw because no result is available
-      value: ${{ INPUTS.invalid }}
+      value:
+        valid: ${{ INPUTS.valid }}
 
   - ref: b
     action: example.add
-    args:
-      lhs: ${{ ACTIONS.a.result -> int }}
-      rhs: ${{ INPUTS.value.another_invalid }}
     depends_on:
       - a
+    args:
+      # This should fail
+      lhs: ${{ ACTIONS.a.result.invalid }}
+      rhs: ${{ INPUTS.value.another_valid }}

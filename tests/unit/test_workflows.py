@@ -17,6 +17,7 @@ import pytest
 import yaml
 from loguru import logger
 from slugify import slugify
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
@@ -24,7 +25,13 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLRunArgs, DSLWorkflow
+from tracecat.dsl.workflow import (
+    DSLActivities,
+    DSLContext,
+    DSLRunArgs,
+    DSLWorkflow,
+    retry_policies,
+)
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
@@ -360,3 +367,31 @@ async def test_conditional_execution_fails(
                 ),
             )
         assert "Operand has no path" in str(e)
+
+
+@pytest.mark.parametrize(
+    "dsl",
+    [DATA_PATH / "unit_error_fatal.yml"],
+    indirect=True,
+)
+@pytest.mark.asyncio
+async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbox):
+    test_name = f"test_fatal_execution-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    client = await get_temporal_client()
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load(),
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        with pytest.raises(WorkflowFailureError) as e:
+            await client.execute_workflow(
+                DSLWorkflow.run,
+                DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+                id=wf_exec_id,
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                retry_policy=retry_policies["workflow:fail_fast"],
+            )
+            assert "Couldn't resolve expression 'ACTIONS.a.result.invalid'" in str(e)
