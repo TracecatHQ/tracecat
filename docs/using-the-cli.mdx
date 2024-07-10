@@ -7,7 +7,52 @@ It's the fastest way to interact with Tracecat and is perfect for automating tas
 
 ## Installation
 
-To install and run the Tracecat CLI, you will need `docker`.
+To install and run the Tracecat CLI, you can use either `pipx` or `Docker`.
+
+### pipx
+
+`pipx` is a tool that lets you install and run Python applications in isolated environments. It's conceptually similar to `npm`.
+
+First, install [pipx](https://pipx.pypa.io/stable/) if you don't have it. Full installation instructions can be found [here](https://pipx.pypa.io/stable/installation/).
+
+<CodeGroup>
+```bash macOS
+brew install pipx
+pipx ensurepath
+sudo pipx ensurepath --global # optional to allow pipx actions with --global argument
+```
+
+```bash Ubuntu 23.04+
+sudo apt update
+sudo apt install pipx
+pipx ensurepath
+sudo pipx ensurepath --global # optional to allow pipx actions with --global argument
+```
+
+</CodeGroup>
+Then install the Tracecat CLI using the following command:
+```bash
+pipx install "git+https://github.com/TracecatHQ/tracecat.git#subdirectory=cli&egg=tracecat_cli"
+```
+
+This installs the CLI to `/path/to/home/.local/bin/tracecat`.
+You should see something like this if done correctly:
+
+```bash
+❯ pipx install "git+https://github.com/TracecatHQ/tracecat.git#subdirectory=cli&egg=tracecat_cli"
+
+
+  installed package tracecat_cli 0.1.4.dev0, installed using Python 3.12.4
+  These apps are now globally available
+    - tracecat
+done! ✨ 🌟 ✨
+❯ which tracecat
+/Users/daryllim/.local/bin/tracecat
+```
+
+### Docker
+
+To use the CLI through Docker, you will have to use the following commands:
 
 ```bash
 # Pull the latest image
