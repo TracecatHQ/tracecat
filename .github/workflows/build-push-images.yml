@@ -99,13 +99,13 @@ jobs:
           context: frontend
           file: frontend/Dockerfile.prod
           build-args: |
-            NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-            NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
-            NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-            NEXT_PUBLIC_DISABLE_AUTH=$NEXT_PUBLIC_DISABLE_AUTH
-            NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
-            NODE_ENV=$NODE_ENV
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_APP_ENV=${{ env.NEXT_PUBLIC_APP_ENV }}
+            NEXT_PUBLIC_APP_URL=${{ env.NEXT_PUBLIC_APP_URL }}
+            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_DISABLE_AUTH=${{ env.NEXT_PUBLIC_DISABLE_AUTH }}
+            NEXT_SERVER_API_URL=${{ env.NEXT_SERVER_API_URL }}
+            NODE_ENV=${{ env.NODE_ENV }}
           push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
