@@ -256,9 +256,20 @@
             {
               "group": "transform",
               "pages": [
+                "integrations/udfs/core_transform_build_reference_table",
+                "integrations/udfs/core_transform_filter",
                 "integrations/udfs/core_transform_forward"
               ]
             }
+          ]
+        },
+        {
+          "group": "example",
+          "pages": [
+            "integrations/udfs/example_add",
+            "integrations/udfs/example_another_function",
+            "integrations/udfs/example_my_function",
+            "integrations/udfs/example_passthrough"
           ]
         },
         {
@@ -306,6 +317,12 @@
               "group": "elastic",
               "pages": [
                 "integrations/udfs/integrations_elastic_list_elastic_alerts"
+              ]
+            },
+            {
+              "group": "extraction",
+              "pages": [
+                "integrations/udfs/integrations_extraction_extract_urls"
               ]
             },
             {
