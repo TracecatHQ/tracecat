@@ -44,7 +44,7 @@ class FargateStack(Stack):
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "TracecatPartialDbEncryptionKey",
-                        secret_arn=os.environ["DB_ENCRYPTION_KEY_NAME"],
+                        secret_name=os.environ["DB_ENCRYPTION_KEY_NAME"],
                     ).secret_arn,
                 )
             ),
@@ -55,7 +55,7 @@ class FargateStack(Stack):
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "TracecatPartialServiceKey",
-                        secret_arn=os.environ["SERVICE_KEY_NAME"],
+                        secret_name=os.environ["SERVICE_KEY_NAME"],
                     ).secret_arn,
                 )
             ),
@@ -66,7 +66,7 @@ class FargateStack(Stack):
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "TracecatPartialSigningKey",
-                        secret_arn=os.environ["SIGNING_KEY_NAME"],
+                        secret_name=os.environ["SIGNING_KEY_NAME"],
                     ).secret_arn,
                 )
             ),
@@ -80,7 +80,7 @@ class FargateStack(Stack):
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "ClerkPartialFrontendApiUrl",
-                        secret_arn=os.environ["CLERK_FRONTEND_API_URL"],
+                        secret_name=os.environ["CLERK_FRONTEND_API_URL"],
                     ).secret_arn,
                 )
             ),
@@ -91,7 +91,7 @@ class FargateStack(Stack):
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "ClerkPartialSecretKey",
-                        secret_arn=os.environ["CLERK_SECRET_KEY"],
+                        secret_name=os.environ["CLERK_SECRET_KEY"],
                     ).secret_arn,
                 )
             ),
