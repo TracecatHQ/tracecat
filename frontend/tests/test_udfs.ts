@@ -49,7 +49,7 @@ export const CoreHttpRequest: UDF = {
   },
   description: "Perform a HTTP request to a given URL.",
   key: "core.http_request",
-  metadata: {},
+  metadata: { include_in_schema: true },
   namespace: "core",
   rtype: {
     properties: {
@@ -145,12 +145,12 @@ export const ProjectDiscoveryGetAllScanResults: UDF = {
   },
   description: "Get all scan results",
   key: "project_discovery.get_all_scan_results",
-  metadata: {},
+  metadata: { include_in_schema: true },
   namespace: "project_discovery",
   rtype: {
     type: "object",
   },
-  secrets: ["project_discovery"],
+  secrets: [{ name: "project_discovery", keys: ["api_key"] }],
   version: null,
 }
 
