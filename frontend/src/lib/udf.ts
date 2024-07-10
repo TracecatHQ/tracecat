@@ -9,8 +9,8 @@ import { client } from "@/lib/api"
 //////////////////////////////////////////
 export const UDFMetadataSchema = z
   .object({
-    display_group: z.string().nullable(),
-    default_title: z.string().nullable(),
+    display_group: z.string().nullish(),
+    default_title: z.string().nullish(),
     include_in_schema: z.boolean(),
   })
   .passthrough()
