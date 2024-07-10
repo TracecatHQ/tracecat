@@ -38,11 +38,11 @@ jobs:
       - name: Build project
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
-          NEXT_PUBLIC_APP_ENV: development
+          NEXT_PUBLIC_APP_ENV: production
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "secret-clerk-publishable-key"
           NEXT_PUBLIC_DISABLE_AUTH: "true"
           NEXT_SERVER_API_URL: http://localhost:8000
-          NODE_ENV: development
-        run: pnpm build
+          NODE_ENV: production
+        run: pnpm build --debug
         working-directory: ./frontend
