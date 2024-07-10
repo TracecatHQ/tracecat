@@ -19,4 +19,4 @@ TEMPORAL_UI_IMAGE = f"temporalio/ui:{TEMPORAL_UI_VERSION}"
 APP_DOMAIN_NAME = os.getenv("APP_DOMAIN_NAME", "tracecat.com")
 
 # Whitelist
-ALB_ALLOWED_CIDR_BLOCKS = os.getenv("ALB_ALLOWED_CIDR_BLOCKS", "0.0.0.0/0").split(",")
+ALB_ALLOWED_CIDR_BLOCKS = os.getenv("ALB_ALLOWED_CIDR_BLOCKS", "").split(",")
