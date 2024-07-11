@@ -107,13 +107,15 @@ jobs:
           # Backend
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000
-          TRACECAT__PUBLIC_RUNNER_URL: ${{ vars.APP_URL }}
+          TRACECAT__APP_URL: ${{ vars.APP_URL }}
+          TRACECAT__PUBLIC_RUNNER_URL: ${{ vars.API_URL }}
           # Frontend
           NODE_ENV: production
           NEXT_PUBLIC_APP_ENV: production
           NEXT_PUBLIC_APP_URL: ${{ vars.APP_URL }}
           NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
           NEXT_SERVER_API_URL: http://api-service:8000
+          NEXT_PUBLIC_DISABLE_AUTH: false
           # Authentication
           TRACECAT__DISABLE_AUTH: false
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
@@ -136,8 +138,6 @@ jobs:
           CLERK_FRONTEND_API_URL: ${{ vars.CLERK_FRONTEND_API_URL }}
           CLERK_SECRET_KEY_NAME: ${{ vars.CLERK_SECRET_KEY_NAME }}
           # DNS settings
-          APP_URL: ${{ vars.APP_URL }}
-          API_URL: ${{ vars.API_URL }}
           CERTIFICATE_ARN: ${{ secrets.CERTIFICATE_ARN }}
           API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
           # CPU / RAM settings

@@ -268,16 +268,16 @@ class FargateStack(Stack):
 
         ### UI Service
         tracecat_ui_environment = {
-            "NEXT_PUBLIC_API_URL": os.environ["TRACECAT__API_URL"],
-            "NEXT_PUBLIC_APP_ENV": os.environ["TRACECAT__APP_ENV"],
-            "NEXT_PUBLIC_APP_URL": os.environ["TRACECAT__APP_URL"],
+            "NEXT_PUBLIC_API_URL": os.environ["NEXT_PUBLIC_API_URL"],
+            "NEXT_PUBLIC_APP_ENV": os.environ["NEXT_PUBLIC_APP_ENV"],
+            "NEXT_PUBLIC_APP_URL": os.environ["NEXT_PUBLIC_APP_URL"],
             "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ[
                 "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
             ],
             "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ["CLERK_SIGN_IN_URL"],
             "NEXT_PUBLIC_CLERK_SIGN_UP_URL": os.environ["CLERK_SIGN_UP_URL"],
-            "NEXT_PUBLIC_DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
-            "NEXT_SERVER_API_URL": os.environ["TRACECAT__API_URL"],
+            "NEXT_PUBLIC_DISABLE_AUTH": os.environ["NEXT_PUBLIC_DISABLE_AUTH"],
+            "NEXT_SERVER_API_URL": os.environ["NEXT_SERVER_API_URL"],
             "NODE_ENV": os.environ["TRACECAT__APP_ENV"],
         }
         ui_task_definition = ecs.FargateTaskDefinition(
