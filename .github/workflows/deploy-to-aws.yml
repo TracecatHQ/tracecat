@@ -95,12 +95,12 @@ jobs:
           # Backend
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000
-          TRACECAT__PUBLIC_RUNNER_URL: ${{ github.ref == 'refs/heads/main' && 'https://api.tracecat-staging.com' || 'https://api.tracecat.com' }}
+          TRACECAT__PUBLIC_RUNNER_URL: ${{ vars.APP_URL }}
           # Frontend
           NODE_ENV: production
           NEXT_PUBLIC_APP_ENV: production
-          NEXT_PUBLIC_APP_URL: ${{ github.ref == 'refs/heads/main' && 'https://app.tracecat-staging.com' || 'https://app.tracecat.com' }}
-          NEXT_PUBLIC_API_URL: ${{ github.ref == 'refs/heads/main' && 'https://api.tracecat-staging.com' || 'https://api.tracecat.com' }}
+          NEXT_PUBLIC_APP_URL: ${{ vars.APP_URL }}
+          NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
           NEXT_SERVER_API_URL: http://api-service:8000
           # Authentication
           TRACECAT__DISABLE_AUTH: false
@@ -123,6 +123,11 @@ jobs:
           SIGNING_SECRET_NAME: ${{ vars.SIGNING_SECRET_NAME }}
           CLERK_FRONTEND_API_URL_NAME: ${{ vars.CLERK_FRONTEND_API_URL_NAME }}
           CLERK_SECRET_KEY_NAME: ${{ vars.CLERK_SECRET_KEY_NAME }}
+          # DNS settings
+          APP_URL: ${{ vars.APP_URL }}
+          API_URL: ${{ vars.API_URL }}
+          CERTIFICATE_ARN: ${{ secrets.CERTIFICATE_ARN }}
+          API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
         run: |
           cd aws
           cdk synth --app "python3 app.py"

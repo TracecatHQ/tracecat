@@ -16,7 +16,12 @@ TEMPORAL_SERVER_IMAGE = f"temporalio/auto-setup:{TEMPORAL_VERSION}"
 TEMPORAL_UI_IMAGE = f"temporalio/ui:{TEMPORAL_UI_VERSION}"
 
 # DNS
-APP_DOMAIN_NAME = os.getenv("APP_DOMAIN_NAME", "tracecat.com")
+APP_DOMAIN_NAME = os.getenv("APP_URL").replace("https://", "")
+API_DOMAIN_NAME = os.getenv("API_URL").replace("https://", "")
+
+# Certificates
+CERTIFICATE_ARN = os.environ["CERTIFICATE_ARN"]
+API_CERTIFICATE_ARN = os.environ["API_CERTIFICATE_ARN"]
 
 # Whitelist
 ALB_ALLOWED_CIDR_BLOCKS = os.getenv("ALB_ALLOWED_CIDR_BLOCKS", "").split(",")
