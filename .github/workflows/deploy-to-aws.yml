@@ -18,6 +18,9 @@ jobs:
     name: Create AWS Secrets
     runs-on: ubuntu-latest
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
+    permissions:
+      id-token: write # This line allows GitHub Actions to request an OIDC token
+      contents: read
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
