@@ -33,7 +33,7 @@ class RdsStack(core.Stack):
             allocated_storage: int,
             engine_version: rds.IInstanceEngine,
             security_group: ec2.SecurityGroup,
-        ) -> None:
+        ) -> rds.DatabaseInstance:
             db = rds.DatabaseInstance(
                 self,
                 instance_name,
@@ -66,7 +66,7 @@ class RdsStack(core.Stack):
             ),
             security_group=core_security_group,
         )
-        self.tracecat_database = tracecat_database
+        self.core_database = tracecat_database
 
         temporal_database = create_rds_instance(
             "TemporalRDSInstance",
