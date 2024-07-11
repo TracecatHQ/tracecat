@@ -8,7 +8,7 @@ INSTANCE_TYPE = ec2.InstanceType.of(
     ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.MEDIUM
 )
 STORAGE_TYPE = rds.StorageType.GP2
-BACKUP_RETENTION = core.Duration.days(14)
+BACKUP_RETENTION = core.Duration.days(7)
 MONITORING_INTERVAL = core.Duration.seconds(60)
 PREFERRED_BACKUP_WINDOW = "03:00-04:00"
 PREFERRED_MAINTENANCE_WINDOW = "Sun:04:00-Sun:05:00"
