@@ -148,6 +148,8 @@ jobs:
           TRACECAT__UI_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
           TEMPORAL__SERVER_CPU: ${{ startsWith(github.ref, 'refs/tags/') && 2048 || 512 }}
           TEMPORAL__SERVER_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
+          # CIDR blocks (allow all IP addresses)
+          ALB_ALLOWED_CIDR_BLOCKS: "0.0.0.0/0"
         run: |
           cd aws
           pip install .
