@@ -9,8 +9,8 @@ from tracecat_cdk.vpc import VpcStack
 
 app = App()
 env = {
-    "AWS_DEFAULT_ACCOUNT": os.environ["AWS_DEFAULT_ACCOUNT"],
-    "AWS_DEFAULT_REGION": os.environ["AWS_DEFAULT_REGION"],
+    "account": os.environ["AWS_DEFAULT_ACCOUNT"],
+    "region": os.environ["AWS_DEFAULT_REGION"],
 }
 
 vpc = VpcStack(scope=app, id="TracecatVpcStack", env=env)
