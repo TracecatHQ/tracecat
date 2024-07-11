@@ -7,6 +7,7 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_servicediscovery as servicediscovery
 from constructs import Construct
 
 from .config import (
@@ -33,7 +34,7 @@ class FargateStack(Stack):
         scope: Construct,
         id: str,
         cluster: ecs.Cluster,
-        dns_namespace: ecs.CloudMapNamespace,
+        dns_namespace: servicediscovery.INamespace,
         core_database: rds.DatabaseInstance,
         core_security_group: ec2.SecurityGroup,
         temporal_database: rds.DatabaseInstance,
