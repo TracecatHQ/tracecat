@@ -20,6 +20,7 @@ classifiers = [
     "Topic :: System :: Monitoring",
     "Topic :: System :: Systems Administration",
 ]
+dependencies = ["boto3", "aws-cdk-lib"]
 
 [project.urls]
 Homepage = "https://tracecat.com"
