@@ -6,12 +6,18 @@ on:
       - "main"
     tags:
       - "*.*.*"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - aws/stack/*
+      - aws/app.py
+      - .github/workflows/deploy-to-aws.yml
 
 jobs:
   create-secrets:
     name: Create AWS Secrets
     runs-on: ubuntu-latest
-    environment: ${{ github.ref == 'refs/heads/main' && 'preview' || 'production' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
@@ -54,7 +60,7 @@ jobs:
   deploy:
     name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
-    environment: ${{ github.ref == 'refs/heads/main' && 'preview' || 'production' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
     needs: create-secrets
     timeout-minutes: 20
     env:
