@@ -199,7 +199,7 @@ class FargateStack(Stack):
         )
         api_task_definition.add_container(  # noqa
             "ApiContainer",
-            image=TRACECAT_IMAGE,
+            image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
             environment={
                 **tracecat_environment,
                 "CLERK_FRONTEND_API_URL": os.environ["CLERK_FRONTEND_API_URL"],
@@ -240,7 +240,7 @@ class FargateStack(Stack):
         )
         worker_task_definition.add_container(  # noqa
             "WorkerContainer",
-            image=TRACECAT_IMAGE,
+            image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
             environment=tracecat_environment,
             secrets=tracecat_secrets,
             port_mappings=[
@@ -290,7 +290,7 @@ class FargateStack(Stack):
         )
         ui_task_definition.add_container(  # noqa
             "TracecatUiContainer",
-            image=TRACECAT_UI_IMAGE,
+            image=ecs.ContainerImage.from_registry(name=TRACECAT_UI_IMAGE),
             environment=tracecat_ui_environment,
             ui_secrets=tracecat_ui_secrets,
             port_mappings=[
@@ -327,7 +327,7 @@ class FargateStack(Stack):
         )
         temporal_task_definition.add_container(
             "TemporalContainer",
-            image=TEMPORAL_SERVER_IMAGE,
+            image=ecs.ContainerImage.from_registry(name=TEMPORAL_SERVER_IMAGE),
             environment={
                 "DB": "postgres12",
                 "DB_PORT": "5432",
@@ -362,7 +362,7 @@ class FargateStack(Stack):
         )
         temporal_ui_task_definition.add_container(
             "TemporalUiContainer",
-            image=TEMPORAL_UI_IMAGE,
+            image=ecs.ContainerImage.from_registry(name=TEMPORAL_UI_IMAGE),
             environment={
                 "TEMPORAL_ADDRESS": "http://temporal-server-service:7233",
                 "TEMPORAL_CORS_ORIGIN": "http://temporal-ui-service:8080",
