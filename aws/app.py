@@ -1,3 +1,5 @@
+import os
+
 from aws_cdk import App
 from tracecat_cdk.alb import AlbStack
 from tracecat_cdk.fargate import FargateStack
@@ -6,10 +8,14 @@ from tracecat_cdk.route53 import Route53Stack
 from tracecat_cdk.vpc import VpcStack
 
 app = App()
+env = {
+    "AWS_DEFAULT_ACCOUNT": os.environ["AWS_DEFAULT_ACCOUNT"],
+    "AWS_DEFAULT_REGION": os.environ["AWS_DEFAULT_REGION"],
+}
 
-vpc = VpcStack(scope=app, id="TracecatVpcStack")
-route53 = Route53Stack(scope=app, id="TracecatRoute53Stack")
-rds = RdsStack(scope=app, id="TracecatRdsStack")
+vpc = VpcStack(scope=app, id="TracecatVpcStack", env=env)
+route53 = Route53Stack(scope=app, id="TracecatRoute53Stack", env=env)
+rds = RdsStack(scope=app, id="TracecatRdsStack", env=env)
 fargate = FargateStack(
     scope=app,
     id="TracecatFargateStack",
@@ -19,6 +25,7 @@ fargate = FargateStack(
     core_security_group=vpc.core_security_group,
     temporal_database=rds.temporal_database,
     temporal_security_group=vpc.temporal_security_group,
+    env=env,
 )
 alb = AlbStack(
     scope=app,
@@ -32,4 +39,5 @@ alb = AlbStack(
     api_fargate_service=fargate.api_fargate_service,
     ui_target_group=fargate.ui_target_group,
     api_target_group=fargate.api_target_group,
+    env=env,
 )
