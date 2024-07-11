@@ -101,6 +101,8 @@ jobs:
         env:
           # General
           LOG_LEVEL: info
+          AWS_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           # "main" if trigger on main, else get version from tag
           TRACECAT__VERSION: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref_name }}
           # Backend
