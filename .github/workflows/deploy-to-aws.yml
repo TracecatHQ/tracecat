@@ -49,16 +49,48 @@ jobs:
           echo "::add-mask::${SERVICE_KEY}"
           echo "::add-mask::${SIGNING_SECRET}"
 
-          # Create secrets
-          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          # Function to create or update secret
+          create_or_update_secret() {
+            local secret_name=$1
+            local secret_value=$2
+            local region=$3
+
+            aws secretsmanager create-secret --name "$secret_name" --secret-string "$secret_value" --region "$region" 2>/tmp/secrets_manager_error.log
+            if grep -q 'ResourceExistsException' /tmp/secrets_manager_error.log; then
+              echo "Secret $secret_name already exists. Updating it."
+              aws secretsmanager update-secret --secret-id "$secret_name" --secret-string "$secret_value" --region "$region"
+            fi
+          }
+
+          # Create or update DB Encryption Key
+          create_or_update_secret "${{ vars.DB_ENCRYPTION_KEY_NAME }}" "${DB_ENCRYPTION_KEY}" "${{ secrets.AWS_DEFAULT_REGION }}"
+
+          # Create or update Service Key
+          create_or_update_secret "${{ vars.SERVICE_KEY_NAME }}" "${SERVICE_KEY}" "${{ secrets.AWS_DEFAULT_REGION }}"
+
+          # Create or update Signing Secret
+          create_or_update_secret "${{ vars.SIGNING_SECRET_NAME }}" "${SIGNING_SECRET}" "${{ secrets.AWS_DEFAULT_REGION }}"
 
       - name: Create Clerk secrets
         run: |
-          # Create secrets
-          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.CLERK_FRONTEND_API_URL_NAME }} --secret-string ${{ secrets.CLERK_FRONTEND_API_URL }} --region ${{ secrets.AWS_DEFAULT_REGION }}
-          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
+          # Function to create or update secret
+          create_or_update_secret() {
+            local secret_name=$1
+            local secret_value=$2
+            local region=$3
+
+            aws secretsmanager create-secret --name "$secret_name" --secret-string "$secret_value" --region "$region" 2>/tmp/secrets_manager_error.log
+            if grep -q 'ResourceExistsException' /tmp/secrets_manager_error.log; then
+              echo "Secret $secret_name already exists. Updating it."
+              aws secretsmanager update-secret --secret-id "$secret_name" --secret-string "$secret_value" --region "$region"
+            fi
+          }
+
+          # Create or update Clerk Frontend API URL
+          create_or_update_secret "${{ vars.CLERK_FRONTEND_API_URL_NAME }}" "${{ secrets.CLERK_FRONTEND_API_URL }}" "${{ secrets.AWS_DEFAULT_REGION }}"
+
+          # Create or update Clerk Secret Key
+          create_or_update_secret "${{ vars.CLERK_SECRET_KEY_NAME }}" "${{ secrets.CLERK_SECRET_KEY }}" "${{ secrets.AWS_DEFAULT_REGION }}"
 
   deploy:
     name: Deploy AWS CDK Stack
