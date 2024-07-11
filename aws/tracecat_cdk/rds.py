@@ -1,6 +1,6 @@
+from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_rds as rds
-from aws_cdk import core
 from constructs import Construct
 
 # RDS settings
@@ -8,14 +8,14 @@ INSTANCE_TYPE = ec2.InstanceType.of(
     ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.MEDIUM
 )
 STORAGE_TYPE = rds.StorageType.GP2
-BACKUP_RETENTION = core.Duration.days(7)
-MONITORING_INTERVAL = core.Duration.seconds(60)
+BACKUP_RETENTION = Duration.days(7)
+MONITORING_INTERVAL = Duration.seconds(60)
 PREFERRED_BACKUP_WINDOW = "03:00-04:00"
 PREFERRED_MAINTENANCE_WINDOW = "Sun:04:00-Sun:05:00"
 STORAGE_TYPE = rds.StorageType.GP2
 
 
-class RdsStack(core.Stack):
+class RdsStack(Stack):
     def __init__(
         self,
         scope: Construct,
@@ -48,7 +48,7 @@ class RdsStack(core.Stack):
                 database_name=db_name,
                 backup_retention=BACKUP_RETENTION,
                 monitoring_interval=MONITORING_INTERVAL,
-                removal_policy=core.RemovalPolicy.RETAIN,
+                removal_policy=RemovalPolicy.RETAIN,
                 security_groups=[security_group],
                 storage_encrypted=True,
                 preferred_backup_window=PREFERRED_BACKUP_WINDOW,
