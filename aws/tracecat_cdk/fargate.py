@@ -78,6 +78,12 @@ class FargateStack(Stack):
                     ).secret_arn,
                 )
             ),
+            "TRACECAT__DB_USER": core_database.secret.secret_value_from_json(
+                "username"
+            ),
+            "TRACECAT__DB_PASS": core_database.secret.secret_value_from_json(
+                "password"
+            ),
         }
 
         tracecat_ui_secrets = {
@@ -183,7 +189,9 @@ class FargateStack(Stack):
             "LOG_LEVEL": os.environ["LOG_LEVEL"],
             "TRACECAT__API_URL": os.environ["TRACECAT__API_URL"],
             "TRACECAT__APP_ENV": os.environ["TRACECAT__APP_ENV"],
-            "TRACECAT__DB_URI": core_database.db_instance_endpoint_address,
+            "TRACECAT__DB_NAME": "tracecat-postgres",
+            "TRACECAT__DB_ENDPOINT": core_database.db_instance_endpoint_address,
+            "TRACECAT__DB_PORT": core_database.db_instance_endpoint_port,
             "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
             "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
         }
@@ -296,7 +304,7 @@ class FargateStack(Stack):
             "TracecatUiContainer",
             image=ecs.ContainerImage.from_registry(name=TRACECAT_UI_IMAGE),
             environment=tracecat_ui_environment,
-            ui_secrets=tracecat_ui_secrets,
+            secrets=tracecat_ui_secrets,
             port_mappings=[
                 ecs.PortMapping(
                     container_port=3000,
@@ -332,15 +340,17 @@ class FargateStack(Stack):
         temporal_task_definition.add_container(
             "TemporalContainer",
             image=ecs.ContainerImage.from_registry(name=TEMPORAL_SERVER_IMAGE),
-            environment={
-                "DB": "postgres12",
-                "DB_PORT": "5432",
+            secrets={
                 "POSTGRES_USER": temporal_database.secret.secret_value_from_json(
                     "username"
-                ).to_string(),
+                ),
                 "POSTGRES_PWD": temporal_database.secret.secret_value_from_json(
                     "password"
-                ).to_string(),
+                ),
+            },
+            environment={
+                "DB": "temporal-postgres",
+                "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
             },
         )
