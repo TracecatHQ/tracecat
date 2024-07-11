@@ -50,15 +50,15 @@ jobs:
           echo "::add-mask::${SIGNING_SECRET}"
 
           # Create secrets
-          aws secretsmanager create-secret --name ${{ vars.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }} --force-overwrite-replica-secret
-          aws secretsmanager create-secret --name ${{ vars.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }} --force-overwrite-replica-secret
-          aws secretsmanager create-secret --name ${{ vars.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }} --force-overwrite-replica-secret
+          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }}
 
       - name: Create Clerk secrets
         run: |
           # Create secrets
-          aws secretsmanager create-secret --name ${{ vars.CLERK_FRONTEND_API_URL_NAME }} --secret-string ${{ secrets.CLERK_FRONTEND_API_URL }} --region ${{ secrets.AWS_DEFAULT_REGION }} --force-overwrite-replica-secret
-          aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }} --force-overwrite-replica-secret
+          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.CLERK_FRONTEND_API_URL_NAME }} --secret-string ${{ secrets.CLERK_FRONTEND_API_URL }} --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --force-overwrite-replica-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
 
   deploy:
     name: Deploy AWS CDK Stack
