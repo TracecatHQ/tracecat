@@ -1,4 +1,4 @@
-from aws_cdk import Stack
+from aws_cdk import Duration, Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
@@ -16,8 +16,14 @@ class AlbStack(Stack):
         scope: Construct,
         id: str,
         cluster: ecs.Cluster,
-        hosted_zone: route53.HostedZone | None = None,
-        certificate: acm.Certificate | None = None,
+        hosted_zone: route53.HostedZone,
+        api_hosted_zone: route53.HostedZone,
+        root_certificate: acm.Certificate,
+        api_certificate: acm.Certificate,
+        ui_fargate_service: ecs.FargateService,
+        api_fargate_service: ecs.FargateService,
+        ui_target_group: elbv2.ApplicationTargetGroup,
+        api_target_group: elbv2.ApplicationTargetGroup,
         **kwargs,
     ):
         super().__init__(scope, id, **kwargs)
@@ -44,27 +50,82 @@ class AlbStack(Stack):
             ),
         )
 
-        # Main HTTPS listener
-        certificates = None
-        if certificate is not None:
-            certificates = [certificate]
         listener = alb.add_listener(
             "DefaultHttpsListener",
             port=443,
-            certificates=certificates,
+            certificates=[root_certificate, api_certificate],
             default_action=elbv2.ListenerAction.fixed_response(404),
+        )
+
+        # Add targets
+        ui_target_group = elbv2.ApplicationTargetGroup(
+            self,
+            "TracecatUiTargetGroup",
+            target_type=elbv2.TargetType.IP,
+            port=3000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            vpc=cluster.vpc,
+        )
+        ui_target_group.add_target(
+            ui_fargate_service.load_balancer_target(
+                container_name="TracecatUiContainer", container_port=3000
+            )
+        )
+        api_target_group = elbv2.ApplicationTargetGroup(
+            self,
+            "TracecatApiTargetGroup",
+            target_type=elbv2.TargetType.IP,
+            port=8000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            vpc=cluster.vpc,
+            health_check=elbv2.HealthCheck(
+                path="/health",
+                interval=Duration.seconds(120),
+                timeout=Duration.seconds(10),
+                healthy_threshold_count=5,
+                unhealthy_threshold_count=2,
+            ),
+        )
+        api_target_group.add_target(
+            api_fargate_service.load_balancer_target(
+                container_name="TracecatApiContainer", container_port=8000
+            )
+        )
+
+        # Add action to forward traffic to the UI service
+        listener.add_action(
+            "RootListenerAction",
+            priority=10,
+            conditions=[elbv2.ListenerCondition.path_patterns(["/"])],
+            action=elbv2.ListenerAction.forward(target_groups=[ui_target_group]),
+        )
+        listener.add_action(
+            "ApiListenerAction",
+            priority=20,
+            conditions=[
+                elbv2.ListenerCondition.host_headers([api_hosted_zone.zone_name])
+            ],
+            action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
         )
         self.listener = listener
 
-        # Point the domain to the load balancer
-        if hosted_zone is not None:
-            route53.ARecord(
-                self,
-                "AliasRecord",
-                record_name=hosted_zone.zone_name,
-                target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
-                zone=hosted_zone,
-            )
+        # Create A record to point hosted zone to ALB
+        route53.ARecord(
+            self,
+            "UiAliasRecord",
+            record_name=hosted_zone.zone_name,
+            target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
+            zone=hosted_zone,
+        )
+
+        # Create A record to point API hosted zone to ALB
+        route53.ARecord(
+            self,
+            "ApiAliasRecord",
+            record_name=api_hosted_zone.zone_name,
+            target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
+            zone=api_hosted_zone,
+        )
 
         # (Optional) Block all traffic except from the specified CIDR blocks
         for cidr_block in ALB_ALLOWED_CIDR_BLOCKS:

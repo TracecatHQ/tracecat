@@ -3,7 +3,6 @@ import os
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
-from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_rds as rds
@@ -11,7 +10,6 @@ from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
 from .config import (
-    APP_DOMAIN_NAME,
     TEMPORAL_IMAGE,
     TEMPORAL_UI_IMAGE,
     TRACECAT_IMAGE,
@@ -30,7 +28,6 @@ class FargateStack(Stack):
         core_security_group: ec2.SecurityGroup,
         temporal_database: rds.DatabaseInstance,
         temporal_security_group: ec2.SecurityGroup,
-        listener: elbv2.ApplicationListener,
         **kwargs,
     ) -> None:
         super().__init__(scope, id, **kwargs)
@@ -216,7 +213,7 @@ class FargateStack(Stack):
                 stream_prefix="tracecat-api", log_group=log_group
             ),
         )
-        ecs.FargateService(
+        api_fargate_service = ecs.FargateService(
             self,
             "TracecatApiFargateService",
             cluster=cluster,
@@ -227,6 +224,7 @@ class FargateStack(Stack):
             service_connect_configuration=api_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
+        self.api_fargate_service = api_fargate_service
 
         ### Worker Service
         worker_task_definition = ecs.FargateTaskDefinition(
@@ -297,7 +295,7 @@ class FargateStack(Stack):
                 stream_prefix="tracecat-ui", log_group=log_group
             ),
         )
-        ui_ecs_service = ecs.FargateService(
+        ui_fargate_service = ecs.FargateService(
             self,
             "TracecatUiFargateService",
             cluster=cluster,
@@ -307,6 +305,7 @@ class FargateStack(Stack):
             security_groups=[core_security_group],
             capacity_provider_strategies=[capacity_provider_strategy],
         )
+        self.ui_fargate_service = ui_fargate_service
 
         ### Temporal Service
         temporal_task_definition = ecs.FargateTaskDefinition(
@@ -366,32 +365,3 @@ class FargateStack(Stack):
             security_groups=[temporal_security_group],
             capacity_provider_strategies=[capacity_provider_strategy],
         )
-
-        ### (Optional) Enable external access to the UI
-        if APP_DOMAIN_NAME is not None:
-            ui_target_group = elbv2.ApplicationTargetGroup(
-                self,
-                "TracecatUiTargetGroup",
-                target_type=elbv2.TargetType.IP,
-                port=8000,
-                protocol=elbv2.ApplicationProtocol.HTTP,
-                vpc=cluster.vpc,
-                health_check=elbv2.HealthCheck(
-                    path="/health",
-                    interval=Duration.seconds(120),
-                    timeout=Duration.seconds(10),
-                    healthy_threshold_count=5,
-                    unhealthy_threshold_count=2,
-                ),
-            )
-            ui_target_group.add_target(
-                ui_ecs_service.load_balancer_target(
-                    container_name="TracecatUiContainer", container_port=3000
-                )
-            )
-            listener.add_action(
-                "TracecatUiTarget",
-                priority=10,
-                conditions=[elbv2.ListenerCondition.host_headers([APP_DOMAIN_NAME])],
-                action=elbv2.ListenerAction.forward(target_groups=[ui_target_group]),
-            )
