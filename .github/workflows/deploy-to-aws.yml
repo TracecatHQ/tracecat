@@ -149,7 +149,6 @@ jobs:
           TEMPORAL__SERVER_CPU: ${{ startsWith(github.ref, 'refs/tags/') && 2048 || 512 }}
           TEMPORAL__SERVER_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
         run: |
-          cd aws
-          cdk synth --app "python3 app.py"
+          cdk synth --app "python3 aws/app.py"
           cdk bootstrap --app cdk.out
           cdk deploy --app cdk.out --require-approval never
