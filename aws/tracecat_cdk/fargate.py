@@ -67,14 +67,14 @@ class FargateStack(Stack):
                     ).secret_arn,
                 )
             ),
-            "TRACECAT__SIGNING_KEY": ecs.Secret.from_secrets_manager(
+            "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
                 secretsmanager.Secret.from_secret_partial_arn(
                     self,
                     "TracecatSigningKey",
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "TracecatPartialSigningKey",
-                        secret_name=os.environ["SIGNING_KEY_NAME"],
+                        secret_name=os.environ["SIGNING_SECRET_NAME"],
                     ).secret_arn,
                 )
             ),
@@ -281,7 +281,9 @@ class FargateStack(Stack):
             "NEXT_PUBLIC_API_URL": os.environ["TRACECAT__API_URL"],
             "NEXT_PUBLIC_APP_ENV": os.environ["TRACECAT__APP_ENV"],
             "NEXT_PUBLIC_APP_URL": os.environ["TRACECAT__APP_URL"],
-            "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ["CLERK_PUBLISHABLE_KEY"],
+            "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ[
+                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+            ],
             "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ["CLERK_SIGN_IN_URL"],
             "NEXT_PUBLIC_CLERK_SIGN_UP_URL": os.environ["CLERK_SIGN_UP_URL"],
             "NEXT_PUBLIC_DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
