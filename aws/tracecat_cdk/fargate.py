@@ -277,8 +277,8 @@ class FargateStack(Stack):
             "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ[
                 "NEXT_PUBLIC_CLERK_SIGN_IN_URL"
             ],
-            "NEXT_PUBLIC_CLERK_SIGN_UP_URL": os.environ[
-                "NEXT_PUBLIC_CLERK_SIGN_UP_URL"
+            "NEXT_PUBLIC_CLERK_SIGN_OUT_URL": os.environ[
+                "NEXT_PUBLIC_CLERK_SIGN_OUT_URL"
             ],
             "NEXT_PUBLIC_DISABLE_AUTH": os.environ["NEXT_PUBLIC_DISABLE_AUTH"],
             "NEXT_SERVER_API_URL": os.environ["NEXT_SERVER_API_URL"],
