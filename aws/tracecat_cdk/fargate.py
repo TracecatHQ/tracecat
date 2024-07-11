@@ -88,7 +88,7 @@ class FargateStack(Stack):
                     secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                         self,
                         "ClerkPartialSecretKey",
-                        secret_name=os.environ["CLERK_SECRET_KEY"],
+                        secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
                     ).secret_arn,
                 )
             ),
