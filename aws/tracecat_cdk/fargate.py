@@ -10,8 +10,8 @@ from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
 from .config import (
-    TEMPORAL_IMAGE,
     TEMPORAL_SERVER_CPU,
+    TEMPORAL_SERVER_IMAGE,
     TEMPORAL_SERVER_RAM,
     TEMPORAL_UI_CPU,
     TEMPORAL_UI_IMAGE,
@@ -334,7 +334,7 @@ class FargateStack(Stack):
         )
         temporal_task_definition.add_container(
             "TemporalContainer",
-            image=TEMPORAL_IMAGE,
+            image=TEMPORAL_SERVER_IMAGE,
             environment={
                 "DB": "postgres12",
                 "DB_PORT": "5432",
