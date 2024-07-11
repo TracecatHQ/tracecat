@@ -3,7 +3,7 @@ requires = ["hatchling >= 1.13.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tracecat-cdk"
+name = "tracecat_cdk"
 version = "0.1.0"
 description = "Single tenant AWS CDK stack for Tracecat"
 requires-python = ">=3.10"
