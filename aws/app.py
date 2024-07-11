@@ -15,7 +15,14 @@ env = {
 
 vpc = VpcStack(scope=app, id="TracecatVpcStack", env=env)
 route53 = Route53Stack(scope=app, id="TracecatRoute53Stack", env=env)
-rds = RdsStack(scope=app, id="TracecatRdsStack", env=env)
+rds = RdsStack(
+    scope=app,
+    id="TracecatRdsStack",
+    vpc=vpc.vpc,
+    core_security_group=vpc.core_security_group,
+    temporal_security_group=vpc.temporal_security_group,
+    env=env,
+)
 fargate = FargateStack(
     scope=app,
     id="TracecatFargateStack",
