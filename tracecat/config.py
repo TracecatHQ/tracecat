@@ -16,10 +16,17 @@ TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://localhost:8000")
 TRACECAT__PUBLIC_RUNNER_URL = os.environ.get(
     "TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001"
 )
+
 TRACECAT__DB_URI = os.environ.get(
     "TRACECAT__DB_URI",
     "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
 )
+
+TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
+TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
+TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
+TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
+TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 
 TRACECAT__TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
 TRACECAT__TRIAGE_DIR = TRACECAT_DIR / "triage"
