@@ -1,9 +1,9 @@
 from aws_cdk import App
-from stack.alb import AlbStack
-from stack.fargate import FargateStack
-from stack.rds import RdsStack
-from stack.route53 import Route53Stack
-from stack.vpc import VpcStack
+from tracecat_cdk.alb import AlbStack
+from tracecat_cdk.fargate import FargateStack
+from tracecat_cdk.rds import RdsStack
+from tracecat_cdk.route53 import Route53Stack
+from tracecat_cdk.vpc import VpcStack
 
 app = App()
 
