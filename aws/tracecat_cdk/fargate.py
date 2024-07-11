@@ -200,21 +200,11 @@ class FargateStack(Stack):
         api_task_definition.add_container(  # noqa
             "ApiContainer",
             image=TRACECAT_IMAGE,
-            environment=tracecat_environment,
-            secrets={
-                **tracecat_secrets,
-                "CLERK_FRONTEND_API_URL": ecs.Secret.from_secrets_manager(
-                    secretsmanager.Secret.from_secret_partial_arn(
-                        self,
-                        "ClerkFrontendApiUrl",
-                        secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                            self,
-                            "ClerkPartialFrontendApiUrl",
-                            secret_name=os.environ["CLERK_FRONTEND_API_URL"],
-                        ).secret_arn,
-                    )
-                ),
+            environment={
+                **tracecat_environment,
+                "CLERK_FRONTEND_API_URL": os.environ["CLERK_FRONTEND_API_URL"],
             },
+            secrets=tracecat_secrets,
             port_mappings=[
                 ecs.PortMapping(
                     container_port=8000,

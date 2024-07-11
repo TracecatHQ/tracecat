@@ -59,7 +59,6 @@ jobs:
         continue-on-error: true
         run: |
           # Create secrets
-          aws secretsmanager create-secret --name ${{ vars.CLERK_FRONTEND_API_URL_NAME }} --secret-string ${{ secrets.CLERK_FRONTEND_API_URL }} --region ${{ secrets.AWS_DEFAULT_REGION }}
           aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
 
   deploy:
@@ -134,7 +133,7 @@ jobs:
           DB_ENCRYPTION_KEY_NAME: ${{ vars.DB_ENCRYPTION_KEY_NAME }}
           SERVICE_KEY_NAME: ${{ vars.SERVICE_KEY_NAME }}
           SIGNING_SECRET_NAME: ${{ vars.SIGNING_SECRET_NAME }}
-          CLERK_FRONTEND_API_URL_NAME: ${{ vars.CLERK_FRONTEND_API_URL_NAME }}
+          CLERK_FRONTEND_API_URL: ${{ vars.CLERK_FRONTEND_API_URL }}
           CLERK_SECRET_KEY_NAME: ${{ vars.CLERK_SECRET_KEY_NAME }}
           # DNS settings
           APP_URL: ${{ vars.APP_URL }}
