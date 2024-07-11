@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracecat-cdk"
+version = "0.1.0"
 description = "Single tenant AWS CDK stack for Tracecat"
 requires-python = ">=3.12"
 license = "AGPL-3.0"
@@ -20,7 +21,6 @@ classifiers = [
     "Topic :: System :: Monitoring",
     "Topic :: System :: Systems Administration",
 ]
-dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://tracecat.com"
