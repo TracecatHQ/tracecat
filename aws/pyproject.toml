@@ -6,14 +6,13 @@ build-backend = "hatchling.build"
 name = "tracecat-cdk"
 version = "0.1.0"
 description = "Single tenant AWS CDK stack for Tracecat"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 license = "AGPL-3.0"
 authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.12",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "Intended Audience :: System Administrators",
