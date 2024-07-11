@@ -18,7 +18,7 @@ class AlbStack(Stack):
         cluster: ecs.Cluster,
         hosted_zone: route53.HostedZone,
         api_hosted_zone: route53.HostedZone,
-        root_certificate: acm.Certificate,
+        certificate: acm.Certificate,
         api_certificate: acm.Certificate,
         ui_fargate_service: ecs.FargateService,
         api_fargate_service: ecs.FargateService,
@@ -53,7 +53,7 @@ class AlbStack(Stack):
         listener = alb.add_listener(
             "DefaultHttpsListener",
             port=443,
-            certificates=[root_certificate, api_certificate],
+            certificates=[certificate, api_certificate],
             default_action=elbv2.ListenerAction.fixed_response(404),
         )
 
