@@ -137,6 +137,15 @@ jobs:
           API_URL: ${{ vars.API_URL }}
           CERTIFICATE_ARN: ${{ secrets.CERTIFICATE_ARN }}
           API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
+          # CPU / RAM settings
+          TRACECAT__API_CPU: ${{ startsWith(github.ref, 'refs/tags/') && 1024 || 256 }}
+          TRACECAT__API_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 3072 || 512 }}
+          TRACECAT__WORKER_CPU: ${{ startsWith(github.ref, 'refs/tags/') && 2048 || 512 }}
+          TRACECAT__WORKER_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
+          TRACECAT__UI_CPU: ${{ startsWith(github.ref, 'refs/tags/') && 2048 || 512 }}
+          TRACECAT__UI_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
+          TEMPORAL__SERVER_CPU: ${{ startsWith(github.ref, 'refs/tags/') && 2048 || 512 }}
+          TEMPORAL__SERVER_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
         run: |
           cd aws
           cdk synth --app "python3 app.py"

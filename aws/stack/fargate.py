@@ -11,9 +11,19 @@ from constructs import Construct
 
 from .config import (
     TEMPORAL_IMAGE,
+    TEMPORAL_SERVER_CPU,
+    TEMPORAL_SERVER_RAM,
+    TEMPORAL_UI_CPU,
     TEMPORAL_UI_IMAGE,
+    TEMPORAL_UI_RAM,
+    TRACECAT_API_CPU,
+    TRACECAT_API_RAM,
     TRACECAT_IMAGE,
+    TRACECAT_UI_CPU,
     TRACECAT_UI_IMAGE,
+    TRACECAT_UI_RAM,
+    TRACECAT_WORKER_CPU,
+    TRACECAT_WORKER_RAM,
 )
 
 
@@ -181,6 +191,8 @@ class FargateStack(Stack):
         api_task_definition = ecs.FargateTaskDefinition(
             self,
             "ApiTaskDefinition",
+            cpu=TRACECAT_API_CPU,
+            memory_limit_mib=TRACECAT_API_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
@@ -230,6 +242,8 @@ class FargateStack(Stack):
         worker_task_definition = ecs.FargateTaskDefinition(
             self,
             "WorkerTaskDefinition",
+            cpu=TRACECAT_WORKER_CPU,
+            memory_limit_mib=TRACECAT_WORKER_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
@@ -276,6 +290,8 @@ class FargateStack(Stack):
         ui_task_definition = ecs.FargateTaskDefinition(
             self,
             "TracecatUiTaskDefinition",
+            cpu=TRACECAT_UI_CPU,
+            memory_limit_mib=TRACECAT_UI_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
@@ -311,6 +327,8 @@ class FargateStack(Stack):
         temporal_task_definition = ecs.FargateTaskDefinition(
             self,
             "TemporalTaskDefinition",
+            cpu=TEMPORAL_SERVER_CPU,
+            memory_limit_mib=TEMPORAL_SERVER_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
@@ -344,6 +362,8 @@ class FargateStack(Stack):
         temporal_ui_task_definition = ecs.FargateTaskDefinition(
             self,
             "TemporalUiTaskDefinition",
+            cpu=TEMPORAL_UI_CPU,
+            memory_limit_mib=TEMPORAL_UI_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
