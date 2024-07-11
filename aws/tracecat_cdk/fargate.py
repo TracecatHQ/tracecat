@@ -274,11 +274,15 @@ class FargateStack(Stack):
             "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ[
                 "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
             ],
-            "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ["CLERK_SIGN_IN_URL"],
-            "NEXT_PUBLIC_CLERK_SIGN_UP_URL": os.environ["CLERK_SIGN_UP_URL"],
+            "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ[
+                "NEXT_PUBLIC_CLERK_SIGN_IN_URL"
+            ],
+            "NEXT_PUBLIC_CLERK_SIGN_UP_URL": os.environ[
+                "NEXT_PUBLIC_CLERK_SIGN_UP_URL"
+            ],
             "NEXT_PUBLIC_DISABLE_AUTH": os.environ["NEXT_PUBLIC_DISABLE_AUTH"],
             "NEXT_SERVER_API_URL": os.environ["NEXT_SERVER_API_URL"],
-            "NODE_ENV": os.environ["TRACECAT__APP_ENV"],
+            "NODE_ENV": os.environ["NODE_ENV"],
         }
         ui_task_definition = ecs.FargateTaskDefinition(
             self,
