@@ -354,7 +354,7 @@ class FargateStack(Stack):
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
             },
         )
-        ecs.FargateService(
+        temporal_service = ecs.FargateService(
             self,
             "TemporalFargateService",
             cluster=cluster,
@@ -392,3 +392,13 @@ class FargateStack(Stack):
             security_groups=[temporal_security_group],
             capacity_provider_strategies=[capacity_provider_strategy],
         )
+
+        ### Configure RDS connections / permissions
+        core_database.connections.allow_default_port_from(
+            api_fargate_service.connections
+        )
+        core_database.grant_connect(api_task_definition.task_role)
+        temporal_database.connections.allow_default_port_from(
+            temporal_service.connections
+        )
+        temporal_database.grant_connect(temporal_task_definition.task_role)
