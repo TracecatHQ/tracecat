@@ -162,15 +162,51 @@ class FargateStack(Stack):
         }
 
         ### Grant read access to secrets into env vars
-        for secret in tracecat_secrets.values():
-            secret.grant_read(api_execution_role)
-            secret.grant_read(worker_execution_role)
-
-        for secret in tracecat_ui_secrets.values():
-            secret.grant_read(ui_execution_role)
-
-        for secret in temporal_secrets.values():
-            secret.grant_read(temporal_execution_role)
+        core_secrets_arns = [
+            tracecat_secrets[secret].arn for secret in tracecat_secrets
+        ]
+        ui_secrets_arns = [
+            tracecat_ui_secrets[secret].arn for secret in tracecat_ui_secrets
+        ]
+        api_execution_role.attach_inline_policy(
+            policy=iam.Policy(
+                self,
+                "TracecatApiSecretsPolicy",
+                statements=[
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=["secretsmanager:GetSecretValue"],
+                        resources=core_secrets_arns,
+                    )
+                ],
+            )
+        )
+        worker_execution_role.attach_inline_policy(
+            policy=iam.Policy(
+                self,
+                "TracecatWorkerSecretsPolicy",
+                statements=[
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=["secretsmanager:GetSecretValue"],
+                        resources=core_secrets_arns,
+                    )
+                ],
+            )
+        )
+        ui_execution_role.attach_inline_policy(
+            policy=iam.Policy(
+                self,
+                "TracecatUiSecretsPolicy",
+                statements=[
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=["secretsmanager:GetSecretValue"],
+                        resources=ui_secrets_arns,
+                    )
+                ],
+            )
+        )
 
         ### Log Group
         # NOTE: We share the log group across all services
