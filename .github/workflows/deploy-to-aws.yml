@@ -178,8 +178,8 @@ jobs:
           echo "::add-mask::${SERVICE_KEY_NAME}"
           echo "::add-mask::${SIGNING_SECRET_NAME}"
           echo "::add-mask::${CLERK_SECRET_KEY_NAME}"
-          echo "::add-mask::${TRACECAT__DB_PASS_NAME}"
-          echo "::add-mask::${TEMPORAL__DB_PASS_NAME}"
+          echo "::add-mask::${TRACECAT_DB_PASS_NAME}"
+          echo "::add-mask::${TEMPORAL_DB_PASS_NAME}"
           echo "::add-mask::${CERTIFICATE_ARN}"
           echo "::add-mask::${API_CERTIFICATE_ARN}"
 
