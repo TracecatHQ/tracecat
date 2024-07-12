@@ -21,16 +21,20 @@ Only AWS is currently supported, but we plan to support Azure and GCP in the nea
 ### Resources Deployed
 
 - VPC
-- Two security groups
-- Fargate with four services:
+- Fargate with 4x services:
   - Tracecat API
   - Tracecat Worker
   - Tracecat UI
   - Temporal Server
+- 4x security groups
+  - Tracecat core services
+  - Temporal server with Tracecat worker
+  - Tracecat API with Tracecat RDS instance
+  - Temporal server with Temporal RDS instance
 - Application Load Balancer
   - Tracecat UI is exposed via the app domain
   - Tracecat API is exposed via the API domain
-- Two RDS postgres instances
+- 2x RDS postgres instances
 - S3 bucket
 
 ### Installation
