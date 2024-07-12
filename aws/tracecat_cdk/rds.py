@@ -2,7 +2,6 @@ import os
 
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
-from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
@@ -39,16 +38,14 @@ class RdsStack(Stack):
             engine_version: rds.IInstanceEngine,
             security_group: ec2.SecurityGroup,
         ) -> rds.DatabaseInstance:
-            db_secret = ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
+            db_secret = secretsmanager.Secret.from_secret_partial_arn(
+                self,
+                f"{instance_name}Secret",
+                secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                     self,
-                    f"{instance_name}Secret",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                        self,
-                        f"{instance_name}PartialSecret",
-                        secret_name=password_secret_name,
-                    ).secret_arn,
-                )
+                    f"{instance_name}PartialSecret",
+                    secret_name=password_secret_name,
+                ).secret_arn,
             )
             db = rds.DatabaseInstance(
                 self,

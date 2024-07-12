@@ -47,53 +47,45 @@ class FargateStack(Stack):
 
         ### Gather secrets
         tracecat_secrets = {
-            "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
+            "TRACECAT__DB_ENCRYPTION_KEY": secretsmanager.Secret.from_secret_partial_arn(
+                self,
+                "TracecatDbEncryptionKey",
+                secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                     self,
-                    "TracecatDbEncryptionKey",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                        self,
-                        "TracecatPartialDbEncryptionKey",
-                        secret_name=os.environ["DB_ENCRYPTION_KEY_NAME"],
-                    ).secret_arn,
-                )
+                    "TracecatPartialDbEncryptionKey",
+                    secret_name=os.environ["DB_ENCRYPTION_KEY_NAME"],
+                ).secret_arn,
             ),
-            "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
+            "TRACECAT__SERVICE_KEY": secretsmanager.Secret.from_secret_partial_arn(
+                self,
+                "TracecatServiceKey",
+                secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                     self,
-                    "TracecatServiceKey",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                        self,
-                        "TracecatPartialServiceKey",
-                        secret_name=os.environ["SERVICE_KEY_NAME"],
-                    ).secret_arn,
-                )
+                    "TracecatPartialServiceKey",
+                    secret_name=os.environ["SERVICE_KEY_NAME"],
+                ).secret_arn,
             ),
-            "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
+            "TRACECAT__SIGNING_SECRET": secretsmanager.Secret.from_secret_partial_arn(
+                self,
+                "TracecatSigningKey",
+                secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                     self,
-                    "TracecatSigningKey",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                        self,
-                        "TracecatPartialSigningKey",
-                        secret_name=os.environ["SIGNING_SECRET_NAME"],
-                    ).secret_arn,
-                )
+                    "TracecatPartialSigningKey",
+                    secret_name=os.environ["SIGNING_SECRET_NAME"],
+                ).secret_arn,
             ),
             "TRACECAT__DB_PASS": core_db_secret.secret_value,
         }
 
         tracecat_ui_secrets = {
-            "CLERK_SECRET_KEY": ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
+            "CLERK_SECRET_KEY": secretsmanager.Secret.from_secret_partial_arn(
+                self,
+                "ClerkSecretKey",
+                secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
                     self,
-                    "ClerkSecretKey",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
-                        self,
-                        "ClerkPartialSecretKey",
-                        secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
-                    ).secret_arn,
-                )
+                    "ClerkPartialSecretKey",
+                    secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
+                ).secret_arn,
             ),
         }
 
