@@ -25,7 +25,7 @@ class RdsStack(Stack):
         id: str,
         vpc: ec2.Vpc,
         **kwargs,
-    ) -> None:
+    ):
         super().__init__(scope, id, **kwargs)
 
         # Create security group for API to RDS communication

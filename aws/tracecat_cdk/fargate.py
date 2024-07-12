@@ -44,8 +44,82 @@ class FargateStack(Stack):
         temporal_security_group: ec2.SecurityGroup,
         temporal_db_security_group: ec2.SecurityGroup,
         **kwargs,
-    ) -> None:
+    ):
         super().__init__(scope, id, **kwargs)
+
+        ### Tracecat API / Worker
+        # Execution roles
+        api_execution_role = iam.Role(
+            self,
+            "TracecatApiExecutionRole",
+            role_name="TracecatApiFargateServiceExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        worker_execution_role = iam.Role(
+            self,
+            "TracecatWorkerExecutionRole",
+            role_name="TracecatWorkerFargateServiceExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        ui_execution_role = iam.Role(
+            self,
+            "TracecatUiExecutionRole",
+            role_name="TracecatUiFargateServiceExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        temporal_execution_role = iam.Role(
+            self,
+            "TemporalExecutionRole",
+            role_name="TemporalFargateServiceExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        # Task roles
+        api_task_role = iam.Role(
+            self,
+            "TracecatApiTaskRole",
+            role_name="TracecatApiFargateServiceTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        worker_task_role = iam.Role(
+            self,
+            "TracecatWorkerTaskRole",
+            role_name="TracecatWorkerFargateServiceTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        ui_task_role = iam.Role(
+            self,
+            "TracecatUiTaskRole",
+            role_name="TracecatUiFargateServiceTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        temporal_task_role = iam.Role(
+            self,
+            "TemporalTaskRole",
+            role_name="TemporalFargateServiceTaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
+        ### Default execution role policy
+        iam.Policy(
+            self,
+            "DefaultExecutionRolePolicy",
+            statements=[
+                # To pull image
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["ecs:Poll"],
+                    resources=[
+                        self.format_arn(resource="task-set/cluster/*", service="ecs")
+                    ],
+                ),
+            ],
+            roles=[
+                api_execution_role,
+                worker_execution_role,
+                ui_execution_role,
+                temporal_execution_role,
+            ],
+        )
 
         ### Gather secrets
         tracecat_secrets = {
@@ -83,53 +157,33 @@ class FargateStack(Stack):
             ),
         }
 
-        ### IAM: Task execution IAM role
-        execution_role = iam.Role(
-            self,
-            "ExecutionRole",
-            role_name="TracecatFargateServiceExecutionRole",
-            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        )
-        logs_group_pattern = (
-            f"arn:aws:logs:{self.region}:{self.account}:" "log-group:/ecs/tracecat*:*"
-        )
-        iam.Policy(
-            self,
-            "ExecutionRolePolicy",
-            statements=[
-                # For logging
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=["logs:CreateLogStream", "logs:PutLogEvents"],
-                    resources=[logs_group_pattern],
-                ),
-                # To pull image
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=["ecs:Poll"],
-                    resources=[
-                        self.format_arn(resource="task-set/cluster/*", service="ecs")
-                    ],
-                ),
-            ],
-            roles=[execution_role],
-        )
+        temporal_secrets = {
+            "POSTGRES_PWD": ecs.Secret.from_secrets_manager(secret=temporal_db_secret)
+        }
 
-        # Task role
-        task_role = iam.Role(
-            self,
-            "TaskRole",
-            role_name="TracecatTaskRole",
-            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        )
+        ### Grant read access to secrets into env vars
+        for secret in tracecat_secrets.values():
+            secret.grant_read(api_execution_role)
+            secret.grant_read(worker_execution_role)
+
+        for secret in tracecat_ui_secrets.values():
+            secret.grant_read(ui_execution_role)
+
+        for secret in temporal_secrets.values():
+            secret.grant_read(temporal_execution_role)
 
         ### Log Group
+        # NOTE: We share the log group across all services
         log_group = logs.LogGroup(
             self,
             "TracecatLogGroup",
             log_group_name="/ecs/tracecat",
             removal_policy=RemovalPolicy.DESTROY,
         )
+        log_group.grant_write(api_execution_role)
+        log_group.grant_write(worker_execution_role)
+        log_group.grant_write(ui_execution_role)
+        log_group.grant_write(temporal_execution_role)
 
         # NOTE: Change the capacity according to your needs
         # We use spot instances by default to reduce costs
@@ -149,7 +203,7 @@ class FargateStack(Stack):
             ],
             namespace=dns_namespace.namespace_name,
             log_driver=ecs.LogDrivers.aws_logs(
-                stream_prefix="tracecat-api-service-connect", log_group=log_group
+                stream_prefix="service-connect-api", log_group=log_group
             ),
         )
         worker_service_connect = ecs.ServiceConnectProps(
@@ -163,7 +217,7 @@ class FargateStack(Stack):
             ],
             namespace=dns_namespace.namespace_name,
             log_driver=ecs.LogDrivers.aws_logs(
-                stream_prefix="tracecat-worker-service-connect", log_group=log_group
+                stream_prefix="service-connect-worker", log_group=log_group
             ),
         )
 
@@ -186,8 +240,8 @@ class FargateStack(Stack):
             "TracecatApiTaskDefinition",
             cpu=TRACECAT_API_CPU,
             memory_limit_mib=TRACECAT_API_RAM,
-            execution_role=execution_role,
-            task_role=task_role,
+            execution_role=api_execution_role,
+            task_role=api_task_role,
         )
         api_task_definition.add_container(  # noqa
             "TracecatApiContainer",
@@ -204,9 +258,7 @@ class FargateStack(Stack):
                     app_protocol=ecs.AppProtocol.http,
                 )
             ],
-            logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="tracecat-api", log_group=log_group
-            ),
+            logging=ecs.LogDrivers.aws_logs(stream_prefix="api", log_group=log_group),
         )
         api_fargate_service = ecs.FargateService(
             self,
@@ -231,8 +283,8 @@ class FargateStack(Stack):
             "TracecatWorkerTaskDefinition",
             cpu=TRACECAT_WORKER_CPU,
             memory_limit_mib=TRACECAT_WORKER_RAM,
-            execution_role=execution_role,
-            task_role=task_role,
+            execution_role=worker_execution_role,
+            task_role=worker_task_role,
         )
         worker_task_definition.add_container(  # noqa
             "TracecatWorkerContainer",
@@ -247,7 +299,7 @@ class FargateStack(Stack):
                 )
             ],
             logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="tracecat-worker", log_group=log_group
+                stream_prefix="worker", log_group=log_group
             ),
         )
         ecs.FargateService(
@@ -285,8 +337,8 @@ class FargateStack(Stack):
             "TracecatUiTaskDefinition",
             cpu=TRACECAT_UI_CPU,
             memory_limit_mib=TRACECAT_UI_RAM,
-            execution_role=execution_role,
-            task_role=task_role,
+            execution_role=ui_execution_role,
+            task_role=ui_task_role,
         )
         ui_task_definition.add_container(  # noqa
             "TracecatUiContainer",
@@ -300,9 +352,7 @@ class FargateStack(Stack):
                     app_protocol=ecs.AppProtocol.http,
                 )
             ],
-            logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="tracecat-ui", log_group=log_group
-            ),
+            logging=ecs.LogDrivers.aws_logs(stream_prefix="ui", log_group=log_group),
         )
         ui_fargate_service = ecs.FargateService(
             self,
@@ -322,17 +372,13 @@ class FargateStack(Stack):
             "TemporalTaskDefinition",
             cpu=TEMPORAL_SERVER_CPU,
             memory_limit_mib=TEMPORAL_SERVER_RAM,
-            execution_role=execution_role,
-            task_role=task_role,
+            execution_role=temporal_execution_role,
+            task_role=temporal_task_role,
         )
         temporal_task_definition.add_container(
             "TemporalContainer",
             image=ecs.ContainerImage.from_registry(name=TEMPORAL_SERVER_IMAGE),
-            secrets={
-                "POSTGRES_PWD": ecs.Secret.from_secrets_manager(
-                    secret=temporal_db_secret
-                )
-            },
+            secrets=temporal_secrets,
             environment={
                 "POSTGRES_USER": "postgres",
                 "DB": "temporal",
@@ -357,8 +403,8 @@ class FargateStack(Stack):
             "TemporalUiTaskDefinition",
             cpu=TEMPORAL_UI_CPU,
             memory_limit_mib=TEMPORAL_UI_RAM,
-            execution_role=execution_role,
-            task_role=task_role,
+            execution_role=temporal_execution_role,
+            task_role=temporal_task_role,
         )
         temporal_ui_task_definition.add_container(
             "TemporalUiContainer",
@@ -379,14 +425,14 @@ class FargateStack(Stack):
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
-        ### Configure RDS connections / permissions
+        ### RDS Permissions
         core_database.connections.allow_default_port_from(
             api_fargate_service.connections
         )
-        core_database.grant_connect(api_task_definition.task_role, db_user="postgres")
         temporal_database.connections.allow_default_port_from(
             temporal_service.connections
         )
+        core_database.grant_connect(api_task_definition.task_role, db_user="postgres")
         temporal_database.grant_connect(
             temporal_task_definition.task_role, db_user="postgres"
         )

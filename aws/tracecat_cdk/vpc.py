@@ -5,7 +5,7 @@ from constructs import Construct
 
 
 class VpcStack(Stack):
-    def __init__(self, scope: Construct, id: str, **kwargs) -> None:
+    def __init__(self, scope: Construct, id: str, **kwargs):
         super().__init__(scope, id, **kwargs)
 
         # Create VPC
