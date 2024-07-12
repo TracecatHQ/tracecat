@@ -16,8 +16,8 @@ TEMPORAL_SERVER_IMAGE = f"temporalio/auto-setup:{TEMPORAL_VERSION}"
 TEMPORAL_UI_IMAGE = f"temporalio/ui:{TEMPORAL_UI_VERSION}"
 
 # DNS
-APP_DOMAIN_NAME = os.getenv("TRACECAT__APP_URL").replace("https://", "")
-API_DOMAIN_NAME = os.getenv("TRACECAT__PUBLIC_RUNNER_URL").replace("https://", "")
+APP_DOMAIN_NAME = os.environ["TRACECAT__APP_URL"].replace("https://", "")
+API_DOMAIN_NAME = os.environ["TRACECAT__PUBLIC_RUNNER_URL"].replace("https://", "")
 
 # Certificates
 CERTIFICATE_ARN = os.environ["CERTIFICATE_ARN"]
