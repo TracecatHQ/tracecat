@@ -1,15 +1,27 @@
+import { OpenAPI } from "@/client"
 import axios, { type InternalAxiosRequestConfig } from "axios"
 
 import { getAuthToken } from "@/lib/auth"
 import { isServer } from "@/lib/utils"
 
-// Determine the base URL based on the execution environment
-const baseURL = isServer()
-  ? process.env.NEXT_SERVER_API_URL
-  : process.env.NEXT_PUBLIC_API_URL
+/**
+ *
+ * @returns The base URL for the API based on the execution environment
+ * Selection order:
+ * 1. NEXT_SERVER_API_URL (process.env)
+ * 2. NEXT_PUBLIC_API_URL (process.env)
+ * 3. http://localhost:8000
+ */
+export function getBaseUrl() {
+  const url = isServer()
+    ? process.env.NEXT_SERVER_API_URL
+    : process.env.NEXT_PUBLIC_API_URL
+  return url ?? "http://localhost:8000"
+}
 
+// Legacy axiosclient
 export const client = axios.create({
-  baseURL,
+  baseURL: getBaseUrl(),
 })
 
 client.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
@@ -19,6 +31,16 @@ client.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
 })
 
 export type Client = typeof client
+
+OpenAPI.BASE = getBaseUrl()
+
+OpenAPI.interceptors.request.use(async (request) => {
+  request.headers = {
+    ...request.headers,
+    Authorization: `Bearer ${await getAuthToken()}`,
+  }
+  return request
+})
 
 export async function authFetch(input: RequestInfo, init?: RequestInit) {
   const token = await getAuthToken()
