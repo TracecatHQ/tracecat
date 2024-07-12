@@ -168,4 +168,4 @@ jobs:
           pip install .
           cdk synth --app "python3 app.py"
           cdk bootstrap --app cdk.out
-          cdk deploy --app cdk.out --require-approval never
+          cdk deploy --app cdk.out --all --require-approval never
