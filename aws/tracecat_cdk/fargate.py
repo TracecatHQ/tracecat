@@ -124,24 +124,36 @@ class FargateStack(Stack):
         ### Gather secrets
         tracecat_secrets = {
             "TRACECAT__DB_ENCRYPTION_KEY": ecs.Secret.from_secrets_manager(
-                secret=secretsmanager.Secret.from_secret_name_v2(
+                secretsmanager.Secret.from_secret_partial_arn(
                     self,
-                    "TracecatPartialDbEncryptionKey",
-                    secret_name=os.environ["DB_ENCRYPTION_KEY_NAME"],
+                    "TracecatFullEncryptionKey",
+                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                        self,
+                        "TracecatPartialEncryptionKey",
+                        secret_name=os.environ["DB_ENCRYPTION_KEY_NAME"],
+                    ).secret_arn,
                 )
             ),
             "TRACECAT__SERVICE_KEY": ecs.Secret.from_secrets_manager(
-                secret=secretsmanager.Secret.from_secret_name_v2(
+                secretsmanager.Secret.from_secret_partial_arn(
                     self,
-                    "TracecatPartialServiceKey",
-                    secret_name=os.environ["SERVICE_KEY_NAME"],
+                    "TracecatFullServiceKey",
+                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                        self,
+                        "TracecatPartialServiceKey",
+                        secret_name=os.environ["SERVICE_KEY_NAME"],
+                    ).secret_arn,
                 )
             ),
             "TRACECAT__SIGNING_SECRET": ecs.Secret.from_secrets_manager(
-                secret=secretsmanager.Secret.from_secret_name_v2(
+                secretsmanager.Secret.from_secret_partial_arn(
                     self,
-                    "TracecatPartialSigningKey",
-                    secret_name=os.environ["SIGNING_SECRET_NAME"],
+                    "TracecatFullSigningSecret",
+                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                        self,
+                        "TracecatPartialSigningSecret",
+                        secret_name=os.environ["SIGNING_SECRET_NAME"],
+                    ).secret_arn,
                 )
             ),
             "TRACECAT__DB_PASS": ecs.Secret.from_secrets_manager(secret=core_db_secret),
@@ -149,10 +161,14 @@ class FargateStack(Stack):
 
         tracecat_ui_secrets = {
             "CLERK_SECRET_KEY": ecs.Secret.from_secrets_manager(
-                secret=secretsmanager.Secret.from_secret_name_v2(
+                secretsmanager.Secret.from_secret_partial_arn(
                     self,
-                    "ClerkPartialSecretKey",
-                    secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
+                    "ClerkFullSecretKey",
+                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                        self,
+                        "ClerkPartialSecretKey",
+                        secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
+                    ).secret_arn,
                 )
             ),
         }
@@ -163,10 +179,10 @@ class FargateStack(Stack):
 
         ### Grant read access to secrets into env vars
         core_secrets_arns = [
-            f"{tracecat_secrets[secret].arn}-*" for secret in tracecat_secrets
+            tracecat_secrets[secret].arn for secret in tracecat_secrets
         ]
         ui_secrets_arns = [
-            f"{tracecat_ui_secrets[secret].arn}-*" for secret in tracecat_ui_secrets
+            tracecat_ui_secrets[secret].arn for secret in tracecat_ui_secrets
         ]
         api_execution_role.attach_inline_policy(
             policy=iam.Policy(
