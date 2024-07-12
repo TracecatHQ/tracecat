@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
     WorkflowExecution,
     WorkflowExecutionDescription,
     WorkflowExecutionStatus,
     WorkflowHandle,
+    WorkflowHistory,
+    WorkflowHistoryEventFilterType,
 )
 
 from tracecat import identifiers
@@ -13,6 +18,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logging import logger
 from tracecat.types.auth import Role
+from tracecat.workflow.models import EventHistoryResponse, EventHistoryType
 
 
 class WorkflowExecutionsService:
@@ -74,3 +80,105 @@ class WorkflowExecutionsService:
 
         executions = await self.list_executions_by_workflow_id(wf_id)
         return max(executions, key=lambda exec: exec.start_time)
+
+    async def list_workflow_execution_event_history(
+        self,
+        wf_exec_id: identifiers.WorkflowExecutionID,
+        event_filter_type: WorkflowHistoryEventFilterType = WorkflowHistoryEventFilterType.ALL_EVENT,
+        **kwargs,
+    ) -> list[EventHistoryResponse]:
+        """List the event history of a workflow execution."""
+
+        history = await self.handle(wf_exec_id).fetch_history(
+            event_filter_type=event_filter_type, **kwargs
+        )
+        events = []
+        for event in history.events:
+            match event.event_type:
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
+                            task_id=event.task_id,
+                            details=event.workflow_execution_started_event_attributes,
+                        )
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_COMPLETED,
+                            task_id=event.task_id,
+                            details=event.workflow_execution_completed_event_attributes,
+                        )
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_FAILED,
+                            task_id=event.task_id,
+                            details=event.workflow_execution_failed_event_attributes,
+                        )
+                    )
+                case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.ACTIVITY_TASK_SCHEDULED,
+                            task_id=event.task_id,
+                            details=event.activity_task_scheduled_event_attributes,
+                        )
+                    )
+                case EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.ACTIVITY_TASK_STARTED,
+                            task_id=event.task_id,
+                            details=event.activity_task_started_event_attributes,
+                        )
+                    )
+                case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.ACTIVITY_TASK_COMPLETED,
+                            task_id=event.task_id,
+                            details=event.activity_task_completed_event_attributes,
+                        )
+                    )
+                case EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(),
+                            event_type=EventHistoryType.ACTIVITY_TASK_FAILED,
+                            task_id=event.task_id,
+                            details=event.activity_task_failed_event_attributes,
+                        )
+                    )
+                case _:
+                    continue
+        return events
+
+    async def iter_list_workflow_execution_event_history(
+        self,
+        wf_exec_id: identifiers.WorkflowExecutionID,
+        event_filter_type: WorkflowHistoryEventFilterType = WorkflowHistoryEventFilterType.ALL_EVENT,
+        **kwargs,
+    ) -> AsyncGenerator[WorkflowHistory]:
+        """List the event history of a workflow execution."""
+
+        handle = self.handle(wf_exec_id)
+        async for event in handle.fetch_history_events(
+            page_size=10, event_filter_type=event_filter_type, **kwargs
+        ):
+            yield event
