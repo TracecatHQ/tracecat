@@ -45,14 +45,18 @@ jobs:
           # Get signing secret
           SIGNING_SECRET=$(grep TRACECAT__SIGNING_SECRET .env | cut -d '=' -f2)
 
+          # Create URL-safe postgres passwords
+          TRACECAT__DB_PASS=$(openssl rand -base64 32 | tr -d '/+' | cut -c1-32)
+          TEMPORAL__DB_PASS=$(openssl rand -base64 32 | tr -d '/+' | cut -c1-32)
+
           # Mask secrets
           echo "::add-mask::${DB_ENCRYPTION_KEY}"
           echo "::add-mask::${SERVICE_KEY}"
           echo "::add-mask::${SIGNING_SECRET}"
+          echo "::add-mask::${TRACECAT__DB_PASS}"
+          echo "::add-mask::${TEMPORAL__DB_PASS}"
 
-          # Create URL-safe postgres passwords
-          TRACECAT__DB_PASS=$(openssl rand -base64 32 | tr -d '/+' | cut -c1-32)
-          TEMPORAL__DB_PASS=$(openssl rand -base64 32 | tr -d '/+' | cut -c1-32)
+          # Create postgres secrets
           aws secretsmanager create-secret --name ${{ vars.TRACECAT__DB_PASS_NAME }} --secret-string "${TRACECAT__DB_PASS}" --region ${{ secrets.AWS_DEFAULT_REGION }}
           aws secretsmanager create-secret --name ${{ vars.TEMPORAL__DB_PASS_NAME }} --secret-string "${TEMPORAL__DB_PASS}" --region ${{ secrets.AWS_DEFAULT_REGION }}
 
