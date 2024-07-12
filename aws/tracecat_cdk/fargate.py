@@ -36,8 +36,10 @@ class FargateStack(Stack):
         cluster: ecs.Cluster,
         dns_namespace: servicediscovery.INamespace,
         core_database: rds.DatabaseInstance,
+        core_db_secret: secretsmanager.Secret,
         core_security_group: ec2.SecurityGroup,
         temporal_database: rds.DatabaseInstance,
+        temporal_db_secret: secretsmanager.Secret,
         temporal_security_group: ec2.SecurityGroup,
         **kwargs,
     ) -> None:
@@ -78,12 +80,7 @@ class FargateStack(Stack):
                     ).secret_arn,
                 )
             ),
-            "TRACECAT__DB_USER": core_database.secret.secret_value_from_json(
-                "username"
-            ),
-            "TRACECAT__DB_PASS": core_database.secret.secret_value_from_json(
-                "password"
-            ),
+            "TRACECAT__DB_PASS": core_db_secret.secret_value,
         }
 
         tracecat_ui_secrets = {
@@ -189,7 +186,8 @@ class FargateStack(Stack):
             "LOG_LEVEL": os.environ["LOG_LEVEL"],
             "TRACECAT__API_URL": os.environ["TRACECAT__API_URL"],
             "TRACECAT__APP_ENV": os.environ["TRACECAT__APP_ENV"],
-            "TRACECAT__DB_NAME": "tracecat-postgres",
+            "TRACECAT__DB_USER": "postgres",
+            "TRACECAT__DB_NAME": "tracecat",
             "TRACECAT__DB_ENDPOINT": core_database.db_instance_endpoint_address,
             "TRACECAT__DB_PORT": core_database.db_instance_endpoint_port,
             "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
@@ -340,16 +338,10 @@ class FargateStack(Stack):
         temporal_task_definition.add_container(
             "TemporalContainer",
             image=ecs.ContainerImage.from_registry(name=TEMPORAL_SERVER_IMAGE),
-            secrets={
-                "POSTGRES_USER": temporal_database.secret.secret_value_from_json(
-                    "username"
-                ),
-                "POSTGRES_PWD": temporal_database.secret.secret_value_from_json(
-                    "password"
-                ),
-            },
+            secrets={"POSTGRES_PWD": temporal_db_secret.secret_value},
             environment={
-                "DB": "temporal-postgres",
+                "POSTGRES_USER": "postgres",
+                "DB": "temporal",
                 "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
             },

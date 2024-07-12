@@ -29,8 +29,10 @@ fargate = FargateStack(
     cluster=vpc.cluster,
     dns_namespace=vpc.dns_namespace,
     core_database=rds.core_database,
+    core_db_secret=rds.core_db_secret,
     core_security_group=vpc.core_security_group,
     temporal_database=rds.temporal_database,
+    temporal_db_secret=rds.temporal_db_secret,
     temporal_security_group=vpc.temporal_security_group,
     env=env,
 )

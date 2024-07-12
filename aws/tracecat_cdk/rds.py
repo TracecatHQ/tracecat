@@ -1,6 +1,10 @@
+import os
+
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_rds as rds
+from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
 # RDS settings
@@ -30,10 +34,22 @@ class RdsStack(Stack):
         def create_rds_instance(
             instance_name: str,
             db_name: str,
+            password_secret_name: str,
             allocated_storage: int,
             engine_version: rds.IInstanceEngine,
             security_group: ec2.SecurityGroup,
         ) -> rds.DatabaseInstance:
+            db_secret = ecs.Secret.from_secrets_manager(
+                secretsmanager.Secret.from_secret_partial_arn(
+                    self,
+                    f"{instance_name}Secret",
+                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                        self,
+                        f"{instance_name}PartialSecret",
+                        secret_name=password_secret_name,
+                    ).secret_arn,
+                )
+            )
             db = rds.DatabaseInstance(
                 self,
                 instance_name,
@@ -43,7 +59,10 @@ class RdsStack(Stack):
                 multi_az=True,
                 allocated_storage=allocated_storage,
                 storage_type=STORAGE_TYPE,
-                credentials=rds.Credentials.from_generated_secret(db_name),
+                credentials={
+                    "username": "postgres",
+                    "password": db_secret.secret_value,
+                },
                 deletion_protection=True,
                 database_name=db_name,
                 backup_retention=BACKUP_RETENTION,
@@ -54,12 +73,13 @@ class RdsStack(Stack):
                 preferred_backup_window=PREFERRED_BACKUP_WINDOW,
                 preferred_maintenance_window=PREFERRED_MAINTENANCE_WINDOW,
             )
-            return db
+            return db, db_secret
 
         # Create PostgreSQL instances
-        tracecat_database = create_rds_instance(
+        tracecat_database, tracecat_db_secret = create_rds_instance(
             "TracecatRDSInstance",
-            "tracecat-postgres",
+            db_name="tracecat",
+            password_secret_name=os.environ["TRACECAT__DB_PASS_NAME"],
             allocated_storage=10,
             engine_version=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_16
@@ -67,10 +87,12 @@ class RdsStack(Stack):
             security_group=core_security_group,
         )
         self.core_database = tracecat_database
+        self.core_db_secret = tracecat_db_secret
 
-        temporal_database = create_rds_instance(
+        temporal_database, temporal_db_secret = create_rds_instance(
             "TemporalRDSInstance",
-            "temporal-postgres",
+            db_name="temporal",
+            password_secret_name=os.environ["TEMPORAL__DB_PASS_NAME"],
             allocated_storage=5,
             engine_version=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_13
@@ -78,3 +100,4 @@ class RdsStack(Stack):
             security_group=temporal_security_group,
         )
         self.temporal_database = temporal_database
+        self.temporal_db_secret = temporal_db_secret

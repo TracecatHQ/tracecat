@@ -50,6 +50,12 @@ jobs:
           echo "::add-mask::${SERVICE_KEY}"
           echo "::add-mask::${SIGNING_SECRET}"
 
+          # Create URL-safe postgres passwords
+          TRACECAT__DB_PASS=$(openssl rand -base64 32 | tr -d '/+' | cut -c1-32)
+          TEMPORAL__DB_PASS=$(openssl rand -base64 32 | tr -d '/+' | cut -c1-32)
+          aws secretsmanager create-secret --name ${{ vars.TRACECAT__DB_PASS_NAME }} --secret-string "${TRACECAT__DB_PASS}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+          aws secretsmanager create-secret --name ${{ vars.TEMPORAL__DB_PASS_NAME }} --secret-string "${TEMPORAL__DB_PASS}" --region ${{ secrets.AWS_DEFAULT_REGION }}
+
           # Create secrets
           aws secretsmanager create-secret --name ${{ vars.DB_ENCRYPTION_KEY_NAME }} --secret-string "${DB_ENCRYPTION_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
           aws secretsmanager create-secret --name ${{ vars.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
@@ -137,6 +143,8 @@ jobs:
           SIGNING_SECRET_NAME: ${{ vars.SIGNING_SECRET_NAME }}
           CLERK_FRONTEND_API_URL: ${{ vars.CLERK_FRONTEND_API_URL }}
           CLERK_SECRET_KEY_NAME: ${{ vars.CLERK_SECRET_KEY_NAME }}
+          TRACECAT__DB_PASS_NAME: ${{ vars.TRACECAT_DB_PASS_NAME }}
+          TEMPORAL__DB_PASS_NAME: ${{ vars.TEMPORAL_DB_PASS_NAME }}
           # DNS settings
           CERTIFICATE_ARN: ${{ secrets.CERTIFICATE_ARN }}
           API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
