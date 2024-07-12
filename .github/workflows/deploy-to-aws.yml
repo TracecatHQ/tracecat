@@ -6,6 +6,7 @@ on:
       - "main"
     tags:
       - "*.*.*"
+  workflow_dispatch:
   pull_request:
     branches: ["main"]
     paths:
