@@ -48,3 +48,5 @@ alb = AlbStack(
     api_fargate_service=fargate.api_fargate_service,
     env=env,
 )
+
+app.synth()
