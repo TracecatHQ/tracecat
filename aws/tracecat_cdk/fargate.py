@@ -322,7 +322,11 @@ class FargateStack(Stack):
         temporal_task_definition.add_container(
             "TemporalContainer",
             image=ecs.ContainerImage.from_registry(name=TEMPORAL_SERVER_IMAGE),
-            secrets={"POSTGRES_PWD": temporal_db_secret.secret_value},
+            secrets={
+                "POSTGRES_PWD": ecs.Secret.from_secrets_manager(
+                    secret=temporal_db_secret
+                )
+            },
             environment={
                 "POSTGRES_USER": "postgres",
                 "DB": "temporal",
