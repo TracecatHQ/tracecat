@@ -163,10 +163,10 @@ class FargateStack(Stack):
 
         ### Grant read access to secrets into env vars
         core_secrets_arns = [
-            tracecat_secrets[secret].arn for secret in tracecat_secrets
+            f"{tracecat_secrets[secret].arn}-*" for secret in tracecat_secrets
         ]
         ui_secrets_arns = [
-            tracecat_ui_secrets[secret].arn for secret in tracecat_ui_secrets
+            f"{tracecat_ui_secrets[secret].arn}-*" for secret in tracecat_ui_secrets
         ]
         api_execution_role.attach_inline_policy(
             policy=iam.Policy(
@@ -216,10 +216,23 @@ class FargateStack(Stack):
             log_group_name="/ecs/tracecat",
             removal_policy=RemovalPolicy.DESTROY,
         )
-        log_group.grant_write(api_execution_role)
-        log_group.grant_write(worker_execution_role)
-        log_group.grant_write(ui_execution_role)
-        log_group.grant_write(temporal_execution_role)
+        iam.Policy(
+            self,
+            "TracecatLogPolicy",
+            statements=[
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["logs:CreateLogStream", "logs:PutLogEvents"],
+                    resources=[log_group.log_group_arn],
+                )
+            ],
+            roles=[
+                api_execution_role,
+                worker_execution_role,
+                ui_execution_role,
+                temporal_execution_role,
+            ],
+        )
 
         # NOTE: Change the capacity according to your needs
         # We use spot instances by default to reduce costs
