@@ -181,14 +181,14 @@ class FargateStack(Stack):
         ### API Service
         api_task_definition = ecs.FargateTaskDefinition(
             self,
-            "ApiTaskDefinition",
+            "TracecatApiTaskDefinition",
             cpu=TRACECAT_API_CPU,
             memory_limit_mib=TRACECAT_API_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
         api_task_definition.add_container(  # noqa
-            "ApiContainer",
+            "TracecatApiContainer",
             image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
             environment={
                 **tracecat_environment,
@@ -222,14 +222,14 @@ class FargateStack(Stack):
         ### Worker Service
         worker_task_definition = ecs.FargateTaskDefinition(
             self,
-            "WorkerTaskDefinition",
+            "TracecatWorkerTaskDefinition",
             cpu=TRACECAT_WORKER_CPU,
             memory_limit_mib=TRACECAT_WORKER_RAM,
             execution_role=execution_role,
             task_role=task_role,
         )
         worker_task_definition.add_container(  # noqa
-            "WorkerContainer",
+            "TracecatWorkerContainer",
             image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
             environment=tracecat_environment,
             secrets=tracecat_secrets,
