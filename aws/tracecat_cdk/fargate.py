@@ -377,8 +377,10 @@ class FargateStack(Stack):
         core_database.connections.allow_default_port_from(
             api_fargate_service.connections
         )
-        core_database.grant_connect(api_task_definition.task_role)
+        core_database.grant_connect(api_task_definition.task_role, db_user="postgres")
         temporal_database.connections.allow_default_port_from(
             temporal_service.connections
         )
-        temporal_database.grant_connect(temporal_task_definition.task_role)
+        temporal_database.grant_connect(
+            temporal_task_definition.task_role, db_user="postgres"
+        )
