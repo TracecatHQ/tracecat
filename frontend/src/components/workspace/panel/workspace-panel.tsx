@@ -14,7 +14,6 @@ import { TriggerPanel } from "@/components/workspace/panel/trigger-panel"
 import { UDFActionPanel } from "@/components/workspace/panel/udf-panel"
 import { WorkflowControlsForm } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
-import { WorkflowRunsView } from "@/components/workspace/panel/workflow/runs"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -46,7 +45,6 @@ function Inner({
     <div>
       <WorkflowForm workflow={workflow} />
       <WorkflowControlsForm workflow={workflow} />
-      <WorkflowRunsView workflowId={workflow.id} />
     </div>
   )
 }
