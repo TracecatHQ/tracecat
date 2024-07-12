@@ -230,7 +230,8 @@ class FargateStack(Stack):
             self,
             "TracecatLogGroup",
             log_group_name="/ecs/tracecat",
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.RETAIN,
+            retention=logs.RetentionDays.ONE_WEEK,
         )
         iam.Policy(
             self,
