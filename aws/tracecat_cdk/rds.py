@@ -56,10 +56,9 @@ class RdsStack(Stack):
                 multi_az=True,
                 allocated_storage=allocated_storage,
                 storage_type=STORAGE_TYPE,
-                credentials={
-                    "username": "postgres",
-                    "password": db_secret.secret_value,
-                },
+                credentials=rds.Credentials.from_password(
+                    username="postgres", password=db_secret.secret_value
+                ),
                 deletion_protection=True,
                 database_name=db_name,
                 backup_retention=BACKUP_RETENTION,
