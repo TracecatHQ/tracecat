@@ -38,9 +38,11 @@ class FargateStack(Stack):
         core_database: rds.DatabaseInstance,
         core_db_secret: secretsmanager.Secret,
         core_security_group: ec2.SecurityGroup,
+        core_db_security_group: ec2.SecurityGroup,
         temporal_database: rds.DatabaseInstance,
         temporal_db_secret: secretsmanager.Secret,
         temporal_security_group: ec2.SecurityGroup,
+        temporal_db_security_group: ec2.SecurityGroup,
         **kwargs,
     ) -> None:
         super().__init__(scope, id, **kwargs)
@@ -213,7 +215,11 @@ class FargateStack(Stack):
             service_name="tracecat-api",
             # Attach the security group to your ECS service
             task_definition=api_task_definition,
-            security_groups=[core_security_group, temporal_security_group],
+            security_groups=[
+                core_security_group,
+                temporal_security_group,
+                core_db_security_group,
+            ],
             service_connect_configuration=api_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
@@ -341,7 +347,7 @@ class FargateStack(Stack):
             service_name="temporal-server",
             # Attach the security group to your ECS service
             task_definition=temporal_task_definition,
-            security_groups=[temporal_security_group],
+            security_groups=[temporal_security_group, temporal_db_security_group],
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 

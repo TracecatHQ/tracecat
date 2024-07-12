@@ -44,11 +44,6 @@ class VpcStack(Stack):
             connection=ec2.Port.tcp(3000),
             description="Allow internal traffic to the Tracecat UI service on port 3000",
         )
-        core_security_group.add_ingress_rule(
-            peer=core_security_group,
-            connection=ec2.Port.tcp(5432),
-            description="Allow internal traffic to the Tracecat RDS instance on port 5432",
-        )
 
         # Create security group for Temporal services
         temporal_security_group = ec2.SecurityGroup(
@@ -67,11 +62,6 @@ class VpcStack(Stack):
             peer=temporal_security_group,
             connection=ec2.Port.tcp(7233),
             description="Allow internal traffic to the Temporal server on port 7233",
-        )
-        temporal_security_group.add_ingress_rule(
-            peer=temporal_security_group,
-            connection=ec2.Port.tcp(5432),
-            description="Allow internal traffic to the Temporal RDS instance on port 5432",
         )
         temporal_security_group.add_ingress_rule(
             peer=temporal_security_group,

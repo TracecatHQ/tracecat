@@ -24,11 +24,35 @@ class RdsStack(Stack):
         scope: Construct,
         id: str,
         vpc: ec2.Vpc,
-        core_security_group: ec2.SecurityGroup,
-        temporal_security_group: ec2.SecurityGroup,
         **kwargs,
     ) -> None:
         super().__init__(scope, id, **kwargs)
+
+        # Create security group for API to RDS communication
+        core_db_security_group = ec2.SecurityGroup(
+            self,
+            "CoreDbSecurityGroup",
+            vpc=vpc,
+            description="Security group for Tracecat API to RDS communication",
+        )
+        core_db_security_group.add_ingress_rule(
+            peer=ec2.Peer.ipv4(vpc.vpc_cidr_block),
+            connection=ec2.Port.tcp(5432),
+            description="Allow inbound traffic to PostgreSQL database on port 5432",
+        )
+
+        # CReate security group for Temporal to RDS communication
+        temporal_db_security_group = ec2.SecurityGroup(
+            self,
+            "TemporalDbSecurityGroup",
+            vpc=vpc,
+            description="Security group for Temporal to RDS communication",
+        )
+        temporal_db_security_group.add_ingress_rule(
+            peer=ec2.Peer.ipv4(vpc.vpc_cidr_block),
+            connection=ec2.Port.tcp(5432),
+            description="Allow inbound traffic to PostgreSQL database on port 5432",
+        )
 
         def create_rds_instance(
             instance_name: str,
@@ -80,7 +104,7 @@ class RdsStack(Stack):
             engine_version=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_16
             ),
-            security_group=core_security_group,
+            security_group=core_db_security_group,
         )
         self.core_database = tracecat_database
         self.core_db_secret = tracecat_db_secret
@@ -93,7 +117,10 @@ class RdsStack(Stack):
             engine_version=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_13
             ),
-            security_group=temporal_security_group,
+            security_group=temporal_db_security_group,
         )
         self.temporal_database = temporal_database
         self.temporal_db_secret = temporal_db_secret
+
+        self.core_db_security_group = core_db_security_group
+        self.temporal_db_security_group = temporal_db_security_group

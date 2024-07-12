@@ -19,8 +19,6 @@ rds = RdsStack(
     scope=app,
     id="TracecatRdsStack",
     vpc=vpc.vpc,
-    core_security_group=vpc.core_security_group,
-    temporal_security_group=vpc.temporal_security_group,
     env=env,
 )
 fargate = FargateStack(
@@ -31,9 +29,11 @@ fargate = FargateStack(
     core_database=rds.core_database,
     core_db_secret=rds.core_db_secret,
     core_security_group=vpc.core_security_group,
+    core_db_security_group=rds.core_db_security_group,
     temporal_database=rds.temporal_database,
     temporal_db_secret=rds.temporal_db_secret,
     temporal_security_group=vpc.temporal_security_group,
+    temporal_db_security_group=rds.temporal_db_security_group,
     env=env,
 )
 alb = AlbStack(
