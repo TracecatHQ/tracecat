@@ -99,7 +99,7 @@ class RdsStack(Stack):
         tracecat_database, tracecat_db_secret = create_rds_instance(
             "TracecatRDSInstance",
             db_name="tracecat",
-            password_secret_name=os.environ["TRACECAT__DB_PASS_NAME"],
+            password_secret_name=os.environ["TRACECAT_DB_PASS_NAME"],
             allocated_storage=10,
             engine_version=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_16
@@ -112,7 +112,7 @@ class RdsStack(Stack):
         temporal_database, temporal_db_secret = create_rds_instance(
             "TemporalRDSInstance",
             db_name="temporal",
-            password_secret_name=os.environ["TEMPORAL__DB_PASS_NAME"],
+            password_secret_name=os.environ["TEMPORAL_DB_PASS_NAME"],
             allocated_storage=5,
             engine_version=rds.DatabaseInstanceEngine.postgres(
                 version=rds.PostgresEngineVersion.VER_13
