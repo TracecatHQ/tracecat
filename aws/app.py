@@ -46,7 +46,5 @@ alb = AlbStack(
     api_certificate=route53.api_certificate,
     ui_fargate_service=fargate.ui_fargate_service,
     api_fargate_service=fargate.api_fargate_service,
-    ui_target_group=fargate.ui_target_group,
-    api_target_group=fargate.api_target_group,
     env=env,
 )

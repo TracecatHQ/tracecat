@@ -22,8 +22,6 @@ class AlbStack(Stack):
         api_certificate: acm.Certificate,
         ui_fargate_service: ecs.FargateService,
         api_fargate_service: ecs.FargateService,
-        ui_target_group: elbv2.ApplicationTargetGroup,
-        api_target_group: elbv2.ApplicationTargetGroup,
         **kwargs,
     ):
         super().__init__(scope, id, **kwargs)
