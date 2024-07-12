@@ -164,6 +164,21 @@ jobs:
           # CIDR blocks (allow all IP addresses)
           ALB_ALLOWED_CIDR_BLOCKS: "0.0.0.0/0"
         run: |
+
+          # Mask secrets
+          echo "::add-mask::${AWS_DEFAULT_ACCOUNT}"
+          echo "::add-mask::${AWS_DEFAULT_REGION}"
+          echo "::add-mask::${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+          echo "::add-mask::${POSTHOG_KEY}"
+          echo "::add-mask::${DB_ENCRYPTION_KEY_NAME}"
+          echo "::add-mask::${SERVICE_KEY_NAME}"
+          echo "::add-mask::${SIGNING_SECRET_NAME}"
+          echo "::add-mask::${CLERK_SECRET_KEY_NAME}"
+          echo "::add-mask::${TRACECAT__DB_PASS_NAME}"
+          echo "::add-mask::${TEMPORAL__DB_PASS_NAME}"
+          echo "::add-mask::${CERTIFICATE_ARN}"
+          echo "::add-mask::${API_CERTIFICATE_ARN}"
+
           cd aws
           pip install .
           cdk synth --app "python3 app.py"
