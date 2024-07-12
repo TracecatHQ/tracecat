@@ -109,14 +109,29 @@ jobs:
         id: get-sha
         run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
 
+      - name: Get image tag
+        id: set-image-tag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "TRACECAT__IMAGE_TAG=main" >> $GITHUB_ENV
+            elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              version_tag=${{ github.ref }}
+              version_tag=${version_tag#refs/tags/}
+              echo "TRACECAT__IMAGE_TAG=${version_tag}" >> $GITHUB_ENV
+            fi
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "TRACECAT__IMAGE_TAG=latest" >> $GITHUB_ENV
+          fi
+
       - name: CDK synth, bootstrap and deploy
         env:
           # General
           LOG_LEVEL: info
           AWS_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-          # "main" if trigger on main, else get version from tag
-          TRACECAT__VERSION: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref_name }}
+          # "main" if trigger on main, else use latest tag
+          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG}}
           # Backend
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000

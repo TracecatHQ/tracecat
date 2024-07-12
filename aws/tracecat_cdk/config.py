@@ -5,9 +5,9 @@ import os
 # single security group with no external internet access
 
 # Used to pull Tracecat image from ghcr via the version tag
-TRACECAT_VERSION = os.getenv("TRACECAT__VERSION", "latest")
-TRACECAT_IMAGE = f"ghcr.io/tracecathq/tracecat:{TRACECAT_VERSION}"
-TRACECAT_UI_IMAGE = f"ghcr.io/tracecathq/tracecat-ui:{TRACECAT_VERSION}"
+TRACECAT_IMAGE_TAG = os.getenv("TRACECAT__IMAGE_TAG", "latest")
+TRACECAT_IMAGE = f"ghcr.io/tracecathq/tracecat:{TRACECAT_IMAGE_TAG}"
+TRACECAT_UI_IMAGE = f"ghcr.io/tracecathq/tracecat-ui:{TRACECAT_IMAGE_TAG}"
 
 # Temporal images
 TEMPORAL_VERSION = os.getenv("TEMPORAL__VERSION", "latest")
