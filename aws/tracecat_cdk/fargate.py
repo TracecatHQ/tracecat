@@ -410,6 +410,7 @@ class FargateStack(Stack):
                 "NEXT_PUBLIC_CLERK_SIGN_OUT_URL"
             ],
             "NEXT_PUBLIC_DISABLE_AUTH": os.environ["NEXT_PUBLIC_DISABLE_AUTH"],
+            "NEXT_PUBLIC_POSTHOG_KEY": os.environ["NEXT_PUBLIC_POSTHOG_KEY"],
             "NEXT_SERVER_API_URL": os.environ["NEXT_SERVER_API_URL"],
             "NODE_ENV": os.environ["NODE_ENV"],
         }
