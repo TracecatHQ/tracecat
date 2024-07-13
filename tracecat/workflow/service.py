@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from collections.abc import AsyncGenerator
 
 import orjson
@@ -106,7 +107,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
                             task_id=event.task_id,
                         )
@@ -115,7 +116,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_COMPLETED,
                             task_id=event.task_id,
                         )
@@ -124,7 +125,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_FAILED,
                             task_id=event.task_id,
                             failure=EventFailure.from_history_event(event),
@@ -136,7 +137,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_SCHEDULED,
                             task_id=event.task_id,
                             event_group=action_event_group,
@@ -152,7 +153,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_STARTED,
                             task_id=event.task_id,
                             event_group=action_event_group,
@@ -171,7 +172,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_COMPLETED,
                             task_id=event.task_id,
                             event_group=action_event_group,
@@ -187,7 +188,7 @@ class WorkflowExecutionsService:
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(),
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_FAILED,
                             task_id=event.task_id,
                             event_group=action_event_group,
