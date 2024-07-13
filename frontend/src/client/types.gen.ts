@@ -280,6 +280,20 @@ export type CreateUserParams = {
 
 export type tier = 'free' | 'pro' | 'enterprise';
 
+export type CreateWorkflowExecutionParams = {
+    workflow_id: string;
+    inputs?: {
+    [key: string]: unknown;
+} | null;
+    enable_runtime_tests?: boolean;
+};
+
+export type CreateWorkflowExecutionResponse = {
+    message: string;
+    wf_id: string;
+    wf_exec_id: string;
+};
+
 export type CreateWorkflowParams = {
     title?: string | null;
     description?: string | null;
@@ -334,6 +348,7 @@ export type EventHistoryResponse = {
     event_group?: EventGroup | null;
     failure?: EventFailure | null;
     result?: unknown | null;
+    role?: Role | null;
 };
 
 /**
@@ -477,12 +492,6 @@ export type SecretResponse = {
     keys: Array<(string)>;
 };
 
-export type StartWorkflowResponse = {
-    status: string;
-    message: string;
-    id: string;
-};
-
 export type Suppression = {
     condition: string;
     result: string;
@@ -492,13 +501,6 @@ export type Tag = {
     tag: string;
     value: string;
     is_ai_generated?: boolean;
-};
-
-export type TriggerWorkflowRunParams = {
-    action_key: string;
-    payload: {
-        [key: string]: unknown;
-    };
 };
 
 export type UDFActionInput = {
@@ -771,7 +773,7 @@ export type PublicIncomingWebhookData = {
     xTracecatEnableRuntimeTests?: string | null;
 };
 
-export type PublicIncomingWebhookResponse = unknown;
+export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse;
 
 export type PublicWebhookCallbackData = {
     service: string;
@@ -839,6 +841,12 @@ export type WorkflowExecutionsListWorkflowExecutionsData = {
 
 export type WorkflowExecutionsListWorkflowExecutionsResponse = Array<WorkflowExecutionResponse>;
 
+export type WorkflowExecutionsCreateWorkflowExecutionData = {
+    requestBody: CreateWorkflowExecutionParams;
+};
+
+export type WorkflowExecutionsCreateWorkflowExecutionResponse = CreateWorkflowExecutionResponse;
+
 export type WorkflowExecutionsGetWorkflowExecutionData = {
     executionId: string;
 };
@@ -850,13 +858,6 @@ export type WorkflowExecutionsListWorkflowExecutionEventHistoryData = {
 };
 
 export type WorkflowExecutionsListWorkflowExecutionEventHistoryResponse = Array<EventHistoryResponse>;
-
-export type WorkflowsTriggerWorkflowRunData = {
-    requestBody: TriggerWorkflowRunParams;
-    workflowId: string;
-};
-
-export type WorkflowsTriggerWorkflowRunResponse = StartWorkflowResponse;
 
 export type TriggersCreateWebhookData = {
     requestBody: UpsertWebhookParams;
@@ -1146,7 +1147,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: unknown;
+                200: CreateWorkflowExecutionResponse;
                 /**
                  * Validation Error
                  */
@@ -1299,6 +1300,19 @@ export type $OpenApiTs = {
                 422: HTTPValidationError;
             };
         };
+        post: {
+            req: WorkflowExecutionsCreateWorkflowExecutionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: CreateWorkflowExecutionResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
     };
     '/workflow-executions/{execution_id}': {
         get: {
@@ -1323,21 +1337,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: Array<EventHistoryResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/controls/trigger': {
-        post: {
-            req: WorkflowsTriggerWorkflowRunData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: StartWorkflowResponse;
                 /**
                  * Validation Error
                  */

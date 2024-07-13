@@ -894,6 +894,57 @@ export const $CreateUserParams = {
     title: 'CreateUserParams'
 } as const;
 
+export const $CreateWorkflowExecutionParams = {
+    properties: {
+        workflow_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Workflow Id'
+        },
+        inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inputs'
+        },
+        enable_runtime_tests: {
+            type: 'boolean',
+            title: 'Enable Runtime Tests',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['workflow_id'],
+    title: 'CreateWorkflowExecutionParams'
+} as const;
+
+export const $CreateWorkflowExecutionResponse = {
+    properties: {
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        wf_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Wf Id'
+        },
+        wf_exec_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+',
+            title: 'Wf Exec Id'
+        }
+    },
+    type: 'object',
+    required: ['message', 'wf_id', 'wf_exec_id'],
+    title: 'CreateWorkflowExecutionResponse'
+} as const;
+
 export const $CreateWorkflowParams = {
     properties: {
         title: {
@@ -1105,6 +1156,16 @@ export const $EventHistoryResponse = {
                 }
             ],
             title: 'Result'
+        },
+        role: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/Role'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',
@@ -1628,26 +1689,6 @@ export const $SecretResponse = {
     title: 'SecretResponse'
 } as const;
 
-export const $StartWorkflowResponse = {
-    properties: {
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        message: {
-            type: 'string',
-            title: 'Message'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        }
-    },
-    type: 'object',
-    required: ['status', 'message', 'id'],
-    title: 'StartWorkflowResponse'
-} as const;
-
 export const $Suppression = {
     properties: {
         condition: {
@@ -1683,22 +1724,6 @@ export const $Tag = {
     type: 'object',
     required: ['tag', 'value'],
     title: 'Tag'
-} as const;
-
-export const $TriggerWorkflowRunParams = {
-    properties: {
-        action_key: {
-            type: 'string',
-            title: 'Action Key'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        }
-    },
-    type: 'object',
-    required: ['action_key', 'payload'],
-    title: 'TriggerWorkflowRunParams'
 } as const;
 
 export const $UDFActionInput = {

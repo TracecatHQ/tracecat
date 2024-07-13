@@ -115,12 +115,19 @@ class WorkflowExecutionsService:
         for event in history.events:
             match event.event_type:
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                    run_args_data = orjson.loads(
+                        event.workflow_execution_started_event_attributes.input.payloads[
+                            0
+                        ].data
+                    )
+                    dsl_run_args = DSLRunArgs(**run_args_data)
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
                             task_id=event.task_id,
+                            role=dsl_run_args.role,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:

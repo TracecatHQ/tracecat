@@ -19,6 +19,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
 from tracecat.dsl.workflow import DSLContext, UDFActionInput
+from tracecat.types.auth import Role
 
 WorkflowExecutionStatusLiteral = Literal[
     "RUNNING",
@@ -173,6 +174,7 @@ class EventHistoryResponse(BaseModel):
     )
     failure: EventFailure | None = None
     result: Any | None = None
+    role: Role | None = None
 
 
 class CreateWorkflowExecutionParams(BaseModel):
