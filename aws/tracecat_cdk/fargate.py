@@ -328,6 +328,7 @@ class FargateStack(Stack):
             image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
             environment={
                 **tracecat_environment,
+                "TRACECAT__ALLOW_ORIGINS": os.environ["TRACECAT__ALLOW_ORIGINS"],
                 "CLERK_FRONTEND_API_URL": os.environ["CLERK_FRONTEND_API_URL"],
             },
             secrets=tracecat_secrets,
@@ -462,7 +463,7 @@ class FargateStack(Stack):
             environment={
                 "LOG_LEVEL": os.environ["LOG_LEVEL"].lower(),
                 "POSTGRES_USER": "postgres",
-                "DB": "temporal",
+                "DB": "postgres12",  # Database driver for temporal
                 "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
             },

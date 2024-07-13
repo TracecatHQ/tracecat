@@ -134,6 +134,7 @@ jobs:
           # "main" if trigger on main, else use latest tag
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG}}
           # Backend
+          TRACECAT__ALLOW_ORIGINS: ${{ vars.TRACECAT__ALLOW_ORIGINS }}
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000
           TRACECAT__APP_URL: ${{ vars.APP_URL }}
