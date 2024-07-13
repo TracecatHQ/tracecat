@@ -4,7 +4,6 @@ import {
   createRouteMatcher,
   type ClerkMiddlewareAuth,
 } from "@clerk/nextjs/server"
-import { get } from "@vercel/edge-config"
 
 const isProtectedRoute = createRouteMatcher([
   "/workflows(.*)",
@@ -15,16 +14,6 @@ const isProtectedRoute = createRouteMatcher([
 
 export default clerkMiddleware(
   async (auth: ClerkMiddlewareAuth, req: NextRequest) => {
-    // ** Site down **
-    if (
-      process.env.NEXT_PUBLIC_APP_ENV === "production" &&
-      (await get("isUnderMaintenance"))
-    ) {
-      req.nextUrl.pathname = "/status"
-      console.log("Redirecting to status page")
-      return NextResponse.rewrite(req.nextUrl)
-    }
-
     const { userId, sessionClaims, redirectToSignIn } = auth()
     const isProtected = isProtectedRoute(req)
 
