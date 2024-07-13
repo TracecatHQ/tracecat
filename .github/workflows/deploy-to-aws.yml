@@ -14,6 +14,10 @@ on:
       - aws/app.py
       - .github/workflows/deploy-to-aws.yml
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   create-secrets:
     name: Create AWS Secrets
