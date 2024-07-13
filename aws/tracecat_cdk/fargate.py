@@ -286,6 +286,20 @@ class FargateStack(Stack):
                 stream_prefix="service-connect-worker", log_group=log_group
             ),
         )
+        temporal_service_connect = ecs.ServiceConnectProps(
+            services=[
+                ecs.ServiceConnectService(
+                    port_mapping_name="temporal",
+                    dns_name="temporal-service",
+                    port=7233,
+                    idle_timeout=Duration.minutes(15),
+                )
+            ],
+            namespace=dns_namespace.namespace_name,
+            log_driver=ecs.LogDrivers.aws_logs(
+                stream_prefix="service-connect-temporal", log_group=log_group
+            ),
+        )
 
         ### Shared API / worker environment
         tracecat_environment = {
@@ -446,11 +460,22 @@ class FargateStack(Stack):
             image=ecs.ContainerImage.from_registry(name=TEMPORAL_SERVER_IMAGE),
             secrets=temporal_secrets,
             environment={
+                "LOG_LEVEL": os.environ["LOG_LEVEL"].lower(),
                 "POSTGRES_USER": "postgres",
                 "DB": "temporal",
                 "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
             },
+            port_mappings=[
+                ecs.PortMapping(
+                    container_port=7233,
+                    name="temporal",
+                    app_protocol=ecs.AppProtocol.http,
+                )
+            ],
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="temporal", log_group=log_group
+            ),
         )
         temporal_service = ecs.FargateService(
             self,
@@ -460,6 +485,7 @@ class FargateStack(Stack):
             # Attach the security group to your ECS service
             task_definition=temporal_task_definition,
             security_groups=[temporal_security_group, temporal_db_security_group],
+            service_connect_configuration=temporal_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
@@ -479,6 +505,16 @@ class FargateStack(Stack):
                 "TEMPORAL_ADDRESS": "http://temporal-server-service:7233",
                 "TEMPORAL_CORS_ORIGIN": "http://temporal-ui-service:8080",
             },
+            port_mappings=[
+                ecs.PortMapping(
+                    container_port=8080,
+                    name="temporal-ui",
+                    app_protocol=ecs.AppProtocol.http,
+                )
+            ],
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="temporal-ui", log_group=log_group
+            ),
         )
         ecs.FargateService(
             self,
