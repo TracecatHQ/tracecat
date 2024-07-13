@@ -13,15 +13,15 @@ Only AWS is currently supported, but we plan to support Azure and GCP in the nea
 - AWS account
 - AWS CDK CLI
 - Permissions to run AWS CDK
-- Route53 hosted zone for the app e.g. `tracecat.com`
+- Route53 hosted zone for the application e.g. `app.tracecat.com`
 - Route53 hosted zone for the API e.g. `api.tracecat.com`
 - AWS certificate for the app domain
 - AWS certificate for the API domain
 
 ### Resources Deployed
 
-- VPC
-- Fargate with 4x services:
+- 1x VPC
+- 1x Fargate with 4x services:
   - Tracecat API
   - Tracecat Worker
   - Tracecat UI
@@ -31,10 +31,11 @@ Only AWS is currently supported, but we plan to support Azure and GCP in the nea
   - Temporal server with Tracecat worker
   - Tracecat API with Tracecat RDS instance
   - Temporal server with Temporal RDS instance
-- Application Load Balancer
-  - Tracecat UI is exposed via the app domain
+- 1x Application Load Balancer
+  - Tracecat UI is exposed via the application domain
   - Tracecat API is exposed via the API domain
 - 2x RDS postgres instances
+- 1x ECR repository for UI image
 - S3 bucket
 
 ### Installation
