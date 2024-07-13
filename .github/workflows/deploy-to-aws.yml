@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
-    needs: [create-secrets, push-api-to-ghcr]
+    needs: create-secrets
     env:
       CDK_VERSION: 2.147
     permissions:
