@@ -72,6 +72,106 @@ export const $ActionResponse = {
     title: 'ActionResponse'
 } as const;
 
+export const $ActionStatement = {
+    properties: {
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref',
+            description: 'Unique reference for the task'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            default: ''
+        },
+        action: {
+            type: 'string',
+            pattern: '^[a-z0-9_.]+$',
+            title: 'Action',
+            description: 'Action type. Equivalent to the UDF key.'
+        },
+        args: {
+            type: 'object',
+            title: 'Args',
+            description: 'Arguments for the action'
+        },
+        depends_on: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Depends On',
+            description: 'Task dependencies'
+        },
+        run_if: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run If',
+            description: 'Condition to run the task'
+        },
+        for_each: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'For Each',
+            description: 'Iterate over a list of items and run the task for each item.'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action'],
+    title: 'ActionStatement'
+} as const;
+
+export const $ActionTest = {
+    properties: {
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref',
+            description: 'Action reference'
+        },
+        enable: {
+            type: 'boolean',
+            title: 'Enable',
+            default: true
+        },
+        validate_args: {
+            type: 'boolean',
+            title: 'Validate Args',
+            default: true
+        },
+        success: {
+            title: 'Success',
+            description: "Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used."
+        },
+        failure: {
+            title: 'Failure',
+            description: 'Patched failure output'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'success'],
+    title: 'ActionTest'
+} as const;
+
 export const $Body_cases_streaming_autofill_case_fields = {
     properties: {
         cases: {
@@ -868,6 +968,96 @@ export const $Event = {
     title: 'Event'
 } as const;
 
+export const $EventFailure = {
+    properties: {
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        stack_trace: {
+            type: 'string',
+            title: 'Stack Trace'
+        },
+        cause: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cause'
+        },
+        application_failure_info: {
+            type: 'object',
+            title: 'Application Failure Info'
+        }
+    },
+    type: 'object',
+    required: ['message', 'stack_trace'],
+    title: 'EventFailure'
+} as const;
+
+export const $EventGroup = {
+    properties: {
+        event_id: {
+            type: 'integer',
+            title: 'Event Id'
+        },
+        udf_namespace: {
+            type: 'string',
+            title: 'Udf Namespace'
+        },
+        udf_name: {
+            type: 'string',
+            title: 'Udf Name'
+        },
+        udf_key: {
+            type: 'string',
+            title: 'Udf Key'
+        },
+        action_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Action Id'
+        },
+        action_ref: {
+            type: 'string',
+            title: 'Action Ref'
+        },
+        action_title: {
+            type: 'string',
+            title: 'Action Title'
+        },
+        action_description: {
+            type: 'string',
+            title: 'Action Description'
+        },
+        action_input: {
+            '$ref': '#/components/schemas/UDFActionInput'
+        },
+        action_result: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Action Result'
+        }
+    },
+    type: 'object',
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input'],
+    title: 'EventGroup'
+} as const;
+
 export const $EventHistoryResponse = {
     properties: {
         event_id: {
@@ -886,12 +1076,39 @@ export const $EventHistoryResponse = {
             type: 'integer',
             title: 'Task Id'
         },
-        details: {
-            title: 'Details'
+        event_group: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/EventGroup'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            description: 'The action group of the event. We use this to keep track of what events are related to each other.'
+        },
+        failure: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/EventFailure'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        result: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Result'
         }
     },
     type: 'object',
-    required: ['event_id', 'event_time', 'event_type', 'task_id', 'details'],
+    required: ['event_id', 'event_time', 'event_type', 'task_id'],
     title: 'EventHistoryResponse'
 } as const;
 
@@ -971,6 +1188,12 @@ export const $EventSearchParams = {
     title: 'EventSearchParams'
 } as const;
 
+export const $ExprContext = {
+    type: 'string',
+    enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var'],
+    title: 'ExprContext'
+} as const;
+
 export const $HTTPValidationError = {
     properties: {
         detail: {
@@ -1015,6 +1238,89 @@ export const $ListModel_Tag_ = {
     },
     type: 'array',
     title: 'ListModel[Tag]'
+} as const;
+
+export const $Role = {
+    properties: {
+        type: {
+            type: 'string',
+            enum: ['user', 'service'],
+            title: 'Type'
+        },
+        user_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Id'
+        },
+        service_id: {
+            type: 'string',
+            title: 'Service Id'
+        }
+    },
+    type: 'object',
+    required: ['type', 'service_id'],
+    title: 'Role',
+    description: `The role of the session.
+
+Params
+------
+type : Literal["user", "service"]
+    The type of role.
+user_id : str | None
+    The user's JWT 'sub' claim, or the service's user_id.
+    This can be None for internal services, or when a user hasn't been set for the role.
+service_id : str | None = None
+    The service's role name, or None if the role is a user.
+
+
+User roles
+----------
+- User roles are authenticated via JWT.
+- The \`user_id\` is the user's JWT 'sub' claim.
+- User roles do not have an associated \`service_id\`, this must be None.
+
+Service roles
+-------------
+- Service roles are authenticated via API key.
+- Used for internal services to authenticate with the API.
+- A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`
+} as const;
+
+export const $RunContext = {
+    properties: {
+        wf_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Wf Id'
+        },
+        wf_exec_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
+                },
+                {
+                    type: 'string',
+                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}'
+                }
+            ],
+            title: 'Wf Exec Id'
+        },
+        wf_run_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Wf Run Id'
+        }
+    },
+    type: 'object',
+    required: ['wf_id', 'wf_exec_id', 'wf_run_id'],
+    title: 'RunContext'
 } as const;
 
 export const $Schedule = {
@@ -1393,6 +1699,40 @@ export const $TriggerWorkflowRunParams = {
     type: 'object',
     required: ['action_key', 'payload'],
     title: 'TriggerWorkflowRunParams'
+} as const;
+
+export const $UDFActionInput = {
+    properties: {
+        task: {
+            '$ref': '#/components/schemas/ActionStatement'
+        },
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        exec_context: {
+            additionalProperties: {
+                type: 'object'
+            },
+            type: 'object',
+            title: 'Exec Context'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        },
+        action_test: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ActionTest'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'UDFActionInput'
 } as const;
 
 export const $UDFArgsValidationResponse = {

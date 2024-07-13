@@ -22,6 +22,53 @@ export type ActionResponse = {
     key: string;
 };
 
+export type ActionStatement = {
+    /**
+     * Unique reference for the task
+     */
+    ref: string;
+    description?: string;
+    /**
+     * Action type. Equivalent to the UDF key.
+     */
+    action: string;
+    /**
+     * Arguments for the action
+     */
+    args?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Task dependencies
+     */
+    depends_on?: Array<(string)>;
+    /**
+     * Condition to run the task
+     */
+    run_if?: string | null;
+    /**
+     * Iterate over a list of items and run the task for each item.
+     */
+    for_each?: string | Array<(string)> | null;
+};
+
+export type ActionTest = {
+    /**
+     * Action reference
+     */
+    ref: string;
+    enable?: boolean;
+    validate_args?: boolean;
+    /**
+     * Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used.
+     */
+    success: unknown;
+    /**
+     * Patched failure output
+     */
+    failure?: unknown;
+};
+
 export type Body_cases_streaming_autofill_case_fields = {
     cases: Array<Case_Input>;
     fields: Array<(string)>;
@@ -252,12 +299,41 @@ export type Event = {
     };
 };
 
+export type EventFailure = {
+    message: string;
+    stack_trace: string;
+    cause?: {
+    [key: string]: unknown;
+} | null;
+    application_failure_info?: {
+        [key: string]: unknown;
+    };
+};
+
+export type EventGroup = {
+    event_id: number;
+    udf_namespace: string;
+    udf_name: string;
+    udf_key: string;
+    action_id: string | null;
+    action_ref: string;
+    action_title: string;
+    action_description: string;
+    action_input: UDFActionInput;
+    action_result?: unknown | null;
+};
+
 export type EventHistoryResponse = {
     event_id: number;
     event_time: string;
     event_type: EventHistoryType;
     task_id: number;
-    details: unknown;
+    /**
+     * The action group of the event. We use this to keep track of what events are related to each other.
+     */
+    event_group?: EventGroup | null;
+    failure?: EventFailure | null;
+    result?: unknown | null;
 };
 
 /**
@@ -275,6 +351,8 @@ export type EventSearchParams = {
     agg?: string | null;
 };
 
+export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -286,6 +364,46 @@ export type ListModel_CaseContext__Output = Array<tracecat__types__api__CaseCont
 export type ListModel_Suppression_ = Array<Suppression>;
 
 export type ListModel_Tag_ = Array<Tag>;
+
+/**
+ * The role of the session.
+ *
+ * Params
+ * ------
+ * type : Literal["user", "service"]
+ * The type of role.
+ * user_id : str | None
+ * The user's JWT 'sub' claim, or the service's user_id.
+ * This can be None for internal services, or when a user hasn't been set for the role.
+ * service_id : str | None = None
+ * The service's role name, or None if the role is a user.
+ *
+ *
+ * User roles
+ * ----------
+ * - User roles are authenticated via JWT.
+ * - The `user_id` is the user's JWT 'sub' claim.
+ * - User roles do not have an associated `service_id`, this must be None.
+ *
+ * Service roles
+ * -------------
+ * - Service roles are authenticated via API key.
+ * - Used for internal services to authenticate with the API.
+ * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
+ */
+export type Role = {
+    type: 'user' | 'service';
+    user_id?: string | null;
+    service_id: string;
+};
+
+export type type = 'user' | 'service';
+
+export type RunContext = {
+    wf_id: string;
+    wf_exec_id: string;
+    wf_run_id: string;
+};
 
 export type Schedule = {
     owner_id: string;
@@ -381,6 +499,18 @@ export type TriggerWorkflowRunParams = {
     payload: {
         [key: string]: unknown;
     };
+};
+
+export type UDFActionInput = {
+    task: ActionStatement;
+    role: Role;
+    exec_context: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    run_context: RunContext;
+    action_test?: ActionTest | null;
 };
 
 export type UDFArgsValidationResponse = {
