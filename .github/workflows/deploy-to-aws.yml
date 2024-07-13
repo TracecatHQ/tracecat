@@ -127,7 +127,7 @@ jobs:
               echo "TRACECAT__IMAGE_TAG=${version_tag}" >> $GITHUB_ENV
             fi
           elif [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "TRACECAT__IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+            echo "TRACECAT__IMAGE_TAG=latest" >> $GITHUB_ENV
           fi
 
       - name: CDK synth, bootstrap and deploy
