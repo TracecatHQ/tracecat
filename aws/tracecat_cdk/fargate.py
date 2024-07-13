@@ -390,7 +390,11 @@ class FargateStack(Stack):
             service_name="tracecat-worker",
             # Attach the security group to your ECS service
             task_definition=worker_task_definition,
-            security_groups=[core_security_group, temporal_security_group],
+            security_groups=[
+                core_security_group,
+                core_db_security_group,
+                temporal_security_group,
+            ],
             service_connect_configuration=worker_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
