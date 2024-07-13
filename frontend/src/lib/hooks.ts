@@ -1,4 +1,10 @@
 import { useEffect, useState } from "react"
+import {
+  EventHistoryResponse,
+  WorkflowExecutionResponse,
+  workflowExecutionsListWorkflowExecutionEventHistory,
+  workflowExecutionsListWorkflowExecutions,
+} from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
@@ -251,4 +257,42 @@ export function usePlaybooks() {
     queryFn: fetchAllPlaybooks,
   })
   return query
+}
+
+export function useWorkflowExecutions(workflowId: string) {
+  const {
+    data: workflowExecutions,
+    isLoading: workflowExecutionsIsLoading,
+    error: workflowExecutionsError,
+  } = useQuery<WorkflowExecutionResponse[], Error>({
+    queryKey: ["workflow-executions", workflowId],
+    queryFn: async () =>
+      await workflowExecutionsListWorkflowExecutions({
+        workflowId,
+      }),
+  })
+  return {
+    workflowExecutions,
+    workflowExecutionsIsLoading,
+    workflowExecutionsError,
+  }
+}
+
+export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
+  const {
+    data: eventHistory,
+    isLoading: eventHistoryLoading,
+    error: eventHistoryError,
+  } = useQuery<EventHistoryResponse[], Error>({
+    queryKey: ["workflow-executions", workflowExecutionId, "event-history"],
+    queryFn: async () =>
+      await workflowExecutionsListWorkflowExecutionEventHistory({
+        executionId: workflowExecutionId,
+      }),
+  })
+  return {
+    eventHistory,
+    eventHistoryLoading,
+    eventHistoryError,
+  }
 }

@@ -1,0 +1,128 @@
+import { Buffer } from "buffer"
+import { EventHistoryResponse } from "@/client"
+
+export const decode = (str: string): string =>
+  Buffer.from(str, "base64").toString("binary")
+export const encode = (str: string): string =>
+  Buffer.from(str, "binary").toString("base64")
+
+export const ERROR_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
+  "WORKFLOW_EXECUTION_FAILED",
+  "ACTIVITY_TASK_FAILED",
+] as const
+export const SUCCESS_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
+  "ACTIVITY_TASK_COMPLETED",
+  "WORKFLOW_EXECUTION_COMPLETED",
+] as const
+export const STARTED_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
+  "ACTIVITY_TASK_STARTED",
+  "WORKFLOW_EXECUTION_STARTED",
+] as const
+
+export type Input = {
+  payloads: {
+    metadata: { encoding: string }
+    data: string // This is a base64 encoded string
+  }[]
+}
+
+export type WorkflowExecutionStartedDetails = {
+  workflowType: { name: string }
+  input: Input
+}
+export type WorkflowExecutionStartedEvent = Omit<
+  EventHistoryResponse,
+  "details"
+> & {
+  details: WorkflowExecutionStartedDetails
+}
+export type ActivityTaskScheduledEventDetails = {
+  activityId: string
+  activityType: { name: string }
+  input: Input
+  workflowTaskCompletedEventId: string
+}
+
+export type ActivityTaskStartedEvent = Omit<EventHistoryResponse, "details"> & {
+  details: ActivityTaskScheduledEventDetails
+}
+
+export function getEventDetails(event: EventHistoryResponse) {
+  switch (event.event_type) {
+    case "WORKFLOW_EXECUTION_STARTED":
+      return getWorkflowExecutionStartedDetails(
+        event as WorkflowExecutionStartedEvent
+      )
+    case "WORKFLOW_EXECUTION_COMPLETED":
+      return "Workflow Execution Completed"
+    case "WORKFLOW_EXECUTION_FAILED":
+      return "Workflow Execution Failed"
+    // case "ACTIVITY_TASK_SCHEDULED":
+    //   return (event.details as ActivityTaskScheduledEventDetails).input
+    case "ACTIVITY_TASK_STARTED":
+      return "Activity Task Started"
+    case "ACTIVITY_TASK_COMPLETED":
+      return "Activity Task Completed"
+    case "ACTIVITY_TASK_FAILED":
+      return "Activity Task Failed"
+    default:
+      return "Unknown event history type, please check the logs"
+  }
+}
+
+export function getWorkflowExecutionStartedDetails(
+  event: WorkflowExecutionStartedEvent
+) {
+  // Get the details from the event
+  event.details.input.payloads.forEach((payload) => {
+    // Decode the data
+    const decodedData = decode(payload.data)
+    // Parse the data
+    const parsedData = JSON.parse(decodedData)
+    console.log(parsedData)
+  })
+  return "Workflow Execution Started"
+}
+
+export function parseEventType(eventType: EventHistoryResponse["event_type"]) {
+  return eventType
+    .toString()
+    .split("_")
+    .map((s) => s.charAt(0).toUpperCase() + s.toLowerCase().slice(1))
+    .join(" ")
+}
+
+export function getRelativeTime(date: Date) {
+  const now = new Date().getTime()
+  const timestamp = date.getTime()
+  const difference = now - timestamp
+
+  const seconds = Math.floor(difference / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  const months = Math.floor(days / 30)
+  const years = Math.floor(months / 12)
+
+  if (years > 0) return `about ${years} year${years > 1 ? "s" : ""} ago`
+  if (months > 0) return `about ${months} month${months > 1 ? "s" : ""} ago`
+  if (days > 0) return `about ${days} day${days > 1 ? "s" : ""} ago`
+  if (hours > 0) return `about ${hours} hour${hours > 1 ? "s" : ""} ago`
+  if (minutes > 0) return `about ${minutes} minute${minutes > 1 ? "s" : ""} ago`
+  if (seconds > 0) return `${seconds} second${seconds > 1 ? "s" : ""} ago`
+  return "just now"
+}
+
+export function getColorScheme(eventType: EventHistoryResponse["event_type"]) {
+  if (ERROR_EVENT_TYPES.includes(eventType)) return "bg-rose-100"
+  if (STARTED_EVENT_TYPES.includes(eventType)) return "bg-sky-100"
+
+  switch (eventType) {
+    case "ACTIVITY_TASK_COMPLETED":
+      return "bg-sky-100"
+    case "WORKFLOW_EXECUTION_COMPLETED":
+      return "bg-emerald-100"
+    default:
+      return "bg-gray-100"
+  }
+}

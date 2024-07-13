@@ -38,7 +38,7 @@ export function AlertNotification({
       variant={level}
       onClick={reset}
       className={cn(
-        "border-2 font-medium hover:cursor-pointer",
+        "m-2 border-2 font-medium hover:cursor-pointer",
         className,
         !reset && "hover:cursor-default"
       )}

@@ -21,6 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
+from fastapi.routing import APIRoute
 from pydantic import ValidationError
 from sqlalchemy import Engine, delete, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
@@ -100,7 +101,7 @@ from tracecat.types.api import (
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.workflow.models import WorkflowExecutionResponse
+from tracecat.workflow.models import EventHistoryResponse, WorkflowExecutionResponse
 from tracecat.workflow.service import WorkflowExecutionsService
 
 engine: Engine
@@ -111,6 +112,13 @@ async def lifespan(app: FastAPI):
     global engine
     engine = get_engine()
     yield
+
+
+def custom_generate_unique_id(route: APIRoute):
+    logger.info("Generating unique ID for route", tags=route.tags, name=route.name)
+    if route.tags:
+        return f"{route.tags[0]}-{route.name}"
+    return route.name
 
 
 def create_app(**kwargs) -> FastAPI:
@@ -145,6 +153,7 @@ def create_app(**kwargs) -> FastAPI:
             {"name": "events", "description": "Event management"},
             {"name": "cases", "description": "Case management"},
         ],
+        generate_unique_id_function=custom_generate_unique_id,
         **kwargs,
     )
     app.logger = logger
@@ -968,6 +977,18 @@ async def get_workflow_execution(
         service = await WorkflowExecutionsService.connect()
         execution = await service.get_execution(execution_id)
         return WorkflowExecutionResponse.from_dataclass(execution)
+
+
+@app.get("/workflow-executions/{execution_id}/history", tags=["workflow-executions"])
+async def list_workflow_execution_event_history(
+    role: Annotated[Role, Depends(authenticate_user)],
+    execution_id: identifiers.WorkflowExecutionID,
+) -> list[EventHistoryResponse]:
+    """Get a workflow execution."""
+    with logger.contextualize(role=role):
+        service = await WorkflowExecutionsService.connect()
+        events = await service.list_workflow_execution_event_history(execution_id)
+        return events
 
 
 # ----- Workflow Controls ----- #

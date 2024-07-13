@@ -8,6 +8,7 @@ import {
   GitPullRequestCreateArrowIcon,
   RadioIcon,
   ShieldAlertIcon,
+  SquarePlay,
   WorkflowIcon,
 } from "lucide-react"
 
@@ -86,14 +87,16 @@ export default function WorkflowNav() {
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
-  const leafRoute = pathname.endsWith("cases")
-    ? "cases"
-    : pathname.endsWith("console")
-      ? "console"
-      : "workflow"
+  let leafRoute: string = "workflow"
+  if (pathname.endsWith("cases")) {
+    leafRoute = "cases"
+  } else if (pathname.endsWith("executions")) {
+    leafRoute = "executions"
+  }
+
   return (
     <Tabs value={leafRoute}>
-      <TabsList className="grid w-full grid-cols-2">
+      <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger className="w-full px-4 py-0" value="workflow" asChild>
           <Link
             href={`/workflows/${workflowId}`}
@@ -114,16 +117,16 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
             <span>Cases</span>
           </Link>
         </TabsTrigger>
-        {/* <TabsTrigger className="w-full py-0" value="console" asChild>
+        <TabsTrigger className="w-full px-4 py-0" value="executions" asChild>
           <Link
-            href={`/workflows/${workflowId}/console`}
-            className="size-full"
+            href={`/workflows/${workflowId}/executions`}
+            className="size-full text-sm"
             passHref
           >
-            <SquareTerminal className="mr-2 h-4 w-4" />
-            <span>Console</span>
+            <SquarePlay className="mr-2 h-4 w-4" />
+            <span>Runs</span>
           </Link>
-        </TabsTrigger> */}
+        </TabsTrigger>
       </TabsList>
     </Tabs>
   )
