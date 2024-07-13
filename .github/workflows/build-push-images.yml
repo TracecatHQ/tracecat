@@ -92,7 +92,7 @@ jobs:
           NEXT_PUBLIC_APP_ENV: production
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "secret-clerk-publishable-key"
-          NEXT_PUBLIC_DISABLE_AUTH: "true"
+          NEXT_PUBLIC_DISABLE_AUTH: "false" # Enable Clerk
           NEXT_SERVER_API_URL: http://localhost:8000
           NODE_ENV: production
         with:
@@ -106,7 +106,7 @@ jobs:
             NEXT_PUBLIC_DISABLE_AUTH=${{ env.NEXT_PUBLIC_DISABLE_AUTH }}
             NEXT_SERVER_API_URL=${{ env.NEXT_SERVER_API_URL }}
             NODE_ENV=${{ env.NODE_ENV }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
