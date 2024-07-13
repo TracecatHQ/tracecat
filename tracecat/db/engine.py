@@ -4,6 +4,7 @@ import os
 import lancedb
 from loguru import logger
 from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
 from sqlmodel import (
     Session,
     SQLModel,
@@ -58,9 +59,18 @@ def create_db_engine() -> Engine:
         password = config.TRACECAT__DB_PASS
         address = f"{config.TRACECAT__DB_ENDPOINT}:{config.TRACECAT__DB_PORT}"
         uri = f"postgresql+psycopg://{username}:{password}@{address}/{db_name}"
-        engine = create_engine(uri, **engine_kwargs)
     else:
-        engine = create_engine(config.TRACECAT__DB_URI, **engine_kwargs)
+        uri = config.TRACECAT__DB_URI
+
+    try:
+        engine = create_engine(uri, **engine_kwargs)
+    except OperationalError as e:
+        # Log URI if it's a connection error
+        logger.error(
+            f"Failed to connect to database with URI: {uri.replace(password, '***')}"
+        )
+        raise e
+
     return engine
 
 
