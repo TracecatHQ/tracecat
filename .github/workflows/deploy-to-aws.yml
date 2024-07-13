@@ -165,7 +165,7 @@ jobs:
           TEMPORAL__VERSION: 1.24.2
           TEMPORAL__UI_VERSION: 2.26.2
           # Posthog
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
           NEXT_PUBLIC_DISABLE_SESSION_RECORDING: false
           # AWS Secret names
