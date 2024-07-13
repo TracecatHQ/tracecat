@@ -14,9 +14,6 @@ from .config import (
     TEMPORAL_SERVER_CPU,
     TEMPORAL_SERVER_IMAGE,
     TEMPORAL_SERVER_RAM,
-    TEMPORAL_UI_CPU,
-    TEMPORAL_UI_IMAGE,
-    TEMPORAL_UI_RAM,
     TRACECAT_API_CPU,
     TRACECAT_API_RAM,
     TRACECAT_IMAGE,
@@ -383,7 +380,7 @@ class FargateStack(Stack):
                 stream_prefix="worker", log_group=log_group
             ),
         )
-        ecs.FargateService(
+        worker_fargate_service = ecs.FargateService(
             self,
             "TracecatWorkerFargateService",
             cluster=cluster,
@@ -494,52 +491,26 @@ class FargateStack(Stack):
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
-        ### Temporal UI
-        temporal_ui_task_definition = ecs.FargateTaskDefinition(
-            self,
-            "TemporalUiTaskDefinition",
-            cpu=TEMPORAL_UI_CPU,
-            memory_limit_mib=TEMPORAL_UI_RAM,
-            execution_role=temporal_execution_role,
-            task_role=temporal_task_role,
-        )
-        temporal_ui_task_definition.add_container(
-            "TemporalUiContainer",
-            image=ecs.ContainerImage.from_registry(name=TEMPORAL_UI_IMAGE),
-            environment={
-                "TEMPORAL_ADDRESS": "http://temporal-server-service:7233",
-                "TEMPORAL_CORS_ORIGIN": "http://temporal-ui-service:8080",
-            },
-            port_mappings=[
-                ecs.PortMapping(
-                    container_port=8080,
-                    name="temporal-ui",
-                    app_protocol=ecs.AppProtocol.http,
-                )
-            ],
-            logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="temporal-ui", log_group=log_group
-            ),
-        )
-        ecs.FargateService(
-            self,
-            "TemporalUiFargateService",
-            cluster=cluster,
-            service_name="temporal-ui",
-            # Attach the security group to your ECS service
-            task_definition=temporal_ui_task_definition,
-            security_groups=[temporal_security_group],
-            capacity_provider_strategies=[capacity_provider_strategy],
-        )
-
         ### RDS Permissions
+
+        # API
         core_database.connections.allow_default_port_from(
             api_fargate_service.connections
         )
+        core_database.grant_connect(api_task_definition.task_role, db_user="postgres")
+
+        # Worker
+        core_database.connections.allow_default_port_from(
+            worker_fargate_service.connections
+        )
+        core_database.grant_connect(
+            worker_task_definition.task_role, db_user="postgres"
+        )
+
+        # Temporal
         temporal_database.connections.allow_default_port_from(
             temporal_service.connections
         )
-        core_database.grant_connect(api_task_definition.task_role, db_user="postgres")
         temporal_database.grant_connect(
             temporal_task_definition.task_role, db_user="postgres"
         )
