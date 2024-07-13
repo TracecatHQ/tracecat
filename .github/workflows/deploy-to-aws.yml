@@ -145,6 +145,7 @@ jobs:
           TRACECAT__APP_ENV: production
           TRACECAT__API_URL: http://api-service:8000
           TRACECAT__APP_URL: ${{ vars.APP_URL }}
+          TRACECAT__DISABLE_AUTH: "false"
           TRACECAT__PUBLIC_RUNNER_URL: ${{ vars.API_URL }}
           # Frontend
           NODE_ENV: production
@@ -152,9 +153,8 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ vars.APP_URL }}
           NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
           NEXT_SERVER_API_URL: http://api-service:8000
-          NEXT_PUBLIC_DISABLE_AUTH: false
-          # Authentication
-          TRACECAT__DISABLE_AUTH: false
+          NEXT_PUBLIC_DISABLE_AUTH: "false"
+          # Frontend Clerk Auth
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
           NEXT_PUBLIC_CLERK_SIGN_OUT_URL: /sign-out
