@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict
 
 import orjson
 import temporalio.api.common.v1
@@ -17,7 +17,9 @@ from pydantic import (
 )
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
-from tracecat.dsl.workflow import UDFActionInput
+from tracecat import identifiers
+from tracecat.dsl.workflow import DSLContext, UDFActionInput
+from tracecat.types.auth import Role
 
 WorkflowExecutionStatusLiteral = Literal[
     "RUNNING",
@@ -41,17 +43,6 @@ class EventHistoryType(StrEnum):
     ACTIVITY_TASK_STARTED = "ACTIVITY_TASK_STARTED"
     ACTIVITY_TASK_COMPLETED = "ACTIVITY_TASK_COMPLETED"
     ACTIVITY_TASK_FAILED = "ACTIVITY_TASK_FAILED"
-
-
-# EventHistoryAttributes = (
-#     temporalio.api.history.v1.WorkflowExecutionStartedEventAttributes
-#     | temporalio.api.history.v1.WorkflowExecutionCompletedEventAttributes
-#     | temporalio.api.history.v1.WorkflowExecutionFailedEventAttributes
-#     | temporalio.api.history.v1.ActivityTaskScheduledEventAttributes
-#     | temporalio.api.history.v1.ActivityTaskStartedEventAttributes
-#     | temporalio.api.history.v1.ActivityTaskCompletedEventAttributes
-#     | temporalio.api.history.v1.ActivityTaskFailedEventAttributes
-# )
 
 
 class WorkflowExecutionResponse(BaseModel):
@@ -183,3 +174,21 @@ class EventHistoryResponse(BaseModel):
     )
     failure: EventFailure | None = None
     result: Any | None = None
+    role: Role | None = None
+
+
+class CreateWorkflowExecutionParams(BaseModel):
+    workflow_id: identifiers.WorkflowID
+    inputs: dict[str, Any] | None = None
+    enable_runtime_tests: bool = False
+
+
+class CreateWorkflowExecutionResponse(TypedDict):
+    message: str
+    wf_id: identifiers.WorkflowID
+    wf_exec_id: identifiers.WorkflowExecutionID
+
+
+class DispatchWorkflowResult(TypedDict):
+    wf_id: identifiers.WorkflowID
+    final_context: DSLContext

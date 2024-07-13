@@ -30,8 +30,6 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         self.role = role or ctx_role.get(
             Role(type="service", service_id="tracecat-service")
         )
-        if self.role.type != "service":
-            raise ValueError("AuthenticatedServiceClient can only be used by services")
         self.headers["Service-Role"] = self.role.service_id
         self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
         if self.role.user_id:

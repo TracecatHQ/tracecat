@@ -191,6 +191,16 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
           }
         />
       </div>
+      <div className="space-x-2">
+        {event.role?.type && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              Triggered By
+            </Label>
+            <DescriptorBadge text={event.role?.type} className="capitalize" />
+          </>
+        )}
+      </div>
       {/* Action event group fields */}
       <div className="space-x-2">
         {event_group?.udf_key && (

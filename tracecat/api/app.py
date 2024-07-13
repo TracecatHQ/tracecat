@@ -1,7 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated, Any
 
 import orjson
@@ -54,7 +53,7 @@ from tracecat.db.schemas import (
     Workflow,
     WorkflowDefinition,
 )
-from tracecat.dsl import dispatcher, schedules
+from tracecat.dsl import schedules
 from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
@@ -84,9 +83,6 @@ from tracecat.types.api import (
     SearchSecretsParams,
     SecretResponse,
     ServiceCallbackAction,
-    StartWorkflowParams,
-    StartWorkflowResponse,
-    TriggerWorkflowRunParams,
     UDFArgsValidationResponse,
     UpdateActionParams,
     UpdateScheduleParams,
@@ -101,7 +97,12 @@ from tracecat.types.api import (
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.workflow.models import EventHistoryResponse, WorkflowExecutionResponse
+from tracecat.workflow.models import (
+    CreateWorkflowExecutionParams,
+    CreateWorkflowExecutionResponse,
+    EventHistoryResponse,
+    WorkflowExecutionResponse,
+)
 from tracecat.workflow.service import WorkflowExecutionsService
 
 engine: Engine
@@ -345,7 +346,7 @@ async def incoming_webhook(
     path: str,
     payload: dict[str, Any] | None = None,
     x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
-):
+) -> CreateWorkflowExecutionResponse:
     """
     Webhook endpoint to trigger a workflow.
 
@@ -359,30 +360,21 @@ async def incoming_webhook(
         role=ctx_role.get(),
     )
 
-    # Fetch the DSL from the workflow object
     dsl_input = DSLInput(**defn.content)
 
-    # Set runtime configuration
-    validation_result = validate_trigger_inputs(dsl=dsl_input, payload=payload)
-    if validation_result.status == "error":
-        logger.error(validation_result.msg, detail=validation_result.detail)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"msg": validation_result.msg, "detail": validation_result.detail},
-        )
-
-    if payload:
-        dsl_input.trigger_inputs = payload
-
-    dsl_input.config.enable_runtime_tests = x_tracecat_enable_runtime_tests in (
+    enable_runtime_tests = (x_tracecat_enable_runtime_tests or "false").lower() in (
         "1",
         "true",
     )
 
-    logger.info(dsl_input.dump_yaml())
-
-    asyncio.create_task(dispatcher.dispatch_workflow(dsl_input, wf_id=path))
-    return {"status": "ok"}
+    service = await WorkflowExecutionsService.connect()
+    response = service.create_workflow_execution(
+        dsl=dsl_input,
+        wf_id=path,
+        payload=payload,
+        enable_runtime_tests=enable_runtime_tests,
+    )
+    return response
 
 
 async def handle_service_callback(
@@ -501,23 +493,27 @@ async def webhook_callback(
             # Fetch the DSL from the workflow object
             dsl_input = DSLInput(**defn.content)
 
-            # Set runtime configuration
-            if payload:
-                dsl_input.trigger_inputs = payload
-
-            logger.info(dsl_input.dump_yaml())
-
-            asyncio.create_task(dispatcher.dispatch_workflow(dsl_input, wf_id=path))
-            return {"status": "ok", "message": "Webhook dispatched"}
+            wf_exec_service = await WorkflowExecutionsService.connect()
+            response = wf_exec_service.create_workflow_execution(
+                dsl=dsl_input,
+                wf_id=path,
+                payload=payload,
+            )
+            return {
+                "status": "ok",
+                "message": "Webhook callback processed",
+                "service": service,
+                "details": response,
+            }
 
         case None:
             logger.info("No next action", service=service)
-            return {"status": "ok", "message": "No action taken"}
+            return {"status": "ok", "message": "No action taken", "service": service}
         case _:
             logger.error("Unsupported next action", next_action=next_action)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unsupported next action",
+                detail=f"Unsupported next action in webhook callback for {service!r} service",
             )
 
 
@@ -991,40 +987,39 @@ async def list_workflow_execution_event_history(
         return events
 
 
-# ----- Workflow Controls ----- #
-
-
-@app.post("/workflows/{workflow_id}/controls/trigger", tags=["workflows"])
-async def trigger_workflow_run(
+@app.post("/workflow-executions", tags=["workflow-executions"])
+async def create_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    params: TriggerWorkflowRunParams,
-) -> StartWorkflowResponse:
-    """Trigger a workflow run."""
-    # Create service role
-    workflow_params = StartWorkflowParams(
-        entrypoint_key=params.action_key,
-        entrypoint_payload=params.payload,
-    )
-    logger.debug(
-        "Triggering workflow",
-        workflow_id=workflow_id,
-        workflow_params=workflow_params,
-    )
-    try:
-        ctx_role.get()
-    except LookupError:
-        # If not previously set by a webhook, set the role here
-        ctx_role.set(role)
-
-    path = "workflow4"
-    with Path(f"/app/tracecat/static/workflows/{path}.yaml").resolve().open() as f:
-        dsl_yaml = f.read()
-    await dispatcher.dispatch_workflow(dsl_yaml)
-
-    return StartWorkflowResponse(
-        status="ok", message="Workflow started.", id=workflow_id
-    )
+    params: CreateWorkflowExecutionParams,
+    session: Session = Depends(get_session),
+) -> CreateWorkflowExecutionResponse:
+    """Create and schedule a workflow execution."""
+    with logger.contextualize(role=role):
+        service = await WorkflowExecutionsService.connect()
+        # Get the dslinput from the workflow definition
+        try:
+            result = session.exec(
+                select(WorkflowDefinition)
+                .where(WorkflowDefinition.workflow_id == params.workflow_id)
+                .order_by(WorkflowDefinition.version.desc())
+            )
+            defn = result.first()
+            if not defn:
+                raise NoResultFound("No workflow definition found for workflow ID")
+        except NoResultFound as e:
+            # No workflow associated with the webhook
+            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            ) from e
+        dsl_input = DSLInput(**defn.content)
+        response = service.create_workflow_execution(
+            dsl=dsl_input,
+            wf_id=params.workflow_id,
+            payload=params.inputs,
+            enable_runtime_tests=params.enable_runtime_tests,
+        )
+        return response
 
 
 # ----- Workflow Webhooks ----- #
