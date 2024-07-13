@@ -42,7 +42,7 @@ export default function WorkflowExecutionsPage() {
   )
 }
 
-export function WorkflowExecutionsViewLayout({
+function WorkflowExecutionsViewLayout({
   workflowId,
   defaultLayout = [15, 15, 70],
   defaultCollapsed = false,
