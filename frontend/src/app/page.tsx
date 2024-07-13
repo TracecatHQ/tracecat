@@ -15,7 +15,7 @@ import PrivacyPolicy from "@/components/privacy-policy"
 
 export const metadata: Metadata = {
   title: "Tracecat",
-  description: "Open Source automation platform for security alerts",
+  description: "Open source Tines / Splunk SOAR alternative.",
 }
 export default async function HomePage() {
   const { userId } = auth()
