@@ -15,10 +15,10 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       # Clerk auth
-      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL}
+      CLERK_FRONTEND_API_URL: ${CLERK_FRONTEND_API_URL} # Sensitive
       # Temporal
-      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
-      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
     restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
@@ -40,8 +40,8 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       # Temporal
-      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL} # Sensitive
-      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE} # Sensitive
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
     restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
@@ -73,7 +73,7 @@ services:
       - core
 
   postgres_db:
-    image: postgres:16.2-bullseye
+    image: postgres:16
     container_name: tracecat_postgres_db
     ports:
       - 5432:5432
@@ -88,7 +88,7 @@ services:
       - core-db:/var/lib/postgresql/data
 
   temporal_postgres_db:
-    image: postgres:${TEMPORAL__POSTGRESQL_VERSION}
+    image: postgres:13
     container_name: tracecat_temporal_postgres_db
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}

@@ -6,22 +6,40 @@ description: Deploy Tracecat into your own Cloud
 Self-hosting Tracecat lets you retain data on your own Cloud infrastructure and network.
 Only AWS is currently supported, but we plan to support Azure and GCP in the near future.
 
-## AWS
+## AWS Single Tenant Cloudformation Stack
 
-Tracecat supports deployment to AWS via a CDK (Cloud Development Kit) stack written in Python.
-For security purposes, we require self-hosted Cloud users to request access to the deployment script via founders@tracecat.com email.
+### Prerequisites
 
-Tracecat's AWS deployment includes the following resources:
+- AWS account
+- AWS CDK CLI
+- Permissions to run AWS CDK
+- Route53 hosted zone for the app e.g. `tracecat.com`
+- Route53 hosted zone for the API e.g. `api.tracecat.com`
+- AWS certificate for the app domain
+- AWS certificate for the API domain
 
-- 1 VPC
-- 1 AmazonMQ Broker
-- 2 ECS Fargate Services
-- 1 Application Load Balancer
-- 1 S3 Bucket
-- 1 AmazonMQ Broker
-- 1 Firewall (optional)
-- Multiple Security Groups
-- Multiple Logs Groups
+### Resources Deployed
+
+- VPC
+- Fargate with 4x services:
+  - Tracecat API
+  - Tracecat Worker
+  - Tracecat UI
+  - Temporal Server
+- 4x security groups
+  - Tracecat core services
+  - Temporal server with Tracecat worker
+  - Tracecat API with Tracecat RDS instance
+  - Temporal server with Temporal RDS instance
+- Application Load Balancer
+  - Tracecat UI is exposed via the app domain
+  - Tracecat API is exposed via the API domain
+- 2x RDS postgres instances
+- S3 bucket
+
+### Installation
+
+Coming soon!
 
 ## Azure
 
@@ -34,18 +52,16 @@ Coming soon!
 ## Authentication
 
 Tracecat supports Enterprise SSO via Clerk.
-
-So far, we've shown how to run Tracecat locally without authentication and running with a default user.
-
-If you want to enable authentication, you can set the `TRACECAT__DISABLE_AUTH` environment variable to `false` or `0` in the `.env` file. This requires you to have a Clerk account and set up the Clerk environment variables in `.env`.
+This requires you to have a Clerk account with the following environment variables set:
 
 ```bash
 # --- Authentication + Clerk ---
-TRACECAT__DISABLE_AUTH=0
+TRACECAT__DISABLE_AUTH=false
 # Fill these in!
-CLERK_FRONTEND_API_URL=...
-CLERK_SECRET_KEY=...
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+CLERK_FRONTEND_API_URL=<your-clerk-frontend-api-url>
+CLERK_SECRET_KEY=<your-clerk-secret-key>
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<your-clerk-publishable-key>
 ```
 
-Finally, you will need to add custom claims to your sessions - follow the steps in [this Clerk blog post](https://clerk.com/blog/add-onboarding-flow-for-your-application-with-clerk#add-custom-claims-to-your-session-token).
+Finally, you will need to add custom claims to your sessions.
+[This Clerk blog post explains how.](https://clerk.com/blog/add-onboarding-flow-for-your-application-with-clerk#add-custom-claims-to-your-session-token).

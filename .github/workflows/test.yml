@@ -3,16 +3,16 @@ name: Tests
 on:
   push:
     branches: ["main"]
-    paths-ignore:
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - tracecat/**
+      - pyproject.toml
+      - .github/workflows/test.yml
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - tracecat/**
+      - pyproject.toml
+      - .github/workflows/test.yml
 
 permissions:
   contents: read
@@ -149,7 +149,7 @@ jobs:
         run: pytest tests/unit --temporal-no-restart --tracecat-no-restart
 
   playbooks:
-    runs-on: ubuntu-latest-4-cores
+    runs-on: ubuntu-latest
     environment: QA
     needs: [push-to-ghcr, push-cli-to-ghcr]
     steps:

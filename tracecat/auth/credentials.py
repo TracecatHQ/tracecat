@@ -8,7 +8,6 @@ from functools import partial
 from typing import Annotated, Any, Literal
 
 import httpx
-import psycopg
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
@@ -28,24 +27,6 @@ CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 IS_AUTH_DISABLED = str(os.environ.get("TRACECAT__DISABLE_AUTH")) in ("true", "1")
-
-
-# TODO: Fix this
-async def _validate_user_exists_in_db(user_id: str) -> tuple[str, ...] | None:
-    """Check that a user exists in supabase and is authenticated."""
-    # psycopg only supports postgresql:// URIs.
-    # postgresql+psycopg:// is used by SQLAlchemy.
-    db_uri = os.environ["TRACECAT__DB_URI"].replace("postgresql+psycopg", "postgresql")
-    conn_manager = await psycopg.AsyncConnection.connect(db_uri)
-    async with conn_manager as aconn:
-        async with aconn.cursor() as acur:
-            await acur.execute(
-                "SELECT id, aud, role FROM auth.users WHERE (id=%s AND aud=%s AND role=%s)",
-                (user_id, "authenticated", "authenticated"),
-            )
-
-            record = await acur.fetchone()
-    return record
 
 
 def _internal_get_role_from_service_key(
@@ -163,10 +144,6 @@ else:
             logger.error(msg)
             raise HTTP_EXC(msg) from e
 
-        # TODO: Think about this again later
-        # if await _validate_user_exists_in_db(user_id) is None:
-        #     logger.error("User not authenticated")
-        #     raise CREDENTIALS_EXCEPTION
         role = Role(type="user", user_id=user_id, service_id="tracecat-api")
         return role
 

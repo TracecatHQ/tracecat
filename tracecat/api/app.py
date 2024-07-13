@@ -116,18 +116,11 @@ async def lifespan(app: FastAPI):
 def create_app(**kwargs) -> FastAPI:
     global logger
     if config.TRACECAT__APP_ENV == "production":
-        # NOTE: If you are using Tracecat self-hosted
-        # please replace with your own domain
-        cors_origins_kwargs = {"allow_origins": ["https://platform.tracecat.com"]}
+        cors_origins_kwargs = {"allow_origins": config.TRACECAT__ALLOW_ORIGINS}
     elif config.TRACECAT__APP_ENV == "staging":
-        cors_origins_kwargs = {
-            # "allow_origin_regex": r"https://tracecat-.*-tracecat\.vercel\.app",
-            "allow_origins": "*"
-        }
+        cors_origins_kwargs = {"allow_origins": config.TRACECAT__ALLOW_ORIGINS}
     else:
-        cors_origins_kwargs = {
-            "allow_origins": "*",
-        }
+        cors_origins_kwargs = {"allow_origins": "*"}
     app = FastAPI(
         title="Tracecat API",
         description=(

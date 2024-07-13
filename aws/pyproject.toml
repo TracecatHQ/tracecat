@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling >= 1.13.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracecat_cdk"
+version = "0.1.0"
+description = "Single tenant AWS CDK stack for Tracecat"
+requires-python = ">=3.10"
+license = "AGPL-3.0"
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3 :: Only",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = ["boto3", "aws-cdk-lib"]
+
+[project.urls]
+Homepage = "https://tracecat.com"
+Documentation = "https://docs.tracecat.com/"
+Repository = "https://github.com/TracecatHQ/tracecat"
