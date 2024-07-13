@@ -12,8 +12,22 @@ import { client } from "@/lib/api"
 
 export async function newUserFlow(): Promise<void> {
   console.log("Start new user flow")
-  await client.post("/users")
-  console.log("New user created")
+
+  try {
+    const response = await client.post("/users")
+    console.log("New user created")
+  } catch (e) {
+    if (e instanceof AxiosError) {
+      if (e.response?.status !== 409) {
+        console.error(e.response?.data)
+        throw new Error("Internal server error.")
+      } else {
+        console.log("User already exists")
+      }
+    } else {
+      throw e
+    }
+  }
 }
 
 export async function completeOnboarding(): Promise<{
