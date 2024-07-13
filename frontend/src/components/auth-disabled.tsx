@@ -3,7 +3,6 @@
 import { useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { PawPrintIcon } from "lucide-react"
 import TracecatIcon from "public/icon.png"
 
 import { newUserFlow } from "@/lib/onboarding"
@@ -31,7 +30,6 @@ export function AuthDisabled() {
       </p>
       <Button className="text-xs" onClick={handleClick} disabled={isLoading}>
         {isLoading && <Icons.spinner className="mr-2 size-4 animate-spin" />}
-        <PawPrintIcon className="mr-2 size-4" />
         Continue to workflows
       </Button>
     </div>
