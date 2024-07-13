@@ -4,7 +4,6 @@ import os
 import lancedb
 from loguru import logger
 from sqlalchemy import Engine
-from sqlalchemy.exc import OperationalError
 from sqlmodel import (
     Session,
     SQLModel,
@@ -62,15 +61,7 @@ def create_db_engine() -> Engine:
     else:
         uri = config.TRACECAT__DB_URI
 
-    try:
-        engine = create_engine(uri, **engine_kwargs)
-    except OperationalError as e:
-        # Log URI if it's a connection error
-        logger.error(
-            f"Failed to connect to database with URI: {uri.replace(password, '***')}"
-        )
-        raise e
-
+    engine = create_engine(uri, **engine_kwargs)
     return engine
 
 
