@@ -71,6 +71,7 @@ class AlbStack(Stack):
                 container_name="TracecatUiContainer", container_port=3000
             )
         )
+
         api_target_group = elbv2.ApplicationTargetGroup(
             self,
             "TracecatApiTargetGroup",
@@ -96,9 +97,10 @@ class AlbStack(Stack):
         listener.add_action(
             "RootListenerAction",
             priority=10,
-            conditions=[elbv2.ListenerCondition.path_patterns(["/"])],
+            conditions=[elbv2.ListenerCondition.host_headers([hosted_zone.zone_name])],
             action=elbv2.ListenerAction.forward(target_groups=[ui_target_group]),
         )
+
         listener.add_action(
             "ApiListenerAction",
             priority=20,
@@ -107,13 +109,14 @@ class AlbStack(Stack):
             ],
             action=elbv2.ListenerAction.forward(target_groups=[api_target_group]),
         )
+
         self.listener = listener
 
         # Create A record to point hosted zone to ALB
         route53.ARecord(
             self,
             "UiAliasRecord",
-            record_name=hosted_zone.zone_name,
+            record_name=f"{hosted_zone.zone_name}.",
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=hosted_zone,
         )
@@ -122,7 +125,7 @@ class AlbStack(Stack):
         route53.ARecord(
             self,
             "ApiAliasRecord",
-            record_name=api_hosted_zone.zone_name,
+            record_name=f"{api_hosted_zone.zone_name}.",
             target=route53.RecordTarget.from_alias(LoadBalancerTarget(alb)),
             zone=api_hosted_zone,
         )
