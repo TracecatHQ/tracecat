@@ -3,18 +3,16 @@ name: Tests
 on:
   push:
     branches: ["main"]
-    paths-ignore:
-      - "aws/**"
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - tracecat/**
+      - pyproject.toml
+      - .github/workflows/test.yml
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "aws/**"
-      - "frontend/**"
-      - "docs/**"
-      - "README.md"
+    paths:
+      - tracecat/**
+      - pyproject.toml
+      - .github/workflows/test.yml
 
 permissions:
   contents: read
