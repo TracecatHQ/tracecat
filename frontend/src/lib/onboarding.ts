@@ -1,7 +1,7 @@
 "use server"
 
 import { auth, clerkClient } from "@clerk/nextjs/server"
-import { AxiosError } from "axios"
+import axios from "axios"
 
 import { client } from "@/lib/api"
 
@@ -15,9 +15,12 @@ export async function newUserFlow(): Promise<void> {
 
   try {
     const response = await client.post("/users")
+    if (response.status !== 201) {
+      throw new Error(`Unexpected response status: ${response.status}`)
+    }
     console.log("New user created")
   } catch (e) {
-    if (e instanceof AxiosError) {
+    if (axios.isAxiosError(e)) {
       if (e.response?.status !== 409) {
         console.error(e.response?.data)
         throw new Error("Internal server error.")
@@ -29,6 +32,7 @@ export async function newUserFlow(): Promise<void> {
     }
   }
 }
+
 
 export async function completeOnboarding(): Promise<{
   message?: string | Record<string, unknown>
