@@ -1,0 +1,283 @@
+import React from "react"
+import { EventHistoryResponse } from "@/client"
+import JsonView from "react18-json-view"
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+
+import "react18-json-view/src/style.css"
+
+import { InfoIcon, TriangleAlert } from "lucide-react"
+
+import {
+  ERROR_EVENT_TYPES,
+  getRelativeTime,
+  parseEventType,
+} from "@/lib/event-history"
+import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { GenericWorkflowIcon, getIcon } from "@/components/icons"
+
+/**
+ * Event history for a specific workflow execution
+ * @param param0
+ * @returns
+ */
+export function WorkflowExecutionEventDetailView({
+  event,
+}: {
+  event: EventHistoryResponse
+}) {
+  return (
+    <div className="size-full overflow-auto">
+      {/* Metadata */}
+      <Accordion
+        type="multiple"
+        defaultValue={["general", "execution-context", "failure", "result"]}
+      >
+        {/* General */}
+        <AccordionItem value="general">
+          <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+            <div className="flex items-center">
+              <InfoIcon
+                className="mr-2 size-5 fill-sky-500 stroke-white"
+                strokeWidth={2}
+              />
+              <span>Event Information</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4">
+            <EventGeneralInfo event={event} />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Urgent */}
+        {event.failure && (
+          <AccordionItem value="failure">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-end">
+                <TriangleAlert
+                  className="mr-2 size-5 fill-rose-500 stroke-white"
+                  strokeWidth={2}
+                />
+                <span>Event Failure</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="my-4 flex flex-col space-y-8 px-4">
+                <div className="rounded-md border p-4 shadow-md">
+                  <JsonView
+                    displaySize
+                    enableClipboard
+                    src={event.failure}
+                    className="text-sm"
+                    theme="atom"
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        )}
+        {/* Action details */}
+        {event.event_group?.action_input.exec_context && (
+          <AccordionItem value="execution-context">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-center">
+                <span>Execution Context</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="my-4 flex flex-col space-y-8 px-4">
+                <div className="rounded-md border p-4 shadow-md">
+                  <JsonView
+                    displaySize
+                    enableClipboard
+                    src={event.event_group?.action_input.exec_context}
+                    className="text-sm"
+                    theme="atom"
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
+        {(event?.result as Record<string, unknown>) && (
+          <AccordionItem value="result">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-end">
+                <span>Event Result</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="my-4 flex flex-col space-y-8 px-4">
+                <div className="rounded-md border p-4 shadow-md">
+                  <JsonView
+                    displaySize
+                    enableClipboard
+                    src={(event.result as Record<string, unknown>) ?? {}}
+                    className="text-sm"
+                    theme="atom"
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        )}
+      </Accordion>
+    </div>
+  )
+}
+
+export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
+  const { event_group } = event
+  const formattedEventType = parseEventType(event.event_type)
+  const eventTimeDate = new Date(event.event_time)
+  return (
+    <div className="my-4 flex flex-col space-y-2 px-4">
+      <div className="flex w-full items-center space-x-4">
+        {event_group?.udf_key ? (
+          getIcon(event_group.udf_key, {
+            className: "size-10 p-2",
+            flairsize: "md",
+          })
+        ) : (
+          <GenericWorkflowIcon className="size-10 p-2" />
+        )}
+        <div className="flex w-full flex-1 justify-between space-x-12">
+          <div className="flex flex-col">
+            <div className="text-md flex w-full items-center justify-between font-medium leading-none">
+              <div className="flex w-full">
+                {event_group?.action_title || formattedEventType}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="space-x-2">
+        <Label className="text-xs text-muted-foreground">Event Type</Label>
+        <DescriptorBadge
+          text={formattedEventType}
+          className={cn(
+            "bg-gray-100/80",
+            ERROR_EVENT_TYPES.includes(event.event_type) && "bg-rose-100",
+            event.event_type == "WORKFLOW_EXECUTION_STARTED" &&
+              "bg-emerald-100",
+            event.event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-100",
+            event.event_type == "ACTIVITY_TASK_STARTED" && "bg-violet-200/70",
+            event.event_type == "ACTIVITY_TASK_COMPLETED" && "bg-sky-200/70",
+            event.event_type == "WORKFLOW_EXECUTION_COMPLETED" &&
+              "bg-emerald-200"
+          )}
+        />
+      </div>
+      <div className="space-x-2">
+        <Label className="w-24 text-xs text-muted-foreground">Event ID</Label>
+        <DescriptorBadge text={event.event_id.toString()} />
+      </div>
+      <div className="space-x-2">
+        <Label className="w-24 text-xs text-muted-foreground">Event Time</Label>
+        <DescriptorBadge
+          text={
+            eventTimeDate.toLocaleString() +
+            " (" +
+            getRelativeTime(eventTimeDate) +
+            ")"
+          }
+        />
+      </div>
+      {/* Action event group fields */}
+      <div className="space-x-2">
+        {event_group?.udf_key && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              Action Type
+            </Label>
+            <DescriptorBadge
+              text={event_group.udf_key}
+              className="font-mono font-semibold tracking-tight"
+            />
+          </>
+        )}
+      </div>
+      <div className="space-x-2">
+        {event_group?.udf_key && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              Description
+            </Label>
+            <DescriptorBadge
+              text={event_group.action_description || "No description"}
+              className="font-semibold"
+            />
+          </>
+        )}
+      </div>
+      <div className="space-x-2">
+        {event_group?.action_input.task.depends_on && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              Dependencies
+            </Label>
+            {event_group.action_input.task.depends_on.map((dep) => (
+              <DescriptorBadge
+                key={dep}
+                text={dep}
+                className="font-mono font-semibold"
+              />
+            ))}
+          </>
+        )}
+      </div>
+      <div className="space-x-2">
+        {event_group?.action_input.task.run_if && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">Run If</Label>
+            <DescriptorBadge
+              text={event_group.action_input.task.run_if}
+              className="font-mono font-semibold tracking-tight"
+            />
+          </>
+        )}
+      </div>
+      <div className="space-x-2">
+        {event_group?.action_input.task.for_each && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              For Each
+            </Label>
+            {(Array.isArray(event_group.action_input.task.for_each)
+              ? event_group.action_input.task.for_each
+              : [event_group.action_input.task.for_each ?? []]
+            ).map((dep, index) => (
+              <DescriptorBadge
+                key={`${dep}-${index}`}
+                text={dep}
+                className="font-mono font-semibold"
+              />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function DescriptorBadge({
+  text,
+  className,
+}: { text: string } & React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <Badge
+      variant="secondary"
+      className={cn("bg-indigo-50 text-foreground/60", className)}
+    >
+      {text}
+    </Badge>
+  )
+}
