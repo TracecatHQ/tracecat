@@ -20,13 +20,8 @@ export async function newUserFlow(): Promise<void> {
     }
     console.log("New user created")
   } catch (e) {
-    if (axios.isAxiosError(e)) {
-      if (e.response?.status !== 409) {
-        console.error(e.response?.data)
-        throw new Error("Internal server error.")
-      } else {
-        console.log("User already exists")
-      }
+    if (axios.isAxiosError(e) && e.response?.status == 409) {
+      console.log("User already exists")
     } else {
       throw e
     }
