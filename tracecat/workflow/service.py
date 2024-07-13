@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+import orjson
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -18,7 +19,12 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logging import logger
 from tracecat.types.auth import Role
-from tracecat.workflow.models import EventHistoryResponse, EventHistoryType
+from tracecat.workflow.models import (
+    EventFailure,
+    EventGroup,
+    EventHistoryResponse,
+    EventHistoryType,
+)
 
 
 class WorkflowExecutionsService:
@@ -92,6 +98,7 @@ class WorkflowExecutionsService:
         history = await self.handle(wf_exec_id).fetch_history(
             event_filter_type=event_filter_type, **kwargs
         )
+        event_group_names: dict[int, EventGroup | None] = {}
         events = []
         for event in history.events:
             match event.event_type:
@@ -102,7 +109,6 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
                             task_id=event.task_id,
-                            details=event.workflow_execution_started_event_attributes,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -112,7 +118,6 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_COMPLETED,
                             task_id=event.task_id,
-                            details=event.workflow_execution_completed_event_attributes,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
@@ -122,47 +127,71 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_FAILED,
                             task_id=event.task_id,
-                            details=event.workflow_execution_failed_event_attributes,
+                            failure=EventFailure.from_history_event(event),
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+                    action_event_group = EventGroup.from_scheduled_activity(event)
+                    event_group_names[event.event_id] = action_event_group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.ACTIVITY_TASK_SCHEDULED,
                             task_id=event.task_id,
-                            details=event.activity_task_scheduled_event_attributes,
+                            event_group=action_event_group,
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED:
+                    # The parent event here is always the scheduled event, which has the UDF name
+                    parent_event_id = (
+                        event.activity_task_started_event_attributes.scheduled_event_id
+                    )
+                    action_event_group = event_group_names.get(parent_event_id)
+                    event_group_names[event.event_id] = action_event_group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.ACTIVITY_TASK_STARTED,
                             task_id=event.task_id,
-                            details=event.activity_task_started_event_attributes,
+                            event_group=action_event_group,
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+                    # The task completiong comes with the scheduled event ID and the started event id
+                    gparent_event_id = event.activity_task_completed_event_attributes.scheduled_event_id
+                    action_event_group = event_group_names.get(gparent_event_id)
+                    event_group_names[event.event_id] = action_event_group
+                    result = orjson.loads(
+                        event.activity_task_completed_event_attributes.result.payloads[
+                            0
+                        ].data
+                    )
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.ACTIVITY_TASK_COMPLETED,
                             task_id=event.task_id,
-                            details=event.activity_task_completed_event_attributes,
+                            event_group=action_event_group,
+                            result=result,
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+                    gparent_event_id = (
+                        event.activity_task_failed_event_attributes.scheduled_event_id
+                    )
+                    action_event_group = event_group_names.get(gparent_event_id)
+                    event_group_names[event.event_id] = action_event_group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(),
                             event_type=EventHistoryType.ACTIVITY_TASK_FAILED,
                             task_id=event.task_id,
-                            details=event.activity_task_failed_event_attributes,
+                            event_group=action_event_group,
+                            failure=EventFailure.from_history_event(event),
                         )
                     )
                 case _:
