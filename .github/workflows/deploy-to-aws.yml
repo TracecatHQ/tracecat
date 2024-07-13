@@ -128,7 +128,7 @@ jobs:
       - name: CDK synth, bootstrap and deploy
         env:
           # General
-          LOG_LEVEL: info
+          LOG_LEVEL: INFO
           AWS_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           # "main" if trigger on main, else use latest tag
