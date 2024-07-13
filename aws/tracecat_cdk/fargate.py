@@ -2,6 +2,7 @@ import os
 
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
@@ -18,7 +19,7 @@ from .config import (
     TRACECAT_API_RAM,
     TRACECAT_IMAGE,
     TRACECAT_UI_CPU,
-    TRACECAT_UI_IMAGE,
+    TRACECAT_UI_IMAGE_TAG,
     TRACECAT_UI_RAM,
     TRACECAT_WORKER_CPU,
     TRACECAT_WORKER_RAM,
@@ -424,7 +425,12 @@ class FargateStack(Stack):
         )
         ui_task_definition.add_container(  # noqa
             "TracecatUiContainer",
-            image=ecs.ContainerImage.from_registry(name=TRACECAT_UI_IMAGE),
+            image=ecs.ContainerImage.from_ecr_repository(
+                repository=ecr.Repository.from_repository_name(
+                    self, "TracecatUiRepository", repository_name="tracecat-ui"
+                ),
+                tag=TRACECAT_UI_IMAGE_TAG,
+            ),
             environment=tracecat_ui_environment,
             secrets=tracecat_ui_secrets,
             port_mappings=[

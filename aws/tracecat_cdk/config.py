@@ -7,7 +7,7 @@ import os
 # Used to pull Tracecat image from ghcr via the version tag
 TRACECAT_IMAGE_TAG = os.getenv("TRACECAT__IMAGE_TAG", "latest")
 TRACECAT_IMAGE = f"ghcr.io/tracecathq/tracecat:{TRACECAT_IMAGE_TAG}"
-TRACECAT_UI_IMAGE = f"ghcr.io/tracecathq/tracecat-ui:{TRACECAT_IMAGE_TAG}"
+TRACECAT_UI_IMAGE_TAG = os.getenv("TRACECAT__UI_IMAGE_TAG", "latest")
 
 # Temporal images
 TEMPORAL_VERSION = os.getenv("TEMPORAL__VERSION", "latest")

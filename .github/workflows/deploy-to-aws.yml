@@ -80,12 +80,67 @@ jobs:
           # Create secrets
           aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
 
+  push-ui-to-ecr:
+    name: Build and push UI Docker image to ECR
+    runs-on: ubuntu-latest
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
+    permissions:
+      id-token: write # This line allows GitHub Actions to request an OIDC token
+      contents: read
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActionsECR
+          role-duration-seconds: 3600
+
+      - name: Get SHA
+        id: get-sha
+        run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push docker image to Amazon ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: tracecat-ui
+          IMAGE_TAG: ${{ steps.get-sha.outputs.sha }}
+          NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
+          NEXT_PUBLIC_APP_ENV: production
+          NEXT_PUBLIC_APP_URL: ${{ vars.APP_URL }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_DISABLE_AUTH: "false" # Enable Clerk
+          NEXT_SERVER_API_URL: http://api-service:8000
+          NODE_ENV: production
+        run: |
+          # Mask secrets
+          echo "::add-mask::${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+
+          # Docker build and push
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG -f frontend/Dockerfile.prod frontend \
+            --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+            --build-arg NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV \
+            --build-arg NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL \
+            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
+            --build-arg NEXT_PUBLIC_DISABLE_AUTH=$NEXT_PUBLIC_DISABLE_AUTH \
+            --build-arg NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL \
+            --build-arg NODE_ENV=$NODE_ENV
+
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+
   deploy:
     name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
-    needs: create-secrets
+    needs: [create-secrets, push-ui-to-ecr]
     env:
       CDK_VERSION: 2.147
     permissions:
@@ -140,6 +195,8 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           # "main" if trigger on main, else use latest tag
           TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG}}
+          # Tag with git SHA
+          TRACECAT__UI_IMAGE_TAG: ${{ steps.get-sha.outputs.sha }}
           # Backend
           TRACECAT__ALLOW_ORIGINS: ${{ vars.TRACECAT__ALLOW_ORIGINS }}
           TRACECAT__APP_ENV: production
@@ -148,12 +205,12 @@ jobs:
           TRACECAT__DISABLE_AUTH: "false"
           TRACECAT__PUBLIC_RUNNER_URL: ${{ vars.API_URL }}
           # Frontend
-          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
           NEXT_PUBLIC_APP_ENV: production
           NEXT_PUBLIC_APP_URL: ${{ vars.APP_URL }}
-          NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
-          NEXT_SERVER_API_URL: http://api-service:8000
           NEXT_PUBLIC_DISABLE_AUTH: "false"
+          NEXT_SERVER_API_URL: http://api-service:8000
+          NODE_ENV: production
           # Frontend Clerk Auth
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
@@ -190,6 +247,7 @@ jobs:
           TEMPORAL__SERVER_RAM: ${{ startsWith(github.ref, 'refs/tags/') && 4096 || 1024 }}
           # CIDR blocks (allow all IP addresses)
           ALB_ALLOWED_CIDR_BLOCKS: "0.0.0.0/0"
+
         run: |
 
           # Mask secrets
