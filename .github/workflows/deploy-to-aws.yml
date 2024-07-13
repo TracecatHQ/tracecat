@@ -83,7 +83,7 @@ jobs:
   deploy:
     name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
     needs: create-secrets
     env:
