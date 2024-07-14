@@ -2,7 +2,14 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { BookText, KeyRound, LogOut, Settings, UsersRound } from "lucide-react"
+import {
+  BookText,
+  ExternalLink,
+  KeyRound,
+  LogOut,
+  Settings,
+  UsersRound,
+} from "lucide-react"
 
 import { authConfig } from "@/config/auth"
 import { siteConfig } from "@/config/site"
@@ -62,6 +69,18 @@ export default function UserNav() {
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <BookText className="mr-2 size-4" />
               Read the Docs
+              <ExternalLink className="ml-auto size-3 text-muted-foreground" />
+            </DropdownMenuItem>
+          </Link>
+          <Link
+            href={siteConfig.links.docs}
+            target="_blank"
+            className="my-2 w-full"
+          >
+            <DropdownMenuItem className="text-xs hover:cursor-pointer">
+              <Icons.gitHub className="mr-2 size-4" />
+              Github Repository
+              <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>
           <Link href="/settings" className="my-2 w-full">
@@ -92,7 +111,11 @@ export default function UserNav() {
         <DropdownMenuSeparator />
 
         <DropdownMenuGroup>
-          <Link href={siteConfig.links.discord} className="mt-1 w-full">
+          <Link
+            href={siteConfig.links.discord}
+            className="mt-1 w-full"
+            target="_blank"
+          >
             <Button className="w-full items-center text-xs">
               <Icons.discord className="mr-2 size-4 fill-white" />
               Join our Discord
