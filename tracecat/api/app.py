@@ -77,8 +77,6 @@ from tracecat.types.api import (
     CreateScheduleParams,
     CreateSecretParams,
     CreateWorkflowParams,
-    Event,
-    EventSearchParams,
     SearchScheduleParams,
     SearchSecretsParams,
     SecretResponse,
@@ -201,7 +199,7 @@ async def tracecat_exception_handler(request: Request, exc: TracecatException):
 
     We can customize exceptions to expose only what should be user facing.
     """
-    msg = exc.detail if hasattr(exc, "detail") else str(exc)
+    msg = str(exc)
     logger.error(
         msg,
         role=ctx_role.get(),
@@ -210,7 +208,7 @@ async def tracecat_exception_handler(request: Request, exc: TracecatException):
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"type": type(exc).__name__, "message": msg},
+        content={"type": type(exc).__name__, "message": msg, "detail": exc.detail},
     )
 
 
@@ -1013,13 +1011,23 @@ async def create_workflow_execution(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
             ) from e
         dsl_input = DSLInput(**defn.content)
-        response = service.create_workflow_execution(
-            dsl=dsl_input,
-            wf_id=params.workflow_id,
-            payload=params.inputs,
-            enable_runtime_tests=params.enable_runtime_tests,
-        )
-        return response
+        try:
+            response = service.create_workflow_execution(
+                dsl=dsl_input,
+                wf_id=params.workflow_id,
+                payload=params.inputs,
+                enable_runtime_tests=params.enable_runtime_tests,
+            )
+            return response
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "type": "TracecatValidationError",
+                    "message": str(e),
+                    "detail": e.detail,
+                },
+            ) from e
 
 
 # ----- Workflow Webhooks ----- #
@@ -1482,33 +1490,6 @@ def delete_action(
         # If the user doesn't own this workflow, they can't delete the action
         session.delete(action)
         session.commit()
-
-
-# ----- Events Management ----- #
-
-
-SUPPORTED_EVENT_AGGS = {
-    "count": pl.count,
-    "max": pl.max,
-    "avg": pl.mean,
-    "median": pl.median,
-    "min": pl.min,
-    "std": pl.std,
-    "sum": pl.sum,
-    "var": pl.var,
-}
-
-
-@app.get("/events/search", tags=["events", "search"])
-def search_events(
-    role: Annotated[Role, Depends(authenticate_user)],
-    params: EventSearchParams,
-) -> list[Event]:
-    """**[DEPRECATED]** Search for events based on query parameters.
-
-    Note: currently on supports filter by `workflow_id` and sort by `published_at`.
-    """
-    raise NotImplementedError
 
 
 # ----- Case Management ----- #
@@ -2155,14 +2136,19 @@ def validate_udf_args(
     """Validate user-defined function's arguments."""
     try:
         result = validation.vadliate_udf_args(udf_key, args)
-        if not result.ok:
-            logger.error("Error validating UDF args")
+        if result.status == "error":
+            logger.error(
+                "Error validating UDF args",
+                message=result.message,
+                details=result.details,
+            )
         return UDFArgsValidationResponse.from_validation_result(result)
     except KeyError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"UDF {udf_key!r} not found"
         ) from e
     except Exception as e:
+        logger.opt(exception=e).error("Error validating UDF args")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unexpected error validating UDF args",

@@ -217,7 +217,6 @@ class Workflow(Resource, table=True):
     )
     # Relationships
     owner: User | None = Relationship(back_populates="owned_workflows")
-    runs: list["WorkflowRun"] | None = Relationship(back_populates="workflow")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
@@ -235,16 +234,6 @@ class Workflow(Resource, table=True):
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-
-
-class WorkflowRun(Resource, table=True):
-    id: str = Field(
-        default_factory=id_factory("wf-run"), nullable=False, unique=True, index=True
-    )
-    status: str = "pending"  # "online" or "offline"
-    workflow_id: str | None = Field(foreign_key="workflow.id")
-    workflow: Workflow | None = Relationship(back_populates="runs")
-    action_runs: list["ActionRun"] | None = Relationship(back_populates="workflow_run")
 
 
 class Webhook(Resource, table=True):
@@ -318,8 +307,6 @@ class Action(Resource, table=True):
     )
     workflow: Workflow | None = Relationship(back_populates="actions")
 
-    runs: list["ActionRun"] | None = Relationship(back_populates="action")
-
     @computed_field
     @property
     def key(self) -> str:
@@ -330,21 +317,6 @@ class Action(Resource, table=True):
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
         return action.ref(self.title)
-
-
-class ActionRun(Resource, table=True):
-    id: str = Field(
-        default_factory=id_factory("act-run"), nullable=False, unique=True, index=True
-    )
-    status: str = "pending"  # "online" or "offline"
-    # TODO: This allows action/action_id to be None, which may be undesirable.
-    # Need to figure out how to handle this better.
-    action_id: str | None = Field(foreign_key="action.id")
-    action: Action | None = Relationship(back_populates="runs")
-    workflow_run_id: str = Field(foreign_key="workflowrun.id")
-    workflow_run: WorkflowRun | None = Relationship(back_populates="action_runs")
-    error_msg: str | None = None
-    result: str | None = None  # JSON-serialized String of result
 
 
 CaseSchema = pa.schema(

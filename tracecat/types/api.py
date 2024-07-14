@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -8,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from tracecat import identifiers
-from tracecat.db.schemas import ActionRun, Resource, Schedule, WorkflowRun
+from tracecat.db.schemas import Resource, Schedule
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
@@ -66,54 +65,6 @@ class WorkflowMetadataResponse(BaseModel):
     version: int | None
 
 
-class WorkflowRunResponse(BaseModel):
-    id: str
-    workflow_id: str
-    status: str
-    created_at: datetime
-    updated_at: datetime
-    action_runs: list[ActionRun] = []
-
-    @classmethod
-    def from_orm(cls, run: WorkflowRun) -> WorkflowRunResponse:
-        return cls(**run.model_dump(), action_runs=run.action_runs)
-
-
-class ActionRunResponse(BaseModel):
-    id: str
-    created_at: datetime
-    updated_at: datetime
-    action_id: str
-    workflow_run_id: str
-    status: str
-    error_msg: str | None = None
-    result: dict[str, Any] | None = None
-
-    @classmethod
-    def from_orm(cls, run: ActionRun) -> ActionRunResponse:
-        dict_result = None if run.result is None else json.loads(run.result)
-        return cls(**run.model_dump(exclude={"result"}), result=dict_result)
-
-
-class ActionRunEventParams(BaseModel):
-    id: str  # This is deterministically defined in the runner
-    owner_id: str
-    created_at: datetime
-    updated_at: datetime
-    status: RunStatus
-    workflow_run_id: str
-    error_msg: str | None = None
-    result: str | None = None  # JSON-serialized String
-
-
-class WorkflowRunEventParams(BaseModel):
-    id: str
-    owner_id: str
-    created_at: datetime
-    updated_at: datetime
-    status: RunStatus
-
-
 class CreateWorkflowParams(BaseModel):
     title: str | None = None
     description: str | None = None
@@ -163,28 +114,6 @@ class WebhookResponse(Resource):
 class GetWebhookParams(BaseModel):
     webhook_id: str | None = None
     path: str | None = None
-
-
-class Event(BaseModel):
-    published_at: datetime
-    action_id: str
-    action_run_id: str
-    action_title: str
-    action_type: str
-    workflow_id: str
-    workflow_title: str
-    workflow_run_id: str
-    data: dict[str, Any]
-
-
-class EventSearchParams(BaseModel):
-    workflow_id: str
-    limit: int = 1000
-    order_by: str = "pubished_at"
-    workflow_run_id: str | None = None
-    query: str | None = None
-    group_by: list[str] | None = None
-    agg: str | None = None
 
 
 class CreateUserParams(BaseModel):
