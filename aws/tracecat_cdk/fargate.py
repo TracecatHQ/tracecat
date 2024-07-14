@@ -323,6 +323,8 @@ class FargateStack(Stack):
             "TRACECAT__DB_PORT": core_database.db_instance_endpoint_port,
             "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
             "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
+            "TEMPORAL__CLUSTER_URL": os.environ["TEMPORAL__CLUSTER_URL"],
+            "TEMPORAL__CLUSTER_QUEUE": os.environ["TEMPORAL__CLUSTER_QUEUE"],
         }
 
         ### API Service
