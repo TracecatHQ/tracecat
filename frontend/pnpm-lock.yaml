@@ -167,6 +167,9 @@ importers:
       vaul:
         specifier: ^0.9.1
         version: 0.9.1(@types/react-dom@18.3.0)(@types/react@18.3.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      yaml:
+        specifier: ^2.4.5
+        version: 2.4.5
       zod:
         specifier: ^3.23.8
         version: 3.23.8
@@ -4910,6 +4913,11 @@ packages:
     resolution: {integrity: sha512-8aAvwVUSHpfEqTQ4w/KMlf3HcRdt50E5ODIQJBw1fQ5RL34xabzxtUlzTXVqc4rkZsPbvrXKWnABCD7kWSmocA==}
     engines: {node: '>= 14'}
 
+  yaml@2.4.5:
+    resolution: {integrity: sha512-aBx2bnqDzVOyNKfsysjA2ms5ZlnjSAW2eG3/L5G/CSujfjLJTJsEw1bGw8kCf04KodQWk1pxlGnZ56CRxiawmg==}
+    engines: {node: '>= 14'}
+    hasBin: true
+
   yargs-parser@21.1.1:
     resolution: {integrity: sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw==}
     engines: {node: '>=12'}
@@ -9447,7 +9455,7 @@ snapshots:
   postcss-load-config@4.0.2(postcss@8.4.38):
     dependencies:
       lilconfig: 3.0.0
-      yaml: 2.3.4
+      yaml: 2.4.5
     optionalDependencies:
       postcss: 8.4.38
 
@@ -10348,6 +10356,8 @@ snapshots:
   yaml@1.10.2: {}
 
   yaml@2.3.4: {}
+
+  yaml@2.4.5: {}
 
   yargs-parser@21.1.1: {}
 
