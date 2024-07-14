@@ -4,7 +4,6 @@ import React from "react"
 import Link from "next/link"
 
 import { Icons } from "@/components/icons"
-import { CommunityNav } from "@/components/nav/community"
 import DynamicNavbar from "@/components/nav/dynamic-nav"
 import UserNav from "@/components/nav/user-nav"
 
@@ -18,7 +17,6 @@ export default function Navbar(props: NavbarProps) {
         </Link>
         <DynamicNavbar />
         <div className="flex flex-1 items-center justify-end space-x-6">
-          <CommunityNav />
           <UserNav />
         </div>
       </div>
