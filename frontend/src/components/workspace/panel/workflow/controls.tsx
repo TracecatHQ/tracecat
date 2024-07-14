@@ -1,17 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback } from "react"
 import * as React from "react"
-import { useWorkflow } from "@/providers/workflow"
+import { workflowExecutionsCreateWorkflowExecution } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlayIcon, ZapIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
+import JsonView from "react18-json-view"
 import { z } from "zod"
 
-import { Action, Workflow } from "@/types/schemas"
-import { stringToJSONSchema } from "@/types/validators"
-import { getActionKey } from "@/lib/utils"
-import { triggerWorkflow } from "@/lib/workflow"
+import { Workflow } from "@/types/schemas"
 import {
   Accordion,
   AccordionContent,
@@ -28,72 +26,42 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 
-const workflowControlsFormSchema = z
-  .object({
-    payload: stringToJSONSchema, // json
-    actionKey: z.string().optional(),
-  })
-  .refine(
-    (data) => {
-      return data.actionKey !== undefined
-    },
-    {
-      message: "Please select an action.",
-      path: ["actionKey"], // Specify the path of the field being validated for targeted error messages.
-    }
-  )
+const workflowControlsFormSchema = z.object({
+  payload: z.record(z.string(), z.unknown()).optional(),
+})
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
-export function WorkflowControlsForm({
+export function WorkflowControls({
   workflow,
 }: {
   workflow: Workflow
 }): React.JSX.Element {
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
-    defaultValues: {
-      payload: "",
-      actionKey: undefined,
-    },
+    defaultValues: {},
   })
-  const [selectedAction, setSelectedAction] = useState<Action | null>(null)
 
   const handleSubmit = useCallback(async () => {
     // Make the API call to start the workflow
-    const values = {
-      ...form.getValues(),
-      actionKey: selectedAction ? getActionKey(selectedAction) : undefined,
-    }
-    if (!values.actionKey) {
-      console.error("No action key provided")
-      toast({
-        title: "No action key provided",
-        description: "Please select an action to start the workflow.",
-      })
-      return
-    }
-
+    const values = form.getValues()
+    console.log("payload", values.payload)
     try {
-      await triggerWorkflow(workflow.id, values.actionKey, values.payload)
+      const response = await workflowExecutionsCreateWorkflowExecution({
+        requestBody: {
+          workflow_id: workflow.id,
+          inputs: values.payload,
+        },
+      })
+      console.log("Workflow started", response)
       toast({
-        title: "Workflow started",
-        description: "The workflow has been started successfully.",
+        title: `Workflow Run Started`,
+        description: `${response.wf_exec_id} ${response.message}`,
       })
     } catch (error) {
       console.error("Error starting workflow", error)
@@ -102,10 +70,10 @@ export function WorkflowControlsForm({
         description: "Please check the run logs for more information",
       })
     }
-  }, [selectedAction, form, setSelectedAction])
+  }, [form])
 
   return (
-    <Accordion type="single" collapsible>
+    <Accordion type="single" collapsible defaultValue="workflow-trigger">
       <AccordionItem value="workflow-trigger">
         <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
           <div className="flex items-center">
@@ -122,92 +90,59 @@ export function WorkflowControlsForm({
                   name="payload"
                   render={({ field }) => (
                     <FormItem>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <FormLabel className="text-xs underline decoration-dotted underline-offset-2">
-                            Trigger Parameters
-                          </FormLabel>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          JSON input to send to the selected webhook and trigger
-                          the workflow.
-                        </TooltipContent>
-                      </Tooltip>
+                      <div className="flex items-center">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <FormLabel className="mr-auto text-xs underline decoration-dotted underline-offset-2">
+                              Trigger Parameters
+                            </FormLabel>
+                          </TooltipTrigger>
+
+                          <TooltipContent>
+                            JSON input to send to the selected webhook and
+                            trigger the workflow.
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleSubmit}
+                            className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+                          >
+                            <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
+                            <span>Run</span>
+                          </Button>
+                        </Tooltip>
+                      </div>
                       <FormControl>
-                        <Textarea
-                          className="text-xs"
-                          placeholder='{"webhookParam1": "value1"}'
-                          {...field}
-                        />
+                        <div className="w-full rounded-md border p-4">
+                          {/* The json contains the view into the data */}
+                          <JsonView
+                            displaySize
+                            editable
+                            enableClipboard
+                            src={field.value}
+                            className="text-sm"
+                            theme="atom"
+                            onChange={(value) => {
+                              console.log("JsonView onChange", value.src)
+                              field.onChange(value.src)
+                            }}
+                          />
+                        </div>
                       </FormControl>
 
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <div className="flex w-full items-center space-x-2 pt-2">
-                  <EntrypointSelector setSelectedAction={setSelectedAction} />
-                  <Button
-                    type="button"
-                    onClick={handleSubmit}
-                    className="flex items-center text-xs"
-                  >
-                    <PlayIcon className="mr-2 size-3" />
-                    <span>Run</span>
-                  </Button>
-                </div>
+                <div className="flex w-full items-center space-x-2 pt-2"></div>
               </form>
             </Form>
           </div>
         </AccordionContent>
       </AccordionItem>
     </Accordion>
-  )
-}
-
-export default function EntrypointSelector({
-  setSelectedAction,
-}: {
-  setSelectedAction: React.Dispatch<React.SetStateAction<Action | null>>
-}) {
-  const { workflow } = useWorkflow()
-  const [actions, setActions] = useState<Action[]>([])
-
-  useEffect(() => {
-    if (workflow?.actions) {
-      setActions(
-        Object.values(workflow.actions).filter(
-          (action) => action.type === "webhook"
-        )
-      )
-    }
-  }, [workflow?.actions])
-
-  return (
-    <Select>
-      <SelectTrigger>
-        <SelectValue
-          placeholder="Select webhook"
-          className="text-xs text-muted-foreground"
-        />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel className="text-xs">Webhooks</SelectLabel>
-          {actions.map((action) => (
-            <SelectItem
-              key={action.id}
-              value={action.id}
-              className="text-xs"
-              onSelect={() => {
-                setSelectedAction(action)
-              }}
-            >
-              {action.title}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
   )
 }
