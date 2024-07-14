@@ -299,20 +299,6 @@ export type CreateWorkflowParams = {
     description?: string | null;
 };
 
-export type Event = {
-    published_at: string;
-    action_id: string;
-    action_run_id: string;
-    action_title: string;
-    action_type: string;
-    workflow_id: string;
-    workflow_title: string;
-    workflow_run_id: string;
-    data: {
-        [key: string]: unknown;
-    };
-};
-
 export type EventFailure = {
     message: string;
     stack_trace: string;
@@ -355,16 +341,6 @@ export type EventHistoryResponse = {
  * The event types we care about.
  */
 export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED';
-
-export type EventSearchParams = {
-    workflow_id: string;
-    limit?: number;
-    order_by?: string;
-    workflow_run_id?: string | null;
-    query?: string | null;
-    group_by?: Array<(string)> | null;
-    agg?: string | null;
-};
 
 export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
 
@@ -948,12 +924,6 @@ export type ActionsDeleteActionData = {
 
 export type ActionsDeleteActionResponse = void;
 
-export type EventsSearchEventsData = {
-    requestBody: EventSearchParams;
-};
-
-export type EventsSearchEventsResponse = Array<Event>;
-
 export type CasesCreateCaseData = {
     requestBody: Array<CaseParams>;
     workflowId: string;
@@ -1531,21 +1501,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/events/search': {
-        get: {
-            req: EventsSearchEventsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Event>;
                 /**
                  * Validation Error
                  */

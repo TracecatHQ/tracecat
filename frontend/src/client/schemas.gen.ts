@@ -974,51 +974,6 @@ export const $CreateWorkflowParams = {
     title: 'CreateWorkflowParams'
 } as const;
 
-export const $Event = {
-    properties: {
-        published_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Published At'
-        },
-        action_id: {
-            type: 'string',
-            title: 'Action Id'
-        },
-        action_run_id: {
-            type: 'string',
-            title: 'Action Run Id'
-        },
-        action_title: {
-            type: 'string',
-            title: 'Action Title'
-        },
-        action_type: {
-            type: 'string',
-            title: 'Action Type'
-        },
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        workflow_title: {
-            type: 'string',
-            title: 'Workflow Title'
-        },
-        workflow_run_id: {
-            type: 'string',
-            title: 'Workflow Run Id'
-        },
-        data: {
-            type: 'object',
-            title: 'Data'
-        }
-    },
-    type: 'object',
-    required: ['published_at', 'action_id', 'action_run_id', 'action_title', 'action_type', 'workflow_id', 'workflow_title', 'workflow_run_id', 'data'],
-    title: 'Event'
-} as const;
-
 export const $EventFailure = {
     properties: {
         message: {
@@ -1178,75 +1133,6 @@ export const $EventHistoryType = {
     enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED'],
     title: 'EventHistoryType',
     description: 'The event types we care about.'
-} as const;
-
-export const $EventSearchParams = {
-    properties: {
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        limit: {
-            type: 'integer',
-            title: 'Limit',
-            default: 1000
-        },
-        order_by: {
-            type: 'string',
-            title: 'Order By',
-            default: 'pubished_at'
-        },
-        workflow_run_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Workflow Run Id'
-        },
-        query: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Query'
-        },
-        group_by: {
-            anyOf: [
-                {
-                    items: {
-                        type: 'string'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Group By'
-        },
-        agg: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Agg'
-        }
-    },
-    type: 'object',
-    required: ['workflow_id'],
-    title: 'EventSearchParams'
 } as const;
 
 export const $ExprContext = {
