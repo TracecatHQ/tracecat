@@ -162,7 +162,14 @@ export async function validateUDFArgs(
     `/udfs/${key}/validate`,
     args
   )
-  const res = await UDFArgsValidationResponseSchema.parseAsync(response.data)
-  console.log("validateUDFArgs", res)
-  return res
+  try {
+    return await UDFArgsValidationResponseSchema.parseAsync(response.data)
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      console.error("Error parsing UDF validation response", e)
+      console.error(e.issues)
+      console.error(e.errors)
+    }
+    throw e
+  }
 }
