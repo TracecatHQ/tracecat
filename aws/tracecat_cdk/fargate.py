@@ -283,6 +283,20 @@ class FargateStack(Stack):
                 stream_prefix="service-connect-worker", log_group=log_group
             ),
         )
+        ui_service_connect = ecs.ServiceConnectProps(
+            services=[
+                ecs.ServiceConnectService(
+                    port_mapping_name="ui",
+                    dns_name="ui-service",
+                    port=3000,
+                    idle_timeout=Duration.minutes(15),
+                )
+            ],
+            namespace=dns_namespace.namespace_name,
+            log_driver=ecs.LogDrivers.aws_logs(
+                stream_prefix="service-connect-ui", log_group=log_group
+            ),
+        )
         temporal_service_connect = ecs.ServiceConnectProps(
             services=[
                 ecs.ServiceConnectService(
@@ -450,6 +464,7 @@ class FargateStack(Stack):
             # Attach the security group to your ECS service
             task_definition=ui_task_definition,
             security_groups=[core_security_group],
+            service_connect_configuration=ui_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
         self.ui_fargate_service = ui_fargate_service
