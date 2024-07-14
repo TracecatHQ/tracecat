@@ -2139,8 +2139,8 @@ def validate_udf_args(
         if result.status == "error":
             logger.error(
                 "Error validating UDF args",
-                message=result.message,
-                details=result.details,
+                message=result.msg,
+                details=result.detail,
             )
         return UDFArgsValidationResponse.from_validation_result(result)
     except KeyError as e:

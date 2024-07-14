@@ -4,7 +4,8 @@ import JsonView from "react18-json-view"
 
 import "react18-json-view/src/style.css"
 
-import React from "react"
+import React, { useState } from "react"
+import { ApiError, udfsValidateUdfArgs } from "@/client"
 import {
   BracesIcon,
   LayoutListIcon,
@@ -14,9 +15,10 @@ import {
   ViewIcon,
 } from "lucide-react"
 import { FieldValues, FormProvider, useForm } from "react-hook-form"
+import YAML from "yaml"
 
 import { PanelAction, useActionInputs } from "@/lib/hooks"
-import { ErrorDetails, useUDFSchema, validateUDFArgs } from "@/lib/udf"
+import { useUDFSchema } from "@/lib/udf"
 import {
   Accordion,
   AccordionContent,
@@ -68,9 +70,10 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
     },
   })
   const { actionInputs, setActionInputs } = useActionInputs(action)
-  const [JSONViewerrors, setJSONViewErrors] = React.useState<
-    ErrorDetails[] | undefined
-  >(undefined)
+  const [JSONViewerrors, setJSONViewErrors] = useState<Record<
+    string,
+    unknown
+  > | null>(null)
 
   if (schemaLoading || actionLoading) {
     return <CenteredSpinner />
@@ -94,22 +97,32 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
   }
 
   const onSubmit = async (values: FieldValues) => {
-    const validateResponse = await validateUDFArgs(udf.key, actionInputs)
-    if (!validateResponse.ok) {
-      const detail = validateResponse.detail
-      console.log("Validation failed", validateResponse)
-      setJSONViewErrors(detail ?? undefined)
-      return
+    try {
+      const validateResponse = await udfsValidateUdfArgs({
+        udfKey: udf.key,
+        requestBody: actionInputs,
+      })
+      console.log("Validation passed", validateResponse)
+      if (!validateResponse.ok) {
+        console.error("Validation failed", validateResponse)
+        setJSONViewErrors(validateResponse.detail as Record<string, unknown>)
+      } else {
+        setJSONViewErrors(null)
+        const params = {
+          title: values.title as string,
+          description: values.description as string,
+          inputs: actionInputs,
+        } as FieldValues & { inputs: Record<string, unknown> }
+        console.log("Submitting action form", params)
+        await mutateAsync(params as T)
+      }
+    } catch (error) {
+      if (error instanceof ApiError) {
+        console.error("Application failed to validate UDF", error.body)
+      } else {
+        console.error("Validation failed, unknown error", error)
+      }
     }
-    setJSONViewErrors([])
-
-    const params = {
-      title: values.title as string,
-      description: values.description as string,
-      inputs: actionInputs,
-    } as FieldValues & { inputs: Record<string, unknown> }
-    console.log("Submitting action form", params)
-    await mutateAsync(params as T)
   }
 
   return (
@@ -231,8 +244,14 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                   <ActionInputs
                     inputs={actionInputs}
                     setInputs={setActionInputs}
-                    errors={JSONViewerrors}
                   />
+                  {JSONViewerrors && (
+                    <div className="rounded-md border-2 border-rose-500 bg-rose-100 p-4 font-mono text-rose-600">
+                      <span className="font-bold">Validation Errors</span>
+                      <Separator className="my-2 bg-rose-400" />
+                      <pre>{YAML.stringify(JSONViewerrors)}</pre>
+                    </div>
+                  )}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -246,11 +265,9 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
 export function ActionInputs({
   inputs,
   setInputs,
-  errors,
 }: {
   inputs: Record<string, unknown>
   setInputs: (obj: Record<string, unknown>) => void
-  errors?: ErrorDetails[]
 }) {
   return (
     <Tabs defaultValue="json">
@@ -280,27 +297,6 @@ export function ActionInputs({
             }}
             className="text-sm"
           />
-        </div>
-        <div className="w-full space-y-2 py-4">
-          {errors?.length == 0 ? (
-            <AlertNotification
-              className="text-xs"
-              level="success"
-              message="Validated successfully!"
-            />
-          ) : (
-            errors?.map((error, idx) => {
-              const msg = `${error.type}: ${error.msg} @ \`${error.loc[0]}\`. Received input ${error.input}`
-              return (
-                <AlertNotification
-                  className="text-xs"
-                  key={idx}
-                  level="error"
-                  message={msg}
-                />
-              )
-            })
-          )}
         </div>
       </TabsContent>
       <TabsContent value="form">

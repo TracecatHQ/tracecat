@@ -2,7 +2,7 @@
 
 import { useCallback } from "react"
 import * as React from "react"
-import { workflowExecutionsCreateWorkflowExecution } from "@/client"
+import { ApiError, workflowExecutionsCreateWorkflowExecution } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlayIcon, ZapIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
@@ -50,7 +50,6 @@ export function WorkflowControls({
   const handleSubmit = useCallback(async () => {
     // Make the API call to start the workflow
     const values = form.getValues()
-    console.log("payload", values.payload)
     try {
       const response = await workflowExecutionsCreateWorkflowExecution({
         requestBody: {
@@ -64,11 +63,21 @@ export function WorkflowControls({
         description: `${response.wf_exec_id} ${response.message}`,
       })
     } catch (error) {
-      console.error("Error starting workflow", error)
-      toast({
-        title: "Error starting workflow",
-        description: "Please check the run logs for more information",
-      })
+      if (error instanceof ApiError) {
+        console.error("Error details", error.body)
+        toast({
+          title: "Error starting workflow",
+          description: error.message,
+          variant: "destructive",
+        })
+      } else {
+        console.error("Unexpected error starting workflow", error)
+        toast({
+          title: "Unexpected error starting workflow",
+          description: "Please check the run logs for more information",
+          variant: "destructive",
+        })
+      }
     }
   }, [form])
 

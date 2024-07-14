@@ -112,7 +112,7 @@ class SchemaValidatorFactory:
 def validate_trigger_inputs(
     dsl: DSLInput, payload: dict[str, Any] | None = None
 ) -> ValidationResult:
-    if dsl.entrypoint.expects is None:
+    if not dsl.entrypoint.expects:
         # If there's no expected trigger input schema, we don't validate it
         # as its ignored anyways
         return ValidationResult(
