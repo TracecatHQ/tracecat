@@ -123,7 +123,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
             className="size-full text-sm"
             passHref
           >
-            <SquarePlay className="mr-2 h-4 w-4" />
+            <SquarePlay className="mr-2 size-4" />
             <span>Runs</span>
           </Link>
         </TabsTrigger>
