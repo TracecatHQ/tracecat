@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import { ApiError, workflowExecutionsCreateWorkflowExecution } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { Editor } from "@monaco-editor/react"
 import {
   GitPullRequestCreateArrowIcon,
   PlayIcon,
@@ -13,8 +14,8 @@ import {
   SquarePlay,
   WorkflowIcon,
 } from "lucide-react"
+import { editor } from "monaco-editor"
 import { useForm } from "react-hook-form"
-import JsonView from "react18-json-view"
 import { z } from "zod"
 
 import { cn } from "@/lib/utils"
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function WorkflowNav() {
   const { workflow, isLoading, isOnline, setIsOnline, commit } = useWorkflow()
@@ -265,20 +267,35 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
             render={({ field }) => (
               <FormItem>
                 <FormControl>
-                  <div className="w-full rounded-md border bg-muted-foreground/5 p-4">
+                  <div className="h-full w-full border">
                     {/* The json contains the view into the data */}
-                    <JsonView
-                      displaySize
-                      editable
-                      enableClipboard
-                      src={field.value}
-                      className="text-sm"
-                      theme="atom"
-                      onChange={(value) => {
-                        console.log("JsonView onChange", value.src)
-                        field.onChange(value.src)
-                      }}
-                    />
+                    <div className="h-36">
+                      <Editor
+                        height="100%"
+                        theme="vs-light"
+                        defaultLanguage="json"
+                        defaultValue={"{}"}
+                        onChange={(
+                          value: string | undefined,
+                          ev: editor.IModelContentChangedEvent
+                        ) => {
+                          const newValue = value ? JSON.parse(value) : {}
+                          field.onChange(newValue)
+                        }}
+                        loading={<CenteredSpinner />}
+                        options={{
+                          tabSize: 2,
+                          minimap: { enabled: false },
+                          scrollbar: {
+                            verticalScrollbarSize: 5,
+                            horizontalScrollbarSize: 5,
+                          },
+                          folding: false,
+                          glyphMargin: true,
+                          lineNumbersMinChars: 2,
+                        }}
+                      />
+                    </div>
                   </div>
                 </FormControl>
                 <FormMessage />
