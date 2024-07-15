@@ -19,6 +19,17 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { cn } from "@/lib/utils"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -47,7 +58,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function WorkflowNav() {
@@ -126,29 +136,41 @@ export default function WorkflowNav() {
 
         {/* Workflow status */}
         <Tooltip>
-          <TooltipTrigger>
-            <ConfirmationDialog
-              title={isOnline ? "Disable Workflow?" : "Enable Workflow?"}
-              description={
-                isOnline
-                  ? "Are you sure you want to disable the workflow? This will stop new executions and event processing."
-                  : "Are you sure you want to enable the workflow? This will start new executions and event processing."
-              }
-              onConfirm={() => setIsOnline(!isOnline)}
-            >
-              <Button
-                variant="outline"
-                className={cn(
-                  "h-7 text-xs font-bold",
-                  isOnline
-                    ? "text-rose-400 hover:text-rose-600"
-                    : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
-                )}
-              >
-                {isOnline ? "Disable Workflow" : "Enable Workflow"}
-              </Button>
-            </ConfirmationDialog>
-          </TooltipTrigger>
+          <AlertDialog>
+            <TooltipTrigger asChild>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "h-7 text-xs font-bold",
+                    isOnline
+                      ? "text-rose-400 hover:text-rose-600"
+                      : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
+                  )}
+                >
+                  {isOnline ? "Disable Workflow" : "Enable Workflow"}
+                </Button>
+              </AlertDialogTrigger>
+            </TooltipTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {isOnline ? "Disable Workflow?" : "Enable Workflow?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {isOnline
+                    ? "Are you sure you want to disable the workflow? This will stop new executions and event processing."
+                    : "Are you sure you want to enable the workflow? This will start new executions and event processing."}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => setIsOnline(!isOnline)}>
+                  Confirm
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <TooltipContent
             side="bottom"
             className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
