@@ -282,6 +282,8 @@ export function ActionInputs({
         loading={<CenteredSpinner />}
         options={{
           tabSize: 2,
+          minimap: { enabled: false },
+          scrollbar: { verticalScrollbarSize: 5, horizontalScrollbarSize: 5 },
         }}
       />
     </div>
