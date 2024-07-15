@@ -11,5 +11,5 @@ This is the equivalent of a Schedule ID in Temporal.
 
 Exapmles
 --------
-- 'sch-77932a0b140a4465a1a25a5c95edcfb8'
+- `sch-77932a0b140a4465a1a25a5c95edcfb8`
 """
