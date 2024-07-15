@@ -1,19 +1,12 @@
 "use client"
 
-import JsonView from "react18-json-view"
-
 import "react18-json-view/src/style.css"
 
 import React, { useState } from "react"
 import { ApiError, udfsValidateUdfArgs } from "@/client"
-import {
-  BracesIcon,
-  LayoutListIcon,
-  SaveIcon,
-  SettingsIcon,
-  Shapes,
-  ViewIcon,
-} from "lucide-react"
+import Editor from "@monaco-editor/react"
+import { LayoutListIcon, SaveIcon, SettingsIcon, Shapes } from "lucide-react"
+import { editor } from "monaco-editor"
 import { FieldValues, FormProvider, useForm } from "react-hook-form"
 import YAML from "yaml"
 
@@ -35,7 +28,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -241,6 +233,9 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-4 px-4">
+                  <span className="text-xs text-muted-foreground">
+                    Edit the action inputs in YAML below.
+                  </span>
                   <ActionInputs
                     inputs={actionInputs}
                     setInputs={setActionInputs}
@@ -269,41 +264,26 @@ export function ActionInputs({
   inputs: Record<string, unknown>
   setInputs: (obj: Record<string, unknown>) => void
 }) {
+  function handleEditorChange(
+    value: string | undefined,
+    ev: editor.IModelContentChangedEvent
+  ) {
+    const newValue = value ? YAML.parse(value) : {}
+    setInputs(newValue)
+  }
   return (
-    <Tabs defaultValue="json">
-      <div className="flex flex-1 justify-end">
-        <TabsList className="mb-4">
-          <TabsTrigger className="text-xs" value="json">
-            <BracesIcon className="mr-2 size-3.5" />
-            <span>JSON</span>
-          </TabsTrigger>
-          <TabsTrigger className="text-xs" value="form">
-            <ViewIcon className="mr-2 size-3.5" />
-            <span>View</span>
-          </TabsTrigger>
-        </TabsList>
-      </div>
-      <TabsContent value="json">
-        <div className="w-full rounded-md border p-4">
-          {/* The json contains the view into the data */}
-          <JsonView
-            displaySize
-            editable
-            enableClipboard
-            src={inputs}
-            onChange={(params) => {
-              console.log("changed", params)
-              setInputs(params.src)
-            }}
-            className="text-sm"
-          />
-        </div>
-      </TabsContent>
-      <TabsContent value="form">
-        <div className="justify-center space-y-4 text-center text-xs italic text-muted-foreground">
-          Action forms are being revamped. Please use the JSON editor for now.
-        </div>
-      </TabsContent>
-    </Tabs>
+    <div className="h-96 w-full border">
+      <Editor
+        height="100%"
+        theme="vs-light"
+        defaultLanguage="yaml"
+        defaultValue={YAML.stringify(inputs)}
+        onChange={handleEditorChange}
+        loading={<CenteredSpinner />}
+        options={{
+          tabSize: 2,
+        }}
+      />
+    </div>
   )
 }
