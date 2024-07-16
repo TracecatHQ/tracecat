@@ -936,7 +936,7 @@ export const $CreateWorkflowExecutionResponse = {
         },
         wf_exec_id: {
             type: 'string',
-            pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+',
+            pattern: 'wf-[0-9a-f]{32}:exec-[0-9a-f]{32}',
             title: 'Wf Exec Id'
         }
     },
@@ -1250,11 +1250,11 @@ export const $RunContext = {
             anyOf: [
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
+                    pattern: 'wf-[0-9a-f]{32}:exec-[0-9a-f]{32}'
                 },
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}'
+                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
                 }
             ],
             title: 'Wf Exec Id'
