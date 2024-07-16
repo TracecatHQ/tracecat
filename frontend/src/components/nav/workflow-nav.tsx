@@ -14,7 +14,6 @@ import {
   SquarePlay,
   WorkflowIcon,
 } from "lucide-react"
-import { editor } from "monaco-editor"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
