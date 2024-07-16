@@ -76,7 +76,7 @@ actions:
       normalize: true # user+test@domain -> user@domain
     # Returns: list[list[email]]
 
-  - ref: enrich_with_emails
+  - ref: zip_signals_and_emails
     action: core.transform.forward
     depends_on:
       - extract_emails_from_signals
@@ -91,10 +91,10 @@ actions:
   - ref: drop_signals_with_empty_emails
     action: core.transform.filter
     depends_on:
-      - enrich_with_emails
+      - zip_signals_and_emails
     args:
       # Filter out only relevant emails
-      items: ${{ ACTIONS.enrich_with_emails.result }}
+      items: ${{ ACTIONS.zip_signals_and_emails.result }}
       constraint:
         jsonpath: $.emails
         function: not_empty
@@ -118,7 +118,7 @@ actions:
       key: $.profile.email
     # Returns a mapping of email to slack_user object at ACTIONS.slack_user_mapping.result
 
-  - ref: enrich_with_slack_info
+  - ref: add_slack_info_to_signals
     action: core.transform.forward
     depends_on:
       - drop_signals_with_empty_emails
@@ -136,21 +136,21 @@ actions:
   - ref: extract_slack_tags
     action: core.transform.forward
     depends_on:
-      - enrich_with_slack_info
+      - add_slack_info_to_signals
     # This is now a list[slack_user]
-    for_each: ${{ for var.enriched_signal in ACTIONS.enrich_with_slack_info.result }}
+    for_each: ${{ for var.signal in ACTIONS.add_slack_info_to_signals.result }}
     args:
       # Use jsonpath to pull the id fields as a list of ids
-      value: ${{ FN.format.map('<@{}>', var.enriched_signal.slack_info[*].id) }}
+      value: ${{ FN.format.map('<@{}>', var.signal.slack_info[*].id) }}
 
   - ref: send_slack_notification
     action: integrations.chat.slack.post_slack_message
     depends_on:
       - extract_slack_tags
-      - enrich_with_slack_info
+      - add_slack_info_to_signals
     run_if: ${{ FN.not_empty(ACTIONS.find_slack_users.result) }}
     for_each:
-      - ${{ for var.enriched_signal in ACTIONS.enrich_with_slack_info.result }}
+      - ${{ for var.signal in ACTIONS.add_slack_info_to_signals.result }}
       - ${{ for var.user_tags in ACTIONS.extract_slack_tags.result }}
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
@@ -159,12 +159,12 @@ actions:
         - type: header
           text:
             type: plain_text
-            text: ${{ var.enriched_signal.signal.title }}
+            text: ${{ var.signal.signal.title }}
             emoji: true
         - type: context
           elements:
             - type: plain_text
-              text: "*Link to signal:* ${{ var.enriched_signal.signal.link_to_signal }}"
+              text: "*Link to signal:* ${{ var.signal.signal.link_to_signal }}"
         # Tag Slack users
         - type: context
           elements:
@@ -173,14 +173,14 @@ actions:
         - type: context
           elements:
             - type: plain_text
-              text: "*Status:* ${{ var.enriched_signal.signal.status }}"
+              text: "*Status:* ${{ var.signal.signal.status }}"
         - type: context
           elements:
             - type: plain_text
-              text: "*First seen:* ${{ FN.from_timestamp(var.enriched_signal.signal.first_seen, 'ms') }}"
+              text: "*First seen:* ${{ FN.from_timestamp(var.signal.signal.first_seen, 'ms') }}"
             - type: plain_text
-              text: "*Last seen:* ${{ FN.from_timestamp(var.enriched_signal.signal.last_seen, 'ms') }}"
+              text: "*Last seen:* ${{ FN.from_timestamp(var.signal.signal.last_seen, 'ms') }}"
         - type: section
           text:
             type: mrkdwn
-            text: ${{ var.enriched_signal.signal.description }}
+            text: ${{ var.signal.signal.description }}
