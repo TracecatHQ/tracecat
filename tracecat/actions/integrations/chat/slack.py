@@ -23,7 +23,7 @@ post_message = {
 list_users = {
     "endpoint": "client.users_list",
     "user_agent": "slack-python",
-    "app_scopes": ["users:read", "users:read.email"]
+    "app_scopes": ["channels:history", "groups:history", "im:history", "mpim:history"]
     "reference": "https://api.slack.com/methods/users.list",
 }
 
