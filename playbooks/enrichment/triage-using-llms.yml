@@ -1,4 +1,4 @@
-title: Extract IoCs from alert, enrich using VirustTotal, and investigate using AI.
+title: Extract IoCs from alert, enrich using VirusTotal, and investigate using AI.
 description: |
   Given a security alert, this playbook extracts URLs and IP addresses from the alert
   enriches them using VirusTotal, and provides triage advice for further investigation.
