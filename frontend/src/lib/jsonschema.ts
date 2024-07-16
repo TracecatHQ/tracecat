@@ -10,6 +10,7 @@ export interface JSONSchemaTableRow {
   default: JSONSchema7Type
   description: string
   constraints: string
+  required: boolean
 }
 
 export function generateSchemaDefault(schema: JSONSchema7): JSONSchema7Type {
@@ -69,11 +70,12 @@ export function transformJsonSchemaToTableRows(
 
   const rows: JSONSchemaTableRow[] = Object.entries(properties).map(
     ([key, value]) => ({
-      parameter: `${key}${required.includes(key) ? " *" : ""}`,
+      parameter: key,
       type: getType(value as JSONSchema7),
       default: (value as JSONSchema7).default ?? "-",
       description: (value as JSONSchema7).description ?? "",
       constraints: getConstraints(value as JSONSchema7),
+      required: required.includes(key),
     })
   )
   return rows
