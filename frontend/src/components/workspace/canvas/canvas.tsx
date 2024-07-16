@@ -149,15 +149,25 @@ export function WorkflowCanvas() {
    */
   useEffect(() => {
     async function initializeReactFlowInstance() {
-      if (!workflowId) {
+      if (!workflowId || !reactFlowInstance) {
         return
       }
       try {
         const workflow = await fetchWorkflow(workflowId)
         const flow = workflow.object as ReactFlowJsonObject
         if (!flow) throw new Error("No workflow data found")
-        setNodes(flow.nodes || [])
-        setEdges(flow.edges || [])
+        // Deselect all nodes
+        const layouted = getLayoutedElements(
+          flow.nodes || [],
+          flow.edges || [],
+          {
+            rankdir: "TB",
+          }
+        )
+        setNodes([
+          ...layouted.nodes.map((node) => ({ ...node, selected: false })),
+        ])
+        setEdges([...layouted.edges])
         setViewport({
           x: flow.viewport.x,
           y: flow.viewport.y,
@@ -168,7 +178,7 @@ export function WorkflowCanvas() {
       }
     }
     initializeReactFlowInstance()
-  }, [workflowId])
+  }, [workflowId, reactFlowInstance])
 
   // React Flow callbacks
   const onConnect = useCallback(
