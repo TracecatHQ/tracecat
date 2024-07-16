@@ -4,25 +4,26 @@ import { z } from "zod"
 // Finally validate that at least one component is present
 export const durationSchema = z
   .object({
-    years: z.number().int().positive().optional(),
-    months: z.number().int().positive().optional(),
-    weeks: z.number().int().positive().optional(),
-    days: z.number().int().positive().optional(),
-    hours: z.number().int().positive().optional(),
-    minutes: z.number().int().positive().optional(),
-    seconds: z.number().int().positive().optional(),
+    years: z.number().int().default(0),
+    months: z.number().int().default(0),
+    weeks: z.number().int().default(0),
+    days: z.number().int().default(0),
+    hours: z.number().int().default(0),
+    minutes: z.number().int().default(0),
+    seconds: z.number().int().default(0),
   })
   .transform((data) => {
+    // Check that there's at least one component in the duration
     if (
-      !data.years &&
-      !data.months &&
-      !data.weeks &&
-      !data.days &&
-      !data.hours &&
-      !data.minutes &&
-      !data.seconds
+      data.years === 0 &&
+      data.months === 0 &&
+      data.weeks === 0 &&
+      data.days === 0 &&
+      data.hours === 0 &&
+      data.minutes === 0 &&
+      data.seconds === 0
     ) {
-      throw new Error("Duration must have at least one component")
+      throw new Error("Please provide at least one component in the duration.")
     }
     return data
   })
@@ -30,8 +31,7 @@ export const durationSchema = z
 export type Duration = z.infer<typeof durationSchema>
 
 export function durationToISOString(duration: Duration): string {
-  durationSchema.parse(duration)
-  // Do not allow the duration to be empty
+  // Do not need to parse durationSchema since the default values are already set
   let result = "P"
 
   if (duration.years) result += `${duration.years}Y`
@@ -52,3 +52,89 @@ export function durationToISOString(duration: Duration): string {
 
   return result
 }
+
+export function parseISODuration(duration: string): Duration {
+  const regex =
+    /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/
+  const matches = duration.match(regex)
+
+  if (!matches) {
+    throw new Error("Invalid ISO 8601 duration format")
+  }
+
+  const [
+    ,
+    // Full match (ignored)
+    years,
+    months,
+    weeks,
+    days,
+    hours,
+    minutes,
+    seconds,
+  ] = matches
+
+  return {
+    years: years ? parseInt(years, 10) : 0,
+    months: months ? parseInt(months, 10) : 0,
+    weeks: weeks ? parseInt(weeks, 10) : 0,
+    days: days ? parseInt(days, 10) : 0,
+    hours: hours ? parseInt(hours, 10) : 0,
+    minutes: minutes ? parseInt(minutes, 10) : 0,
+    seconds: seconds ? parseInt(seconds, 10) : 0,
+  }
+}
+
+export function durationToHumanReadable(duration: string): string {
+  const parsedDuration = parseISODuration(duration)
+  const parts: string[] = []
+
+  if (parsedDuration.years)
+    parts.push(
+      `${parsedDuration.years} year${parsedDuration.years > 1 ? "s" : ""}`
+    )
+  if (parsedDuration.months)
+    parts.push(
+      `${parsedDuration.months} month${parsedDuration.months > 1 ? "s" : ""}`
+    )
+  if (parsedDuration.weeks)
+    parts.push(
+      `${parsedDuration.weeks} week${parsedDuration.weeks > 1 ? "s" : ""}`
+    )
+  if (parsedDuration.days)
+    parts.push(
+      `${parsedDuration.days} day${parsedDuration.days > 1 ? "s" : ""}`
+    )
+  if (parsedDuration.hours)
+    parts.push(
+      `${parsedDuration.hours} hour${parsedDuration.hours > 1 ? "s" : ""}`
+    )
+  if (parsedDuration.minutes)
+    parts.push(
+      `${parsedDuration.minutes} minute${parsedDuration.minutes > 1 ? "s" : ""}`
+    )
+  if (parsedDuration.seconds)
+    parts.push(
+      `${parsedDuration.seconds} second${parsedDuration.seconds > 1 ? "s" : ""}`
+    )
+
+  return parts.length > 0 ? parts.join(", ") : "0 seconds"
+}
+
+// write some tests
+console.log(
+  durationToISOString({
+    years: 1,
+    months: 2,
+    weeks: 3,
+    days: 4,
+    hours: 5,
+    minutes: 6,
+    seconds: 7,
+  })
+)
+
+console.log(parseISODuration("P1Y2M3W4DT5H6M7S"))
+
+console.log(durationToHumanReadable("P1Y2M3W4DT5H6M7S"))
+// expected
