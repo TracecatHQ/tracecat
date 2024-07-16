@@ -28,6 +28,14 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -211,6 +219,8 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                 </div>
               </AccordionContent>
             </AccordionItem>
+
+            {/* Schema */}
             <AccordionItem value="action-schema">
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                 <div className="flex items-center">
@@ -218,12 +228,53 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                   <span>Schema</span>
                 </div>
               </AccordionTrigger>
-              <AccordionContent>
-                <div className="px-4">
+              <AccordionContent className="space-y-4">
+                {/* UDF secrets */}
+                <div className="space-y-4 px-4">
+                  {udf.secrets ? (
+                    <div className="text-xs text-muted-foreground">
+                      <span>This action requires the following secrets:</span>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="h-6  text-xs capitalize">
+                            <TableHead className="font-bold" colSpan={1}>
+                              Secret Name
+                            </TableHead>
+                            <TableHead className="font-bold" colSpan={1}>
+                              Secret Keys
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {udf.secrets.map((secret, idx) => (
+                            <TableRow
+                              key={idx}
+                              className="font-mono text-xs tracking-tight text-muted-foreground"
+                            >
+                              <TableCell>{secret.name}</TableCell>
+                              <TableCell>{secret.keys.join(", ")}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      No secrets required.
+                    </span>
+                  )}
+                </div>
+                {/* UDF inputs */}
+                <div className="space-y-4 px-4">
+                  <span className="text-xs text-muted-foreground">
+                    Hover over the fields to see more details.
+                  </span>
                   <JSONSchemaTable schema={udf.args} />
                 </div>
               </AccordionContent>
             </AccordionItem>
+
+            {/* Inputs */}
             <AccordionItem value="action-inputs">
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                 <div className="flex items-center">
