@@ -82,11 +82,11 @@ actions:
       - extract_emails_from_signals
     for_each: # Zip the signals with the emails
       - ${{ for var.signal in ACTIONS.reshape_signals.result }}
-      - ${{ for var.email_list in ACTIONS.extract_emails_from_signals.result }}
+      - ${{ for var.emails in ACTIONS.extract_emails_from_signals.result }}
     args:
       value:
         signal: ${{ var.signal }}
-        emails: ${{ FN.unique(var.email_list) }} # Internal order doesn't matter
+        emails: ${{ FN.unique(var.emails) }} # Internal order doesn't matter
 
   - ref: drop_signals_with_empty_emails
     action: core.transform.filter
@@ -106,7 +106,7 @@ actions:
       - drop_signals_with_empty_emails
     args:
       # Filter out only relevant emails
-      emails: ${{ FN.flatten(ACTIONS.extract_emails_from_signals.result) }}
+      emails: ${{ FN.flatten(ACTIONS.drop_signals_with_empty_emails.result) }}
     # Returns: list[slack_user]
 
   - ref: slack_user_mapping

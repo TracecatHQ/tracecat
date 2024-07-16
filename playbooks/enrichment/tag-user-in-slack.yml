@@ -43,11 +43,11 @@ actions:
       - extract_emails_from_conversations
     for_each:
       - ${{ var.conversation in ACTIONS.reshape_conversations.result }}
-      - ${{ var.email in ACTIONS.extract_emails_from_conversations.result }}
+      - ${{ var.emails in ACTIONS.extract_emails_from_conversations.result }}
     args:
       value:
         conversation: ${{ var.conversation }}
-        email: ${{ var.email }}
+        emails: ${{ var.emails }}
 
   - ref: drop_conversations_with_empty_emails
     action: core.transform.filter
@@ -87,11 +87,24 @@ actions:
         conversation: ${{ var.conversation }}
         slack_info: ${{ FN.lookup.map(ACTIONS.slack_user_mapping.result, var.conversation.emails) }}
 
+  - ref: drop_conversations_with_no_slack_info
+    action: core.transform.filter
+    depends_on:
+      - add_slack_info_to_conversations
+    for_each:
+      - ${{ var.conversation in ACTIONS.add_slack_info_to_conversations.result }}
+    args:
+      items: ${{ var.conversation }}
+      constraint:
+        jsonpath: $.slack_info
+        operator: ==
+        target: None
+
   - ref: extract_slack_tags
     action: core.transform.forward
     depends_on:
-      - add_slack_info_to_conversations
-    for_each: ${{ var.conversation in ACTIONS.add_slack_info_to_conversations.result }}
+      - drop_conversations_with_no_slack_info
+    for_each: ${{ var.conversation in ACTIONS.drop_conversations_with_no_slack_info.result }}
     args:
       # Use jsonpath to pull the id fields as a list of ids
       value: ${{ FN.format.map('<@{}>', var.signal.slack_info[*].id) }}
