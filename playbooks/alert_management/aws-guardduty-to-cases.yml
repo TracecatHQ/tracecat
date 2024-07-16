@@ -64,4 +64,4 @@ actions:
         - key: created_at
           value: ${{ var.smac.context.created_at }}
       payload: ${{ var.smac.payload }}
-      priority: ${{ 'high' if FN.greater_than(var.smac.severity, 30) else 'low' }}
+      priority: ${{ 'high' if var.smac.payload.severity > 50 else ('medium' if var.smac.payload.severity > 20 else 'low') }}
