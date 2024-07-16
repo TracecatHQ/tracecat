@@ -5,15 +5,17 @@ description: |
 entrypoint:
   ref: pull_slack_conversations
   expects:
-    start_time: datetime
-    end_time: datetime
+    latest: datetime
+    oldest: datetime
 
 actions:
   - ref: pull_slack_conversations
-    action: integrations.slack.list_slack_conversations
+    action: integrations.chat.slack.list_slack_conversations
     args:
-      start_time: ${{ TRIGGER.start_time }}
-      end_time: ${{ TRIGGER.end_time }}
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      latest: ${{ TRIGGER.latest }}
+      oldest: ${{ TRIGGER.oldest }}
+      limit: 20
 
   - ref: reshape_conversations
     action: core.transform.forward
@@ -27,7 +29,7 @@ actions:
         thread_ts: ${{ var.conversation.ts }}
 
   - ref: extract_emails_from_conversations
-    action: integrations.extraction.extract_emails
+    action: core.extraction.extract_emails
     depends_on:
       - reshape_conversations
     for_each: ${{ for var.conversation in ACTIONS.reshape_conversations.result }}
@@ -83,8 +85,7 @@ actions:
     args:
       value:
         conversation: ${{ var.conversation }}
-        emails: ${{ FN.get(ACTIONS.slack_user_mapping.result, var.conversation.email) }}
-        slack_info: ${{ FN.get(ACTIONS.slack_user_mapping.result, var.conversation.email) }}
+        slack_info: ${{ FN.lookup.map(ACTIONS.slack_user_mapping.result, var.conversation.emails) }}
 
   - ref: extract_slack_tags
     action: core.transform.forward
