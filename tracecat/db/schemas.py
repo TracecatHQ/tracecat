@@ -7,7 +7,8 @@ from typing import Any
 
 import pyarrow as pa
 from pydantic import computed_field, field_validator
-from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey, String, text
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from tracecat import config
@@ -79,7 +80,7 @@ class Secret(Resource, table=True):
     description: str | None = Field(default=None, max_length=255)
     # We store this object as encrypted bytes, but first validate that it's the correct type
     encrypted_keys: bytes
-    tags: dict[str, str] | None = Field(sa_column=Column(JSON))
+    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
     owner_id: str = Field(
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
@@ -122,7 +123,7 @@ class CaseEvent(Resource, table=True):
     # - Key not in dict: The field was not modified
     # - Key in dict with value None: The field was deleted
     # - Key in dict with value: The field was modified
-    data: dict[str, str | None] | None = Field(sa_column=Column(JSON))
+    data: dict[str, str | None] | None = Field(sa_column=Column(JSONB))
 
 
 class UDFSpec(Resource, table=True):
@@ -140,9 +141,9 @@ class UDFSpec(Resource, table=True):
     namespace: str
     key: str
     version: str | None = None
-    json_schema: dict[str, Any] | None = Field(sa_column=Column(JSON))
+    json_schema: dict[str, Any] | None = Field(sa_column=Column(JSONB))
     # Can put the icon url in the metadata
-    meta: dict[str, Any] | None = Field(sa_column=Column(JSON))
+    meta: dict[str, Any] | None = Field(sa_column=Column(JSONB))
 
 
 class WorkflowDefinition(Resource, table=True):
@@ -177,7 +178,7 @@ class WorkflowDefinition(Resource, table=True):
     )
 
     # DSL content
-    content: dict[str, Any] = Field(sa_column=Column(JSON))
+    content: dict[str, Any] = Field(sa_column=Column(JSONB))
     workflow: "Workflow" = Relationship(back_populates="definitions")
 
 
@@ -208,7 +209,7 @@ class Workflow(Resource, table=True):
         description="ID of the node directly connected to the trigger.",
     )
     object: dict[str, Any] | None = Field(
-        sa_column=Column(JSON), description="React flow graph object"
+        sa_column=Column(JSONB), description="React flow graph object"
     )
     icon_url: str | None = None
     # Owner
@@ -242,7 +243,7 @@ class Webhook(Resource, table=True):
     )
     status: str = "offline"  # "online" or "offline"
     method: str = "POST"
-    filters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    filters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships
     workflow_id: str | None = Field(
@@ -270,7 +271,7 @@ class Schedule(Resource, table=True):
     )
     status: str = "online"  # "online" or "offline"
     cron: str | None = None
-    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     every: timedelta = Field(..., description="ISO 8601 duration string")
     offset: timedelta | None = Field(None, description="ISO 8601 duration string")
     start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
@@ -301,7 +302,7 @@ class Action(Resource, table=True):
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
-    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
