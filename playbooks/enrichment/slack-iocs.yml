@@ -1,0 +1,110 @@
+title: Extract IoCs from Slack conversation message, tag Slack users, and create thread.
+description: |
+  Given a Slack conversation message, this playbook extracts URLs and IP addresses from the message,
+  tags the users mentioned in the message, and creates a thread with the extracted IOCs.
+entrypoint:
+  ref: pull_slack_conversations
+  expects:
+    start_time: datetime
+    end_time: datetime
+
+actions:
+  - ref: pull_slack_conversations
+    action: integrations.slack.list_slack_conversations
+    args:
+      start_time: ${{ TRIGGER.start_time }}
+      end_time: ${{ TRIGGER.end_time }}
+
+  - ref: reshape_conversations
+    action: core.transform.forward
+    depends_on:
+      - pull_slack_conversations
+    run_if: ${{ FN.not_empty(ACTIONS.pull_slack_conversations.result) }}
+    for_each: ${{ for var.conversation in ACTIONS.pull_slack_conversations.result }}
+    args:
+      value:
+        text: ${{ var.conversation.message.text }}
+        thread_ts: ${{ var.conversation.ts }}
+
+  - ref: extract_emails_from_conversations
+    action: integrations.extraction.extract_emails
+    depends_on:
+      - reshape_conversations
+    for_each: ${{ for var.conversation in ACTIONS.reshape_conversations.result }}
+    args:
+      texts: ${{ FN.serialize_json(var.conversation.text) }}
+      normalize: true
+
+  - ref: zip_conversations_and_emails
+    action: core.transform.forward
+    depends_on:
+      - extract_emails_from_conversations
+    for_each:
+      - ${{ var.conversation in ACTIONS.reshape_conversations.result }}
+      - ${{ var.email in ACTIONS.extract_emails_from_conversations.result }}
+    args:
+      value:
+        conversation: ${{ var.conversation }}
+        email: ${{ var.email }}
+
+  - ref: drop_conversations_with_empty_emails
+    action: core.transform.filter
+    depends_on:
+      - zip_conversations_and_emails
+    args:
+      items: ${{ ACTIONS.zip_conversations_and_emails.result }}
+      constraint:
+        jsonpath: $.emails
+        function: not_empty
+
+  - ref: find_slack_users
+    action: integrations.chat.slack.list_slack_users
+    depends_on:
+      - drop_conversations_with_empty_emails
+    for_each: ${{ for var.emails in ACTIONS.drop_conversations_with_empty_emails.result }}
+    args:
+      emails: ${{ var.emails }}
+
+  - ref: slack_user_mapping
+    action: core.transform.build_reference_table
+    depends_on:
+      - find_slack_users
+    args:
+      items: ${{ ACTIONS.find_slack_users.result }}
+      key: $.profile.email
+
+  - ref: add_slack_info_to_conversations
+    action: core.transform.forward
+    depends_on:
+      - drop_conversations_with_empty_emails
+      - slack_user_mapping
+    for_each:
+      - ${{ var.conversation in ACTIONS.drop_conversations_with_empty_emails.result }}
+    args:
+      value:
+        conversation: ${{ var.conversation }}
+        emails: ${{ FN.get(ACTIONS.slack_user_mapping.result, var.conversation.email) }}
+        slack_info: ${{ FN.get(ACTIONS.slack_user_mapping.result, var.conversation.email) }}
+
+  - ref: extract_slack_tags
+    action: core.transform.forward
+    depends_on:
+      - add_slack_info_to_conversations
+    for_each: ${{ var.conversation in ACTIONS.add_slack_info_to_conversations.result }}
+    args:
+      # Use jsonpath to pull the id fields as a list of ids
+      value: ${{ FN.format.map('<@{}>', var.signal.slack_info[*].id) }}
+
+  - ref: create_thread
+    action: integrations.chat.slack.post_slack_message
+    depends_on:
+      - extract_slack_tags
+      - add_slack_info_to_conversations
+    run_if: ${{ FN.not_empty(ACTIONS.find_slack_users.result) }}
+    for_each:
+      - ${{ var.conversation in ACTIONS.add_slack_info_to_conversations.result }}
+      - ${{ var.tag in ACTIONS.extract_slack_tags.result }}
+    args:
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      thread_ts: ${{ var.conversation.thread_ts }}
+      text: "*Tagged users:* ${{ FN.join(var.user_tags, ', ') }}"
