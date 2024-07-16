@@ -49,7 +49,7 @@ actions:
         conversation: ${{ var.conversation }}
         emails: ${{ var.emails }}
 
-  - ref: drop_conversations_with_empty_emails
+  - ref: filter_out_empty_emails
     action: core.transform.filter
     depends_on:
       - zip_conversations_and_emails
@@ -62,8 +62,8 @@ actions:
   - ref: find_slack_users
     action: integrations.chat.slack.list_slack_users
     depends_on:
-      - drop_conversations_with_empty_emails
-    for_each: ${{ for var.emails in ACTIONS.drop_conversations_with_empty_emails.result }}
+      - filter_out_empty_emails
+    for_each: ${{ for var.emails in ACTIONS.filter_out_empty_emails.result }}
     args:
       emails: ${{ var.emails }}
 
@@ -78,27 +78,24 @@ actions:
   - ref: add_slack_info_to_conversations
     action: core.transform.forward
     depends_on:
-      - drop_conversations_with_empty_emails
+      - filter_out_empty_emails
       - slack_user_mapping
     for_each:
       - ${{ var.conversation in ACTIONS.drop_conversations_with_empty_emails.result }}
     args:
       value:
         conversation: ${{ var.conversation }}
-        slack_info: ${{ FN.lookup.map(ACTIONS.slack_user_mapping.result, var.conversation.emails) }}
+        slack_info: ${{ FN.filter(FN.lookup.map(ACTIONS.slack_user_mapping.result, var.conversation.emails), "x is not None") }}
 
-  - ref: drop_conversations_with_no_slack_info
+  - ref: filter_out_empty_slack_info
     action: core.transform.filter
     depends_on:
       - add_slack_info_to_conversations
-    for_each:
-      - ${{ var.conversation in ACTIONS.add_slack_info_to_conversations.result }}
     args:
-      items: ${{ var.conversation }}
+      items: ${{ ACTIONS.add_slack_info_to_conversations.result }}
       constraint:
         jsonpath: $.slack_info
-        operator: ==
-        target: None
+        function: not_empty
 
   - ref: extract_slack_tags
     action: core.transform.forward
