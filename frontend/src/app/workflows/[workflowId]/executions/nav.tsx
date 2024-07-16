@@ -72,7 +72,7 @@ export function WorkflowExecutionNav({
                 </span>
               </Button>
             </HoverCardTrigger>
-            <HoverCardContent className="w-100" side="right">
+            <HoverCardContent className="w-100" side="right" align="start">
               <div className="flex flex-col items-start justify-between space-y-2 text-start text-xs">
                 <div className="flex flex-col">
                   <Label className="text-xs text-muted-foreground">

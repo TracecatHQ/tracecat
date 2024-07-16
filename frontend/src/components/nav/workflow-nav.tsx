@@ -14,7 +14,6 @@ import {
   SquarePlay,
   WorkflowIcon,
 } from "lucide-react"
-import { editor } from "monaco-editor"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -232,24 +231,31 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
 }
 
 const workflowControlsFormSchema = z.object({
-  payload: z.record(z.string(), z.unknown()).optional(),
+  payload: z.string().refine((val) => {
+    try {
+      JSON.parse(val)
+      return true
+    } catch {
+      return false
+    }
+  }, "Invalid JSON format"),
 })
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
 function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
-    defaultValues: {},
+    defaultValues: { payload: '{"example": "value"}' },
   })
 
   const handleSubmit = useCallback(async () => {
     // Make the API call to start the workflow
-    const values = form.getValues()
+    const { payload } = form.getValues()
     try {
       const response = await workflowExecutionsCreateWorkflowExecution({
         requestBody: {
           workflow_id: workflowId,
-          inputs: values.payload,
+          inputs: payload ? JSON.parse(payload) : undefined,
         },
       })
       console.log("Workflow started", response)
@@ -297,13 +303,8 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
                         theme="vs-light"
                         defaultLanguage="json"
                         defaultValue={"{}"}
-                        onChange={(
-                          value: string | undefined,
-                          ev: editor.IModelContentChangedEvent
-                        ) => {
-                          const newValue = value ? JSON.parse(value) : {}
-                          field.onChange(newValue)
-                        }}
+                        value={field.value}
+                        onChange={field.onChange}
                         loading={<CenteredSpinner />}
                         options={{
                           tabSize: 2,

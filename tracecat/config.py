@@ -35,7 +35,12 @@ TRACECAT__EXECUTIONS_DIR = TRACECAT_DIR / "executions"
 TRACECAT__EXECUTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # TODO: Set this as an environment variable
-TRACECAT__SERVICE_ROLES_WHITELIST = ["tracecat-runner", "tracecat-api", "tracecat-cli"]
+TRACECAT__SERVICE_ROLES_WHITELIST = [
+    "tracecat-runner",
+    "tracecat-api",
+    "tracecat-cli",
+    "tracecat-schedule-runner",
+]
 
 # CORS settings
 # NOTE: If you are using Tracecat self-hosted, please replace with your

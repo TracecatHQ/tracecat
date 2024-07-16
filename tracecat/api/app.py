@@ -964,7 +964,7 @@ async def list_workflow_executions(
 @app.get("/workflow-executions/{execution_id}", tags=["workflow-executions"])
 async def get_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user)],
-    execution_id: identifiers.WorkflowExecutionID,
+    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
 ) -> WorkflowExecutionResponse:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -976,7 +976,7 @@ async def get_workflow_execution(
 @app.get("/workflow-executions/{execution_id}/history", tags=["workflow-executions"])
 async def list_workflow_execution_event_history(
     role: Annotated[Role, Depends(authenticate_user)],
-    execution_id: identifiers.WorkflowExecutionID,
+    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
 ) -> list[EventHistoryResponse]:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -1169,7 +1169,9 @@ async def create_schedule(
         try:
             # Set the role for the schedule as the tracecat-runner
             with TemporaryRole(
-                type="service", user_id=defn.owner_id, service_id="tracecat-runner"
+                type="service",
+                user_id=defn.owner_id,
+                service_id="tracecat-schedule-runner",
             ) as sch_role:
                 handle = await schedules.create_schedule(
                     workflow_id=params.workflow_id,

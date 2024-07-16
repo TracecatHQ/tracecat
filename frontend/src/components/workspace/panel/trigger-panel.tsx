@@ -3,6 +3,10 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
+import { ApiError } from "@/client"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { Editor } from "@monaco-editor/react"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   BanIcon,
   CalendarClockIcon,
@@ -11,19 +15,70 @@ import {
   PlusCircleIcon,
   SaveIcon,
   SettingsIcon,
+  TimerOffIcon,
   WebhookIcon,
 } from "lucide-react"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
 
-import { Schedule, Webhook, Workflow } from "@/types/schemas"
-import { useUpdateWebhook } from "@/lib/hooks"
-import { copyToClipboard } from "@/lib/utils"
+import { Webhook, Workflow } from "@/types/schemas"
+import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
+import {
+  Duration,
+  durationSchema,
+  durationToHumanReadable,
+  durationToISOString,
+} from "@/lib/time"
+import { cn, copyToClipboard } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -32,7 +87,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -42,7 +96,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   TriggerNodeData,
   TriggerTypename,
@@ -143,7 +200,7 @@ export function TriggerPanel({
           </AccordionTrigger>
           <AccordionContent>
             <div className="my-4 space-y-2 px-4">
-              <ScheduleControls schedules={workflow.schedules} />
+              <ScheduleControls workflowId={workflow.id} />
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -259,63 +316,328 @@ function CopyButton({
     </Tooltip>
   )
 }
-export function ScheduleControls({ schedules }: { schedules: Schedule[] }) {
+export function ScheduleControls({ workflowId }: { workflowId: string }) {
+  const {
+    schedules,
+    schedulesIsLoading,
+    schedulesError,
+    updateSchedule,
+    deleteSchedule,
+  } = useSchedules(workflowId)
+
+  if (schedulesIsLoading) {
+    return <CenteredSpinner />
+  }
+  if (schedulesError || !schedules) {
+    return (
+      <AlertNotification
+        title="Failed to load schedules"
+        message="There was an error when loading schedules."
+      />
+    )
+  }
+
   return (
     <div className="rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="h-8 text-center text-xs" colSpan={4}>
-              <div className="flex items-center justify-center gap-1">
-                <WebhookIcon className="size-3" />
-                <span>Schedules</span>
-              </div>
+            <TableHead className="h-8 pl-6 text-xs font-semibold">
+              Schedule ID
             </TableHead>
-          </TableRow>
-          <TableRow>
-            <TableHead className="h-8 text-center text-xs">ID</TableHead>
-            <TableHead className="h-8 text-center text-xs">Status</TableHead>
-            <TableHead className="h-8 text-center text-xs">Inputs</TableHead>
-            <TableHead className="h-8 text-center text-xs">Every</TableHead>
+            <TableHead className="h-8 text-xs font-semibold">
+              Interval
+            </TableHead>
+            <TableHead className="h-8 text-xs font-semibold">Status</TableHead>
+            <TableHead className="h-8 w-[100px] pr-6 text-right text-xs font-semibold">
+              Actions
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {schedules.map(({ id, status, inputs, every }) => (
-            <TableRow key={id} className="text-xs text-muted-foreground">
-              <TableCell>{id}</TableCell>
-              <TableCell>{status}</TableCell>
-              <TableCell>{JSON.stringify(inputs)}</TableCell>
-              <TableCell>{every}</TableCell>
+          {schedules.length > 0 ? (
+            schedules.map(({ id, status, inputs, every }) => (
+              <HoverCard>
+                <HoverCardTrigger asChild className="hover:border-none">
+                  <TableRow key={id} className="ext-xs text-muted-foreground">
+                    <TableCell className="h-6 items-center py-1 pl-6 text-xs">
+                      {id}
+                    </TableCell>
+                    <TableCell className="h-6 items-center py-1 text-xs">
+                      {durationToHumanReadable(every)}
+                    </TableCell>
+                    <TableCell className="h-6 py-1 text-xs capitalize">
+                      <div className="flex">
+                        <p>{status}</p>
+                        {status === "offline" && (
+                          <TimerOffIcon className="ml-2 size-3 text-muted-foreground" />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="h-6 w-[100px]  items-center py-1 pr-8 text-xs">
+                      <div className="flex justify-end">
+                        <AlertDialog>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button className="size-6 p-0" variant="ghost">
+                                <DotsHorizontalIcon className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel className="text-xs">
+                                Actions
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  navigator.clipboard.writeText(id!)
+                                }
+                                className="text-xs"
+                              >
+                                Copy ID
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className={cn(
+                                  "text-xs",
+                                  status === "online" &&
+                                    "text-orange-500 focus:text-orange-600"
+                                )}
+                                onClick={async () =>
+                                  await updateSchedule({
+                                    scheduleId: id!,
+                                    requestBody: {
+                                      status:
+                                        status === "online"
+                                          ? "offline"
+                                          : "online",
+                                    },
+                                  })
+                                }
+                              >
+                                {status === "online" ? "Pause" : "Unpause"}
+                              </DropdownMenuItem>
+                              <AlertDialogTrigger asChild>
+                                <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
+                                  Delete
+                                </DropdownMenuItem>
+                              </AlertDialogTrigger>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this schedule?
+                                This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                onClick={async () =>
+                                  await deleteSchedule({
+                                    scheduleId: id!,
+                                  })
+                                }
+                              >
+                                Confirm
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                </HoverCardTrigger>
+                <HoverCardContent
+                  className="max-w-300 w-200 space-y-2 p-3"
+                  side="left"
+                  align="start"
+                >
+                  <div className="w-full space-y-1">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Inputs
+                    </span>
+                    <div className="rounded-md border bg-muted-foreground/10 p-2">
+                      <pre className="text-xs font-light text-foreground/80">
+                        {JSON.stringify(inputs, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                </HoverCardContent>
+              </HoverCard>
+            ))
+          ) : (
+            <TableRow className="justify-center text-xs text-muted-foreground">
+              <TableCell
+                className="h-8 bg-muted-foreground/5 text-center"
+                colSpan={4}
+              >
+                No Schedules
+              </TableCell>
             </TableRow>
-          ))}
+          )}
         </TableBody>
-        <TableFooter>
-          <TableCell colSpan={4}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex h-4 w-full items-center justify-center gap-2 text-muted-foreground/90"
-              disabled
-            >
-              <PlusCircleIcon className="size-4" />
-              <span>Add Schedule</span>
-            </Button>
-          </TableCell>
-        </TableFooter>
       </Table>
+      <Separator />
+      <CreateScheduleDialog workflowId={workflowId} />
     </div>
   )
 }
 
-// ;<div className="flex w-full max-w-sm items-center rounded-md border">
-//   <Input
-//     name="url"
-//     defaultValue={url}
-//     className="rounded-r-none border-none pr-0"
-//     readOnly
-//     disabled
-//   />
-//   <Button variant="ghost" className="group rounded-l-none border-l shadow-sm">
-//     <CopyIcon className="size-4 text-muted-foreground/50 group-hover:text-foreground" />
-//   </Button>
-// </div>
+const scheduleInputsSchema = z.object({
+  inputs: z.string().refine((val) => {
+    try {
+      JSON.parse(val)
+      return true
+    } catch {
+      return false
+    }
+  }, "Invalid JSON format"),
+})
+
+type ScheduleInputs = z.infer<typeof scheduleInputsSchema>
+
+export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
+  const { createSchedule } = useSchedules(workflowId)
+  const form = useForm<ScheduleInputs & Duration>({
+    resolver: zodResolver(durationSchema.and(scheduleInputsSchema)),
+    defaultValues: {
+      inputs: '{"example": "value"}',
+    },
+  })
+
+  const onSubmit = async () => {
+    const { inputs, ...duration } = form.getValues()
+    try {
+      const response = await createSchedule({
+        requestBody: {
+          workflow_id: workflowId,
+          every: durationToISOString(duration),
+          inputs: JSON.parse(inputs),
+        },
+      })
+      console.log("Schedule created", response)
+    } catch (error) {
+      if (error instanceof ApiError) {
+        console.error("Failed to create schedule", error.body)
+      } else {
+        console.error("Unexpected error when creating schedule", error)
+      }
+    }
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground"
+        >
+          <PlusCircleIcon className="size-4" />
+          <span>Create Schedule</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Create a new schedule</DialogTitle>
+          <DialogDescription>
+            Configure the schedule for the workflow. The workflow will not run
+            immediately.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(onSubmit, () => {
+              console.error("Form validation failed")
+              toast({
+                title: "Invalid inputs in form",
+                description: "Please check the form for errors.",
+              })
+            })}
+          >
+            <div className="grid grid-cols-2 gap-2">
+              {["years", "months", "days", "hours", "minutes", "seconds"].map(
+                (unit) => (
+                  <FormField
+                    key={unit}
+                    control={form.control}
+                    name={unit as keyof Duration}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs capitalize text-foreground/80">
+                          {unit}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            className="text-xs capitalize"
+                            placeholder={unit}
+                            value={Math.max(0, Number(field.value || 0))}
+                            {...form.register(unit as keyof Duration, {
+                              valueAsNumber: true,
+                            })}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )
+              )}
+
+              <div className="col-span-2 w-full">
+                <FormField
+                  key="inputs"
+                  control={form.control}
+                  name="inputs"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs capitalize text-foreground/80">
+                        Scheduled Workflow Inputs
+                      </FormLabel>
+                      <FormControl>
+                        <div className="h-36 border">
+                          <Editor
+                            height="100%"
+                            theme="vs-light"
+                            defaultLanguage="json"
+                            loading={<CenteredSpinner />}
+                            value={field.value}
+                            onChange={field.onChange}
+                            options={{
+                              tabSize: 2,
+                              minimap: { enabled: false },
+                              scrollbar: {
+                                verticalScrollbarSize: 5,
+                                horizontalScrollbarSize: 5,
+                              },
+                              folding: false,
+                              glyphMargin: true,
+                              lineNumbersMinChars: 2,
+                            }}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+            <DialogFooter className="mt-4">
+              <DialogClose asChild>
+                <Button type="submit" variant="default">
+                  Create
+                </Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
