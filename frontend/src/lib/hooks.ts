@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react"
 import {
   EventHistoryResponse,
+  Schedule,
+  schedulesCreateSchedule,
+  SchedulesCreateScheduleData,
+  schedulesDeleteSchedule,
+  SchedulesDeleteScheduleData,
+  schedulesListSchedules,
+  schedulesUpdateSchedule,
+  SchedulesUpdateScheduleData,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
@@ -294,5 +302,95 @@ export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
     eventHistory,
     eventHistoryLoading,
     eventHistoryError,
+  }
+}
+
+export function useSchedules(workflowId: string) {
+  const queryClient = useQueryClient()
+
+  // Fetch schedules
+  const {
+    data: schedules,
+    isLoading,
+    error,
+  } = useQuery<Schedule[], Error>({
+    queryKey: [workflowId, "schedules"],
+    queryFn: async ({ queryKey }) => {
+      const [workflowId] = queryKey as [string, string]
+      return await schedulesListSchedules({
+        workflowId,
+      })
+    },
+  })
+
+  // Create schedules
+  const { mutateAsync: createSchedule } = useMutation({
+    mutationFn: async (values: SchedulesCreateScheduleData) =>
+      await schedulesCreateSchedule(values),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [workflowId, "schedules"] })
+      toast({
+        title: "Created schedule",
+        description: "Your schedule has been created successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to create schedule:", error)
+      toast({
+        title: "Error creating schedule",
+        description: "Could not create schedule. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+  // Update schedules
+  const { mutateAsync: updateSchedule } = useMutation({
+    mutationFn: async (values: SchedulesUpdateScheduleData) =>
+      await schedulesUpdateSchedule(values),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [workflowId, "schedules"] })
+      toast({
+        title: "Updated schedule",
+        description: "Your schedule has been updated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update webhook:", error)
+      toast({
+        title: "Error updating schedule",
+        description: "Could not update schedule. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Delete schedule
+  const { mutateAsync: deleteSchedule } = useMutation({
+    mutationFn: async (values: SchedulesDeleteScheduleData) =>
+      await schedulesDeleteSchedule(values),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [workflowId, "schedules"] })
+      toast({
+        title: "Deleted schedule",
+        description: "Your schedule has been deleted successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete schedule:", error)
+      toast({
+        title: "Error deleting schedule",
+        description: "Could not delete schedule. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    schedules,
+    schedulesIsLoading: isLoading,
+    schedulesError: error,
+    createSchedule,
+    updateSchedule,
+    deleteSchedule,
   }
 }
