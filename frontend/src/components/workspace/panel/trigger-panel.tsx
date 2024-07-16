@@ -36,6 +36,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -86,6 +97,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -365,55 +377,76 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                     </TableCell>
                     <TableCell className="h-6 w-[100px]  items-center py-1 pr-8 text-xs">
                       <div className="flex justify-end">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button className="size-6 p-0" variant="ghost">
-                              <DotsHorizontalIcon className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel className="text-xs">
-                              Actions
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={() => navigator.clipboard.writeText(id!)}
-                              className="text-xs"
-                            >
-                              Copy ID
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className={cn(
-                                "text-xs",
-                                status === "online" &&
-                                  "text-rose-500 focus:text-rose-600"
-                              )}
-                              onClick={async () =>
-                                await updateSchedule({
-                                  scheduleId: id!,
-                                  requestBody: {
-                                    status:
-                                      status === "online"
-                                        ? "offline"
-                                        : "online",
-                                  },
-                                })
-                              }
-                            >
-                              {status === "online" ? "Pause" : "Unpause"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={async () =>
-                                await deleteSchedule({
-                                  scheduleId: id!,
-                                })
-                              }
-                              className="text-xs text-rose-500 focus:text-rose-600"
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <AlertDialog>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button className="size-6 p-0" variant="ghost">
+                                <DotsHorizontalIcon className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel className="text-xs">
+                                Actions
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  navigator.clipboard.writeText(id!)
+                                }
+                                className="text-xs"
+                              >
+                                Copy ID
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className={cn(
+                                  "text-xs",
+                                  status === "online" &&
+                                    "text-orange-500 focus:text-orange-600"
+                                )}
+                                onClick={async () =>
+                                  await updateSchedule({
+                                    scheduleId: id!,
+                                    requestBody: {
+                                      status:
+                                        status === "online"
+                                          ? "offline"
+                                          : "online",
+                                    },
+                                  })
+                                }
+                              >
+                                {status === "online" ? "Pause" : "Unpause"}
+                              </DropdownMenuItem>
+                              <AlertDialogTrigger asChild>
+                                <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
+                                  Delete
+                                </DropdownMenuItem>
+                              </AlertDialogTrigger>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this schedule?
+                                This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                onClick={async () =>
+                                  await deleteSchedule({
+                                    scheduleId: id!,
+                                  })
+                                }
+                              >
+                                Confirm
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </TableCell>
                   </TableRow>
