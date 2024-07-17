@@ -49,7 +49,8 @@ function DashboardNav() {
         <span>Playbooks</span>
       </Link>
       <Link
-        href="/integrations"
+        href="https://docs.tracecat.com/integrations/introduction"
+        target="_blank"
         className={cn(
           "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.startsWith("/integrations") && "text-primary"

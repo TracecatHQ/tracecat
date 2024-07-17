@@ -16,19 +16,16 @@ export function PlaybooksDashboard() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-bold tracking-tight">Playbooks</h2>
-            <p className="text-md text-muted-foreground">
-              Automate SecOps with production-ready playbooks.
-            </p>
           </div>
           <Button variant="outline" role="combobox" className="ml-auto">
             <Link
-              key="book-a-demo"
+              key="public-playbooks"
               target="_blank"
-              href="https://cal.com/team/tracecat/hello"
+              href="https://github.com/TracecatHQ/tracecat/tree/main/playbooks"
               className="flex items-center space-x-2"
             >
               <InfoIcon className="size-4 text-emerald-600" />
-              <span>Book demo</span>
+              <span>View public playbooks</span>
             </Link>
           </Button>
         </div>
@@ -58,11 +55,7 @@ export function PlaybookList() {
         <div className="flex w-full flex-col items-center space-y-12">
           <ListItemSkeletion n={2} />
           <div className="space-y-4 text-center">
-            <p className="text-sm">No playbooks installed 😿</p>
-            <p className="max-w-lg text-center text-xs text-muted-foreground">
-              Official playbooks are available for verified users only. Please
-              request access by booking a demo or sign-up for Tracecat Cloud.
-            </p>
+            <p className="text-sm">No playbooks installed 🗂️</p>
           </div>
         </div>
       ) : (
