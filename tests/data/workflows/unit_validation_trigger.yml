@@ -1,0 +1,42 @@
+title: Trigger validation workflow
+description: Use this to test error handling
+entrypoint:
+  ref: a
+  expects:
+    start_time: datetime
+    end_time: datetime
+    duration: asdfasdf
+    integer: int
+    string: str
+    boolean: bool
+    float: float
+    list_any: list
+    list_typed: list[str]
+    any: any
+    nested:
+      a: int
+      b: str
+      c: bool
+      d: float
+      e:
+        again1: int
+        again2: str
+    list: list[$nested]
+    nested_data: $nested
+    $refs:
+      nested:
+        a: int
+        b: str
+        c: bool
+        d: float
+
+triggers:
+  - type: webhook
+    ref: my_webhook
+    entrypoint: a # This can be any
+
+actions:
+  - ref: a
+    action: core.transform.forward
+    args:
+      value: null
