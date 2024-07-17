@@ -8,7 +8,7 @@ import polars as pl
 
 from tracecat.registry import Field, registry
 
-EMAIL_REGEX = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
+EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
 
 
 def pl_extract_emails(texts: pl.Expr) -> pl.Expr:
