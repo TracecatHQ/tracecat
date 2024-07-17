@@ -17,15 +17,26 @@ actions:
       oldest: ${{ TRIGGER.oldest }}
       limit: 20
 
+  - ref: filter_datadog_messages_only
+    action: core.transform.filter
+    depends_on:
+      - pull_slack_conversations
+    args:
+      items: ${{ ACTIONS.pull_slack_conversations.result }}
+      constraint:
+        jsonpath: $.bot_profile.name
+        operator: ==
+        target: Datadog
+
   - ref: reshape_conversations
     action: core.transform.forward
     depends_on:
-      - pull_slack_conversations
-    run_if: ${{ FN.not_empty(ACTIONS.pull_slack_conversations.result) }}
-    for_each: ${{ for var.conversation in ACTIONS.pull_slack_conversations.result }}
+      - filter_datadog_messages_only
+    run_if: ${{ FN.not_empty(ACTIONS.filter_datadog_messages_only.result) }}
+    for_each: ${{ for var.conversation in ACTIONS.filter_datadog_messages_only.result }}
     args:
       value:
-        text: ${{ var.conversation.message.text }}
+        attachments: ${{ var.conversation.attachments }}
         thread_ts: ${{ var.conversation.ts }}
 
   - ref: extract_emails_from_conversations
@@ -34,7 +45,7 @@ actions:
       - reshape_conversations
     for_each: ${{ for var.conversation in ACTIONS.reshape_conversations.result }}
     args:
-      texts: ${{ FN.serialize_json(var.conversation.text) }}
+      texts: ${{ [FN.serialize_json(var.conversation.attachments)] }}
       normalize: true
 
   - ref: zip_conversations_and_emails
@@ -42,14 +53,14 @@ actions:
     depends_on:
       - extract_emails_from_conversations
     for_each:
-      - ${{ var.conversation in ACTIONS.reshape_conversations.result }}
-      - ${{ var.emails in ACTIONS.extract_emails_from_conversations.result }}
+      - ${{ for var.conversation in ACTIONS.reshape_conversations.result }}
+      - ${{ for var.emails in ACTIONS.extract_emails_from_conversations.result }}
     args:
       value:
         conversation: ${{ var.conversation }}
         emails: ${{ var.emails }}
 
-  - ref: filter_out_empty_emails
+  - ref: filter_out_conversations_with_no_emails
     action: core.transform.filter
     depends_on:
       - zip_conversations_and_emails
@@ -62,30 +73,30 @@ actions:
   - ref: find_slack_users
     action: integrations.chat.slack.list_slack_users
     depends_on:
-      - filter_out_empty_emails
-    for_each: ${{ for var.emails in ACTIONS.filter_out_empty_emails.result }}
+      - filter_out_conversations_with_no_emails
+    for_each: ${{ for var.conversation in ACTIONS.filter_out_conversations_with_no_emails.result }}
     args:
-      emails: ${{ var.emails }}
+      emails: ${{ var.conversation.emails }}
 
   - ref: slack_user_mapping
     action: core.transform.build_reference_table
     depends_on:
       - find_slack_users
     args:
-      items: ${{ ACTIONS.find_slack_users.result }}
+      items: ${{ FN.flatten(ACTIONS.find_slack_users.result) }}
       key: $.profile.email
 
   - ref: add_slack_info_to_conversations
     action: core.transform.forward
     depends_on:
-      - filter_out_empty_emails
+      - filter_out_conversations_with_no_emails
       - slack_user_mapping
     for_each:
-      - ${{ var.conversation in ACTIONS.drop_conversations_with_empty_emails.result }}
+      - ${{ for var.conversation in ACTIONS.filter_out_conversations_with_no_emails.result }}
     args:
       value:
-        conversation: ${{ var.conversation }}
-        slack_info: ${{ FN.filter(FN.lookup.map(ACTIONS.slack_user_mapping.result, var.conversation.emails), "x is not None") }}
+        conversation: ${{ var.conversation.conversation }}
+        slack_info: ${{ FN.filter(FN.lookup.map(ACTIONS.slack_user_mapping.result, var.conversation.emails), "x != None") }}
 
   - ref: filter_out_empty_slack_info
     action: core.transform.filter
@@ -100,22 +111,23 @@ actions:
   - ref: extract_slack_tags
     action: core.transform.forward
     depends_on:
-      - drop_conversations_with_no_slack_info
-    for_each: ${{ var.conversation in ACTIONS.drop_conversations_with_no_slack_info.result }}
+      - filter_out_empty_slack_info
+    run_if: ${{ FN.not_empty(ACTIONS.filter_out_empty_slack_info.result) }}
+    for_each: ${{ for var.conversation in ACTIONS.filter_out_empty_slack_info.result }}
     args:
       # Use jsonpath to pull the id fields as a list of ids
-      value: ${{ FN.format.map('<@{}>', var.signal.slack_info[*].id) }}
+      value: ${{ FN.format.map('<@{}>', var.conversation.slack_info[*].id) }}
 
   - ref: create_thread
     action: integrations.chat.slack.post_slack_message
     depends_on:
       - extract_slack_tags
       - add_slack_info_to_conversations
-    run_if: ${{ FN.not_empty(ACTIONS.find_slack_users.result) }}
+    run_if: ${{ FN.not_empty(ACTIONS.extract_slack_tags.result) }}
     for_each:
-      - ${{ var.conversation in ACTIONS.add_slack_info_to_conversations.result }}
-      - ${{ var.tag in ACTIONS.extract_slack_tags.result }}
+      - ${{ for var.convo_to_slack_info in ACTIONS.add_slack_info_to_conversations.result }}
+      - ${{ for var.user_tags in ACTIONS.extract_slack_tags.result }}
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      thread_ts: ${{ var.conversation.thread_ts }}
+      thread_ts: ${{ var.convo_to_slack_info.conversation.thread_ts }}
       text: "*Tagged users:* ${{ FN.join(var.user_tags, ', ') }}"
