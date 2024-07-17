@@ -1,4 +1,4 @@
-title: Forwarder loop with a list of iterables (zip)
+title: Reshape loop with a list of iterables (zip)
 description: Test that we can loop
 entrypoint:
   ref: a
@@ -10,7 +10,7 @@ inputs:
 
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     for_each:
       - ${{ for var.x in INPUTS.list_one }}
       - ${{ for var.y in INPUTS.list_two }}

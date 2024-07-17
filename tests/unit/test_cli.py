@@ -166,7 +166,7 @@ def test_create_workflow_with_commit():
         "--description",
         description,
         "--commit",
-        DATA_PATH.joinpath("unit_transform_forwarder_arrange_loop.yml").as_posix(),
+        DATA_PATH.joinpath("unit_transform_reshape_arrange_loop.yml").as_posix(),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0

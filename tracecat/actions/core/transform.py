@@ -18,12 +18,12 @@ from tracecat.registry import registry
 @registry.register(
     namespace="core.transform",
     version="0.1.0",
-    description="Forwards the input value to the output. You can use this to reshape a JSON-like structure.",
-    default_title="Forward",
+    description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
+    default_title="Reshape",
     display_group="Data Transform",
 )
-def forward(
-    value: Annotated[Any, Field(..., description="The value to forward")],
+def reshape(
+    value: Annotated[Any, Field(..., description="The value to reshape")],
 ) -> Any:
     return value
 

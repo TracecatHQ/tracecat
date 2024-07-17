@@ -1,0 +1,40 @@
+title: Pull Slack conversation history
+description: |
+  Pull Slack conversation history for a given channel and normalize messages into a list of JSON objects
+  with fields: `message_id` (str), `timestamp` (datetime), `user_id` (str), `message`, `attachments`.
+entrypoint:
+  ref: pull-slack-conversations
+  expects:
+    latest: datetime
+    oldest: datetime
+    message_limit: int
+
+actions:
+  - ref: pull-slack-conversations
+    action: integrations.chat.slack.list_slack_conversations
+    args:
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      latest: ${{ TRIGGER.latest }}
+      oldest: ${{ TRIGGER.oldest }}
+      limit: ${{ TRIGGER.message_limit }}
+
+  - ref: reshape-slack-conversations
+    action: core.transform.reshape
+    depends_on:
+      - pull-slack-conversations
+    run_if: ${{ FN.not_empty(pull-slack-conversations.result) }}
+    for_each: ${{ var.conversation in ACTIONS.pull-slack-conversations.result }}
+    args:
+      message_id: ${{ var.conversation.ts }}
+      timestamp: ${{ var.conversation.ts }}
+      user_id: ${{ var.conversation.user }}
+      message: ${{ var.conversation.text }}
+      attachments: ${{ var.conversation.attachments }}
+
+  # - ref: trigger-enrichment
+  #   action: core.trigger
+  #   depends_on:
+  #     - reshape-slack-conversations
+  #   args:
+  #     event: enrich-slack-conversations
+  #     data: ${{ reshape-slack-conversations.result }}

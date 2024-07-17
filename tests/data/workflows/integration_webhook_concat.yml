@@ -13,19 +13,19 @@ triggers:
 
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value: ${{ TRIGGER.text }}
 
   - ref: b
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value: ${{ FN.concat(ACTIONS.a.result, ' world') }}
     depends_on:
       - a
 
   - ref: c
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value: ${{ FN.concat(ACTIONS.a.result, ' there') }}
     depends_on:

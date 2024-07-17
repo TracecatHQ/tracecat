@@ -9,7 +9,7 @@ entrypoint:
   ref: a
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value: "1"
 

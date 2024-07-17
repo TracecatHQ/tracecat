@@ -1,5 +1,5 @@
 title: Reshape data in a loop
-description: Test that we can use a forwarder to reshape data from a list of mappings to a list of key-value pairs
+description: Test reshaping data from a list of mappings to a list of key-value pairs
 entrypoint:
   ref: flatten
 inputs:
@@ -43,7 +43,7 @@ inputs:
 
 actions:
   - ref: flatten
-    action: core.transform.forward
+    action: core.transform.reshape
     for_each: ${{ for var.person in INPUTS.contacts }}
     # Flatten the mapping into a list of key-value pairs
     args:

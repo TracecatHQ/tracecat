@@ -1,4 +1,4 @@
-title: Forward chain with runtime tests
+title: Reshape chain with runtime tests
 #    A -> B -> C
 description: |
   Tests correctness, templates + type casting, context passing, tests.
@@ -7,7 +7,7 @@ entrypoint:
   ref: a
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value:
         one: 1
@@ -15,7 +15,7 @@ actions:
         three: 3
 
   - ref: b
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - a
     args:
@@ -25,7 +25,7 @@ actions:
         three: ${{ ACTIONS.a.result.three -> int }}
 
   - ref: c
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - b
     args:
