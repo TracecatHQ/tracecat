@@ -54,8 +54,8 @@ class WorkflowExecutionResponse(BaseModel):
     execution_time: datetime = Field(
         ..., description="When this workflow run started or should start."
     )
-    close_time: datetime = Field(
-        ..., description="When the workflow was closed if closed."
+    close_time: datetime | None = Field(
+        None, description="When the workflow was closed if closed."
     )
     status: Annotated[
         WorkflowExecutionStatus | None,
