@@ -135,8 +135,8 @@ async def list_slack_conversations(
     result = await client.conversations_history(
         channel=channel,
         limit=limit,
-        latest=latest.isoformat(),
-        oldest=oldest.isoformat(),
+        latest=str(latest.timestamp()),
+        oldest=str(oldest.timestamp()),
     )
     return result["messages"]
 
