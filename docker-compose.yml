@@ -91,6 +91,7 @@ services:
   temporal_postgres_db:
     image: postgres:13
     container_name: tracecat_temporal_postgres_db
+    restart: always
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
@@ -115,6 +116,7 @@ services:
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
     container_name: tracecat_temporal
+    restart: always
     environment:
       - DB=postgres12
       - DB_PORT=5432
