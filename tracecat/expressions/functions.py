@@ -252,6 +252,14 @@ def _to_datetime(x: Any) -> datetime:
     raise ValueError(f"Invalid datetime value {x!r}")
 
 
+def custom_chain(*args):
+    for arg in args:
+        if is_iterable(arg, container_only=True):
+            yield from custom_chain(*arg)
+        else:
+            yield arg
+
+
 BUILTIN_TYPE_MAPPING = {
     "int": int,
     "float": float,
@@ -281,7 +289,7 @@ _FUNCTION_MAPPING = {
     "length": len,
     "is_empty": lambda x: len(x) == 0,
     "not_empty": lambda x: len(x) > 0,
-    "flatten": lambda iterables: list(itertools.chain(*iterables)),
+    "flatten": lambda iterables: list(custom_chain(*iterables)),
     "unique": lambda items: list(set(items)),
     # Math
     "add": operator.add,
