@@ -4,16 +4,9 @@ import itertools
 import re
 from typing import Annotated
 
-import polars as pl
-
 from tracecat.registry import Field, registry
 
 EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-
-
-def pl_extract_emails(texts: pl.Expr) -> pl.Expr:
-    """Extract emails from a column of strings in Polars."""
-    return texts.str.extract_all(EMAIL_REGEX)
 
 
 def normalize_email_address(email: str) -> str:
