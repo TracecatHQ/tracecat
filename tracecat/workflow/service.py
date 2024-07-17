@@ -131,12 +131,19 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
+                    result = orjson.loads(
+                        event.workflow_execution_completed_event_attributes.result.payloads[
+                            0
+                        ].data
+                    )
+                    logger.warning("Workflow execution completed", result=result)
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_COMPLETED,
                             task_id=event.task_id,
+                            result=result,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
