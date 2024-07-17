@@ -18,7 +18,16 @@ def resolve_string_or_uri(string_or_uri: str) -> Any:
 
         return orjson.loads(data)
 
-    except (FileNotFoundError, ValueError) as e:
+    except FileNotFoundError as e:
+        logger.info(
+            "Fsspec file not found",
+            string_or_uri=string_or_uri,
+            error=e,
+        )
+        raise TracecatDSLError(
+            f"Failed to read fsspec file, file not found: {string_or_uri}"
+        ) from e
+    except ValueError as e:
         if "protocol not known" in str(e).lower():
             raise TracecatDSLError(
                 f"Failed to read fsspec file, protocol not known: {string_or_uri}"
