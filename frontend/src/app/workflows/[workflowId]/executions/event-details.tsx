@@ -84,29 +84,6 @@ export function WorkflowExecutionEventDetailView({
           </AccordionItem>
         )}
         {/* Action details */}
-        {event.event_group?.action_input.exec_context && (
-          <AccordionItem value="execution-context">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-              <div className="flex items-center">
-                <span>Execution Context</span>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="my-4 flex flex-col space-y-8 px-4">
-                <div className="rounded-md border p-4 shadow-md">
-                  <JsonView
-                    displaySize
-                    enableClipboard
-                    src={event.event_group?.action_input.exec_context}
-                    className="text-sm"
-                    theme="atom"
-                  />
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
-
         {(event?.result as Record<string, unknown>) && (
           <AccordionItem value="result">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -121,6 +98,29 @@ export function WorkflowExecutionEventDetailView({
                     displaySize
                     enableClipboard
                     src={(event.result as Record<string, unknown>) ?? {}}
+                    className="text-sm"
+                    theme="atom"
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
+        {event.event_group?.action_input.exec_context && (
+          <AccordionItem value="execution-context">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-center">
+                <span>Execution Context</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="my-4 flex flex-col space-y-8 px-4">
+                <div className="rounded-md border p-4 shadow-md">
+                  <JsonView
+                    displaySize
+                    enableClipboard
+                    src={event.event_group?.action_input.exec_context}
                     className="text-sm"
                     theme="atom"
                   />
