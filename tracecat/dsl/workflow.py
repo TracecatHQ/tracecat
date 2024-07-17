@@ -506,34 +506,42 @@ class DSLActivities:
                     raise ValueError("All iterables must be of the same length")
 
                 # Create a generator that zips the iterables together
-                async with GatheringTaskGroup() as tg:
-                    for i, items in enumerate(zip(*iterable_exprs, strict=False)):
-                        act_logger.debug("Loop iteration", iteration=i)
-                        # Patch the context with the loop item and evaluate the action-local expressions
-                        # We're copying this so that we don't pollute the original context
-                        # Currently, the only source of action-local expressions is the loop iteration
-                        # In the future, we may have other sources of action-local expressions
-                        patched_context = context_with_sec.copy()
-                        act_logger.debug(
-                            "Context before patch", patched_context=patched_context
-                        )
-                        for iterator_path, iterator_value in items:
-                            patch_object(
-                                patched_context,
-                                path=ExprContext.LOCAL_VARS + iterator_path,
-                                value=iterator_value,
+                try:
+                    async with GatheringTaskGroup() as tg:
+                        for i, items in enumerate(zip(*iterable_exprs, strict=False)):
+                            act_logger.debug("Loop iteration", iteration=i)
+                            # Patch the context with the loop item and evaluate the action-local expressions
+                            # We're copying this so that we don't pollute the original context
+                            # Currently, the only source of action-local expressions is the loop iteration
+                            # In the future, we may have other sources of action-local expressions
+                            patched_context = context_with_sec.copy()
+                            act_logger.debug(
+                                "Context before patch", patched_context=patched_context
                             )
-                        act_logger.debug(
-                            "Patched context", patched_context=patched_context
-                        )
-                        # Exclude secrets because we've already patched them
-                        patched_args = eval_templated_object(
-                            task.args, operand=patched_context
-                        )
-                        act_logger.debug("Patched args", patched_args=patched_args)
-                        tg.create_task(udf.run_async(patched_args))
+                            for iterator_path, iterator_value in items:
+                                patch_object(
+                                    patched_context,
+                                    path=ExprContext.LOCAL_VARS + iterator_path,
+                                    value=iterator_value,
+                                )
+                            act_logger.debug(
+                                "Patched context", patched_context=patched_context
+                            )
+                            # Exclude secrets because we've already patched them
+                            patched_args = eval_templated_object(
+                                task.args, operand=patched_context
+                            )
+                            act_logger.debug("Patched args", patched_args=patched_args)
+                            tg.create_task(udf.run_async(patched_args))
 
-                result = tg.results()
+                    result = tg.results()
+                except* Exception as eg:
+                    errors = [str(x) for x in eg.exceptions]
+                    logger.error("Error resolving expressions", errors=errors)
+                    raise TracecatException(
+                        f"Error resolving expressions: {errors}",
+                        detail={"errors": errors},
+                    ) from eg
 
             else:
                 args = eval_templated_object(task.args, operand=context_with_sec)
@@ -560,9 +568,11 @@ class DSLActivities:
                 type=e.__class__.__name__,
             ) from e
         except Exception as e:
-            act_logger.exception("Unexpected error occurred")
+            act_logger.error("Unexpected error occurred", error=e)
             raise ApplicationError(
-                "Unexpected error", non_retryable=True, type=e.__class__.__name__
+                f"Unexpected error {e.__class__.__name__}",
+                non_retryable=True,
+                type=e.__class__.__name__,
             ) from e
 
 
