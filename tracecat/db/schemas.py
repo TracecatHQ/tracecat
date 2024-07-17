@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from tracecat import config
-from tracecat.identifiers import action, id_factory
+from tracecat.identifiers import id_factory
 
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
@@ -195,33 +195,34 @@ class Workflow(Resource, table=True):
     Relationships
     -------------
     - 1 Workflow to many WorkflowDefinitions
+
     """
 
     id: str = Field(
         default_factory=id_factory("wf"), nullable=False, unique=True, index=True
     )
-    title: str
-    description: str
-    status: str = "offline"  # "online" or "offline"
-    version: int | None = None
-    entrypoint: str | None = Field(
-        None,
-        description="ID of the node directly connected to the trigger.",
+    meta: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description=(
+            "Misc data."
+            "Store things like latest definition version, current online/offline status etc."
+        ),
     )
-    object: dict[str, Any] | None = Field(
+    definition: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="The current DSL definition.",
+    )
+    view: dict[str, Any] | None = Field(
         sa_column=Column(JSONB), description="React flow graph object"
     )
-    icon_url: str | None = None
     # Owner
     owner_id: str = Field(
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
     # Relationships
     owner: User | None = Relationship(back_populates="owned_workflows")
-    actions: list["Action"] | None = Relationship(
-        back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
     definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
@@ -290,34 +291,6 @@ class Schedule(Resource, table=True):
         if not croniter.is_valid(v):
             raise ValueError("Invalid cron string")
         return v
-
-
-class Action(Resource, table=True):
-    """The workspace action state."""
-
-    id: str = Field(
-        default_factory=id_factory("act"), nullable=False, unique=True, index=True
-    )
-    type: str = Field(..., description="The action type, i.e. UDF key")
-    title: str
-    description: str
-    status: str = "offline"  # "online" or "offline"
-    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    workflow_id: str | None = Field(
-        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
-    )
-    workflow: Workflow | None = Relationship(back_populates="actions")
-
-    @computed_field
-    @property
-    def key(self) -> str:
-        """Workflow-relative key for an Action."""
-        return action.key(self.workflow_id, self.id)
-
-    @property
-    def ref(self) -> str:
-        """Slugified title of the action. Used for references."""
-        return action.ref(self.title)
 
 
 CaseSchema = pa.schema(

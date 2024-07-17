@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from tracecat import identifiers
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
-from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
+from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig
 from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
 from tracecat.logging import logger
@@ -21,7 +21,7 @@ from tracecat.types.exceptions import TracecatDSLError, TracecatValidationError
 
 
 class DSLEntrypoint(BaseModel):
-    ref: str = Field(..., description="The entrypoint action ref")
+    ref: str | None = Field(None, description="The entrypoint action ref")
     expects: Any | None = Field(None, description="Expected trigger input shape")
     """Trigger input schema."""
 
@@ -54,10 +54,9 @@ class DSLInput(BaseModel):
 
     title: str
     description: str
-    entrypoint: DSLEntrypoint
-    actions: list[ActionStatement]
+    entrypoint: DSLEntrypoint = Field(default_factory=DSLEntrypoint)
+    actions: list[ActionStatement] = Field(default_factory=list)
     config: DSLConfig = Field(default_factory=DSLConfig)
-    triggers: list[Trigger] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(
         default_factory=dict, description="Static input parameters"
     )
@@ -151,8 +150,8 @@ class DSLInput(BaseModel):
         """
         # NOTE: Must only call inside a db session
         # Check that we're inside an open
-        if not workflow.object:
-            raise ValueError("Empty workflow graph object. Is `workflow.object` set?")
+        if not workflow.view:
+            raise ValueError("Empty workflow graph object. Is `workflow.view` set?")
         if not workflow.actions:
             raise ValueError(
                 "Empty actions list. Please hydrate the workflow by "

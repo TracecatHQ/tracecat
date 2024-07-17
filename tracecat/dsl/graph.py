@@ -289,10 +289,10 @@ class RFGraph(TSObject):
 
     @classmethod
     def from_workflow(cls, workflow: Workflow) -> Self:
-        if not workflow.object:
+        if not workflow.view:
             raise ValueError("Empty response object")
         # This will accept either RFGraph or dict
-        return cls.model_validate(workflow.object)
+        return cls.model_validate(workflow.view)
 
     def topsort_order(self) -> list[str]:
         from graphlib import TopologicalSorter

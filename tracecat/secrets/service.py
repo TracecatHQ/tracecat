@@ -30,7 +30,7 @@ class SecretsService:
         statement = select(Secret).where(Secret.owner_id == self.role.user_id)
         return self.session.exec(statement).all()
 
-    def get_secret_by_id(self, secret_id: int) -> Secret | None:
+    def get_secret_by_id(self, secret_id: str) -> Secret | None:
         statement = select(Secret).where(
             Secret.owner_id == self.role.user_id, Secret.id == secret_id
         )

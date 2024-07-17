@@ -295,7 +295,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
             render={({ field }) => (
               <FormItem>
                 <FormControl>
-                  <div className="h-full w-full border">
+                  <div className="size-full border">
                     {/* The json contains the view into the data */}
                     <div className="h-36">
                       <Editor

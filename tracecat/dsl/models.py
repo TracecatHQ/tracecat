@@ -14,15 +14,6 @@ class DSLNodeResult(TypedDict):
 
 
 class ActionStatement(BaseModel):
-    id: str | None = Field(
-        default=None,
-        exclude=True,
-        description=(
-            "The action ID. If this is populated means there is a corresponding action"
-            "in the database `Action` table."
-        ),
-    )
-
     ref: str = Field(pattern=SLUG_PATTERN, description="Unique reference for the task")
 
     description: str = ""
@@ -65,12 +56,6 @@ class DSLConfig(BaseModel):
         default=False,
         description="Enable runtime action tests. This is dynamically set on workflow entry.",
     )
-
-
-class Trigger(BaseModel):
-    type: Literal["schedule", "webhook"]
-    ref: str = Field(pattern=SLUG_PATTERN)
-    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class ActionTest(BaseModel):

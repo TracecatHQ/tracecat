@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { CheckHealthResponse, PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCopyWorkflowData, WorkflowsCopyWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesGetCaseMetricsData, CasesGetCaseMetricsResponse, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, CasesStreamingAutofillCaseFieldsData, CasesStreamingAutofillCaseFieldsResponse, UsersGetUserResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserResponse, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, ValidateWorkflowData, ValidateWorkflowResponse } from './types.gen';
+import type { CheckHealthResponse, PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ActionsListActionsData, ActionsListActionsResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesGetCaseMetricsData, CasesGetCaseMetricsResponse, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, CasesStreamingAutofillCaseFieldsData, CasesStreamingAutofillCaseFieldsResponse, UsersGetUserResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserResponse, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, ValidateWorkflowData, ValidateWorkflowResponse } from './types.gen';
 
 /**
  * Check Health
@@ -135,11 +135,11 @@ export const workflowsGetWorkflow = (data: WorkflowsGetWorkflowData): Cancelable
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns WorkflowResponse Successful Response
  * @throws ApiError
  */
 export const workflowsUpdateWorkflow = (data: WorkflowsUpdateWorkflowData): CancelablePromise<WorkflowsUpdateWorkflowResponse> => { return __request(OpenAPI, {
-    method: 'PATCH',
+    method: 'POST',
     url: '/workflows/{workflow_id}',
     path: {
         workflow_id: data.workflowId
@@ -165,28 +165,6 @@ export const workflowsDeleteWorkflow = (data: WorkflowsDeleteWorkflowData): Canc
     path: {
         workflow_id: data.workflowId
     },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Copy Workflow
- * Copy a workflow. Not intended for users.
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const workflowsCopyWorkflow = (data: WorkflowsCopyWorkflowData): CancelablePromise<WorkflowsCopyWorkflowResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/workflows/{workflow_id}/copy',
-    path: {
-        workflow_id: data.workflowId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
     errors: {
         422: 'Validation Error'
     }
@@ -497,7 +475,7 @@ export const schedulesSearchSchedules = (data: SchedulesSearchSchedulesData): Ca
  * List all actions for a workflow.
  * @param data The data for the request.
  * @param data.workflowId
- * @returns ActionMetadataResponse Successful Response
+ * @returns ActionStatement Successful Response
  * @throws ApiError
  */
 export const actionsListActions = (data: ActionsListActionsData): CancelablePromise<ActionsListActionsResponse> => { return __request(OpenAPI, {
@@ -505,88 +483,6 @@ export const actionsListActions = (data: ActionsListActionsData): CancelableProm
     url: '/actions',
     query: {
         workflow_id: data.workflowId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Create Action
- * Create a new action for a workflow.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns ActionMetadataResponse Successful Response
- * @throws ApiError
- */
-export const actionsCreateAction = (data: ActionsCreateActionData): CancelablePromise<ActionsCreateActionResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/actions',
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Get Action
- * Get an action.
- * @param data The data for the request.
- * @param data.actionId
- * @param data.workflowId
- * @returns ActionResponse Successful Response
- * @throws ApiError
- */
-export const actionsGetAction = (data: ActionsGetActionData): CancelablePromise<ActionsGetActionResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/actions/{action_id}',
-    path: {
-        action_id: data.actionId
-    },
-    query: {
-        workflow_id: data.workflowId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Update Action
- * Update an action.
- * @param data The data for the request.
- * @param data.actionId
- * @param data.requestBody
- * @returns ActionResponse Successful Response
- * @throws ApiError
- */
-export const actionsUpdateAction = (data: ActionsUpdateActionData): CancelablePromise<ActionsUpdateActionResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/actions/{action_id}',
-    path: {
-        action_id: data.actionId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Delete Action
- * Delete an action.
- * @param data The data for the request.
- * @param data.actionId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const actionsDeleteAction = (data: ActionsDeleteActionData): CancelablePromise<ActionsDeleteActionResponse> => { return __request(OpenAPI, {
-    method: 'DELETE',
-    url: '/actions/{action_id}',
-    path: {
-        action_id: data.actionId
     },
     errors: {
         422: 'Validation Error'

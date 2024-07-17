@@ -6,6 +6,7 @@ import httpx
 import orjson
 import rich
 import typer
+import yaml
 from rich.console import Console
 
 from ._client import Client
@@ -18,24 +19,29 @@ app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 def create(
     title: str = typer.Option(None, "--title", "-t", help="Title of the workflow"),
     description: str = typer.Option(None, "--description", "-d", help="Description"),
-    activate_workflow: bool = typer.Option(
-        False, "--activate", help="Activate the workflow"
-    ),
-    activate_webhook: bool = typer.Option(
-        False, "--webhook", help="Activate the webhook"
-    ),
     defn_file: Path = typer.Option(
-        None, "--commit", "-c", help="Create with workflow definition"
+        None, "--file", "-f", help="Create with workflow definition"
     ),
 ):
     """Create a new workflow."""
-
-    result = _create_workflow(title=title, description=description)
-    rich.print(result)
-    if activate_workflow:
-        _activate_workflow(result["id"], activate_webhook)
+    # Set up params
+    params = {}
+    ## Load the definition file
     if defn_file:
-        _commit_workflow(defn_file, result["id"])
+        with defn_file.open() as f:
+            yaml_content = f.read()
+        definition = yaml.safe_load(yaml_content)
+        if title:
+            definition["title"] = title
+        if description:
+            definition["description"] = description
+        params["definition"] = definition
+
+    with Client() as client:
+        res = client.post("/workflows", content=orjson.dumps(params))
+        result = Client.handle_response(res)
+    rich.print("Created workflow")
+    rich.print(result)
 
 
 @app.command(help="Commit a workflow definition")
@@ -195,20 +201,6 @@ def _run_workflow(
                 )
             else:
                 rich.print(e.response.json())
-
-
-def _create_workflow(title: str | None = None, description: str | None = None):
-    with Client() as client:
-        # Get the webhook url
-        params = {}
-        if title:
-            params["title"] = title
-        if description:
-            params["description"] = description
-        res = client.post("/workflows", content=orjson.dumps(params))
-        result = Client.handle_response(res)
-    rich.print("Created workflow")
-    return result
 
 
 def _activate_workflow(workflow_id: str, with_webhook: bool = False):

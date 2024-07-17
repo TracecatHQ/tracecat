@@ -18,6 +18,9 @@ from pydantic import (
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
+from tracecat.db.schemas import Workflow
+from tracecat.dsl.common import DSLInput
+from tracecat.dsl.graph import RFGraph
 from tracecat.dsl.workflow import DSLContext, UDFActionInput
 from tracecat.types.auth import Role
 
@@ -162,6 +165,9 @@ class EventFailure(BaseModel):
         )
 
 
+# API Models
+
+
 class EventHistoryResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
@@ -192,3 +198,60 @@ class CreateWorkflowExecutionResponse(TypedDict):
 class DispatchWorkflowResult(TypedDict):
     wf_id: identifiers.WorkflowID
     final_context: DSLContext
+
+
+class UpdateWorkflowParams(BaseModel):
+    view: dict[str, Any] | None = None
+    definition: dict[str, Any] | None = None
+    meta: dict[str, Any] | None = None
+
+
+class WorkflowMetadata(BaseModel):
+    status: Literal["online", "offline"] = "online"
+    version: int | None = None
+
+
+class CreateWorkflowParams(BaseModel):
+    meta: WorkflowMetadata = Field(default_factory=WorkflowMetadata)
+    view: dict[str, Any] | None = None
+    definition: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowMetadataResponse(BaseModel):
+    id: identifiers.WorkflowID
+    title: str
+    description: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    version: int | None
+
+    @staticmethod
+    def from_database(workflow: Workflow) -> WorkflowMetadataResponse:
+        return WorkflowMetadataResponse(
+            id=workflow.id,
+            title=workflow.definition["title"],
+            description=workflow.definition["description"],
+            status=workflow.meta["status"],
+            created_at=workflow.created_at,
+            updated_at=workflow.updated_at,
+            version=workflow.meta.get("version"),
+        )
+
+
+class WorkflowResponse(BaseModel):
+    """Concretely typed workflow model."""
+
+    id: identifiers.WorkflowID
+    meta: WorkflowMetadata
+    view: RFGraph
+    definition: DSLInput
+
+    @staticmethod
+    def from_database(workflow: Workflow) -> WorkflowResponse:
+        return WorkflowResponse(
+            id=workflow.id,
+            meta=WorkflowMetadata(**workflow.meta),
+            view=RFGraph(**workflow.view),
+            definition=DSLInput(**workflow.definition),
+        )

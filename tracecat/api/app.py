@@ -1,6 +1,5 @@
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Annotated, Any
 
 import orjson
@@ -18,11 +17,10 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.params import Body
 from fastapi.responses import ORJSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
-from sqlalchemy import Engine, delete, or_
+from sqlalchemy import Engine, or_
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
@@ -39,9 +37,8 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
+from tracecat.db.engine import create_vdb_conn, get_engine
 from tracecat.db.schemas import (
-    Action,
     CaseAction,
     CaseContext,
     CaseEvent,
@@ -58,39 +55,31 @@ from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.dsl.graph import RFGraph
+from tracecat.dsl.models import ActionStatement
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.parse import parse_child_webhook
 from tracecat.secrets.service import SecretsService
 from tracecat.types.api import (
-    ActionMetadataResponse,
-    ActionResponse,
     CaseActionParams,
     CaseContextParams,
     CaseEventParams,
     CaseParams,
     CommitWorkflowResponse,
-    CopyWorkflowParams,
-    CreateActionParams,
     CreateScheduleParams,
     CreateSecretParams,
-    CreateWorkflowParams,
     SearchScheduleParams,
     SearchSecretsParams,
     SecretResponse,
     ServiceCallbackAction,
     UDFArgsValidationResponse,
-    UpdateActionParams,
     UpdateScheduleParams,
     UpdateSecretParams,
     UpdateUserParams,
     UpdateWorkflowParams,
     UpsertWebhookParams,
     WebhookResponse,
-    WorkflowMetadataResponse,
-    WorkflowResponse,
 )
 from tracecat.types.auth import Role
 from tracecat.types.cases import Case, CaseMetrics
@@ -98,10 +87,13 @@ from tracecat.types.exceptions import TracecatException, TracecatValidationError
 from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
+    CreateWorkflowParams,
     EventHistoryResponse,
     WorkflowExecutionResponse,
+    WorkflowMetadataResponse,
+    WorkflowResponse,
 )
-from tracecat.workflow.service import WorkflowExecutionsService
+from tracecat.workflow.service import WorkflowExecutionsService, WorkflowsService
 
 engine: Engine
 
@@ -522,144 +514,63 @@ async def webhook_callback(
 def list_workflows(
     role: Annotated[Role, Depends(authenticate_user)],
     library: bool = False,
+    session: Session = Depends(get_session),
 ) -> list[WorkflowMetadataResponse]:
     """
     List workflows.
 
     If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
     """
-    query_user_id = role.user_id if not library else "tracecat"
-    with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.owner_id == query_user_id)
-        results = session.exec(statement)
-        workflows = results.all()
+    service = WorkflowsService(session, role=role)
+    workflows = service.list_workflows(library=library)
     workflow_metadata = [
-        WorkflowMetadataResponse(
-            id=workflow.id,
-            title=workflow.title,
-            description=workflow.description,
-            status=workflow.status,
-            icon_url=workflow.icon_url,
-            created_at=workflow.created_at,
-            updated_at=workflow.updated_at,
-            version=workflow.version,
-        )
-        for workflow in workflows
+        WorkflowMetadataResponse.from_database(workflow) for workflow in workflows
     ]
     return workflow_metadata
 
 
 @app.post("/workflows", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 def create_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
     params: CreateWorkflowParams,
+    session: Session = Depends(get_session),
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
 
-    now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
-    title = now if params.title is None else params.title
-    # Create the message
-    description = (
-        f"New workflow created {now}"
-        if params.description is None
-        else params.description
-    )
-
-    with Session(engine) as session:
-        workflow = Workflow(
-            title=title,
-            description=description,
-            owner_id=role.user_id,
-        )
-        # When we create a workflow, we automatically create a webhook
-        webhook = Webhook(
-            owner_id=role.user_id,
-            workflow_id=workflow.id,
-        )
-        graph = RFGraph.with_defaults(workflow, webhook)
-        workflow.object = graph.model_dump(by_alias=True)
-        session.add(workflow)
-        session.add(webhook)
-        session.commit()
-        session.refresh(workflow)
-        session.refresh(webhook)
-
-    return WorkflowMetadataResponse(
-        id=workflow.id,
-        title=workflow.title,
-        description=workflow.description,
-        status=workflow.status,
-        icon_url=workflow.icon_url,
-        created_at=workflow.created_at,
-        updated_at=workflow.updated_at,
-        version=workflow.version,
-    )
+    service = WorkflowsService(session, role=role)
+    workflow = service.create_workflow(params)
+    return WorkflowMetadataResponse.from_database(workflow)
 
 
 @app.get("/workflows/{workflow_id}", tags=["workflows"])
 def get_workflow(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
-    with Session(engine) as session:
-        # Get Workflow given workflow_id
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        actions_responses = {
-            action.id: ActionResponse(**action.model_dump())
-            for action in workflow.actions or []
-        }
-        # Add webhook/schedules
-        whresponse = WebhookResponse(**workflow.webhook.model_dump())
-        return WorkflowResponse(
-            **workflow.model_dump(),
-            actions=actions_responses,
-            webhook=whresponse,
-            schedules=workflow.schedules,
+    # Get Workflow given workflow_id
+    service = WorkflowsService(session, role=role)
+    workflow = service.get_workflow_by_id(workflow_id)
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
 
+    return WorkflowResponse.from_database(workflow)
 
-@app.patch(
-    "/workflows/{workflow_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
+
+@app.post("/workflows/{workflow_id}", tags=["workflows"])
 def update_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     params: UpdateWorkflowParams,
-) -> None:
+    session: Session = Depends(get_session),
+) -> WorkflowResponse:
     """Update a workflow."""
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        for key, value in params.model_dump(exclude_unset=True).items():
-            # Safe because params has been validated
-            setattr(workflow, key, value)
-
-        session.add(workflow)
-        session.commit()
+    service = WorkflowsService(session, role=role)
+    workflow = service.update_workflow(workflow_id, params=params)
+    return WorkflowResponse.from_database(workflow)
 
 
 @app.delete(
@@ -670,60 +581,11 @@ def update_workflow(
 def delete_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> None:
     """Delete a workflow."""
-
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        session.delete(workflow)
-        session.commit()
-
-
-@app.post(
-    "/workflows/{workflow_id}/copy",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def copy_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-    params: Annotated[CopyWorkflowParams | None, Body(...)] = None,
-) -> None:
-    """Copy a workflow. Not intended for users."""
-    if role.type == "user" and params is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Users can only clone tracecat workflows",
-        )
-    # Users cannot pass owner_id, and defaults to 'tracecat'
-    owner_id = params.owner_id if params else "tracecat"
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == owner_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        # Assign it a new workflow ID and owner ID
-        new_workflow = clone_workflow(workflow, session, role.user_id)
-        session.commit()
-        session.refresh(new_workflow)
+    service = WorkflowsService(session, role=role)
+    service.delete_workflow(workflow_id)
 
 
 @app.post("/workflows/{workflow_id}/commit", tags=["workflows"])
@@ -814,28 +676,28 @@ async def commit_workflow(
             # Phase 2: Backpropagate
             new_graph = dsl.to_graph(workflow)
 
-            # Replace Actions
-            del_stmt = delete(Action).where(
-                Action.workflow_id == workflow_id, Action.owner_id == role.user_id
-            )
-            session.exec(del_stmt)
-            session.flush()  # Ensure deletions are flushed
-            session.refresh(workflow)
+            # # Replace Actions
+            # del_stmt = delete(Action).where(
+            #     Action.workflow_id == workflow_id, Action.owner_id == role.user_id
+            # )
+            # session.exec(del_stmt)
+            # session.flush()  # Ensure deletions are flushed
+            # session.refresh(workflow)
 
-            for act_stmt in dsl.actions:
-                new_action = Action(
-                    id=identifiers.action.key(workflow_id, act_stmt.ref),
-                    owner_id=role.user_id,
-                    workflow_id=workflow_id,
-                    type=act_stmt.action,
-                    inputs=act_stmt.args,
-                    title=act_stmt.title,
-                    description=act_stmt.description,
-                )
-                session.add(new_action)
+            # for act_stmt in dsl.actions:
+            #     new_action = Action(
+            #         id=identifiers.action.key(workflow_id, act_stmt.ref),
+            #         owner_id=role.user_id,
+            #         workflow_id=workflow_id,
+            #         type=act_stmt.action,
+            #         inputs=act_stmt.args,
+            #         title=act_stmt.title,
+            #         description=act_stmt.description,
+            #     )
+            #     session.add(new_action)
 
             # Update Workflow
-            workflow.object = new_graph.model_dump(by_alias=True)
+            workflow.view = new_graph.model_dump(by_alias=True)
             workflow.version = defn.version
             workflow.title = dsl.title
             workflow.description = dsl.description
@@ -1326,172 +1188,155 @@ def search_schedules(
 def list_actions(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-) -> list[ActionMetadataResponse]:
+    session: Session = Depends(get_session),
+) -> list[ActionStatement]:
     """List all actions for a workflow."""
-    with Session(engine) as session:
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.workflow_id == workflow_id,
-        )
-        results = session.exec(statement)
-        actions = results.all()
-    action_metadata = [
-        ActionMetadataResponse(
-            id=action.id,
-            workflow_id=workflow_id,
-            type=action.type,
-            title=action.title,
-            description=action.description,
-            status=action.status,
-            key=action.key,
-        )
-        for action in actions
-    ]
-    return action_metadata
+    service = WorkflowsService(session)
+    actions = service.list_actions(workflow_id)
+    return actions
 
 
-@app.post("/actions", tags=["actions"])
-def create_action(
-    role: Annotated[Role, Depends(authenticate_user)],
-    params: CreateActionParams,
-) -> ActionMetadataResponse:
-    """Create a new action for a workflow."""
-    with Session(engine) as session:
-        action = Action(
-            owner_id=role.user_id,
-            workflow_id=params.workflow_id,
-            type=params.type,
-            title=params.title,
-            description="",  # Default to empty string
-        )
-        # Check if a clashing action ref exists
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.workflow_id == action.workflow_id,
-            Action.ref == action.ref,
-        )
-        if session.exec(statement).first():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Action ref already exists in the workflow",
-            )
+# @app.post("/actions", tags=["actions"])
+# def create_action(
+#     role: Annotated[Role, Depends(authenticate_user)],
+#     params: CreateActionParams,
+# ) -> ActionMetadataResponse:
+#     """Create a new action for a workflow."""
+#         action = Action(
+#             owner_id=role.user_id,
+#             workflow_id=params.workflow_id,
+#             type=params.type,
+#             title=params.title,
+#             description="",  # Default to empty string
+#         )
+#         # Check if a clashing action ref exists
+#         statement = select(Action).where(
+#             Action.owner_id == role.user_id,
+#             Action.workflow_id == action.workflow_id,
+#             Action.ref == action.ref,
+#         )
+#         if session.exec(statement).first():
+#             raise HTTPException(
+#                 status_code=status.HTTP_409_CONFLICT,
+#                 detail="Action ref already exists in the workflow",
+#             )
 
-        session.add(action)
-        session.commit()
-        session.refresh(action)
+#         session.add(action)
+#         session.commit()
+#         session.refresh(action)
 
-    action_metadata = ActionMetadataResponse(
-        id=action.id,
-        workflow_id=params.workflow_id,
-        type=params.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        key=action.key,
-    )
-    return action_metadata
-
-
-@app.get("/actions/{action_id}", tags=["actions"])
-def get_action(
-    role: Annotated[Role, Depends(authenticate_user)],
-    action_id: str,
-    workflow_id: str,
-) -> ActionResponse:
-    """Get an action."""
-    with Session(engine) as session:
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.id == action_id,
-            Action.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-    return ActionResponse(
-        id=action.id,
-        type=action.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        inputs=action.inputs,
-        key=action.key,
-    )
+#     action_metadata = ActionMetadataResponse(
+#         id=action.id,
+#         workflow_id=params.workflow_id,
+#         type=params.type,
+#         title=action.title,
+#         description=action.description,
+#         status=action.status,
+#         key=action.key,
+#     )
+#     return action_metadata
 
 
-@app.post("/actions/{action_id}", tags=["actions"])
-def update_action(
-    role: Annotated[Role, Depends(authenticate_user)],
-    action_id: str,
-    params: UpdateActionParams,
-) -> ActionResponse:
-    """Update an action."""
-    with Session(engine) as session:
-        # Fetch the action by id
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.id == action_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+# @app.get("/actions/{action_id}", tags=["actions"])
+# def get_action(
+#     role: Annotated[Role, Depends(authenticate_user)],
+#     action_id: str,
+#     workflow_id: str,
+# ) -> ActionResponse:
+#     """Get an action."""
+#     with Session(engine) as session:
+#         statement = select(Action).where(
+#             Action.owner_id == role.user_id,
+#             Action.id == action_id,
+#             Action.workflow_id == workflow_id,
+#         )
+#         result = session.exec(statement)
+#         try:
+#             action = result.one()
+#         except NoResultFound as e:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+#             ) from e
 
-        if params.title is not None:
-            action.title = params.title
-        if params.description is not None:
-            action.description = params.description
-        if params.status is not None:
-            action.status = params.status
-        if params.inputs is not None:
-            action.inputs = params.inputs
-
-        session.add(action)
-        session.commit()
-        session.refresh(action)
-
-    return ActionResponse(
-        id=action.id,
-        type=action.type,
-        title=action.title,
-        description=action.description,
-        status=action.status,
-        inputs=action.inputs,
-        key=action.key,
-    )
+#     return ActionResponse(
+#         id=action.id,
+#         type=action.type,
+#         title=action.title,
+#         description=action.description,
+#         status=action.status,
+#         inputs=action.inputs,
+#         key=action.key,
+#     )
 
 
-@app.delete(
-    "/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"]
-)
-def delete_action(
-    role: Annotated[Role, Depends(authenticate_user)],
-    action_id: str,
-) -> None:
-    """Delete an action."""
-    with Session(engine) as session:
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.id == action_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        # If the user doesn't own this workflow, they can't delete the action
-        session.delete(action)
-        session.commit()
+# @app.post("/actions/{action_id}", tags=["actions"])
+# def update_action(
+#     role: Annotated[Role, Depends(authenticate_user)],
+#     action_id: str,
+#     params: UpdateActionParams,
+# ) -> ActionResponse:
+#     """Update an action."""
+#     with Session(engine) as session:
+#         # Fetch the action by id
+#         statement = select(Action).where(
+#             Action.owner_id == role.user_id,
+#             Action.id == action_id,
+#         )
+#         result = session.exec(statement)
+#         try:
+#             action = result.one()
+#         except NoResultFound as e:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+#             ) from e
+
+#         if params.title is not None:
+#             action.title = params.title
+#         if params.description is not None:
+#             action.description = params.description
+#         if params.status is not None:
+#             action.status = params.status
+#         if params.inputs is not None:
+#             action.inputs = params.inputs
+
+#         session.add(action)
+#         session.commit()
+#         session.refresh(action)
+
+#     return ActionResponse(
+#         id=action.id,
+#         type=action.type,
+#         title=action.title,
+#         description=action.description,
+#         status=action.status,
+#         inputs=action.inputs,
+#         key=action.key,
+#     )
+
+
+# @app.delete(
+#     "/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"]
+# )
+# def delete_action(
+#     role: Annotated[Role, Depends(authenticate_user)],
+#     action_id: str,
+# ) -> None:
+#     """Delete an action."""
+#     with Session(engine) as session:
+#         statement = select(Action).where(
+#             Action.owner_id == role.user_id,
+#             Action.id == action_id,
+#         )
+#         result = session.exec(statement)
+#         try:
+#             action = result.one()
+#         except NoResultFound as e:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+#             ) from e
+#         # If the user doesn't own this workflow, they can't delete the action
+#         session.delete(action)
+#         session.commit()
 
 
 # ----- Case Management ----- #

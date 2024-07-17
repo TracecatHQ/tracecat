@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import json
 import os
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
 
 import orjson
+from sqlmodel import Session, select
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -22,8 +23,10 @@ from temporalio.client import (
 
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Webhook, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.graph import RFGraph
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLRunArgs, DSLWorkflow, retry_policies
 from tracecat.logging import logger
@@ -31,11 +34,13 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.models import (
     CreateWorkflowExecutionResponse,
+    CreateWorkflowParams,
     DispatchWorkflowResult,
     EventFailure,
     EventGroup,
     EventHistoryResponse,
     EventHistoryType,
+    UpdateWorkflowParams,
 )
 
 
@@ -324,3 +329,87 @@ class WorkflowExecutionsService:
         else:
             logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
+
+
+class WorkflowsService:
+    """Manages CRUD operations for Workflows."""
+
+    def __init__(self, session: Session, role: Role | None = None):
+        self.role = role or ctx_role.get()
+        self.session = session
+        self.logger = logger.bind(service="workflows")
+
+    def list_workflows(self, library: bool = False) -> list[Workflow]:
+        """List all workflows."""
+        query_user_id = self.role.user_id if not library else "tracecat"
+        if not query_user_id:
+            raise ValueError("User ID is required to list workflows")
+        statement = select(Workflow).where(Workflow.owner_id == query_user_id)
+        return self.session.exec(statement).all()
+
+    def get_workflow_by_id(
+        self, workflow_id: identifiers.WorkflowID
+    ) -> Workflow | None:
+        """Get a workflow by ID."""
+        statement = select(Workflow).where(
+            Workflow.owner_id == self.role.user_id,
+            Workflow.id == workflow_id,
+        )
+        return self.session.exec(statement).one_or_none()
+
+    def create_workflow(self, params: CreateWorkflowParams) -> Workflow:
+        """Create a new workflow."""
+
+        if not params.definition.get("title"):
+            now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+            params.definition["title"] = f"Untitled Workflow - {now}"
+
+        if not params.definition.get("description"):
+            params.definition["description"] = "No description provided."
+
+        workflow = Workflow(
+            owner_id=self.role.user_id,
+            meta=params.meta.model_dump(),
+            definition=params.definition,
+            view=params.view,
+        )
+
+        webhook = Webhook(
+            owner_id=self.role.user_id,
+            workflow_id=workflow.id,
+        )
+        graph = RFGraph.with_defaults(workflow, webhook)
+        workflow.view = graph.model_dump(by_alias=True)
+        self.session.add(workflow)
+        self.session.add(webhook)
+        self.session.commit()
+        self.session.refresh(workflow)
+        self.session.refresh(webhook)
+        return workflow
+
+    def update_workflow(
+        self, workflow: Workflow, params: UpdateWorkflowParams
+    ) -> Workflow:
+        """Update a workflow."""
+        update_params = params.model_dump(exclude_unset=True)
+        if view := update_params.get("view"):
+            workflow.view.update(view)
+
+        if defn := update_params.get("definition"):
+            workflow.definition.update(defn)
+
+        if meta := update_params.get("meta"):
+            workflow.meta.update(meta)
+
+        self.session.add(workflow)
+        self.session.commit()
+        self.session.refresh(workflow)
+        return workflow
+
+    def delete_workflow(self, workflow_id: identifiers.WorkflowID) -> None:
+        """Delete a workflow."""
+        workflow = self.get_workflow_by_id(workflow_id)
+        if not workflow:
+            raise ValueError(f"Workflow not found: {workflow_id}")
+        self.session.delete(workflow)
+        self.session.commit()
