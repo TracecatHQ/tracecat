@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/form"
 import { Textarea } from "@/components/ui/textarea"
 import { StatusBadge } from "@/components/badges"
-import { priorities, statuses } from "@/components/cases/data/categories"
+import { priorities, statuses } from "@/components/cases/categories"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"

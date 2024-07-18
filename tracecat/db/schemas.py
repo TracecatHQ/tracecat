@@ -100,7 +100,6 @@ class Case(Resource, table=True):
     priority: str
     action: str | None = None
     context: dict[str, str] | None = Field(sa_column=Column(JSONB))
-    suppression: dict[str, str] | None = Field(sa_column=Column(JSONB))
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
 
 

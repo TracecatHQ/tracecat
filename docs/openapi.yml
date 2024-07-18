@@ -1955,8 +1955,6 @@ components:
           title: Action
         context:
           $ref: "#/components/schemas/ListModel_CaseContext_-Input"
-        suppression:
-          $ref: "#/components/schemas/ListModel_Suppression_"
         tags:
           $ref: "#/components/schemas/ListModel_Tag_"
         created_at:
@@ -1978,7 +1976,6 @@ components:
         - priority
         - action
         - context
-        - suppression
         - tags
       title: Case
       description: Case model used in the API and runner.
@@ -2033,8 +2030,6 @@ components:
           title: Action
         context:
           $ref: "#/components/schemas/ListModel_CaseContext_-Output"
-        suppression:
-          $ref: "#/components/schemas/ListModel_Suppression_"
         tags:
           $ref: "#/components/schemas/ListModel_Tag_"
         created_at:
@@ -2056,7 +2051,6 @@ components:
         - priority
         - action
         - context
-        - suppression
         - tags
       title: Case
       description: Case model used in the API and runner.
@@ -2305,8 +2299,6 @@ components:
             - sinkhole
             - active_compromise
           title: Action
-        suppression:
-          $ref: "#/components/schemas/ListModel_Suppression_"
         tags:
           $ref: "#/components/schemas/ListModel_Tag_"
       type: object
@@ -2323,7 +2315,6 @@ components:
         - priority
         - context
         - action
-        - suppression
         - tags
       title: CaseParams
     CopyWorkflowParams:
@@ -2580,11 +2571,6 @@ components:
         $ref: "#/components/schemas/tracecat__types__api__CaseContext"
       type: array
       title: ListModel[CaseContext]
-    ListModel_Suppression_:
-      items:
-        $ref: "#/components/schemas/Suppression"
-      type: array
-      title: ListModel[Suppression]
     ListModel_Tag_:
       items:
         $ref: "#/components/schemas/Tag"
@@ -2813,19 +2799,6 @@ components:
         - message
         - id
       title: StartWorkflowResponse
-    Suppression:
-      properties:
-        condition:
-          type: string
-          title: Condition
-        result:
-          type: string
-          title: Result
-      type: object
-      required:
-        - condition
-        - result
-      title: Suppression
     Tag:
       properties:
         tag:

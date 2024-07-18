@@ -14,12 +14,8 @@ import {
 import { streamGenerator } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { tableHeaderAuxOptions } from "@/components/cases/aux-click-menu-config"
+import { indicators, priorities, statuses } from "@/components/cases/categories"
 import { columns } from "@/components/cases/columns"
-import {
-  indicators,
-  priorities,
-  statuses,
-} from "@/components/cases/data/categories"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { DataTable, type DataTableToolbarProps } from "@/components/table"
 

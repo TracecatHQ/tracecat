@@ -9,7 +9,7 @@ from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.engine import create_db_engine
 from tracecat.db.schemas import Case
 from tracecat.registry import registry
-from tracecat.types.api import CaseContext, Suppression, Tag
+from tracecat.types.api import CaseContext, Tag
 
 
 @registry.register(
@@ -50,10 +50,6 @@ async def open_case(
         list[CaseContext] | dict[str, Any] | None,
         Field(description="List of case contexts"),
     ] = None,
-    suppression: Annotated[
-        list[Suppression] | None,
-        Field(description="List of suppressions"),
-    ] = None,
     tags: Annotated[
         list[Tag] | None,
         Field(description="List of tags"),
@@ -63,7 +59,6 @@ async def open_case(
     engine = create_db_engine()
     run = ctx_run.get()
     role = ctx_role.get()
-    suppression = suppression or []
     tags = tags or []
     context = context or []
     if isinstance(context, dict):
@@ -79,7 +74,6 @@ async def open_case(
             priority=priority,
             action=action,
             context=context,
-            suppression=suppression,
             tags=tags,
         )
         session.add(case)

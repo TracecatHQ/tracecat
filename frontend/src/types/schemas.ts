@@ -132,11 +132,6 @@ export const workflowRunSchema = z.object({
 
 export type WorkflowRun = z.infer<typeof workflowRunSchema>
 
-export const suppressionSchema = z.object({
-  condition: z.string().min(1, "Please enter a suppression condition."),
-  result: z.string().min(1, "Please enter a template expression or boolean"),
-})
-
 export const caseActionTypes = [
   "ignore",
   "quarantine",
@@ -176,7 +171,6 @@ export const caseSchema = z.object({
   priority: z.enum(casePriorityTypes),
   action: z.enum(caseActionTypes),
   context: z.array(keyValueSchema).default([]),
-  suppression: z.array(suppressionSchema).default([]),
   tags: z.array(tagSchema).default([]),
 })
 

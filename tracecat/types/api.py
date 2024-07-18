@@ -179,11 +179,6 @@ class Tag(BaseModel):
     value: str
 
 
-class Suppression(BaseModel):
-    condition: str
-    result: str  # Should evaluate to 'true' or 'false'
-
-
 class CaseContext(BaseModel):
     key: str
     value: str
@@ -206,7 +201,6 @@ class CaseParams(BaseModel):
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
     context: ListModel[CaseContext]
-    suppression: ListModel[Suppression]
     tags: ListModel[Tag]
 
 
@@ -225,7 +219,6 @@ class CaseResponse(BaseModel):
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
     context: ListModel[CaseContext]
-    suppression: ListModel[Suppression]
     tags: ListModel[Tag]
 
 

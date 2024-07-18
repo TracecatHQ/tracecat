@@ -269,9 +269,6 @@ export const $Case_Input = {
         context: {
             '$ref': '#/components/schemas/ListModel_CaseContext_-Input'
         },
-        suppression: {
-            '$ref': '#/components/schemas/ListModel_Suppression_'
-        },
         tags: {
             '$ref': '#/components/schemas/ListModel_Tag_'
         },
@@ -287,7 +284,7 @@ export const $Case_Input = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'suppression', 'tags'],
+    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
     title: 'Case',
     description: 'Case model used in the API and runner.'
 } as const;
@@ -337,9 +334,6 @@ export const $Case_Output = {
         context: {
             '$ref': '#/components/schemas/ListModel_CaseContext_-Output'
         },
-        suppression: {
-            '$ref': '#/components/schemas/ListModel_Suppression_'
-        },
         tags: {
             '$ref': '#/components/schemas/ListModel_Tag_'
         },
@@ -355,7 +349,7 @@ export const $Case_Output = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'suppression', 'tags'],
+    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
     title: 'Case',
     description: 'Case model used in the API and runner.'
 } as const;
@@ -684,15 +678,12 @@ export const $CaseParams = {
             enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
             title: 'Action'
         },
-        suppression: {
-            '$ref': '#/components/schemas/ListModel_Suppression_'
-        },
         tags: {
             '$ref': '#/components/schemas/ListModel_Tag_'
         }
     },
     type: 'object',
-    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'context', 'action', 'suppression', 'tags'],
+    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'context', 'action', 'tags'],
     title: 'CaseParams'
 } as const;
 
@@ -1171,14 +1162,6 @@ export const $ListModel_CaseContext__Output = {
     title: 'ListModel[CaseContext]'
 } as const;
 
-export const $ListModel_Suppression_ = {
-    items: {
-        '$ref': '#/components/schemas/Suppression'
-    },
-    type: 'array',
-    title: 'ListModel[Suppression]'
-} as const;
-
 export const $ListModel_Tag_ = {
     items: {
         '$ref': '#/components/schemas/Tag'
@@ -1573,22 +1556,6 @@ export const $SecretResponse = {
     type: 'object',
     required: ['id', 'type', 'name', 'keys'],
     title: 'SecretResponse'
-} as const;
-
-export const $Suppression = {
-    properties: {
-        condition: {
-            type: 'string',
-            title: 'Condition'
-        },
-        result: {
-            type: 'string',
-            title: 'Result'
-        }
-    },
-    type: 'object',
-    required: ['condition', 'result'],
-    title: 'Suppression'
 } as const;
 
 export const $Tag = {

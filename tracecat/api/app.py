@@ -1525,7 +1525,6 @@ def create_case(
         priority=case.priority,
         action=case.action,
         context=case.context,
-        suppression=case.suppression,
         tags=case.tags,
     )
 
@@ -1557,7 +1556,6 @@ def list_cases(
             priority=case.priority,
             action=case.action,
             context=case.context,
-            suppression=case.suppression,
             tags=case.tags,
         )
         for case in cases
@@ -1595,7 +1593,6 @@ def get_case(
         priority=case.priority,
         action=case.action,
         context=case.context,
-        suppression=case.suppression,
         tags=case.tags,
     )
 
@@ -1640,7 +1637,6 @@ def update_case(
         priority=case.priority,
         action=case.action,
         context=case.context,
-        suppression=case.suppression,
         tags=case.tags,
     )
 

@@ -28,7 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { StatusBadge } from "@/components/badges"
-import { priorities, statuses } from "@/components/cases/data/categories"
+import { priorities, statuses } from "@/components/cases/categories"
 import { AIGeneratedFlair } from "@/components/flair"
 import { LabelsTable } from "@/components/labels-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -73,7 +73,6 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     tags,
     payload,
     context,
-    suppression,
   } = caseData
 
   const handleStatusChange = async (newStatus: CaseStatusType) => {
@@ -215,22 +214,6 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                       valueName="value"
                       labels={context}
                       emptyMessage="No context available"
-                    />
-                  </Card>
-                </div>
-                <div id="body-right" className="col-span-1 space-y-2">
-                  <h5 className="text-xs font-semibold">Suppressions</h5>
-                  <Card
-                    className={cn(
-                      "flex min-h-[10vh] p-4 shadow-sm",
-                      suppression.length === 0 && "items-center"
-                    )}
-                  >
-                    <LabelsTable
-                      keyName="condition"
-                      valueName="result"
-                      labels={suppression}
-                      emptyMessage="No suppressions available"
                     />
                   </Card>
                 </div>

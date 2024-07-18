@@ -7,7 +7,7 @@ import { type Case } from "@/types/schemas"
 import { cn } from "@/lib/utils"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
-import { priorities, statuses } from "@/components/cases/data/categories"
+import { priorities, statuses } from "@/components/cases/categories"
 import { DataTableColumnHeader } from "@/components/data-table/column-header"
 import { AIGeneratedFlair } from "@/components/flair"
 import { LoadingCellState } from "@/components/loading/table"
@@ -201,16 +201,6 @@ export const columns: ColumnDef<Case>[] = [
           </span>
         </div>
       )
-    },
-  },
-  {
-    accessorKey: "suppression",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Suppressions" />
-    ),
-    cell: ({ row }) => {
-      const suppressions = row.getValue<Case["suppression"]>("suppression")
-      return <span className="text-xs">{suppressions.length}</span>
     },
   },
   {
