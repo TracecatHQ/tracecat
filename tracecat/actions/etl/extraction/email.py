@@ -38,6 +38,6 @@ def extract_emails(
     emails = itertools.chain.from_iterable(
         re.findall(EMAIL_REGEX, text) for text in texts
     )
-    if normalize:
+    if normalize and len(emails) > 0:
         emails = [normalize_email_address(email) for email in emails]
     return list(set(emails))
