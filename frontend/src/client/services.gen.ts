@@ -752,27 +752,6 @@ export const casesGetCaseEvent = (data: CasesGetCaseEventData): CancelablePromis
 }); };
 
 /**
- * Get Case Metrics
- * **[DEPRECATED]** Get a specific case event metrics for a workflow.
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.caseId
- * @returns CaseMetrics Successful Response
- * @throws ApiError
- */
-export const casesGetCaseMetrics = (data: CasesGetCaseMetricsData): CancelablePromise<CasesGetCaseMetricsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/workflows/{workflow_id}/cases/{case_id}/metrics',
-    path: {
-        workflow_id: data.workflowId,
-        case_id: data.caseId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
  * List Case Actions
  * List all case actions.
  * @returns CaseAction Successful Response

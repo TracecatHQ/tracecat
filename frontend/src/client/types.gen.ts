@@ -1607,21 +1607,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/cases/{case_id}/metrics': {
-        get: {
-            req: CasesGetCaseMetricsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseMetrics;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
     '/case-actions': {
         get: {
             res: {
