@@ -1540,7 +1540,13 @@ def list_cases(
         query = select(Case).where(
             Case.owner_id == role.user_id, Case.workflow_id == workflow_id
         )
-        cases = session.exec(query).limit(limit).all()
+        result = session.exec(query)
+        try:
+            cases = result.fetchmany(size=limit)
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
 
     return [
         CaseResponse(
