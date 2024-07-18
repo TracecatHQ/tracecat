@@ -9,7 +9,6 @@ from pydantic import (
     ConfigDict,
     Field,
     TypeAdapter,
-    field_validator,
     model_validator,
 )
 from pydantic.alias_generators import to_camel
@@ -26,10 +25,6 @@ if TYPE_CHECKING:
 class Position(BaseModel):
     x: float = 0.0
     y: float = 0.0
-
-    @field_validator("x", "y", mode="before")
-    def none_is_zero(cls, value):
-        return value if value is not None else 0.0
 
 
 class TSObject(BaseModel):
@@ -79,8 +74,8 @@ class RFNode(TSObject, Generic[T]):
 
     id: str = Field(..., description="RF Graph Node ID, not to confuse with action ref")
     type: Literal["trigger", "udf"]
-    position: Position = Field(default_factory=lambda: Position(x=0, y=0))
-    position_absolute: Position = Field(default_factory=lambda: Position(x=0, y=0))
+    position: Position = Field(default_factory=Position)
+    position_absolute: Position = Field(default_factory=Position)
     data: T
 
     @property
@@ -306,7 +301,7 @@ class RFGraph(TSObject):
         return list(ts.static_order())
 
     @staticmethod
-    def with_defaults(workflow: Workflow, webhook: Webhook) -> RFGraph:
+    def with_defaults(workflow: Workflow, webhook: Webhook):
         # Create a default graph object with only the webhook
         initial_data = {
             "nodes": [
