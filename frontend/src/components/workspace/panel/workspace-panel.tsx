@@ -12,7 +12,6 @@ import { TriggerNodeData } from "@/components/workspace/canvas/trigger-node"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
 import { TriggerPanel } from "@/components/workspace/panel/trigger-panel"
 import { UDFActionPanel } from "@/components/workspace/panel/udf-panel"
-import { WorkflowControls } from "@/components/workspace/panel/workflow/controls"
 import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
 
 export function WorkspacePanel() {
@@ -44,7 +43,6 @@ function Inner({
   return (
     <div>
       <WorkflowForm workflow={workflow} />
-      <WorkflowControls workflow={workflow} />
     </div>
   )
 }
