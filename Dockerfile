@@ -54,4 +54,4 @@ RUN pip install -r requirements.txt
 RUN pip install ".[cli]"
 
 # Command to run the application
-CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT --reload"]
+CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT"]
