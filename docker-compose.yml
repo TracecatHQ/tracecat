@@ -49,7 +49,7 @@ services:
     networks:
       - core
       - temporal
-    entrypoint: ["python", "tracecat/dsl/worker.py"]
+    command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.3.3}
