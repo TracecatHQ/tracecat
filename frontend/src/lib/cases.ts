@@ -18,12 +18,6 @@ export async function getCases(workflowId: string): Promise<Case[]> {
   }
 }
 
-/**
- * Use this for autocomplete
- *
- * @param workflowId
- * @param cases
- */
 export async function updateCases(
   workflowId: string, // They should all have the same workflow ID
   cases: Case[]

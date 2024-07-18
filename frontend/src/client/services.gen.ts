@@ -848,24 +848,6 @@ export const casesDeleteCaseContext = (data: CasesDeleteCaseContextData): Cancel
 }); };
 
 /**
- * Streaming Autofill Case Fields
- * Use an LLM to autocomplete fields for cases.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns string Successful Response
- * @throws ApiError
- */
-export const casesStreamingAutofillCaseFields = (data: CasesStreamingAutofillCaseFieldsData): CancelablePromise<CasesStreamingAutofillCaseFieldsResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/completions/cases/stream',
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
  * Get User
  * Get a user.
  * @returns User Successful Response

@@ -1371,40 +1371,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
-  /completions/cases/stream:
-    post:
-      tags:
-        - cases
-        - completions
-      summary: Streaming Autofill Case Fields
-      description: Use an LLM to autocomplete fields for cases.
-      operationId: streaming_autofill_case_fields_completions_cases_stream_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Body_streaming_autofill_case_fields_completions_cases_stream_post"
-        required: true
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-                title:
-                  Response Streaming Autofill Case Fields Completions Cases Stream
-                  Post
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
   /users:
     get:
       tags:

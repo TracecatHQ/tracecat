@@ -214,12 +214,8 @@ export const columns: ColumnDef<Case>[] = [
         }
       />
     ),
-    cell: ({ row, table }) => {
+    cell: ({ row }) => {
       const tags = row.getValue<Case["tags"]>("tags")
-      // NOTE: Only run on empty tags, but this may change
-      if (table.options.meta?.isProcessing && tags.length === 0) {
-        return <LoadingCellState />
-      }
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] flex-col space-y-1 text-xs text-muted-foreground">
