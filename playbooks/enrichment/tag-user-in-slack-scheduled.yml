@@ -54,6 +54,7 @@ actions:
     action: integrations.chat.slack.post_slack_message
     depends_on:
       - tag_slack_users
+    run_if: ${{ FN.not_empty(ACTIONS.tag_slack_users.result) }}
     for_each: ${{ for var.tagged_conversation in ACTIONS.tag_slack_users.result }}
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
