@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import orjson
-import polars as pl
 from fastapi import (
     Depends,
     FastAPI,
@@ -19,7 +18,7 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
-from fastapi.responses import ORJSONResponse, StreamingResponse
+from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 from sqlalchemy import Engine, delete, or_
@@ -27,11 +26,6 @@ from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
 from tracecat import config, identifiers, validation
-from tracecat.api.completions import (
-    CategoryConstraint,
-    FieldCons,
-    stream_case_completions,
-)
 from tracecat.auth.credentials import (
     TemporaryRole,
     authenticate_service,
@@ -39,9 +33,10 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
+from tracecat.db.engine import clone_workflow, get_engine
 from tracecat.db.schemas import (
     Action,
+    Case,
     CaseAction,
     CaseContext,
     CaseEvent,
@@ -71,6 +66,7 @@ from tracecat.types.api import (
     CaseContextParams,
     CaseEventParams,
     CaseParams,
+    CaseResponse,
     CommitWorkflowResponse,
     CopyWorkflowParams,
     CreateActionParams,
@@ -93,7 +89,6 @@ from tracecat.types.api import (
     WorkflowResponse,
 )
 from tracecat.types.auth import Role
-from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
 from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
@@ -621,11 +616,10 @@ def get_workflow(
             for action in workflow.actions or []
         }
         # Add webhook/schedules
-        whresponse = WebhookResponse(**workflow.webhook.model_dump())
         return WorkflowResponse(
             **workflow.model_dump(),
             actions=actions_responses,
-            webhook=whresponse,
+            webhook=WebhookResponse(**workflow.webhook.model_dump()),
             schedules=workflow.schedules,
         )
 
@@ -1506,16 +1500,34 @@ def create_case(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
     cases: list[CaseParams],
-):
+) -> CaseResponse:
     """Create a new case for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    # Should probably also add a check for existing case IDs
-    new_cases = [
-        Case(**c.model_dump(), owner_id=role.user_id, workflow_id=workflow_id)
-        for c in cases
-    ]
-    tbl.add([case.flatten() for case in new_cases])
+    with Session(engine) as session:
+        case = Case(
+            owner_id=role.user_id,
+            workflow_id=workflow_id,
+            **cases.model_dump(),
+        )
+        session.add(case)
+        session.commit()
+        session.refresh(case)
+
+    return CaseResponse(
+        id=case.id,
+        owner_id=case.owner_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        workflow_id=case.workflow_id,
+        case_title=case.case_title,
+        payload=case.payload,
+        malice=case.malice,
+        status=case.status,
+        priority=case.priority,
+        action=case.action,
+        context=case.context,
+        suppression=case.suppression,
+        tags=case.tags,
+    )
 
 
 @app.get("/workflows/{workflow_id}/cases", tags=["cases"])
@@ -1523,19 +1535,33 @@ def list_cases(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     limit: int = 100,
-) -> list[Case]:
+) -> list[CaseResponse]:
     """List all cases for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    result = (
-        tbl.search()
-        .where(f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r})")
-        .select(list(Case.model_fields.keys()))
-        .limit(limit)
-        .to_polars()
-        .to_dicts()
-    )
-    return [Case.from_flattened(c) for c in result]
+    with Session(engine) as session:
+        query = select(Case).where(
+            Case.owner_id == role.user_id, Case.workflow_id == workflow_id
+        )
+        cases = session.exec(query).limit(limit).all()
+
+    return [
+        CaseResponse(
+            id=case.id,
+            owner_id=case.owner_id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            workflow_id=case.workflow_id,
+            case_title=case.case_title,
+            payload=case.payload,
+            malice=case.malice,
+            status=case.status,
+            priority=case.priority,
+            action=case.action,
+            context=case.context,
+            suppression=case.suppression,
+            tags=case.tags,
+        )
+        for case in cases
+    ]
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
@@ -1543,25 +1569,35 @@ def get_case(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     case_id: str,
-) -> Case:
+) -> CaseResponse:
     """Get a specific case for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    result = (
-        tbl.search()
-        .where(
-            f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})"
+    with Session(engine) as session:
+        query = select(Case).where(
+            Case.owner_id == role.user_id,
+            Case.workflow_id == workflow_id,
+            Case.id == case_id,
         )
-        .select(list(Case.model_fields.keys()))
-        .limit(1)
-        .to_polars()
-        .to_dicts()
+        case = session.exec(query).one_or_none()
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            )
+    return CaseResponse(
+        id=case.id,
+        owner_id=case.owner_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        workflow_id=case.workflow_id,
+        case_title=case.case_title,
+        payload=case.payload,
+        malice=case.malice,
+        status=case.status,
+        priority=case.priority,
+        action=case.action,
+        context=case.context,
+        suppression=case.suppression,
+        tags=case.tags,
     )
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        )
-    return Case.from_flattened(result[0])
 
 
 @app.post("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
@@ -1570,14 +1606,42 @@ def update_case(
     workflow_id: str,
     case_id: str,
     params: CaseParams,
-):
+) -> CaseResponse:
     """Update a specific case for a workflow."""
-    updated_case = Case.from_params(params, owner_id=role.user_id, id=case_id)
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    tbl.update(
-        where=f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})",
-        values=updated_case.flatten(),
+    with Session(engine) as session:
+        query = select(Case).where(
+            Case.owner_id == role.user_id,
+            Case.workflow_id == workflow_id,
+            Case.id == case_id,
+        )
+        case = session.exec(query).one_or_none()
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            )
+
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safety: params have been validated
+            setattr(case, key, value)
+
+        session.add(case)
+        session.commit()
+        session.refresh(case)
+    return CaseResponse(
+        id=case.id,
+        owner_id=case.owner_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        workflow_id=case.workflow_id,
+        case_title=case.case_title,
+        payload=case.payload,
+        malice=case.malice,
+        status=case.status,
+        priority=case.priority,
+        action=case.action,
+        context=case.context,
+        suppression=case.suppression,
+        tags=case.tags,
     )
 
 
@@ -1645,26 +1709,6 @@ def get_case_event(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             )
         return case_event
-
-
-@app.get("/workflows/{workflow_id}/cases/{case_id}/metrics", tags=["cases"])
-def get_case_metrics(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    case_id: str,
-) -> CaseMetrics:
-    """**[DEPRECATED]** Get a specific case event metrics for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    df = pl.DataFrame(
-        tbl.search()
-        .where(
-            f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})"
-        )
-        .select(list(Case.model_fields.keys()))
-        .to_arrow()
-    ).to_dicts()
-    return df
 
 
 # ----- Available Case Actions ----- #
@@ -1777,55 +1821,6 @@ def delete_case_context(
         session.delete(action)
         session.commit()
     pass
-
-
-@app.post("/completions/cases/stream", tags=["cases", "completions"])
-async def streaming_autofill_case_fields(
-    role: Annotated[Role, Depends(authenticate_user)],
-    cases: list[Case],  # TODO: Replace this with case IDs
-    fields: list[str],
-) -> dict[str, str]:
-    """Use an LLM to autocomplete fields for cases."""
-    fields_set = set(fields)
-
-    if not fields_set:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields provided for completions",
-        )
-    if not all((f in Case.model_fields) for f in fields_set):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid fields provided for case completions",
-        )
-
-    field_cons_map: FieldCons = {}
-
-    if "tags" in fields_set:
-        # TODO: Rename context to tags, in DB as well
-        case_contexts = list_case_contexts(role)
-        contexts_mapping = (
-            pl.DataFrame(case_contexts)
-            .lazy()
-            .select(
-                pl.col.tag,
-                pl.col.value.str.split(".").list.first(),
-            )
-            .unique()
-            .group_by(pl.col.tag)
-            .agg(pl.col.value)
-            .collect(streaming=True)
-            .to_dicts()
-        )
-        context_cons = [
-            CategoryConstraint.model_validate(d, strict=True) for d in contexts_mapping
-        ]
-        field_cons_map["tags"] = context_cons
-
-    return StreamingResponse(
-        stream_case_completions(cases, field_cons=field_cons_map),
-        media_type="application/x-ndjson",
-    )
 
 
 # ----- Users ----- #
