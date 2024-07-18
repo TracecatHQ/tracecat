@@ -206,13 +206,7 @@ export const columns: ColumnDef<Case>[] = [
   {
     accessorKey: "tags",
     header: ({ column }) => (
-      <DataTableColumnHeader
-        column={column}
-        title="Tags"
-        icon={
-          <Sparkles className="mr-1 size-3 animate-pulse fill-yellow-500 text-yellow-500" />
-        }
-      />
+      <DataTableColumnHeader column={column} title="Tags" />
     ),
     cell: ({ row }) => {
       const tags = row.getValue<Case["tags"]>("tags")
