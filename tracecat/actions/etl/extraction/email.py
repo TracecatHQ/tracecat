@@ -37,7 +37,6 @@ def extract_emails(
     emails = set()
     for text in texts:
         emails.update(re.findall(EMAIL_REGEX, text))
-    emails = list(emails)
     if normalize and len(emails) > 0:
-        emails = [normalize_email_address(email) for email in emails]
-    return emails
+        emails = {normalize_email_address(email) for email in emails}
+    return list(emails)
