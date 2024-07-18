@@ -177,7 +177,6 @@ class SearchSecretsParams(BaseModel):
 class Tag(BaseModel):
     tag: str
     value: str
-    is_ai_generated: bool = False
 
 
 class Suppression(BaseModel):
@@ -203,10 +202,29 @@ class CaseParams(BaseModel):
     malice: Literal["malicious", "benign"]
     status: Literal["open", "closed", "in_progress", "reported", "escalated"]
     priority: Literal["low", "medium", "high", "critical"]
-    context: ListModel[CaseContext]
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
+    context: ListModel[CaseContext]
+    suppression: ListModel[Suppression]
+    tags: ListModel[Tag]
+
+
+class CaseResponse(BaseModel):
+    id: str
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
+    workflow_id: str
+    case_title: str
+    payload: dict[str, Any]
+    malice: Literal["malicious", "benign"]
+    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
+    priority: Literal["low", "medium", "high", "critical"]
+    action: Literal[
+        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
+    ]
+    context: ListModel[CaseContext]
     suppression: ListModel[Suppression]
     tags: ListModel[Tag]
 
