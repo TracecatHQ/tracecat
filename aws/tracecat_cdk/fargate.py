@@ -40,6 +40,7 @@ class FargateStack(Stack):
         temporal_database: rds.DatabaseInstance,
         temporal_db_secret: secretsmanager.Secret,
         temporal_security_group: ec2.SecurityGroup,
+        temporal_worker_security_group: ec2.SecurityGroup,
         temporal_db_security_group: ec2.SecurityGroup,
         **kwargs,
     ):
@@ -407,7 +408,7 @@ class FargateStack(Stack):
             security_groups=[
                 core_security_group,
                 core_db_security_group,
-                temporal_security_group,
+                temporal_worker_security_group,
             ],
             service_connect_configuration=worker_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
@@ -510,7 +511,11 @@ class FargateStack(Stack):
             service_name="temporal-server",
             # Attach the security group to your ECS service
             task_definition=temporal_task_definition,
-            security_groups=[temporal_security_group, temporal_db_security_group],
+            security_groups=[
+                temporal_security_group,
+                temporal_worker_security_group,
+                temporal_db_security_group,
+            ],
             service_connect_configuration=temporal_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )

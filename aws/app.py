@@ -33,6 +33,7 @@ fargate = FargateStack(
     temporal_database=rds.temporal_database,
     temporal_db_secret=rds.temporal_db_secret,
     temporal_security_group=vpc.temporal_security_group,
+    temporal_worker_security_group=vpc.temporal_worker_security_group,
     temporal_db_security_group=rds.temporal_db_security_group,
     env=env,
 )
