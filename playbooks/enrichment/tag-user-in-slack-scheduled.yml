@@ -51,7 +51,7 @@ actions:
       jsons: ${{ ACTIONS.reshape_conversations.result}}
 
   - ref: create_thread
-    action: integrations.chat.slack.create_thread
+    action: integrations.chat.slack.post_slack_message
     depends_on:
       - tag_slack_users
     for_each: ${{ for var.tagged_conversation in ACTIONS.tag_slack_users.result }}
@@ -66,5 +66,5 @@ tests:
     # success: http://host.docker.internal:8005/dd_slack_tag/some_no_email_multiple.json
 
   # Could only find 1 user
-  - ref: find_slack_users
+  - ref: tag_slack_users
     success: http://host.docker.internal:8005/dd_slack_tag/email_no_slack_user.json
