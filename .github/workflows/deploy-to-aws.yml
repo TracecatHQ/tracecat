@@ -101,7 +101,7 @@ jobs:
 
       - name: Get SHA
         id: get-sha
-        run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -168,7 +168,7 @@ jobs:
 
       - name: Get SHA
         id: get-sha
-        run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Get image tag
         id: set-image-tag
