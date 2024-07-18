@@ -86,6 +86,24 @@ class Secret(Resource, table=True):
     owner: User | None = Relationship(back_populates="secrets")
 
 
+class Case(Resource, table=True):
+    """The case state."""
+
+    id: str = Field(
+        default_factory=id_factory("case"), nullable=False, unique=True, index=True
+    )
+    workflow_id: str
+    case_title: str
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    malice: str
+    status: str
+    priority: str
+    action: str | None = None
+    context: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    suppression: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
+
+
 class CaseAction(Resource, table=True):
     id: str = Field(
         default_factory=id_factory("case-act"), nullable=False, unique=True, index=True
@@ -317,21 +335,3 @@ class Action(Resource, table=True):
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
         return action.ref(self.title)
-
-
-class Case(Resource, table=True):
-    """The case state."""
-
-    id: str = Field(
-        default_factory=id_factory("case"), nullable=False, unique=True, index=True
-    )
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    malice: str
-    status: str
-    priority: str
-    action: str | None = None
-    context: dict[str, str] | None = Field(sa_column=Column(JSONB))
-    suppression: dict[str, str] | None = Field(sa_column=Column(JSONB))
-    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
