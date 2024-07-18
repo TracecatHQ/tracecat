@@ -10,7 +10,7 @@ on:
   pull_request:
     branches: ["main"]
     paths:
-      - aws/stack/*
+      - aws/tracecat_cdk/*
       - aws/app.py
       - .github/workflows/deploy-to-aws.yml
 
