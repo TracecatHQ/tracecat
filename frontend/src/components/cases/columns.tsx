@@ -1,7 +1,6 @@
 "use client"
 
 import { ColumnDef } from "@tanstack/react-table"
-import { Sparkles } from "lucide-react"
 
 import { type Case } from "@/types/schemas"
 import { cn } from "@/lib/utils"
@@ -10,7 +9,6 @@ import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/categories"
 import { DataTableColumnHeader } from "@/components/data-table/column-header"
 import { AIGeneratedFlair } from "@/components/flair"
-import { LoadingCellState } from "@/components/loading/table"
 
 export const columns: ColumnDef<Case>[] = [
   {
