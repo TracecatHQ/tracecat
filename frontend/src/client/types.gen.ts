@@ -99,7 +99,6 @@ export type Case_Input = {
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
     context: ListModel_CaseContext__Input;
-    suppression: ListModel_Suppression_;
     tags: ListModel_Tag_;
     created_at?: string;
     updated_at?: string;
@@ -129,7 +128,6 @@ export type Case_Output = {
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
     context: ListModel_CaseContext__Output;
-    suppression: ListModel_Suppression_;
     tags: ListModel_Tag_;
     created_at?: string;
     updated_at?: string;
@@ -213,7 +211,6 @@ export type CaseParams = {
     priority: 'low' | 'medium' | 'high' | 'critical';
     context: ListModel_CaseContext__Input;
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    suppression: ListModel_Suppression_;
     tags: ListModel_Tag_;
 };
 
@@ -352,8 +349,6 @@ export type ListModel_CaseContext__Input = Array<CaseContext_Input>;
 
 export type ListModel_CaseContext__Output = Array<tracecat__types__api__CaseContext>;
 
-export type ListModel_Suppression_ = Array<Suppression>;
-
 export type ListModel_Tag_ = Array<Tag>;
 
 /**
@@ -466,11 +461,6 @@ export type SecretResponse = {
     name: string;
     description?: string | null;
     keys: Array<(string)>;
-};
-
-export type Suppression = {
-    condition: string;
-    result: string;
 };
 
 export type Tag = {
@@ -1600,21 +1590,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/cases/{case_id}/metrics': {
-        get: {
-            req: CasesGetCaseMetricsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseMetrics;
                 /**
                  * Validation Error
                  */

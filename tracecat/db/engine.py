@@ -1,7 +1,6 @@
 import json
 import os
 
-import lancedb
 from loguru import logger
 from sqlalchemy import Engine
 from sqlmodel import (
@@ -18,7 +17,6 @@ from tracecat.db.schemas import (
     Action,
     CaseAction,
     CaseContext,
-    CaseSchema,
     UDFSpec,
     User,
     Webhook,
@@ -65,22 +63,10 @@ def create_db_engine() -> Engine:
     return engine
 
 
-def create_vdb_conn() -> lancedb.DBConnection:
-    if os.environ.get("LANCEDB__S3_STORAGE_PATH") is None:
-        db = lancedb.connect(STORAGE_PATH / "vector.db")
-    else:
-        db = lancedb.connect(os.environ["LANCEDB__S3_STORAGE_PATH"])
-    return db
-
-
 def initialize_db() -> Engine:
     # Relational table
     engine = create_db_engine()
     SQLModel.metadata.create_all(engine)
-
-    # VectorDB
-    db = create_vdb_conn()
-    db.create_table("cases", schema=CaseSchema, exist_ok=True)
 
     with Session(engine) as session:
         # Add TTPs to context table only if context table is empty

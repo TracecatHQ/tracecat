@@ -260,7 +260,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
       })
       console.log("Workflow started", response)
       toast({
-        title: `Workflow Run Started`,
+        title: `Workflow run started`,
         description: `${response.wf_exec_id} ${response.message}`,
       })
     } catch (error) {
