@@ -36,11 +36,6 @@ class VpcStack(Stack):
         )
         core_security_group.add_ingress_rule(
             peer=core_security_group,
-            connection=ec2.Port.tcp(8001),
-            description="Allow internal traffic to the Tracecat Worker service on port 8001",
-        )
-        core_security_group.add_ingress_rule(
-            peer=core_security_group,
             connection=ec2.Port.tcp(3000),
             description="Allow internal traffic to the Tracecat UI service on port 3000",
         )
@@ -67,11 +62,6 @@ class VpcStack(Stack):
             peer=temporal_security_group,
             connection=ec2.Port.tcp(8000),
             description="Allow internal traffic from Tracecat API service on port 8000",
-        )
-        temporal_security_group.add_ingress_rule(
-            peer=temporal_security_group,
-            connection=ec2.Port.tcp(8001),
-            description="Allow internal traffic from Tracecat Worker service on port 8001",
         )
 
         self.core_security_group = core_security_group
