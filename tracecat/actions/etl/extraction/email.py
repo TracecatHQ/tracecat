@@ -35,9 +35,13 @@ def extract_emails(
     ] = False,
 ) -> list[str]:
     """Extract unique emails from a list of strings."""
-    emails = itertools.chain.from_iterable(
-        re.findall(EMAIL_REGEX, text) for text in texts
+    emails = list(
+        set(
+            itertools.chain.from_iterable(
+                re.findall(EMAIL_REGEX, text) for text in texts
+            )
+        )
     )
     if normalize and len(emails) > 0:
         emails = [normalize_email_address(email) for email in emails]
-    return list(set(emails))
+    return emails
