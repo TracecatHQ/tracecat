@@ -1,7 +1,6 @@
 FROM python:3.12-slim-bookworm
 
 # Define the environment variables
-ENV API_MODULE=tracecat.api.app:app
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV TRACECAT_DIR=/var/lib/tracecat
@@ -54,4 +53,4 @@ RUN pip install -r requirements.txt
 RUN pip install ".[cli]"
 
 # Command to run the application
-CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT"]
+CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]

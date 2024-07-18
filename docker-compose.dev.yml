@@ -10,6 +10,9 @@ services:
       - core-app:/var/lib/tracecat
     environment:
       DUMP_TRACECAT_RESULT: 1
+      HOST: 0.0.0.0
+      PORT: 8000
+    command: ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
   worker:
     build: .
