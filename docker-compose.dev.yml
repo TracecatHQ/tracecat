@@ -10,8 +10,6 @@ services:
       - core-app:/var/lib/tracecat
     environment:
       DUMP_TRACECAT_RESULT: 1
-      HOST: 0.0.0.0
-      PORT: 8000
 
   worker:
     build: .
