@@ -1,18 +1,15 @@
 """Core case management actions."""
-# XXX(WARNING): Do not import __future__ annotations from typing
-# This will cause class types to be resolved as strings
 
-import asyncio
 from typing import Annotated, Any, Literal
 
-from loguru import logger
 from pydantic import Field
+from sqlmodel import Session
 
 from tracecat.contexts import ctx_role, ctx_run
-from tracecat.db.engine import create_vdb_conn
+from tracecat.db.engine import create_db_engine
+from tracecat.db.schemas import Case
 from tracecat.registry import registry
 from tracecat.types.api import CaseContext, Suppression, Tag
-from tracecat.types.cases import Case
 
 
 @registry.register(
@@ -62,48 +59,31 @@ async def open_case(
         Field(description="List of tags"),
     ] = None,
 ) -> dict[str, Any]:
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-
-    run_ctx = ctx_run.get()
+    """Open a new case in the case management system."""
+    engine = create_db_engine()
+    run = ctx_run.get()
     role = ctx_role.get()
+    suppression = suppression or []
+    tags = tags or []
+    context = context or []
+    if isinstance(context, dict):
+        context = [CaseContext(key=key, value=value) for key, value in context.items()]
+    with Session(engine) as session:
+        case = Case(
+            owner_id=role.user_id,
+            workflow_id=run.workflow_id,
+            title=case_title,
+            payload=payload,
+            malice=malice,
+            status=status,
+            priority=priority,
+            action=action,
+            context=context,
+            suppression=suppression,
+            tags=tags,
+        )
+        session.add(case)
+        session.commit()
+        session.refresh(case)
 
-    if not role or not run_ctx:
-        raise ValueError(f"Could not retrieve run context: {run_ctx}.")
-    _context = context or []
-    if isinstance(_context, dict):
-        _context = [
-            CaseContext(key=key, value=value) for key, value in _context.items()
-        ]
-
-    _suppression = suppression or []
-    _tags = tags or []
-    logger.debug(
-        "Opening case",
-        title=case_title,
-        malice=malice,
-        status=status,
-        context=_context,
-        suppression=_suppression,
-        tags=_tags,
-    )
-    case = Case(
-        owner_id=role.user_id,
-        workflow_id=run_ctx.wf_id,
-        case_title=case_title,
-        payload=payload,
-        malice=malice,
-        status=status,
-        priority=priority,
-        action=action,
-        context=_context,
-        suppression=_suppression,
-        tags=_tags,
-    )
-    logger.opt(lazy=True).debug("Sinking case", case=lambda: case.model_dump())
-    try:
-        await asyncio.to_thread(tbl.add, [case.flatten()])
-    except Exception as e:
-        logger.error("Failed to add case to LanceDB.", exc_info=e)
-        raise
     return case.model_dump()
