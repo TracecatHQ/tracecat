@@ -42,8 +42,10 @@ import os
 from datetime import datetime
 from typing import Annotated, Any
 
+import orjson
 from slack_sdk.web.async_client import AsyncWebClient
 
+from tracecat.actions.etl.extraction import extract_emails
 from tracecat.registry import Field, RegistrySecret, registry
 from tracecat.types.exceptions import TracecatCredentialsError
 
@@ -154,10 +156,6 @@ async def list_slack_users(
         str | None,
         Field(default=None, description="The Slack team ID to filter users by"),
     ] = None,
-    emails: Annotated[
-        list[str] | None,
-        Field(default=None, description="List of emails to filter users by"),
-    ] = None,
 ) -> list[dict[str, str]]:
     if (bot_token := os.environ.get("SLACK_BOT_TOKEN")) is None:
         raise TracecatCredentialsError("Credential `slack.SLACK_BOT_TOKEN` is not set")
@@ -167,9 +165,40 @@ async def list_slack_users(
     # which is an async generator that yields pages of results
     async for page in await client.users_list(team_id=team_id):
         users.extend(page["members"])
-
-    if emails:
-        # Filter for users with matching email
-        filter_by = set(emails)
-        users = [user for user in users if user["profile"].get("email") in filter_by]
     return users
+
+
+# Extraction and transformation
+@registry.register(
+    default_title="Tag Slack users in JSON objects",
+    description="Extract emails from list of JSON objects, tags users (if exists), and returns list of JSONs with tagged users.",
+    display_group="ChatOps",
+    namespace="integrations.chat.slack",
+    secrets=[slack_secret],
+)
+async def tag_slack_users(
+    jsons: Annotated[
+        list[dict[str, Any]],
+        Field(description="List of JSONs to extract emails from and tag Slack users"),
+    ],
+    team_id: Annotated[
+        str | None,
+        Field(default=None, description="The Slack team ID to filter users by"),
+    ] = None,
+) -> list[dict[str, Any]]:
+    users = await list_slack_users(team_id=team_id)
+    email_to_user = {
+        user["profile"]["email"]: user for user in users if user["profile"].get("email")
+    }
+    tagged_jsons = []
+    for json in jsons:
+        text = orjson.dumps(json).decode("utf-8")
+        emails = extract_emails(texts=[text], normalize=True)
+        user_tags = [
+            f"<@{email_to_user[email]['id']}>"
+            for email in emails
+            if email in email_to_user
+        ]
+        tagged_jsons.append({"json": json, "user_tags": user_tags})
+
+    return tagged_jsons
