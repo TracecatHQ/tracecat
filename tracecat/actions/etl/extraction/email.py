@@ -1,6 +1,5 @@
 """Extract emails using regex."""
 
-import itertools
 import re
 from typing import Annotated
 
@@ -35,13 +34,10 @@ def extract_emails(
     ] = False,
 ) -> list[str]:
     """Extract unique emails from a list of strings."""
-    emails = list(
-        set(
-            itertools.chain.from_iterable(
-                re.findall(EMAIL_REGEX, text) for text in texts
-            )
-        )
-    )
+    emails = set()
+    for text in texts:
+        emails.update(re.findall(EMAIL_REGEX, text))
+    emails = list(emails)
     if normalize and len(emails) > 0:
         emails = [normalize_email_address(email) for email in emails]
     return emails
