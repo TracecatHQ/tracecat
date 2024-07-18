@@ -327,11 +327,11 @@ class Case(Resource, table=True):
     )
     workflow_id: str
     case_title: str
-    payload: str
-    context: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     malice: str
     status: str
     priority: str
     action: str | None = None
-    suppression: str | None = None
-    tags: str | None = None
+    context: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    suppression: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
