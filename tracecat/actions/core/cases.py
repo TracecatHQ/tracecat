@@ -67,7 +67,7 @@ async def open_case(
         case = Case(
             owner_id=role.user_id,
             workflow_id=run.wf_id,
-            title=case_title,
+            case_title=case_title,
             payload=payload,
             malice=malice,
             status=status,
