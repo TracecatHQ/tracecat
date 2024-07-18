@@ -274,7 +274,7 @@ class FargateStack(Stack):
                 ecs.ServiceConnectService(
                     port_mapping_name="worker",
                     dns_name="worker-service",
-                    port=8001,
+                    port=8000,
                     idle_timeout=Duration.minutes(15),
                 )
             ],
@@ -383,11 +383,12 @@ class FargateStack(Stack):
         worker_task_definition.add_container(  # noqa
             "TracecatWorkerContainer",
             image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
+            command=["python", "tracecat/dsl/worker.py"],
             environment=tracecat_environment,
             secrets=tracecat_secrets,
             port_mappings=[
                 ecs.PortMapping(
-                    container_port=8001,
+                    container_port=8000,
                     name="worker",
                     app_protocol=ecs.AppProtocol.http,
                 )
