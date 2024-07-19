@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import orjson
+from sqlmodel import Session, select
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -22,6 +23,7 @@ from temporalio.client import (
 
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Workflow, WorkflowDefinition
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import validate_trigger_inputs
@@ -114,6 +116,58 @@ class WorkflowExecutionsService:
         events = []
         for event in history.events:
             match event.event_type:
+                case EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+                    group = EventGroup.from_initiated_child_workflow(event)
+                    event_group_names[event.event_id] = group
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED,
+                            task_id=event.task_id,
+                            role=group.action_input.role,
+                            input=group.action_input,
+                        )
+                    )
+                case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED:
+                    parent_event_id = event.child_workflow_execution_started_event_attributes.initiated_event_id
+                    group = event_group_names.get(parent_event_id)
+                    event_group_names[event.event_id] = group
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED,
+                            task_id=event.task_id,
+                            event_group=group,
+                        )
+                    )
+                case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
+                    result = orjson.loads(
+                        event.child_workflow_execution_completed_event_attributes.result.payloads[
+                            0
+                        ].data
+                    )
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
+                            task_id=event.task_id,
+                            result=result,
+                        )
+                    )
+                case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_FAILED,
+                            task_id=event.task_id,
+                            failure=EventFailure.from_history_event(event),
+                        )
+                    )
+
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                     run_args_data = orjson.loads(
                         event.workflow_execution_started_event_attributes.input.payloads[
@@ -128,6 +182,7 @@ class WorkflowExecutionsService:
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
                             task_id=event.task_id,
                             role=dsl_run_args.role,
+                            input=dsl_run_args,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -136,7 +191,6 @@ class WorkflowExecutionsService:
                             0
                         ].data
                     )
-                    logger.warning("Workflow execution completed", result=result)
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
@@ -157,15 +211,15 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
-                    action_event_group = EventGroup.from_scheduled_activity(event)
-                    event_group_names[event.event_id] = action_event_group
+                    group = EventGroup.from_scheduled_activity(event)
+                    event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_SCHEDULED,
                             task_id=event.task_id,
-                            event_group=action_event_group,
+                            event_group=group,
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED:
@@ -173,22 +227,22 @@ class WorkflowExecutionsService:
                     parent_event_id = (
                         event.activity_task_started_event_attributes.scheduled_event_id
                     )
-                    action_event_group = event_group_names.get(parent_event_id)
-                    event_group_names[event.event_id] = action_event_group
+                    group = event_group_names.get(parent_event_id)
+                    event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_STARTED,
                             task_id=event.task_id,
-                            event_group=action_event_group,
+                            event_group=group,
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
                     # The task completiong comes with the scheduled event ID and the started event id
                     gparent_event_id = event.activity_task_completed_event_attributes.scheduled_event_id
-                    action_event_group = event_group_names.get(gparent_event_id)
-                    event_group_names[event.event_id] = action_event_group
+                    group = event_group_names.get(gparent_event_id)
+                    event_group_names[event.event_id] = group
                     result = orjson.loads(
                         event.activity_task_completed_event_attributes.result.payloads[
                             0
@@ -200,7 +254,7 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_COMPLETED,
                             task_id=event.task_id,
-                            event_group=action_event_group,
+                            event_group=group,
                             result=result,
                         )
                     )
@@ -208,15 +262,15 @@ class WorkflowExecutionsService:
                     gparent_event_id = (
                         event.activity_task_failed_event_attributes.scheduled_event_id
                     )
-                    action_event_group = event_group_names.get(gparent_event_id)
-                    event_group_names[event.event_id] = action_event_group
+                    group = event_group_names.get(gparent_event_id)
+                    event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_FAILED,
                             task_id=event.task_id,
-                            event_group=action_event_group,
+                            event_group=group,
                             failure=EventFailure.from_history_event(event),
                         )
                     )
@@ -250,13 +304,22 @@ class WorkflowExecutionsService:
 
         Note: This method schedules the workflow execution and returns immediately.
         """
-        configured_dsl = self._configure_dsl_inputs(
-            dsl=dsl, payload=payload, enable_runtime_tests=enable_runtime_tests
-        )
+
+        validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
+        if validation_result.status == "error":
+            logger.error(validation_result.msg, detail=validation_result.detail)
+            raise TracecatValidationError(
+                validation_result.msg, detail=validation_result.detail
+            )
+
+        dsl.config.enable_runtime_tests = enable_runtime_tests
         wf_exec_id = identifiers.workflow.exec_id(wf_id)
         _ = asyncio.create_task(
             self._dispatch_workflow(
-                dsl=configured_dsl, wf_id=wf_id, wf_exec_id=wf_exec_id
+                dsl=dsl,
+                wf_id=wf_id,
+                wf_exec_id=wf_exec_id,
+                trigger_inputs=payload,
             )
         )
         return CreateWorkflowExecutionResponse(
@@ -265,32 +328,12 @@ class WorkflowExecutionsService:
             wf_exec_id=identifiers.workflow.exec_id(wf_id),
         )
 
-    def _configure_dsl_inputs(
-        self,
-        dsl: DSLInput,
-        *,
-        payload: dict[str, Any] | None = None,
-        enable_runtime_tests: bool = False,
-    ) -> DSLInput:
-        # Set runtime configuration
-        validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
-        if validation_result.status == "error":
-            logger.error(validation_result.msg, detail=validation_result.detail)
-            raise TracecatValidationError(
-                validation_result.msg, detail=validation_result.detail
-            )
-
-        if payload:
-            dsl.trigger_inputs = payload
-
-        dsl.config.enable_runtime_tests = enable_runtime_tests
-        return dsl
-
     async def _dispatch_workflow(
         self,
         dsl: DSLInput,
         wf_id: identifiers.WorkflowID,
         wf_exec_id: identifiers.WorkflowExecutionID,
+        trigger_inputs: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> DispatchWorkflowResult:
         logger.info(
@@ -301,7 +344,9 @@ class WorkflowExecutionsService:
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
-                DSLRunArgs(dsl=dsl, role=self.role, wf_id=wf_id),
+                DSLRunArgs(
+                    dsl=dsl, role=self.role, wf_id=wf_id, trigger_inputs=trigger_inputs
+                ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 retry_policy=retry_policies["workflow:fail_fast"],
@@ -324,3 +369,83 @@ class WorkflowExecutionsService:
         else:
             logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
+
+
+class WorkflowDefinitionsService:
+    def __init__(self, session: Session, role: Role | None = None):
+        self.role = role or ctx_role.get()
+        self._session = session
+        self.logger = logger.bind(service="workflow_definitions")
+
+    def get_definition_by_workflow_id(
+        self, workflow_id: identifiers.WorkflowID, *, version: int | None = None
+    ) -> WorkflowDefinition | None:
+        statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.owner_id == self.role.user_id,
+            WorkflowDefinition.workflow_id == workflow_id,
+        )
+        if version:
+            statement = statement.where(WorkflowDefinition.version == version)
+        else:
+            # Get the latest version
+            statement = statement.order_by(WorkflowDefinition.version.desc())
+
+        return self._session.exec(statement).first()
+
+    def get_definition_by_workflow_title(
+        self, workflow_title: str, *, version: int | None = None
+    ) -> WorkflowDefinition | None:
+        self.logger.warning(
+            "Getting workflow definition by ref",
+            workflow_title=workflow_title,
+            role=self.role,
+        )
+        wf_statement = select(Workflow.id).where(
+            Workflow.owner_id == self.role.user_id,
+            Workflow.title == workflow_title,
+        )
+
+        wf_id = self._session.exec(wf_statement).one_or_none()
+        self.logger.warning("Workflow ID", wf_id=wf_id)
+        if not wf_id:
+            self.logger.error("Workflow name not found", workflow_title=workflow_title)
+            return None
+
+        wf_defn_statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.owner_id == self.role.user_id,
+            WorkflowDefinition.workflow_id == wf_id,
+        )
+
+        if version:
+            wf_defn_statement = wf_defn_statement.where(
+                WorkflowDefinition.version == version
+            )
+        else:
+            # Get the latest version
+            wf_defn_statement = wf_defn_statement.order_by(
+                WorkflowDefinition.version.desc()
+            )
+
+        return self._session.exec(wf_defn_statement).first()
+
+
+if __name__ == "__main__":
+    from dotenv import find_dotenv, load_dotenv
+
+    from tracecat.db.engine import create_db_engine
+
+    load_dotenv(find_dotenv())
+
+    engine = create_db_engine()
+
+    with Session(engine) as session:
+        service = WorkflowDefinitionsService(
+            session,
+            role=Role(
+                type="user",
+                user_id="default-tracecat-user",
+                service_id="tracecat-service",
+            ),
+        )
+        res = service.get_definition_by_workflow_title("Child workflow")
+        service.logger.warning("Result", res=res)
