@@ -8,6 +8,7 @@ import {
   CircleX,
   GlobeIcon,
   Play,
+  WorkflowIcon,
 } from "lucide-react"
 
 import { useWorkflowExecutionEventHistory } from "@/lib/hooks"
@@ -107,6 +108,13 @@ export function EventDescriptor({
       </span>
     )
   }
+  if (event.event_type.includes("CHILD_WORKFLOW_EXECUTION")) {
+    return (
+      <span className="flex items-center space-x-2 text-xs">
+        <span>{event.event_group?.action_title ?? "Unnamed action"}</span>
+      </span>
+    )
+  }
   return <span className="capitalize">{parseEventType(event.event_type)}</span>
 }
 export function EventHistoryItemIcon({
@@ -142,6 +150,26 @@ function getEventHistoryIcon(
       )
     case "WORKFLOW_EXECUTION_FAILED":
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+    case "START_CHILD_WORKFLOW_EXECUTION_INITIATED":
+      return (
+        <WorkflowIcon
+          className={cn("fill-orange-200/50 stroke-orange-500/70", className)}
+        />
+      )
+    case "CHILD_WORKFLOW_EXECUTION_STARTED":
+      return (
+        <Play
+          className={cn("fill-violet-400/80 stroke-violet-400/80", className)}
+        />
+      )
+    case "CHILD_WORKFLOW_EXECUTION_COMPLETED":
+      return (
+        <CircleCheck
+          className={cn("fill-violet-400/80 stroke-white", className)}
+        />
+      )
+    case "CHILD_WORKFLOW_EXECUTION_FAILED":
+      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
     case "ACTIVITY_TASK_SCHEDULED":
       return (
         <CalendarCheck
@@ -150,9 +178,7 @@ function getEventHistoryIcon(
       )
     case "ACTIVITY_TASK_STARTED":
       return (
-        <Play
-          className={cn("fill-violet-400/80 stroke-violet-400/80", className)}
-        />
+        <Play className={cn("fill-sky-500/80 stroke-sky-500/80", className)} />
       )
     case "ACTIVITY_TASK_COMPLETED":
       return (
@@ -163,6 +189,6 @@ function getEventHistoryIcon(
     case "ACTIVITY_TASK_FAILED":
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
     default:
-      throw new Error("Invalid event type")
+      throw new Error(`Invalid event type ${eventType}`)
   }
 }
