@@ -124,6 +124,7 @@ class WorkflowExecutionsService:
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED,
+                            event_group=group,
                             task_id=event.task_id,
                             role=group.action_input.role,
                             input=group.action_input,
@@ -138,8 +139,8 @@ class WorkflowExecutionsService:
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED,
-                            task_id=event.task_id,
                             event_group=group,
+                            task_id=event.task_id,
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
@@ -148,11 +149,14 @@ class WorkflowExecutionsService:
                             0
                         ].data
                     )
+                    initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
+                    group = event_group_names.get(initiator_event_id)
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
+                            event_group=group,
                             task_id=event.task_id,
                             result=result,
                         )

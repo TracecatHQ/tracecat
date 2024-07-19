@@ -131,26 +131,28 @@ export function WorkflowExecutionEventDetailView({
         )}
 
         {isUDFActionInput(event.event_group?.action_input) && (
-          <AccordionItem value="execution-context">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-              <div className="flex items-center">
-                <span>Execution Context</span>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="my-4 flex flex-col space-y-8 px-4">
-                <div className="rounded-md border p-4 shadow-md">
-                  <JsonView
-                    displaySize
-                    enableClipboard
-                    src={event.event_group.action_input.exec_context}
-                    className="text-sm"
-                    theme="atom"
-                  />
+          <>
+            <AccordionItem value="result">
+              <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                <div className="flex items-end">
+                  <span>Input</span>
                 </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="my-4 flex flex-col space-y-8 px-4">
+                  <div className="rounded-md border p-4 shadow-md">
+                    <JsonView
+                      displaySize
+                      enableClipboard
+                      src={event.event_group.action_input}
+                      className="text-sm"
+                      theme="atom"
+                    />
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </>
         )}
       </Accordion>
     </div>
@@ -261,10 +263,10 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
       </div>
 
       {isUDFActionInput(event_group?.action_input) && (
-        <ActionEvent input={event_group.action_input} />
+        <ActionEventGeneralInfo input={event_group.action_input} />
       )}
       {isDSLRunArgs(event_group?.action_input) && (
-        <ChildWorkflowEvent input={event_group.action_input} />
+        <ChildWorkflowEventGeneralInfo input={event_group.action_input} />
       )}
     </div>
   )
@@ -283,10 +285,12 @@ export function DescriptorBadge({
     </Badge>
   )
 }
-function ChildWorkflowEvent({ input }: { input: DSLRunArgs }) {
+function ChildWorkflowEventGeneralInfo({ input }: { input: DSLRunArgs }) {
   return (
     <div className="space-x-2">
-      <Label className="w-24 text-xs text-muted-foreground">DSL</Label>
+      <Label className="w-24 text-xs text-muted-foreground">
+        Workflow Title
+      </Label>
       <DescriptorBadge
         text={input.dsl.title}
         className="font-mono font-semibold"
@@ -295,7 +299,7 @@ function ChildWorkflowEvent({ input }: { input: DSLRunArgs }) {
   )
 }
 
-function ActionEvent({ input }: { input: UDFActionInput }) {
+function ActionEventGeneralInfo({ input }: { input: UDFActionInput }) {
   return (
     <div>
       <div className="space-x-2">
