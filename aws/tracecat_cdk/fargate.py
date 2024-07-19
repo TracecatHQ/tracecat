@@ -33,14 +33,13 @@ class FargateStack(Stack):
         id: str,
         cluster: ecs.Cluster,
         dns_namespace: servicediscovery.INamespace,
+        frontend_security_group: ec2.SecurityGroup,
+        backend_security_group: ec2.BackendSecurityGroup,
         core_database: rds.DatabaseInstance,
         core_db_secret: secretsmanager.Secret,
-        core_security_group: ec2.SecurityGroup,
         core_db_security_group: ec2.SecurityGroup,
         temporal_database: rds.DatabaseInstance,
         temporal_db_secret: secretsmanager.Secret,
-        temporal_security_group: ec2.SecurityGroup,
-        temporal_worker_security_group: ec2.SecurityGroup,
         temporal_db_security_group: ec2.SecurityGroup,
         **kwargs,
     ):
@@ -363,8 +362,8 @@ class FargateStack(Stack):
             # Attach the security group to your ECS service
             task_definition=api_task_definition,
             security_groups=[
-                core_security_group,
-                temporal_security_group,
+                frontend_security_group,
+                backend_security_group,
                 core_db_security_group,
             ],
             service_connect_configuration=api_service_connect,
@@ -405,11 +404,7 @@ class FargateStack(Stack):
             service_name="tracecat-worker",
             # Attach the security group to your ECS service
             task_definition=worker_task_definition,
-            security_groups=[
-                core_security_group,
-                core_db_security_group,
-                temporal_worker_security_group,
-            ],
+            security_groups=[backend_security_group, core_db_security_group],
             service_connect_configuration=worker_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
@@ -467,7 +462,7 @@ class FargateStack(Stack):
             service_name="tracecat-ui",
             # Attach the security group to your ECS service
             task_definition=ui_task_definition,
-            security_groups=[core_security_group],
+            security_groups=[frontend_security_group],
             service_connect_configuration=ui_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
@@ -512,8 +507,7 @@ class FargateStack(Stack):
             # Attach the security group to your ECS service
             task_definition=temporal_task_definition,
             security_groups=[
-                temporal_security_group,
-                temporal_worker_security_group,
+                backend_security_group,
                 temporal_db_security_group,
             ],
             service_connect_configuration=temporal_service_connect,
