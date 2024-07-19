@@ -61,9 +61,6 @@ class DSLInput(BaseModel):
     inputs: dict[str, Any] = Field(
         default_factory=dict, description="Static input parameters"
     )
-    trigger_inputs: dict[str, Any] = Field(
-        default_factory=dict, description="Dynamic input parameters"
-    )
     tests: list[ActionTest] = Field(default_factory=list, description="Action tests")
 
     @model_validator(mode="after")

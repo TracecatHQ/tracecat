@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import timedelta
 from enum import StrEnum, auto
 from typing import Any, TypedDict
@@ -11,19 +11,22 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
-from tracecat.contexts import RunContext
-
 with workflow.unsafe.imports_passed_through():
+    import httpx
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     import lark  # noqa
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field, ValidationError
 
-    import httpx
-    from pydantic import ValidationError
+    from tracecat import identifiers
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import (
+        RunContext,
+        ctx_logger,
+        ctx_role,
+        ctx_run,
+    )
     from tracecat.dsl.common import DSLInput
     from tracecat.dsl.io import resolve_success_output
     from tracecat.dsl.models import ActionStatement, ActionTest, DSLNodeResult
@@ -38,18 +41,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.registry import registry
     from tracecat.types.auth import Role
     from tracecat.types.exceptions import (
-        TracecatException,
-        TracecatExpressionError,
         TracecatCredentialsError,
         TracecatDSLError,
+        TracecatException,
+        TracecatExpressionError,
         TracecatValidationError,
     )
-
-
-class DSLRunArgs(BaseModel):
-    role: Role
-    dsl: DSLInput
-    wf_id: WorkflowID
 
 
 class DSLContext(TypedDict, total=False):
@@ -64,6 +61,15 @@ class DSLContext(TypedDict, total=False):
 
     ENV: dict[str, Any]
     """DSL Environment context. Has metadata about the workflow."""
+
+
+class DSLRunArgs(BaseModel):
+    role: Role
+    dsl: DSLInput
+    wf_id: WorkflowID
+    trigger_inputs: dict[str, Any] | None = None
+    parent_run_context: RunContext | None = None
+    run_config: dict[str, Any] = Field(default_factory=dict)
 
 
 non_retryable_error_types = [
@@ -242,11 +248,11 @@ class DSLScheduler:
     async def static_start(self) -> None:
         raise NotImplementedError
 
-    async def start(self) -> None:
+    def start(self) -> Awaitable[None]:
         if self.dsl.config.scheduler == "dynamic":
-            return await self.dynamic_start()
+            return self.dynamic_start()
         else:
-            return await self.static_start()
+            return self.static_start()
 
 
 @workflow.defn
@@ -257,16 +263,19 @@ class DSLWorkflow:
     async def run(self, args: DSLRunArgs) -> DSLContext:
         # Setup
         self.role = args.role
-        self.tracecat_wf_id = args.wf_id
-        # Temporal workflow execution ID == Tracecat workflow run ID
+        ctx_role.set(self.role)
         wf_info = workflow.info()
-        self.tracecat_wf_run_id = wf_info.workflow_id
+        self.start_to_close_timeout = args.run_config.get(
+            "timeout", timedelta(minutes=5)
+        )
 
         self.run_ctx = RunContext(
             wf_id=args.wf_id,
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=wf_info.run_id,
         )
+        ctx_run.set(self.run_ctx)
+
         self.logger = logger.bind(
             run_ctx=self.run_ctx, role=self.role, unit="dsl-workflow-runner"
         )
@@ -276,9 +285,10 @@ class DSLWorkflow:
         self.context = DSLContext(
             ACTIONS={},
             INPUTS=self.dsl.inputs,
-            TRIGGER=self.dsl.trigger_inputs,
+            TRIGGER=args.trigger_inputs or {},
             ENV={"workflow": {"start_time": wf_info.start_time}},
         )
+
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
         self.logger.info("Running DSL task workflow")
@@ -321,30 +331,47 @@ class DSLWorkflow:
                 self._mark_task(task.ref, TaskMarker.SKIP)
                 return
 
-            # Check for an action test
-            act_test = (
-                self.action_test_map.get(task.ref)
-                if self.dsl.config.enable_runtime_tests
-                else None
-            )
-            self.logger.info("Executing task", act_test=act_test)
-            # TODO: Set a retry policy for the activity
             try:
-                activity_result = await workflow.execute_activity(
-                    _udf_key_to_activity_name(task.action),
-                    arg=UDFActionInput(
-                        task=task,
-                        role=self.role,
-                        run_context=self.run_ctx,
-                        exec_context=self.context,
-                        action_test=act_test,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=retry_policies["activity:fail_fast"],
-                )
+                # Check for a child workflow
+                if self._should_execute_child_workflow(task):
+                    # 1. Prepare the child workflow
+                    udf = registry.get("core.workflow.execute")
+                    child_run_args_data = await self._run_action(task)
+                    child_run_args = DSLRunArgs.model_validate(child_run_args_data)
+                    wf_exec_id = identifiers.workflow.exec_id(child_run_args.wf_id)
+                    self.logger.info(
+                        "Prepared child workflow",
+                        child_wf=udf.key,
+                        dsl_run_args=child_run_args,
+                        wf_exec_id=wf_exec_id,
+                    )
+
+                    self.logger.info("Executing child workflow", child_wf=udf.key)
+                    action_result = await workflow.execute_child_workflow(
+                        DSLWorkflow.run,
+                        child_run_args,
+                        id=wf_exec_id,
+                        task_queue=workflow.info().task_queue,
+                        retry_policy=retry_policies["workflow:fail_fast"],
+                        execution_timeout=self.start_to_close_timeout,
+                    )
+                else:
+                    # NOTE: We should check for loop iteration here.
+                    # Activities should always execute without needing to manage control flow
+
+                    # Below this point, we're executing the task
+                    # Check for an action test
+                    act_test = (
+                        self.action_test_map.get(task.ref)
+                        if self.dsl.config.enable_runtime_tests
+                        else None
+                    )
+                    self.logger.info("Executing task", act_test=act_test)
+                    action_result = await self._run_action(task)
+
                 self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
-                    result=activity_result,
-                    result_typename=type(activity_result).__name__,
+                    result=action_result,
+                    result_typename=type(action_result).__name__,
                 )
             except ActivityError as e:
                 self.logger.error("Activity execution failed", error=e.message)
@@ -355,6 +382,19 @@ class DSLWorkflow:
                 )
                 raise
 
+    def _run_action(self, task: ActionStatement) -> Awaitable[Any]:
+        return workflow.execute_activity(
+            _udf_key_to_activity_name(task.action),
+            arg=UDFActionInput(
+                task=task,
+                role=self.role,
+                run_context=self.run_ctx,
+                exec_context=self.context,
+            ),
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
+
     def _should_skip_execution(self, task: ActionStatement) -> bool:
         if self.scheduler.marked_tasks.get(task.ref) == TaskMarker.SKIP:
             self.logger.info("Task marked for skipping, skipped")
@@ -364,12 +404,15 @@ class DSLWorkflow:
             expr = TemplateExpression(task.run_if, operand=self.context)
             self.logger.debug("`run_if` condition", task_run_if=task.run_if)
             if not bool(expr.result()):
-                self.logger.info("Task `run_if` condition did not pass, skipped")
+                self.logger.info("Task `run_if` condition was not met, skipped")
                 return True
         return False
 
     def _mark_task(self, task_ref: str, marker: TaskMarker) -> None:
         self.scheduler.mark_task(task_ref, marker)
+
+    def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
+        return task.action == "core.workflow.execute"
 
 
 class UDFActionInput(BaseModel):
