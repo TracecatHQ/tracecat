@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from pydantic import BaseModel
+from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel import Session, select
 from temporalio import activity
 
@@ -61,7 +62,14 @@ class WorkflowDefinitionsService:
             Workflow.title == workflow_title,
         )
 
-        wf_id = self._session.exec(wf_statement).one_or_none()
+        try:
+            wf_id = self._session.exec(wf_statement).one_or_none()
+        except MultipleResultsFound as e:
+            self.logger.error(
+                "Multiple workflows found with the same title. Please ensure that the workflow title is unique.",
+                workflow_title=workflow_title,
+            )
+            raise e
         self.logger.warning("Workflow ID", wf_id=wf_id)
         if not wf_id:
             self.logger.error("Workflow name not found", workflow_title=workflow_title)
