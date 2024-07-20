@@ -421,7 +421,7 @@ class DSLWorkflow:
                         else None
                     )
                     logger.trace("Running action", act_test=act_test)
-                    action_result = await self._run_action(task)
+                    action_result = await self._run_action(task, action_test=act_test)
 
                 self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
                     result=action_result,
@@ -478,7 +478,9 @@ class DSLWorkflow:
             retry_policy=retry_policies["activity:fail_fast"],
         )
 
-    def _run_action(self, task: ActionStatement) -> Awaitable[Any]:
+    def _run_action(
+        self, task: ActionStatement, action_test: ActionTest | None = None
+    ) -> Awaitable[Any]:
         return workflow.execute_activity(
             _udf_key_to_activity_name(task.action),
             arg=UDFActionInput(
@@ -486,6 +488,7 @@ class DSLWorkflow:
                 role=self.role,
                 run_context=self.run_ctx,
                 exec_context=self.context,
+                action_test=action_test,
             ),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
