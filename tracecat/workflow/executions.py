@@ -4,7 +4,7 @@ import asyncio
 import datetime
 import json
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
 
 import orjson
@@ -300,7 +300,7 @@ class WorkflowExecutionsService:
         ):
             yield event
 
-    def create_workflow_execution(
+    def create_workflow_execution_nowait(
         self,
         dsl: DSLInput,
         *,
@@ -312,7 +312,31 @@ class WorkflowExecutionsService:
 
         Note: This method schedules the workflow execution and returns immediately.
         """
+        coro = self.create_workflow_execution(
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=payload,
+            enable_runtime_tests=enable_runtime_tests,
+        )
+        _ = asyncio.create_task(coro)
+        return CreateWorkflowExecutionResponse(
+            message="Workflow execution started",
+            wf_id=wf_id,
+            wf_exec_id=identifiers.workflow.exec_id(wf_id),
+        )
 
+    def create_workflow_execution(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: identifiers.WorkflowID,
+        payload: dict[str, Any] | None = None,
+        enable_runtime_tests: bool = False,
+    ) -> Awaitable[DispatchWorkflowResult]:
+        """Create a new workflow execution.
+
+        Note: This method blocks until the workflow execution completes.
+        """
         validation_result = validate_trigger_inputs(dsl=dsl, payload=payload)
         if validation_result.status == "error":
             logger.error(validation_result.msg, detail=validation_result.detail)
@@ -322,18 +346,11 @@ class WorkflowExecutionsService:
 
         dsl.config.enable_runtime_tests = enable_runtime_tests
         wf_exec_id = identifiers.workflow.exec_id(wf_id)
-        _ = asyncio.create_task(
-            self._dispatch_workflow(
-                dsl=dsl,
-                wf_id=wf_id,
-                wf_exec_id=wf_exec_id,
-                trigger_inputs=payload,
-            )
-        )
-        return CreateWorkflowExecutionResponse(
-            message="Workflow execution started",
+        return self._dispatch_workflow(
+            dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=identifiers.workflow.exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
+            trigger_inputs=payload,
         )
 
     async def _dispatch_workflow(

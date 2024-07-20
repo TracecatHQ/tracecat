@@ -361,7 +361,7 @@ async def incoming_webhook(
     )
 
     service = await WorkflowExecutionsService.connect()
-    response = service.create_workflow_execution(
+    response = service.create_workflow_execution_nowait(
         dsl=dsl_input,
         wf_id=path,
         payload=payload,
@@ -487,7 +487,7 @@ async def webhook_callback(
             dsl_input = DSLInput(**defn.content)
 
             wf_exec_service = await WorkflowExecutionsService.connect()
-            response = wf_exec_service.create_workflow_execution(
+            response = wf_exec_service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=path,
                 payload=payload,
@@ -1006,7 +1006,7 @@ async def create_workflow_execution(
             ) from e
         dsl_input = DSLInput(**defn.content)
         try:
-            response = service.create_workflow_execution(
+            response = service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=params.workflow_id,
                 payload=params.inputs,
