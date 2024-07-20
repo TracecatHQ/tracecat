@@ -1,0 +1,18 @@
+title: Parent workflow
+description: Test child workflow
+entrypoint:
+  ref: parent
+inputs:
+  data: [777, 888, 999, 1000, 2000, 3000, 4000]
+
+actions:
+  - ref: parent
+    for_each: ${{ for var.x in INPUTS.data }}
+    action: core.workflow.execute
+    args:
+      workflow_title: Child workflow
+      loop_strategy: parallel
+      fail_strategy: isolated
+      batch_size: 3
+      trigger_inputs:
+        number: ${{ var.x }}
