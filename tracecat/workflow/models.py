@@ -18,8 +18,10 @@ from pydantic import (
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
-from tracecat.dsl.workflow import DSLContext, DSLRunArgs, UDFActionInput
+from tracecat.dsl.common import DSLRunArgs
+from tracecat.dsl.workflow import DSLContext, UDFActionInput
 from tracecat.types.auth import Role
+from tracecat.workflow.definitions import GetWorkflowDefinitionActivityInputs
 
 WorkflowExecutionStatusLiteral = Literal[
     "RUNNING",
@@ -96,7 +98,9 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
     return (".".join(stem), leaf)
 
 
-EventInput = TypeVar("EventInput", UDFActionInput, DSLRunArgs)
+EventInput = TypeVar(
+    "EventInput", UDFActionInput, DSLRunArgs, GetWorkflowDefinitionActivityInputs
+)
 
 
 class EventGroup(BaseModel, Generic[EventInput]):
@@ -114,7 +118,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     @staticmethod
     def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[UDFActionInput]:
+    ) -> EventGroup[UDFActionInput | GetWorkflowDefinitionActivityInputs]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
@@ -124,7 +128,17 @@ class EventGroup(BaseModel, Generic[EventInput]):
         action_stmt_data = orjson.loads(
             event.activity_task_scheduled_event_attributes.input.payloads[0].data
         )
-        action_input = UDFActionInput(**action_stmt_data)
+
+        act_type = event.activity_task_scheduled_event_attributes.activity_type.name
+        if act_type == "get_workflow_definition_activity":
+            action_input = GetWorkflowDefinitionActivityInputs(**action_stmt_data)
+            # Create an event group
+            namespace, udf_name = destructure_slugified_namespace(
+                action_input.task.action, delimiter="."
+            )
+
+        else:
+            action_input = UDFActionInput(**action_stmt_data)
         # Create an event group
         namespace, udf_name = destructure_slugified_namespace(
             action_input.task.action, delimiter="."
@@ -191,6 +205,11 @@ class EventFailure(BaseModel):
             == temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED
         ):
             failure = event.workflow_execution_failed_event_attributes.failure
+        elif (
+            event.event_type
+            == temporalio.api.enums.v1.EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED
+        ):
+            failure = event.child_workflow_execution_failed_event_attributes.failure
         else:
             raise ValueError("Event type not supported for failure extraction.")
 

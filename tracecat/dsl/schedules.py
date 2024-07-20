@@ -18,7 +18,8 @@ from temporalio.client import (
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.workflow import DSLRunArgs, DSLWorkflow
+from tracecat.dsl.common import DSLRunArgs
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.types.api import UpdateScheduleParams
 
 if TYPE_CHECKING:

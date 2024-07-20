@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import orjson
-from sqlmodel import Session, select
+from sqlmodel import Session
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -23,14 +23,14 @@ from temporalio.client import (
 
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Workflow, WorkflowDefinition
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.validation import validate_trigger_inputs
-from tracecat.dsl.workflow import DSLRunArgs, DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.workflow.definitions import WorkflowDefinitionsService
 from tracecat.workflow.models import (
     CreateWorkflowExecutionResponse,
     DispatchWorkflowResult,
@@ -162,11 +162,15 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED:
+                    gparent_event_id = event.child_workflow_execution_failed_event_attributes.initiated_event_id
+                    group = event_group_names.get(gparent_event_id)
+                    event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_FAILED,
+                            event_group=group,
                             task_id=event.task_id,
                             failure=EventFailure.from_history_event(event),
                         )
@@ -373,64 +377,6 @@ class WorkflowExecutionsService:
         else:
             logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
-
-
-class WorkflowDefinitionsService:
-    def __init__(self, session: Session, role: Role | None = None):
-        self.role = role or ctx_role.get()
-        self._session = session
-        self.logger = logger.bind(service="workflow_definitions")
-
-    def get_definition_by_workflow_id(
-        self, workflow_id: identifiers.WorkflowID, *, version: int | None = None
-    ) -> WorkflowDefinition | None:
-        statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == self.role.user_id,
-            WorkflowDefinition.workflow_id == workflow_id,
-        )
-        if version:
-            statement = statement.where(WorkflowDefinition.version == version)
-        else:
-            # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())
-
-        return self._session.exec(statement).first()
-
-    def get_definition_by_workflow_title(
-        self, workflow_title: str, *, version: int | None = None
-    ) -> WorkflowDefinition | None:
-        self.logger.warning(
-            "Getting workflow definition by ref",
-            workflow_title=workflow_title,
-            role=self.role,
-        )
-        wf_statement = select(Workflow.id).where(
-            Workflow.owner_id == self.role.user_id,
-            Workflow.title == workflow_title,
-        )
-
-        wf_id = self._session.exec(wf_statement).one_or_none()
-        self.logger.warning("Workflow ID", wf_id=wf_id)
-        if not wf_id:
-            self.logger.error("Workflow name not found", workflow_title=workflow_title)
-            return None
-
-        wf_defn_statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == self.role.user_id,
-            WorkflowDefinition.workflow_id == wf_id,
-        )
-
-        if version:
-            wf_defn_statement = wf_defn_statement.where(
-                WorkflowDefinition.version == version
-            )
-        else:
-            # Get the latest version
-            wf_defn_statement = wf_defn_statement.order_by(
-                WorkflowDefinition.version.desc()
-            )
-
-        return self._session.exec(wf_defn_statement).first()
 
 
 if __name__ == "__main__":

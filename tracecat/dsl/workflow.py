@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Iterator
 from datetime import timedelta
 from enum import StrEnum, auto
 from typing import Any, TypedDict
@@ -16,7 +17,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     import lark  # noqa
-    from pydantic import BaseModel, Field, ValidationError
+    from pydantic import BaseModel, ValidationError
 
     from tracecat import identifiers
     from tracecat.auth.sandbox import AuthSandbox
@@ -27,16 +28,16 @@ with workflow.unsafe.imports_passed_through():
         ctx_role,
         ctx_run,
     )
-    from tracecat.dsl.common import DSLInput
+    from tracecat.dsl.common import DSLInput, DSLRunArgs
     from tracecat.dsl.io import resolve_success_output
     from tracecat.dsl.models import ActionStatement, ActionTest, DSLNodeResult
     from tracecat.expressions.core import TemplateExpression
     from tracecat.expressions.eval import (
         eval_templated_object,
         extract_templated_secrets,
+        get_iterables_from_expression,
     )
     from tracecat.expressions.shared import ExprContext, IterableExpr
-    from tracecat.identifiers import WorkflowID
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.types.auth import Role
@@ -46,6 +47,10 @@ with workflow.unsafe.imports_passed_through():
         TracecatException,
         TracecatExpressionError,
         TracecatValidationError,
+    )
+    from tracecat.workflow.definitions import (
+        GetWorkflowDefinitionActivityInputs,
+        get_workflow_definition_activity,
     )
 
 
@@ -62,19 +67,25 @@ class DSLContext(TypedDict, total=False):
     ENV: dict[str, Any]
     """DSL Environment context. Has metadata about the workflow."""
 
-
-class DSLRunArgs(BaseModel):
-    role: Role
-    dsl: DSLInput
-    wf_id: WorkflowID
-    trigger_inputs: dict[str, Any] | None = None
-    parent_run_context: RunContext | None = None
-    run_config: dict[str, Any] = Field(default_factory=dict)
+    @staticmethod
+    def create_default(
+        INPUTS: dict[str, Any] | None = None,
+        ACTIONS: dict[str, Any] | None = None,
+        TRIGGER: dict[str, Any] | None = None,
+        ENV: dict[str, Any] | None = None,
+    ) -> DSLContext:
+        return DSLContext(
+            INPUTS=INPUTS or {},
+            ACTIONS=ACTIONS or {},
+            TRIGGER=TRIGGER or {},
+            ENV=ENV or {},
+        )
 
 
 non_retryable_error_types = [
     # General
     ValueError.__name__,
+    RuntimeError.__name__,
     # Pydantic
     ValidationError.__name__,
     # Tracecat
@@ -107,6 +118,17 @@ class TaskMarker(StrEnum):
 class SkipStrategy(StrEnum):
     ISOLATE = auto()
     PROPAGATE = auto()
+
+
+class LoopStrategy(StrEnum):
+    PARALLEL = "parallel"
+    BATCH = "batch"
+    SEQUENTIAL = "sequential"
+
+
+class FailStrategy(StrEnum):
+    ISOLATED = "isolated"
+    ALL = "all"
 
 
 class DSLScheduler:
@@ -332,29 +354,61 @@ class DSLWorkflow:
                 return
 
             try:
+                logger.info("Begin task execution", task_ref=task.ref)
                 # Check for a child workflow
                 if self._should_execute_child_workflow(task):
                     # 1. Prepare the child workflow
-                    udf = registry.get("core.workflow.execute")
-                    child_run_args_data = await self._run_action(task)
+                    logger.trace("Preparing child workflow")
+                    child_run_args_data = await self._prepare_child_workflow(task)
                     child_run_args = DSLRunArgs.model_validate(child_run_args_data)
-                    wf_exec_id = identifiers.workflow.exec_id(child_run_args.wf_id)
-                    self.logger.info(
-                        "Prepared child workflow",
-                        child_wf=udf.key,
-                        dsl_run_args=child_run_args,
-                        wf_exec_id=wf_exec_id,
-                    )
 
-                    self.logger.info("Executing child workflow", child_wf=udf.key)
-                    action_result = await workflow.execute_child_workflow(
-                        DSLWorkflow.run,
-                        child_run_args,
-                        id=wf_exec_id,
-                        task_queue=workflow.info().task_queue,
-                        retry_policy=retry_policies["workflow:fail_fast"],
-                        execution_timeout=self.start_to_close_timeout,
-                    )
+                    if task.for_each:
+                        loop_strategy = LoopStrategy(
+                            task.args.get("loop_strategy", "parallel")
+                        )
+                        logger.trace(
+                            "Executing child workflow in loop",
+                            dsl_run_args=child_run_args,
+                            loop_strategy=loop_strategy,
+                        )
+
+                        iterator = iter_for_each(task=task, context=self.context)
+                        if loop_strategy == LoopStrategy.PARALLEL:
+                            action_result = await self._execute_workflow_batch(
+                                batch=iterator,
+                                run_args=child_run_args,
+                                fail_strategy=task.args.get(
+                                    "fail_strategy", "isolated"
+                                ),
+                            )
+
+                        elif loop_strategy == LoopStrategy.BATCH:
+                            action_result = []
+                            batch_size = task.args.get("batch_size", 16)
+                            for batch in itertools.batched(iterator, batch_size):
+                                results = await self._execute_workflow_batch(
+                                    batch=batch,
+                                    run_args=child_run_args,
+                                    fail_strategy=task.args.get(
+                                        "fail_strategy", "isolated"
+                                    ),
+                                )
+                                action_result.extend(results)
+                        else:
+                            # Sequential
+                            action_result = []
+                            for patched_args in iterator:
+                                child_run_args.trigger_inputs = patched_args.get(
+                                    "trigger_inputs", {}
+                                )
+                                result = await self._run_child_workflow(child_run_args)
+                                action_result.append(result)
+                    else:
+                        logger.trace(
+                            "Executing child workflow",
+                            dsl_run_args=child_run_args,
+                        )
+                        action_result = await self._run_child_workflow(child_run_args)
                 else:
                     # NOTE: We should check for loop iteration here.
                     # Activities should always execute without needing to manage control flow
@@ -366,7 +420,7 @@ class DSLWorkflow:
                         if self.dsl.config.enable_runtime_tests
                         else None
                     )
-                    self.logger.info("Executing task", act_test=act_test)
+                    logger.trace("Running action", act_test=act_test)
                     action_result = await self._run_action(task)
 
                 self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
@@ -374,13 +428,55 @@ class DSLWorkflow:
                     result_typename=type(action_result).__name__,
                 )
             except ActivityError as e:
-                self.logger.error("Activity execution failed", error=e.message)
+                logger.error("Activity execution failed", error=e.message)
                 raise
             except Exception as e:
-                self.logger.error(
+                logger.error(
                     "Activity execution failed with unexpected error", error=str(e)
                 )
                 raise
+
+    async def _execute_workflow_batch(
+        self,
+        batch: Iterable[Any],
+        run_args: DSLRunArgs,
+        *,
+        fail_strategy: FailStrategy = FailStrategy.ISOLATED,
+    ) -> list[Any]:
+        if fail_strategy == FailStrategy.ALL:
+            async with GatheringTaskGroup() as tg:
+                for patched_args in batch:
+                    run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
+                    tg.create_task(self._run_child_workflow(run_args))
+            return tg.results()
+        elif fail_strategy == FailStrategy.ISOLATED:
+            coros = []
+            for patched_args in batch:
+                run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
+                # Shallow copy here to avoid sharing the same model object for each execution
+                coro = self._run_child_workflow(run_args.model_copy())
+                coros.append(coro)
+            return await asyncio.gather(*coros, return_exceptions=True)
+        else:
+            raise ValueError("Invalid fail strategy")
+
+    def _prepare_child_workflow(self, task: ActionStatement) -> Awaitable[DSLRunArgs]:
+        udf = registry.get(task.action)
+        validated_args = udf.validate_args(**task.args)
+        self.logger.trace(
+            "Validated child workflow args", validated_args=validated_args
+        )
+        return workflow.execute_activity(
+            get_workflow_definition_activity,
+            arg=GetWorkflowDefinitionActivityInputs(
+                role=self.role,
+                task=task,
+                run_context=self.run_ctx,
+                **validated_args,
+            ),
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
 
     def _run_action(self, task: ActionStatement) -> Awaitable[Any]:
         return workflow.execute_activity(
@@ -393,6 +489,17 @@ class DSLWorkflow:
             ),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
+        )
+
+    def _run_child_workflow(self, run_args: DSLRunArgs) -> Awaitable[DSLContext]:
+        wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
+        return workflow.execute_child_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=workflow.info().task_queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+            execution_timeout=self.start_to_close_timeout,
         )
 
     def _should_skip_execution(self, task: ActionStatement) -> bool:
@@ -492,7 +599,7 @@ class DSLActivities:
             # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
             secret_refs = extract_templated_secrets(task.args)
             async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
-                context_with_sec = {
+                context_with_secrets = {
                     **input.exec_context,
                     ExprContext.SECRETS: sandbox.secrets.copy(),
                 }
@@ -519,7 +626,9 @@ class DSLActivities:
                     " You should not use this in production workflows."
                 )
                 if act_test.validate_args:
-                    args = eval_templated_object(task.args, operand=context_with_sec)
+                    args = eval_templated_object(
+                        task.args, operand=context_with_secrets
+                    )
                     udf.validate_args(**args)
                 result = await resolve_success_output(act_test)
 
@@ -557,7 +666,7 @@ class DSLActivities:
                             # We're copying this so that we don't pollute the original context
                             # Currently, the only source of action-local expressions is the loop iteration
                             # In the future, we may have other sources of action-local expressions
-                            patched_context = context_with_sec.copy()
+                            patched_context = context_with_secrets.copy()
                             act_logger.debug(
                                 "Context before patch", patched_context=patched_context
                             )
@@ -587,7 +696,7 @@ class DSLActivities:
                     ) from eg
 
             else:
-                args = eval_templated_object(task.args, operand=context_with_sec)
+                args = eval_templated_object(task.args, operand=context_with_secrets)
                 result = await udf.run_async(args)
 
             act_logger.debug("Result", result=result)
@@ -617,6 +726,48 @@ class DSLActivities:
                 non_retryable=True,
                 type=e.__class__.__name__,
             ) from e
+
+
+def iter_for_each(
+    task: ActionStatement,
+    context: DSLContext,
+    *,
+    assign_context: ExprContext = ExprContext.LOCAL_VARS,
+    patch: bool = True,
+) -> Iterator[Any]:
+    """Yield patched contexts for each loop iteration."""
+    # Evaluate the loop expression
+    iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
+
+    # Assert that all length of the iterables are the same
+    # This is a requirement for parallel processing
+    # if len({len(expr.collection) for expr in iterators}) != 1:
+    #     raise ValueError("All iterables must be of the same length")
+
+    # Create a generator that zips the iterables together
+    for i, items in enumerate(zip(*iterators, strict=False)):
+        logger.trace("Loop iteration", iteration=i)
+        # Patch the context with the loop item and evaluate the action-local expressions
+        # We're copying this so that we don't pollute the original context
+        # Currently, the only source of action-local expressions is the loop iteration
+        # In the future, we may have other sources of action-local expressions
+        patched_context = (
+            context.copy()
+            if patch
+            # XXX: ENV is the only context that should be shared
+            else DSLContext.create_default()
+        )
+        logger.trace("Context before patch", patched_context=patched_context)
+        for iterator_path, iterator_value in items:
+            patch_object(
+                patched_context,
+                path=assign_context + iterator_path,
+                value=iterator_value,
+            )
+        logger.trace("Patched context", patched_context=patched_context)
+        patched_args = eval_templated_object(task.args, operand=patched_context)
+        logger.trace("Patched args", patched_args=patched_args)
+        yield patched_args
 
 
 def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
