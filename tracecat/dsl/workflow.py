@@ -37,7 +37,7 @@ with workflow.unsafe.imports_passed_through():
         extract_templated_secrets,
         get_iterables_from_expression,
     )
-    from tracecat.expressions.shared import ExprContext, IterableExpr
+    from tracecat.expressions.shared import ExprContext
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.types.auth import Role
@@ -636,57 +636,10 @@ class DSLActivities:
                 result = await resolve_success_output(act_test)
 
             elif task.for_each:
-                # If there's a loop, we need to process this action in parallel
-
-                # Evaluate the loop expression
-                iterable_exprs: IterableExpr | list[IterableExpr] = (
-                    eval_templated_object(task.for_each, operand=input.exec_context)
-                )
-                if isinstance(iterable_exprs, IterableExpr):
-                    iterable_exprs = [iterable_exprs]
-                elif not (
-                    isinstance(iterable_exprs, list)
-                    and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
-                ):
-                    raise ValueError(
-                        "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
-                    )
-
-                act_logger.info("Running in loop")
-                act_logger.debug("Iterables", iter_expr=iterable_exprs)
-
-                # Assert that all length of the iterables are the same
-                # This is a requirement for parallel processing
-                if len({len(expr.collection) for expr in iterable_exprs}) != 1:
-                    raise ValueError("All iterables must be of the same length")
-
-                # Create a generator that zips the iterables together
+                iterator = iter_for_each(task=task, context=context_with_secrets)
                 try:
                     async with GatheringTaskGroup() as tg:
-                        for i, items in enumerate(zip(*iterable_exprs, strict=False)):
-                            act_logger.debug("Loop iteration", iteration=i)
-                            # Patch the context with the loop item and evaluate the action-local expressions
-                            # We're copying this so that we don't pollute the original context
-                            # Currently, the only source of action-local expressions is the loop iteration
-                            # In the future, we may have other sources of action-local expressions
-                            patched_context = context_with_secrets.copy()
-                            act_logger.debug(
-                                "Context before patch", patched_context=patched_context
-                            )
-                            for iterator_path, iterator_value in items:
-                                patch_object(
-                                    patched_context,
-                                    path=ExprContext.LOCAL_VARS + iterator_path,
-                                    value=iterator_value,
-                                )
-                            act_logger.debug(
-                                "Patched context", patched_context=patched_context
-                            )
-                            # Exclude secrets because we've already patched them
-                            patched_args = eval_templated_object(
-                                task.args, operand=patched_context
-                            )
-                            act_logger.debug("Patched args", patched_args=patched_args)
+                        for patched_args in iterator:
                             tg.create_task(udf.run_async(patched_args))
 
                     result = tg.results()
