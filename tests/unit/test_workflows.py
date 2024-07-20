@@ -21,6 +21,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
+from tests import shared
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
@@ -34,6 +35,7 @@ from tracecat.dsl.workflow import (
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
+from tracecat.workflow.executions import WorkflowExecutionsService
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
@@ -394,3 +396,24 @@ async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbo
                 retry_policy=retry_policies["workflow:fail_fast"],
             )
             assert "Couldn't resolve expression 'ACTIONS.a.result.invalid'" in str(e)
+
+
+@pytest.mark.parametrize(
+    "dsl_with_expected",
+    ["unit_child_workflow_parent"],
+    indirect=True,
+    ids=lambda x: x,
+)
+@pytest.mark.asyncio
+async def test_child_workflow_success(
+    dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox
+):
+    dsl, expected = dsl_with_expected
+    service = await WorkflowExecutionsService.connect()
+    res = await shared.create_workflow(title="__test_child_workflow")
+    workflow_id = res["id"]
+    await shared.commit_workflow(
+        DATA_PATH / "unit_child_workflow_child.yml", workflow_id=workflow_id
+    )
+    result = await service.create_workflow_execution(dsl=dsl, wf_id=TEST_WF_ID)
+    assert result["final_context"] == expected

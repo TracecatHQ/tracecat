@@ -1,4 +1,4 @@
-title: Child workflow
+title: __test__child_workflow
 description: Test child workflow
 entrypoint:
   ref: a
@@ -10,3 +10,5 @@ actions:
     action: core.transform.forward
     args:
       value: ${{ TRIGGER.number + 1000 }}
+
+returns: ${{ ACTIONS.a.result }}
