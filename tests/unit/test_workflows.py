@@ -35,7 +35,7 @@ from tracecat.dsl.workflow import (
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.workflow.executions import WorkflowExecutionsService
+from tracecat.workflow.definitions import get_workflow_definition_activity
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
@@ -406,14 +406,32 @@ async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbo
 )
 @pytest.mark.asyncio
 async def test_child_workflow_success(
-    dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox
+    dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox, env_sandbox
 ):
     dsl, expected = dsl_with_expected
-    service = await WorkflowExecutionsService.connect()
+    test_name = f"test_child_workflow_success-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    client = await get_temporal_client()
     res = await shared.create_workflow(title="__test_child_workflow")
     workflow_id = res["id"]
     await shared.commit_workflow(
         DATA_PATH / "unit_child_workflow_child.yml", workflow_id=workflow_id
     )
-    result = await service.create_workflow_execution(dsl=dsl, wf_id=TEST_WF_ID)
-    assert result["final_context"] == expected
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    async with Worker(
+        client,
+        task_queue=queue,
+        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        assert result == expected
