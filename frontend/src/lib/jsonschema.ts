@@ -88,7 +88,7 @@ export function getType(value: JSONSchema7): string {
       .join(" | ")
   }
   if (value.enum) {
-    return value.enum.join(" | ")
+    return value.enum.map((v) => `'${v}'`).join(" | ")
   }
   return (value.type || "unknown") as string
 }
