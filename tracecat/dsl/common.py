@@ -65,6 +65,7 @@ class DSLInput(BaseModel):
         default_factory=dict, description="Static input parameters"
     )
     tests: list[ActionTest] = Field(default_factory=list, description="Action tests")
+    returns: Any | None = Field(None, description="The action ref or value to return.")
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:

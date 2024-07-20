@@ -282,7 +282,7 @@ class DSLWorkflow:
     """Manage only the state and execution of the DSL workflow."""
 
     @workflow.run
-    async def run(self, args: DSLRunArgs) -> DSLContext:
+    async def run(self, args: DSLRunArgs) -> Any:
         # Setup
         self.role = args.role
         ctx_role.set(self.role)
@@ -318,10 +318,6 @@ class DSLWorkflow:
         self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=self.dsl)
         try:
             await self.scheduler.start()
-            self.logger.info("DSL workflow completed")
-            # XXX: Don't return ENV context for now
-            self.context.pop(ExprContext.ENV, None)
-            return self.context
         except ApplicationError as e:
             self.logger.error(
                 "DSL workflow execution failed",
@@ -337,6 +333,8 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             )
             raise
+        self.logger.info("DSL workflow completed")
+        return self._handle_return()
 
     async def execute_task(self, task: ActionStatement) -> None:
         """Purely execute a task and manage the results.
@@ -459,6 +457,17 @@ class DSLWorkflow:
             return await asyncio.gather(*coros, return_exceptions=True)
         else:
             raise ValueError("Invalid fail strategy")
+
+    def _handle_return(self) -> Any:
+        if self.dsl.returns is None:
+            # Return the context
+            # XXX: Don't return ENV context for now
+            self.logger.warning("Returning DSL context")
+            self.context.pop(ExprContext.ENV, None)
+            return self.context
+        # Return some custom value that should be evaluated
+        self.logger.warning("Returning custom value")
+        return eval_templated_object(self.dsl.returns, operand=self.context)
 
     def _prepare_child_workflow(self, task: ActionStatement) -> Awaitable[DSLRunArgs]:
         udf = registry.get(task.action)
