@@ -5,9 +5,11 @@ import ReactFlow, {
   Connection,
   Controls,
   Edge,
+  FitViewOptions,
   MarkerType,
   NodeChange,
   Panel,
+  Position,
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
@@ -19,15 +21,13 @@ import ReactFlow, {
 
 import "reactflow/dist/style.css"
 
-import { useParams } from "next/navigation"
 import { useWorkflow } from "@/providers/workflow"
-import Dagre, { type GraphLabel, type Label } from "@dagrejs/dagre"
+import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon } from "lucide-react"
 
 import {
   createAction,
   deleteAction,
-  fetchWorkflow,
   updateWorkflowGraphObject,
 } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
@@ -43,40 +43,66 @@ import udfNode, {
   UDFNodeType,
 } from "@/components/workspace/canvas/udf-node"
 
-const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
+const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
+const defaultNodeWidth = 172
+const defaultNodeHeight = 36
+
+const fitViewOptions: FitViewOptions = {
+  minZoom: 0.75,
+  maxZoom: 1,
+}
 
 /**
- * Taken from https://reactflow.dev/learn/layouting/layouting#dagre
+ * Taken from https://reactflow.dev/examples/layout/dagre
  * @param nodes
  * @param edges
- * @param options
+ * @param direction
  * @returns
  */
-const getLayoutedElements = (
+function getLayoutedElements(
   nodes: Node[],
   edges: Edge[],
-  options: GraphLabel
-) => {
-  g.setGraph({ ...options, ranksep: 75, nodesep: 100 })
+  direction = "TB"
+): {
+  nodes: Node[]
+  edges: Edge[]
+} {
+  const isHorizontal = direction === "LR"
+  dagreGraph.setGraph({ rankdir: direction })
 
-  edges.forEach((edge) => g.setEdge(edge.source, edge.target))
-  nodes.forEach((node) => g.setNode(node.id, node as Label))
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, {
+      width: node.width ?? defaultNodeWidth,
+      height: node.height ?? defaultNodeHeight,
+    })
+  })
 
-  Dagre.layout(g)
-  console.log(nodes)
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target)
+  })
 
-  return {
-    nodes: nodes.map((node) => {
-      const position = g.node(node.id)
+  Dagre.layout(dagreGraph)
+
+  const newNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id)
+    const height = node.height ?? defaultNodeHeight
+    const width = node.width ?? defaultNodeWidth
+    const newNode = {
+      ...node,
+      targetPosition: isHorizontal ? Position.Left : Position.Top,
+      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
       // We are shifting the dagre node position (anchor=center center) to the top left
       // so it matches the React Flow node anchor point (top left).
-      const x = position.x - node.width! / 2
-      const y = position.y - node.height! / 2
+      position: {
+        x: nodeWithPosition.x - width / 2,
+        y: nodeWithPosition.y - height / 2,
+      },
+    }
 
-      return { ...node, position: { x, y } }
-    }),
-    edges,
-  }
+    return newNode
+  })
+
+  return { nodes: newNodes, edges }
 }
 
 export type NodeTypename = "udf" | "trigger"
@@ -140,45 +166,40 @@ export function WorkflowCanvas() {
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode } = useReactFlow()
-  const { workflowId } = useParams<{ workflowId: string }>()
   const { toast } = useToast()
-  const { update } = useWorkflow()
+  const { workflowId, workflow, update } = useWorkflow()
 
   /**
    * Load the saved workflow
    */
   useEffect(() => {
     async function initializeReactFlowInstance() {
-      if (!workflowId || !reactFlowInstance) {
+      if (!workflow?.id || !reactFlowInstance) {
         return
       }
       try {
-        const workflow = await fetchWorkflow(workflowId)
-        const flow = workflow.object as ReactFlowJsonObject
-        if (!flow) throw new Error("No workflow data found")
-        // Deselect all nodes
-        const layouted = getLayoutedElements(
-          flow.nodes || [],
-          flow.edges || [],
-          {
-            rankdir: "TB",
-          }
+        const graph = workflow.object as ReactFlowJsonObject
+        if (!graph) {
+          throw new Error("No workflow data found")
+        }
+        const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
+          graph.nodes,
+          graph.edges,
+          "TB"
         )
-        setNodes([
-          ...layouted.nodes.map((node) => ({ ...node, selected: false })),
-        ])
-        setEdges([...layouted.edges])
+        setNodes(layoutNodes)
+        setEdges(layoutEdges)
         setViewport({
-          x: flow.viewport.x,
-          y: flow.viewport.y,
-          zoom: flow.viewport.zoom,
+          x: graph.viewport.x,
+          y: graph.viewport.y,
+          zoom: graph.viewport.zoom,
         })
       } catch (error) {
         console.error("Failed to fetch workflow data:", error)
       }
     }
     initializeReactFlowInstance()
-  }, [workflowId, reactFlowInstance])
+  }, [workflow?.id, reactFlowInstance])
 
   // React Flow callbacks
   const onConnect = useCallback(
@@ -220,7 +241,9 @@ export function WorkflowCanvas() {
   // Adding a new node
   const onDrop = async (event: React.DragEvent) => {
     event.preventDefault()
-    if (!reactFlowInstance) return
+    if (!reactFlowInstance || !workflowId) {
+      return
+    }
 
     // Limit total number of nodes
     if (nodes.length >= 50) {
@@ -268,6 +291,9 @@ export function WorkflowCanvas() {
   }
 
   const onNodesDelete = async <T,>(nodesToDelete: Node<T>[]) => {
+    if (!workflowId || !reactFlowInstance) {
+      return
+    }
     try {
       const filteredNodes = nodesToDelete.filter((node) => !isInvincible(node))
       if (filteredNodes.length === 0) {
@@ -346,9 +372,13 @@ export function WorkflowCanvas() {
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
-      const layouted = getLayoutedElements(nodes, edges, { rankdir: direction })
-      setNodes([...layouted.nodes])
-      setEdges([...layouted.edges])
+      const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
+        nodes,
+        edges,
+        direction
+      )
+      setNodes(newNodes)
+      setEdges(newEdges)
     },
     [nodes, edges]
   )
@@ -367,7 +397,7 @@ export function WorkflowCanvas() {
   }
 
   return (
-    <div ref={containerRef} style={{ height: "100%" }}>
+    <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -382,12 +412,13 @@ export function WorkflowCanvas() {
         onNodeDragStop={onNodesDragStop}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
-        fitViewOptions={{ maxZoom: 1 }}
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={["Backspace", "Delete"]}
+        fitView
+        fitViewOptions={fitViewOptions}
       >
         <Background />
-        <Controls className="rounded-sm" />
+        <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />
         <Panel position="bottom-right" className="flex items-center gap-1">
           <Badge
             variant="outline"
