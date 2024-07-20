@@ -335,7 +335,7 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: UDFActionInput | DSLRunArgs;
+    action_input: UDFActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
 };
 
@@ -359,6 +359,17 @@ export type EventHistoryResponse = {
 export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
 
 export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
+
+export type GetWorkflowDefinitionActivityInputs = {
+    role: Role;
+    task: ActionStatement;
+    workflow_title: string;
+    trigger_inputs: {
+        [key: string]: unknown;
+    };
+    version?: number | null;
+    run_context: RunContext;
+};
 
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;

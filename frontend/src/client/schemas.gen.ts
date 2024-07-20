@@ -1039,6 +1039,9 @@ export const $EventGroup = {
                 },
                 {
                     '$ref': '#/components/schemas/DSLRunArgs'
+                },
+                {
+                    '$ref': '#/components/schemas/GetWorkflowDefinitionActivityInputs'
                 }
             ],
             title: 'Action Input'
@@ -1133,6 +1136,42 @@ export const $ExprContext = {
     type: 'string',
     enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var'],
     title: 'ExprContext'
+} as const;
+
+export const $GetWorkflowDefinitionActivityInputs = {
+    properties: {
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        task: {
+            '$ref': '#/components/schemas/ActionStatement'
+        },
+        workflow_title: {
+            type: 'string',
+            title: 'Workflow Title'
+        },
+        trigger_inputs: {
+            type: 'object',
+            title: 'Trigger Inputs'
+        },
+        version: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Version'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        }
+    },
+    type: 'object',
+    required: ['role', 'task', 'workflow_title', 'trigger_inputs', 'run_context'],
+    title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
 export const $HTTPValidationError = {
