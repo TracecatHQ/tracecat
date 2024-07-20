@@ -22,7 +22,7 @@ class AlbStack(Stack):
         api_certificate: acm.Certificate,
         ui_fargate_service: ecs.FargateService,
         api_fargate_service: ecs.FargateService,
-        core_security_group: ec2.SecurityGroup,
+        frontend_security_group: ec2.SecurityGroup,
         **kwargs,
     ):
         super().__init__(scope, id, **kwargs)
@@ -34,7 +34,7 @@ class AlbStack(Stack):
             vpc=cluster.vpc,
             internet_facing=True,
             load_balancer_name="tracecat-engine-alb",
-            security_group=core_security_group,
+            security_group=frontend_security_group,
         )
         alb.add_listener(
             # Redirect HTTP to HTTPS

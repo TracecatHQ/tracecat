@@ -30,7 +30,6 @@ fargate = FargateStack(
     backend_security_group=vpc.backend_security_group,
     core_database=rds.core_database,
     core_db_secret=rds.core_db_secret,
-    core_security_group=vpc.core_security_group,
     core_db_security_group=rds.core_db_security_group,
     temporal_database=rds.temporal_database,
     temporal_db_secret=rds.temporal_db_secret,
@@ -47,7 +46,7 @@ alb = AlbStack(
     api_certificate=route53.api_certificate,
     ui_fargate_service=fargate.ui_fargate_service,
     api_fargate_service=fargate.api_fargate_service,
-    core_security_group=vpc.core_security_group,
+    core_security_group=vpc.frontend_security_group,
     env=env,
 )
 

@@ -34,7 +34,7 @@ class FargateStack(Stack):
         cluster: ecs.Cluster,
         dns_namespace: servicediscovery.INamespace,
         frontend_security_group: ec2.SecurityGroup,
-        backend_security_group: ec2.BackendSecurityGroup,
+        backend_security_group: ec2.SecurityGroup,
         core_database: rds.DatabaseInstance,
         core_db_secret: secretsmanager.Secret,
         core_db_security_group: ec2.SecurityGroup,

@@ -21,21 +21,21 @@ class VpcStack(Stack):
         )
 
         # Create security group for core Tracecat services
-        core_security_group = ec2.SecurityGroup(
+        frontend_security_group = ec2.SecurityGroup(
             self,
-            "CoreSecurityGroup",
+            "FrontendSecurityGroup",
             vpc=vpc,
             description="Security group for core Tracecat services",
         )
 
         # API to UI (frontend) communication
         frontend_security_group.add_ingress_rule(
-            peer=core_security_group,
+            peer=frontend_security_group,
             connection=ec2.Port.tcp(3000),
             description="Allow internal traffic from Tracecat UI",
         )
         frontend_security_group.add_ingress_rule(
-            peer=core_security_group,
+            peer=frontend_security_group,
             connection=ec2.Port.tcp(8000),
             description="Allow internal traffic from Tracecat API",
         )
