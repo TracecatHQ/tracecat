@@ -10,7 +10,7 @@ actions:
     for_each: ${{ for var.x in INPUTS.data }}
     action: core.workflow.execute
     args:
-      workflow_title: __test__child_workflow
+      workflow_id: <<child_workflow_id>>
       loop_strategy: parallel
       fail_strategy: isolated
       batch_size: 3

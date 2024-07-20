@@ -2,6 +2,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.registry import RegistryUDFError, registry
 
@@ -20,8 +21,8 @@ class ChildWorkflowExecutionOptions(BaseModel):
     display_group="Workflows",
 )
 async def execute(
-    workflow_title: Annotated[
-        str,
+    workflow_id: Annotated[
+        identifiers.WorkflowID,
         Field(
             ...,
             description=("The title of the child workflow. "),

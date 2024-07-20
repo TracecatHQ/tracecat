@@ -96,7 +96,7 @@ class WorkflowDefinitionsService:
 class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
     task: ActionStatement
-    workflow_title: str
+    workflow_id: identifiers.WorkflowID
     trigger_inputs: dict[str, Any]
     version: int | None = None
     run_context: RunContext
@@ -108,16 +108,16 @@ async def get_workflow_definition_activity(
 ) -> DSLRunArgs:
     def _get_definition() -> WorkflowDefinition | None:
         with WorkflowDefinitionsService.get_session(role=input.role) as service:
-            return service.get_definition_by_workflow_title(
-                input.workflow_title, version=input.version
+            return service.get_definition_by_workflow_id(
+                input.workflow_id, version=input.version
             )
 
-    logger.trace("Getting workflow definition", workflow_title=input.workflow_title)
+    logger.trace("Getting workflow definition", workflow_id=input.workflow_id)
     defn = await asyncio.to_thread(_get_definition)
     if not defn:
-        raise TracecatException(
-            f"Workflow definition not found. {input.workflow_title!r}, version={input.version}"
-        )
+        msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
+        logger.error(msg)
+        raise TracecatException(msg)
     dsl = DSLInput(**defn.content)
     parent_run_context = ctx_run.get()
     return DSLRunArgs(

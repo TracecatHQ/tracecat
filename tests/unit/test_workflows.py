@@ -398,25 +398,29 @@ async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbo
             assert "Couldn't resolve expression 'ACTIONS.a.result.invalid'" in str(e)
 
 
-@pytest.mark.parametrize(
-    "dsl_with_expected",
-    ["unit_child_workflow_parent"],
-    indirect=True,
-    ids=lambda x: x,
-)
 @pytest.mark.asyncio
 async def test_child_workflow_success(
-    dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox, env_sandbox
+    temporal_cluster, mock_registry, auth_sandbox, env_sandbox
 ):
-    dsl, expected = dsl_with_expected
+    test_name = "unit_child_workflow_parent"
+    data_path = DATA_PATH / f"{test_name}.yml"
+    expected_path = DATA_PATH / f"{test_name}_expected.yml"
+    dsl = DSLInput.from_yaml(data_path)
+
+    expected = _get_expected(expected_path)
+
     test_name = f"test_child_workflow_success-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
 
     client = await get_temporal_client()
     res = await shared.create_workflow(title="__test_child_workflow")
-    workflow_id = res["id"]
+    child_workflow_id = res["id"]
+
+    # Inject child workflow id
+    dsl.actions[0].args["workflow_id"] = child_workflow_id
+
     await shared.commit_workflow(
-        DATA_PATH / "unit_child_workflow_child.yml", workflow_id=workflow_id
+        DATA_PATH / "unit_child_workflow_child.yml", workflow_id=child_workflow_id
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
