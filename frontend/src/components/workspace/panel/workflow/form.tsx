@@ -34,6 +34,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { CopyButton } from "@/components/copy-button"
 import { WorkflowSettings } from "@/components/workspace/panel/workflow/settings"
 
 const workflowFormSchema = z.object({
@@ -65,6 +66,7 @@ export function WorkflowForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)}>
+        {/* Save and Workflow Settings */}
         <div className="flex flex-1 justify-end gap-2 p-4">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -77,6 +79,7 @@ export function WorkflowForm({
           <WorkflowSettings workflow={workflow} />
         </div>
         <Separator />
+        {/* Workflow Settings */}
         <Accordion type="single" collapsible defaultValue="workflow-settings">
           <AccordionItem value="workflow-settings">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -121,6 +124,23 @@ export function WorkflowForm({
                     </FormItem>
                   )}
                 />
+                <div className="space-y-2">
+                  <FormLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Workflow ID</span>
+                    <CopyButton
+                      value={workflow.id}
+                      toastMessage="Copied workflow ID to clipboard"
+                    />
+                  </FormLabel>
+                  <div className="rounded-md border shadow-sm">
+                    <Input
+                      defaultValue={workflow.id}
+                      className="rounded-md border-none text-xs shadow-none"
+                      readOnly
+                      disabled
+                    />
+                  </div>
+                </div>
               </div>
             </AccordionContent>
           </AccordionItem>
