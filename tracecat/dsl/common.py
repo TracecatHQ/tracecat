@@ -9,10 +9,9 @@ from typing import Any, Self
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tracecat import identifiers
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Workflow
-from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
+from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeData
 from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
@@ -164,6 +163,7 @@ class DSLInput(BaseModel):
             title=workflow.title,
             description=workflow.description,
             entrypoint={
+                # XXX: Sus
                 "ref": graph.logical_entrypoint.ref,
                 # TODO: Add expects for UI -> DSL
                 "expects": {},
@@ -174,30 +174,21 @@ class DSLInput(BaseModel):
             # inputs=workflow.inputs,
         )
 
-    def to_graph(self, workflow: Workflow) -> RFGraph:
-        """Converter for DSLInput to Workflow.
+    def to_graph(self, trigger_node: TriggerNode, ref2id: dict[str, str]) -> RFGraph:
+        """Construct a new react flow graph from this DSLInput.
 
-        Use Case: Syncing headless to the frontend.
-
-        Warning
-        -------
-        If called outside of a db session, `actions` will be empty.
+        We depend on the trigger from the old graph to create the new graph.
         """
-        if not self.actions:
-            raise ValueError("Empty actions list")
-        wf_id = workflow.id
-        graph = RFGraph.from_workflow(workflow)
-        trigger = graph.trigger
 
         # Create nodes and edges
-        nodes: list[RFEdge] = [trigger]
+        nodes: list[RFEdge] = [trigger_node]
         edges: list[RFEdge] = []
         try:
             for action in self.actions:
                 # Get updated nodes
-                dst_key = identifiers.action.key(wf_id, action.ref)
+                dst_id = ref2id[action.ref]
                 node = UDFNode(
-                    id=dst_key,
+                    id=dst_id,
                     data=UDFNodeData(
                         title=action.title,
                         type=action.action,
@@ -206,13 +197,13 @@ class DSLInput(BaseModel):
                 nodes.append(node)
 
                 for src_ref in action.depends_on:
-                    src_key = identifiers.action.key(wf_id, src_ref)
-                    edges.append(RFEdge(source=src_key, target=dst_key))
+                    src_id = ref2id[src_ref]
+                    edges.append(RFEdge(source=src_id, target=dst_id))
 
-            entrypoint_id = identifiers.action.key(wf_id, self.entrypoint.ref)
+            entrypoint_id = ref2id[self.entrypoint.ref]
             # Add trigger edge
             edges.append(
-                RFEdge(source=trigger.id, target=entrypoint_id, label="⚡ Trigger")
+                RFEdge(source=trigger_node.id, target=entrypoint_id, label="⚡ Trigger")
             )
             return RFGraph(nodes=nodes, edges=edges)
         except Exception as e:
