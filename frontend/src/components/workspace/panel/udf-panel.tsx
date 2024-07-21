@@ -38,6 +38,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import {
   Table,
@@ -54,6 +55,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -242,6 +244,23 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                       </FormItem>
                     )}
                   />
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Action ID</span>
+                      <CopyButton
+                        value={action.id}
+                        toastMessage="Copied workflow ID to clipboard"
+                      />
+                    </Label>
+                    <div className="rounded-md border shadow-sm">
+                      <Input
+                        value={action.id}
+                        className="rounded-md border-none text-xs shadow-none"
+                        readOnly
+                        disabled
+                      />
+                    </div>
+                  </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
