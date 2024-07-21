@@ -416,6 +416,7 @@ export function WorkflowCanvas() {
         deleteKeyCode={["Backspace", "Delete"]}
         fitView
         fitViewOptions={fitViewOptions}
+        nodeDragThreshold={4}
       >
         <Background />
         <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />
