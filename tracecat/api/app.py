@@ -733,7 +733,7 @@ async def commit_workflow(
     workflow_id: str,
     yaml_file: UploadFile | None = File(None),
     session: Session = Depends(get_session),
-) -> ORJSONResponse:
+) -> CommitWorkflowResponse:
     """Commit a workflow.
 
     XXX: This is actually creating a workflow definition
@@ -795,7 +795,7 @@ async def commit_workflow(
                     message=f"Workflow definition construction failed with {len(construction_errors)} errors",
                     errors=construction_errors,
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
-                ).to_orjson(status.HTTP_400_BAD_REQUEST)
+                )
 
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
@@ -811,7 +811,7 @@ async def commit_workflow(
                         for val_res in val_errors
                     ],
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
-                ).to_orjson(status.HTTP_400_BAD_REQUEST)
+                )
 
             # Validation is complete. We can now construct the workflow definition
             # Phase 1: Create workflow definition
@@ -823,7 +823,8 @@ async def commit_workflow(
             # Phase 2:
             # We actually only need this if we create workflow from yaml
             id_factory = identifiers.resource.ResourcePrefix.ACTION.factory()
-            ref2id = {action.ref: id_factory() for action in dsl.actions}
+            ref2id = {action.ref: action.id or id_factory() for action in dsl.actions}
+            logger.debug("Ref2ID mapping", ref2id=ref2id)
             # We need the old graph to get the trigger node
             old_graph = RFGraph.from_workflow(workflow)
             # Create a new graph structure from the DSL
@@ -870,7 +871,7 @@ async def commit_workflow(
                 status="success",
                 message="Workflow committed successfully.",
                 metadata={"version": defn.version},
-            ).to_orjson(status.HTTP_200_OK)
+            )
 
         except SQLAlchemyError as e:
             session.rollback()
