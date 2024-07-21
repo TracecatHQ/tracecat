@@ -16,13 +16,13 @@ import {
   SettingsIcon,
   Shapes,
 } from "lucide-react"
-import { editor } from "monaco-editor"
-import { FieldValues, FormProvider, useForm } from "react-hook-form"
+import { Controller, FieldValues, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { useActionInputs, usePanelAction } from "@/lib/hooks"
+import { usePanelAction } from "@/lib/hooks"
 import { useUDFSchema } from "@/lib/udf"
+import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -38,6 +38,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import {
   Table,
@@ -54,12 +55,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
 
+type UDFFormSchema = {
+  title?: string
+  description?: string
+  inputs?: string
+}
 export function UDFActionPanel<T extends Record<string, unknown>>({
   node,
   workflowId,
@@ -74,13 +81,15 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
   } = usePanelAction(node.id, workflowId)
   const udfKey = node.data.type
   const { udf, isLoading: schemaLoading } = useUDFSchema(udfKey)
-  const methods = useForm<{ title?: string; description?: string }>({
+  const methods = useForm<UDFFormSchema>({
     values: {
       title: action?.title,
       description: action?.description,
+      inputs: isEmptyObjectOrNullish(action?.inputs)
+        ? ""
+        : YAML.stringify(action?.inputs),
     },
   })
-  const { actionInputs, setActionInputs } = useActionInputs(action)
 
   const [validationErrors, setValidationErrors] =
     useState<UDFArgsValidationResponse | null>(null)
@@ -109,7 +118,9 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
     )
   }
 
-  const onSubmit = async (values: FieldValues) => {
+  const onSubmit = async (values: UDFFormSchema) => {
+    const { inputs } = values
+    const actionInputs = inputs ? YAML.parse(inputs) : {}
     try {
       const validateResponse = await udfsValidateUdfArgs({
         udfKey: udf.key,
@@ -129,7 +140,7 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
           title: values.title as string,
           description: values.description as string,
           inputs: actionInputs,
-        } as FieldValues & { inputs: Record<string, unknown> }
+        } as FieldValues
         console.log("Submitting action form", params)
         await updateAction(params as T)
       }
@@ -233,6 +244,23 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                       </FormItem>
                     )}
                   />
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Action ID</span>
+                      <CopyButton
+                        value={action.id}
+                        toastMessage="Copied workflow ID to clipboard"
+                      />
+                    </Label>
+                    <div className="rounded-md border shadow-sm">
+                      <Input
+                        value={action.id}
+                        className="rounded-md border-none text-xs shadow-none"
+                        readOnly
+                        disabled
+                      />
+                    </div>
+                  </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -312,9 +340,29 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                   <span className="text-xs text-muted-foreground">
                     Edit the action inputs in YAML below.
                   </span>
-                  <ActionInputs
-                    inputs={actionInputs}
-                    setInputs={setActionInputs}
+                  <Controller
+                    name="inputs"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <div className="h-96 w-full border">
+                        <Editor
+                          defaultLanguage="yaml"
+                          value={field.value}
+                          onChange={field.onChange}
+                          height="100%"
+                          theme="vs-light"
+                          loading={<CenteredSpinner />}
+                          options={{
+                            tabSize: 2,
+                            minimap: { enabled: false },
+                            scrollbar: {
+                              verticalScrollbarSize: 5,
+                              horizontalScrollbarSize: 5,
+                            },
+                          }}
+                        />
+                      </div>
+                    )}
                   />
                   {validationErrors && (
                     <div className="rounded-md border-2 border-rose-500 bg-rose-100 p-4 font-mono text-xs text-rose-600">
@@ -330,39 +378,6 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
           </Accordion>
         </form>
       </FormProvider>
-    </div>
-  )
-}
-
-export function ActionInputs({
-  inputs,
-  setInputs,
-}: {
-  inputs: Record<string, unknown>
-  setInputs: (obj: Record<string, unknown>) => void
-}) {
-  function handleEditorChange(
-    value: string | undefined,
-    ev: editor.IModelContentChangedEvent
-  ) {
-    const newValue = value ? YAML.parse(value) : {}
-    setInputs(newValue)
-  }
-  return (
-    <div className="h-96 w-full border">
-      <Editor
-        height="100%"
-        theme="vs-light"
-        defaultLanguage="yaml"
-        defaultValue={YAML.stringify(inputs)}
-        onChange={handleEditorChange}
-        loading={<CenteredSpinner />}
-        options={{
-          tabSize: 2,
-          minimap: { enabled: false },
-          scrollbar: { verticalScrollbarSize: 5, horizontalScrollbarSize: 5 },
-        }}
-      />
     </div>
   )
 }

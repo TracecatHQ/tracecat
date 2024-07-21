@@ -75,7 +75,7 @@ export type Body_validate_workflow = {
 };
 
 export type Body_workflows_commit_workflow = {
-    yaml_file?: (Blob | File);
+    yaml_file?: (Blob | File) | null;
 };
 
 export type CaseAction = {
@@ -170,6 +170,18 @@ export type CaseResponse = {
     tags: ListModel_Tag_;
 };
 
+export type CommitWorkflowResponse = {
+    workflow_id: string;
+    status: 'success' | 'failure';
+    message: string;
+    errors?: Array<UDFArgsValidationResponse> | null;
+    metadata?: {
+    [key: string]: unknown;
+} | null;
+};
+
+export type status2 = 'success' | 'failure';
+
 export type CopyWorkflowParams = {
     owner_id: string;
 };
@@ -205,7 +217,7 @@ export type CreateScheduleParams = {
     status?: 'online' | 'offline';
 };
 
-export type status2 = 'online' | 'offline';
+export type status3 = 'online' | 'offline';
 
 /**
  * Create a new secret.
@@ -300,6 +312,10 @@ export type DSLInput = {
      * Action tests
      */
     tests?: Array<ActionTest>;
+    /**
+     * The action ref or value to return.
+     */
+    returns?: unknown | null;
 };
 
 export type DSLRunArgs = {
@@ -363,7 +379,7 @@ export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRI
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     task: ActionStatement;
-    workflow_title: string;
+    workflow_id: string;
     trigger_inputs: {
         [key: string]: unknown;
     };
@@ -704,7 +720,7 @@ export type WorkflowExecutionResponse = {
     /**
      * When this workflow run started or should start.
      */
-    execution_time: string;
+    execution_time?: string | null;
     /**
      * When the workflow was closed if closed.
      */
@@ -718,7 +734,7 @@ export type WorkflowExecutionResponse = {
     history_length: number;
 };
 
-export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
+export type status4 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
 
 export type WorkflowMetadataResponse = {
     id: string;
@@ -831,7 +847,7 @@ export type WorkflowsCommitWorkflowData = {
     workflowId: string;
 };
 
-export type WorkflowsCommitWorkflowResponse = unknown;
+export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
 
 export type WorkflowsGetWorkflowDefinitionData = {
     version?: number | null;
@@ -839,6 +855,12 @@ export type WorkflowsGetWorkflowDefinitionData = {
 };
 
 export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition;
+
+export type WorkflowsCreateWorkflowDefinitionData = {
+    workflowId: string;
+};
+
+export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition;
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
     workflowId?: string | null;
@@ -1247,7 +1269,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: unknown;
+                200: CommitWorkflowResponse;
                 /**
                  * Validation Error
                  */
@@ -1258,6 +1280,19 @@ export type $OpenApiTs = {
     '/workflows/{workflow_id}/definition': {
         get: {
             req: WorkflowsGetWorkflowDefinitionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: WorkflowDefinition;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: WorkflowsCreateWorkflowDefinitionData;
             res: {
                 /**
                  * Successful Response

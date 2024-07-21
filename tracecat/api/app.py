@@ -90,6 +90,7 @@ from tracecat.types.api import (
 )
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.workflow.definitions import WorkflowDefinitionsService
 from tracecat.workflow.executions import WorkflowExecutionsService
 from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
@@ -650,7 +651,11 @@ def update_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        for key, value in params.model_dump(exclude_unset=True).items():
+        set_params = params.model_dump(exclude_unset=True)
+        logger.debug(
+            "Updating workflow", workflow_id=workflow_id, set_params=set_params
+        )
+        for key, value in set_params.items():
             # Safe because params has been validated
             setattr(workflow, key, value)
 
@@ -726,10 +731,12 @@ def copy_workflow(
 async def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-    yaml_file: UploadFile = File(None),
+    yaml_file: UploadFile | None = File(None),
     session: Session = Depends(get_session),
-) -> ORJSONResponse:
+) -> CommitWorkflowResponse:
     """Commit a workflow.
+
+    XXX: This is actually creating a workflow definition
 
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
 
@@ -748,7 +755,8 @@ async def commit_workflow(
                 workflow = result.one()
             except NoResultFound as e:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Could not find workflow",
                 ) from e
             # Hydrate actions
             _ = workflow.actions
@@ -787,7 +795,7 @@ async def commit_workflow(
                     message=f"Workflow definition construction failed with {len(construction_errors)} errors",
                     errors=construction_errors,
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
-                ).to_orjson(status.HTTP_400_BAD_REQUEST)
+                )
 
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
@@ -803,12 +811,24 @@ async def commit_workflow(
                         for val_res in val_errors
                     ],
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
-                ).to_orjson(status.HTTP_400_BAD_REQUEST)
+                )
 
-            # Phase 1: Commit
-            defn = _create_wf_definition(session, role, workflow_id, dsl)
-            # Phase 2: Backpropagate
-            new_graph = dsl.to_graph(workflow)
+            # Validation is complete. We can now construct the workflow definition
+            # Phase 1: Create workflow definition
+            # Workflow definition uses action.refs to refer to actions
+            # We should only instantiate action refs at workflow    runtime
+            service = WorkflowDefinitionsService(session, role=role)
+            # Creating a workflow definition only uses refs
+            defn = service.create_workflow_definition(workflow_id, dsl)
+            # Phase 2:
+            # We actually only need this if we create workflow from yaml
+            id_factory = identifiers.resource.ResourcePrefix.ACTION.factory()
+            ref2id = {action.ref: action.id or id_factory() for action in dsl.actions}
+            logger.debug("Ref2ID mapping", ref2id=ref2id)
+            # We need the old graph to get the trigger node
+            old_graph = RFGraph.from_workflow(workflow)
+            # Create a new graph structure from the DSL
+            new_graph = dsl.to_graph(trigger_node=old_graph.trigger, ref2id=ref2id)
 
             # Replace Actions
             del_stmt = delete(Action).where(
@@ -818,9 +838,10 @@ async def commit_workflow(
             session.flush()  # Ensure deletions are flushed
             session.refresh(workflow)
 
+            # Here, we're recreating the `Action` objects in the db.
             for act_stmt in dsl.actions:
                 new_action = Action(
-                    id=identifiers.action.key(workflow_id, act_stmt.ref),
+                    id=ref2id[act_stmt.ref],
                     owner_id=role.user_id,
                     workflow_id=workflow_id,
                     type=act_stmt.action,
@@ -850,7 +871,7 @@ async def commit_workflow(
                 status="success",
                 message="Workflow committed successfully.",
                 metadata={"version": defn.version},
-            ).to_orjson(status.HTTP_200_OK)
+            )
 
         except SQLAlchemyError as e:
             session.rollback()
@@ -861,78 +882,46 @@ async def commit_workflow(
             ) from e
 
 
-def _create_wf_definition(
-    session: Session, role: Role, workflow_id: str, dsl: DSLInput
-) -> WorkflowDefinition:
-    statement = (
-        select(WorkflowDefinition)
-        .where(
-            WorkflowDefinition.owner_id == role.user_id,
-            WorkflowDefinition.workflow_id == workflow_id,
-        )
-        .order_by(WorkflowDefinition.version.desc())
-    )
-    result = session.exec(statement)
-    latest_defn = result.first()
-
-    version = latest_defn.version + 1 if latest_defn else 1
-    defn = WorkflowDefinition(
-        owner_id=role.user_id,
-        workflow_id=workflow_id,
-        content=dsl.model_dump(),
-        version=version,
-    )
-    return defn
-
-
 # ----- Workflow Definitions ----- #
 
 
 @app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
 async def list_workflow_definitions(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
+    session: Session = Depends(get_session),
 ) -> list[WorkflowDefinition]:
     """List all workflow definitions for a Workflow."""
-    with Session(engine) as session:
-        statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == role.user_id,
-        )
-        if workflow_id:
-            statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
-        result = session.exec(statement)
-        return result.all()
+    service = WorkflowDefinitionsService(session, role=role)
+    return service.list_workflow_definitions(workflow_id)
 
 
 @app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
 def get_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
     version: int | None = None,
+    session: Session = Depends(get_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
-    with Session(engine) as session:
-        statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == role.user_id,
-            WorkflowDefinition.workflow_id == workflow_id,
+    service = WorkflowDefinitionsService(session, role=role)
+    definition = service.get_definition_by_workflow_id(workflow_id, version=version)
+    if definition is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-        if version:
-            statement = statement.where(WorkflowDefinition.version == version)
-        else:
-            # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())
+    return definition
 
-        result = session.exec(statement)
-        try:
-            defn = result.first()
-            if not defn:
-                raise NoResultFound
-            return defn
-        except NoResultFound as e:
-            logger.opt(exception=e).error("Workflow definition does not exist", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
-            ) from e
+
+@app.post("/workflows/{workflow_id}/definition", tags=["workflows"])
+def create_workflow_definition(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
+    session: Session = Depends(get_session),
+) -> WorkflowDefinition:
+    """Get the latest version of a workflow definition."""
+    service = WorkflowDefinitionsService(session, role=role)
+    return service.create_workflow_definition(workflow_id)
 
 
 # ----- Workflow Executions ----- #

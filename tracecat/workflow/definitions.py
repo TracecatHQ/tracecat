@@ -45,7 +45,7 @@ class WorkflowDefinitionsService:
             statement = statement.where(WorkflowDefinition.version == version)
         else:
             # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())
+            statement = statement.order_by(WorkflowDefinition.version.desc())  # type: ignore
 
         return self._session.exec(statement).first()
 
@@ -87,10 +87,44 @@ class WorkflowDefinitionsService:
         else:
             # Get the latest version
             wf_defn_statement = wf_defn_statement.order_by(
-                WorkflowDefinition.version.desc()
+                WorkflowDefinition.version.desc()  # type: ignore
             )
 
         return self._session.exec(wf_defn_statement).first()
+
+    def list_workflow_defitinions(
+        self, workflow_id: identifiers.WorkflowID | None = None
+    ) -> list[WorkflowDefinition]:
+        statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.owner_id == self.role.user_id,
+        )
+        if workflow_id:
+            statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
+        result = self._session.exec(statement)
+        return list(result.all())
+
+    def create_workflow_definition(
+        self, workflow_id: identifiers.WorkflowID, dsl: DSLInput
+    ) -> WorkflowDefinition:
+        statement = (
+            select(WorkflowDefinition)
+            .where(
+                WorkflowDefinition.owner_id == self.role.user_id,
+                WorkflowDefinition.workflow_id == workflow_id,
+            )
+            .order_by(WorkflowDefinition.version.desc())  # type: ignore
+        )
+        result = self._session.exec(statement)
+        latest_defn = result.first()
+
+        version = latest_defn.version + 1 if latest_defn else 1
+        defn = WorkflowDefinition(
+            owner_id=self.role.user_id,
+            workflow_id=workflow_id,
+            content=dsl.model_dump(),
+            version=version,
+        )
+        return defn
 
 
 class GetWorkflowDefinitionActivityInputs(BaseModel):

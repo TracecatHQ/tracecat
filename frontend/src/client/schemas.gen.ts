@@ -193,8 +193,15 @@ export const $Body_validate_workflow = {
 export const $Body_workflows_commit_workflow = {
     properties: {
         yaml_file: {
-            type: 'string',
-            format: 'binary',
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'binary'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Yaml File'
         }
     },
@@ -537,6 +544,52 @@ export const $CaseResponse = {
     type: 'object',
     required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
     title: 'CaseResponse'
+} as const;
+
+export const $CommitWorkflowResponse = {
+    properties: {
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['success', 'failure'],
+            title: 'Status'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        errors: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/UDFArgsValidationResponse'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Errors'
+        },
+        metadata: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Metadata'
+        }
+    },
+    type: 'object',
+    required: ['workflow_id', 'status', 'message'],
+    title: 'CommitWorkflowResponse'
 } as const;
 
 export const $CopyWorkflowParams = {
@@ -901,6 +954,16 @@ export const $DSLInput = {
             type: 'array',
             title: 'Tests',
             description: 'Action tests'
+        },
+        returns: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Returns',
+            description: 'The action ref or value to return.'
         }
     },
     type: 'object',
@@ -1146,9 +1209,10 @@ export const $GetWorkflowDefinitionActivityInputs = {
         task: {
             '$ref': '#/components/schemas/ActionStatement'
         },
-        workflow_title: {
+        workflow_id: {
             type: 'string',
-            title: 'Workflow Title'
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Workflow Id'
         },
         trigger_inputs: {
             type: 'object',
@@ -1170,7 +1234,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
         }
     },
     type: 'object',
-    required: ['role', 'task', 'workflow_title', 'trigger_inputs', 'run_context'],
+    required: ['role', 'task', 'workflow_id', 'trigger_inputs', 'run_context'],
     title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
@@ -2330,8 +2394,15 @@ export const $WorkflowExecutionResponse = {
             description: 'The start time of the workflow execution'
         },
         execution_time: {
-            type: 'string',
-            format: 'date-time',
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Execution Time',
             description: 'When this workflow run started or should start.'
         },
@@ -2367,7 +2438,7 @@ export const $WorkflowExecutionResponse = {
         }
     },
     type: 'object',
-    required: ['id', 'run_id', 'start_time', 'execution_time', 'status', 'workflow_type', 'task_queue', 'history_length'],
+    required: ['id', 'run_id', 'start_time', 'status', 'workflow_type', 'task_queue', 'history_length'],
     title: 'WorkflowExecutionResponse'
 } as const;
 

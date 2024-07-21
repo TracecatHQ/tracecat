@@ -10,6 +10,11 @@ import React, {
 } from "react"
 import { useParams } from "next/navigation"
 import {
+  ApiError,
+  CommitWorkflowResponse,
+  workflowsCommitWorkflow,
+} from "@/client"
+import {
   MutateFunction,
   useMutation,
   useQuery,
@@ -18,7 +23,7 @@ import {
 import { AxiosError } from "axios"
 
 import { Workflow } from "@/types/schemas"
-import { commitWorkflow, fetchWorkflow, updateWorkflow } from "@/lib/workflow"
+import { fetchWorkflow, updateWorkflow } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 
 type WorkflowContextType = {
@@ -28,7 +33,7 @@ type WorkflowContextType = {
   error: Error | null
   isOnline: boolean
   setIsOnline: (isOnline: boolean) => void
-  commit: MutateFunction<unknown, Error, void, unknown>
+  commit: MutateFunction<CommitWorkflowResponse, ApiError, void, unknown>
   update: MutateFunction<unknown, Error, Record<string, unknown>, unknown>
 }
 type TracecatErrorMessage = {
@@ -62,20 +67,28 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   // Mutations
   const { mutateAsync: commit } = useMutation({
-    mutationFn: async () => await commitWorkflow(workflowId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
-      toast({
-        title: "Commited changes to workflow",
-        description: "New workflow deployment created successfully.",
-      })
+    mutationFn: async () => await workflowsCommitWorkflow({ workflowId }),
+    onSuccess: (response) => {
+      if (response.status === "success") {
+        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+        toast({
+          title: "Commited changes to workflow",
+          description: "New workflow deployment created successfully.",
+        })
+      } else {
+        toast({
+          title: "Error commiting workflow",
+          description: response.message || "Could not commit workflow.",
+          variant: "destructive",
+        })
+      }
     },
-    onError: (error: AxiosError) => {
-      console.error("Failed to commit workflow:", error)
+    onError: (error: ApiError) => {
+      console.warn("Failed to commit workflow:", error)
       toast({
         title: "Error commiting workflow",
         description:
-          (error.response?.data as TracecatErrorMessage).message ||
+          (error.body as TracecatErrorMessage).message ||
           "Could not commit workflow. Please try again.",
         variant: "destructive",
       })

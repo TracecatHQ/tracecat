@@ -59,8 +59,8 @@ class WorkflowExecutionResponse(BaseModel):
     start_time: datetime = Field(
         ..., description="The start time of the workflow execution"
     )
-    execution_time: datetime = Field(
-        ..., description="When this workflow run started or should start."
+    execution_time: datetime | None = Field(
+        None, description="When this workflow run started or should start."
     )
     close_time: datetime | None = Field(
         None, description="When the workflow was closed if closed."
@@ -118,7 +118,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     @staticmethod
     def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[UDFActionInput | GetWorkflowDefinitionActivityInputs]:
+    ) -> EventGroup[EventInput]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
