@@ -71,6 +71,7 @@ export default function WorkflowNav() {
     return null
   }
 
+  const manualTriggerDisabled = workflow.version === null
   return (
     <div className="flex w-full items-center space-x-8">
       <Breadcrumb>
@@ -89,19 +90,34 @@ export default function WorkflowNav() {
       <div className="flex flex-1 items-center justify-end space-x-6">
         {/* Workflow manual trigger */}
         <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+          <Tooltip>
+            <PopoverTrigger asChild>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+                    disabled={manualTriggerDisabled}
+                  >
+                    <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
+                    <span>Run</span>
+                  </Button>
+                </span>
+              </TooltipTrigger>
+            </PopoverTrigger>
+            <TooltipContent
+              side="bottom"
+              className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
             >
-              <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
-              <span>Run</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="p-3">
-            <WorkflowExecutionControls workflowId={workflow.id} />
-          </PopoverContent>
+              {manualTriggerDisabled
+                ? "Please commit changes to enable manual trigger."
+                : "Run the workflow manually without a webhook."}
+            </TooltipContent>
+            <PopoverContent className="p-3">
+              <WorkflowExecutionControls workflowId={workflow.id} />
+            </PopoverContent>
+          </Tooltip>
         </Popover>
 
         {/* Commit button */}
@@ -295,7 +311,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
             render={({ field }) => (
               <FormItem>
                 <FormControl>
-                  <div className="h-full w-full border">
+                  <div className="size-full border">
                     {/* The json contains the view into the data */}
                     <div className="h-36">
                       <Editor
