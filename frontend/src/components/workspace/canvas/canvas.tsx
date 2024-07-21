@@ -167,7 +167,7 @@ export function WorkflowCanvas() {
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode } = useReactFlow()
   const { toast } = useToast()
-  const { workflowId, workflow, update } = useWorkflow()
+  const { workflowId, workflow, update: updateWorkflow } = useWorkflow()
 
   /**
    * Load the saved workflow
@@ -223,7 +223,7 @@ export function WorkflowCanvas() {
         }
 
         // 3. Set the workflow entrypoint
-        await update({ entrypoint: entrypointNode.id })
+        await updateWorkflow({ entrypoint: entrypointNode.id })
       }
       setEdges((eds) => addEdge(params, eds))
     },
@@ -332,7 +332,7 @@ export function WorkflowCanvas() {
 
           // 3. Update the trigger node UI state with the entrypoint id
           // We'll persist this through the trigger panel
-          await update({ entrypoint: null })
+          await updateWorkflow({ entrypoint: null })
         }
       })
       setEdges((eds) =>
