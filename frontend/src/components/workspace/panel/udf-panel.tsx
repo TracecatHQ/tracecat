@@ -3,14 +3,25 @@
 import "react18-json-view/src/style.css"
 
 import React, { useState } from "react"
-import { ApiError, udfsValidateUdfArgs } from "@/client"
+import {
+  ApiError,
+  UDFArgsValidationResponse,
+  udfsValidateUdfArgs,
+} from "@/client"
 import Editor from "@monaco-editor/react"
-import { LayoutListIcon, SaveIcon, SettingsIcon, Shapes } from "lucide-react"
+import {
+  AlertTriangleIcon,
+  LayoutListIcon,
+  SaveIcon,
+  SettingsIcon,
+  Shapes,
+} from "lucide-react"
 import { editor } from "monaco-editor"
 import { FieldValues, FormProvider, useForm } from "react-hook-form"
+import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { PanelAction, useActionInputs } from "@/lib/hooks"
+import { useActionInputs, usePanelAction } from "@/lib/hooks"
 import { useUDFSchema } from "@/lib/udf"
 import {
   Accordion,
@@ -42,27 +53,27 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
 
 export function UDFActionPanel<T extends Record<string, unknown>>({
-  panelAction: {
-    action,
-    isLoading: actionLoading,
-    mutateAsync,
-    queryClient,
-    queryKeys,
-  },
-  type: key,
+  node,
+  workflowId,
 }: {
-  panelAction: PanelAction<T>
-  type: string
-  actionId: string
+  node: Node<UDFNodeData>
   workflowId: string
 }) {
-  const { udf, isLoading: schemaLoading } = useUDFSchema(key)
+  const {
+    action,
+    isLoading: actionLoading,
+    mutateAsync: updateAction,
+  } = usePanelAction(node.id, workflowId)
+  const udfKey = node.data.type
+  const { udf, isLoading: schemaLoading } = useUDFSchema(udfKey)
   const methods = useForm<{ title?: string; description?: string }>({
     values: {
       title: action?.title,
@@ -70,28 +81,30 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
     },
   })
   const { actionInputs, setActionInputs } = useActionInputs(action)
-  const [JSONViewerrors, setJSONViewErrors] = useState<Record<
-    string,
-    unknown
-  > | null>(null)
+
+  const [validationErrors, setValidationErrors] =
+    useState<UDFArgsValidationResponse | null>(null)
 
   if (schemaLoading || actionLoading) {
     return <CenteredSpinner />
   }
-  if (!udf || !action) {
+  if (!udf) {
     return (
       <div className="flex h-full items-center justify-center space-x-2 p-4">
-        <div className="space-y-2">
-          <AlertNotification
-            level="info"
-            message={`UDF type '${key}' is not yet supported.`}
-            reset={() =>
-              queryClient.invalidateQueries({
-                queryKey: queryKeys.selectedAction,
-              })
-            }
-          />
-        </div>
+        <AlertNotification
+          level="error"
+          message={`Could not load UDF schema '${udfKey}'.`}
+        />
+      </div>
+    )
+  }
+  if (!action) {
+    return (
+      <div className="flex h-full items-center justify-center space-x-2 p-4">
+        <AlertNotification
+          level="error"
+          message={`Error orccurred loading action.`}
+        />
       </div>
     )
   }
@@ -105,16 +118,20 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
       console.log("Validation passed", validateResponse)
       if (!validateResponse.ok) {
         console.error("Validation failed", validateResponse)
-        setJSONViewErrors(validateResponse.detail as Record<string, unknown>)
+        setValidationErrors(validateResponse)
+        toast({
+          title: "Validation Error",
+          description: "Failed to validate action inputs",
+        })
       } else {
-        setJSONViewErrors(null)
+        setValidationErrors(null)
         const params = {
           title: values.title as string,
           description: values.description as string,
           inputs: actionInputs,
         } as FieldValues & { inputs: Record<string, unknown> }
         console.log("Submitting action form", params)
-        await mutateAsync(params as T)
+        await updateAction(params as T)
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -283,7 +300,15 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                 </div>
               </AccordionTrigger>
               <AccordionContent>
-                <div className="space-y-4 px-4">
+                <div className="flex flex-col space-y-4 px-4">
+                  {validationErrors && (
+                    <div className="flex items-center space-x-2">
+                      <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+                      <span className="text-xs text-rose-500">
+                        Validation errors occurred, please see below.
+                      </span>
+                    </div>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     Edit the action inputs in YAML below.
                   </span>
@@ -291,11 +316,12 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                     inputs={actionInputs}
                     setInputs={setActionInputs}
                   />
-                  {JSONViewerrors && (
-                    <div className="rounded-md border-2 border-rose-500 bg-rose-100 p-4 font-mono text-rose-600">
+                  {validationErrors && (
+                    <div className="rounded-md border-2 border-rose-500 bg-rose-100 p-4 font-mono text-xs text-rose-600">
                       <span className="font-bold">Validation Errors</span>
                       <Separator className="my-2 bg-rose-400" />
-                      <pre>{YAML.stringify(JSONViewerrors)}</pre>
+                      <span>{validationErrors.message}</span>
+                      <pre>{YAML.stringify(validationErrors.detail)}</pre>
                     </div>
                   )}
                 </div>
