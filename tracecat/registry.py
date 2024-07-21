@@ -29,6 +29,10 @@ class RegistrySecret(BaseModel):
     keys: list[SecretKey]
 
 
+class RegistryUDFError(TracecatException):
+    """Exception raised when a registry UDF error occurs."""
+
+
 class RegistryValidationError(TracecatException):
     """Exception raised when a registry validation error occurs."""
 

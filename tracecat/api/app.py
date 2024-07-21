@@ -90,13 +90,13 @@ from tracecat.types.api import (
 )
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.workflow.executions import WorkflowExecutionsService
 from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
     EventHistoryResponse,
     WorkflowExecutionResponse,
 )
-from tracecat.workflow.service import WorkflowExecutionsService
 
 engine: Engine
 
@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
 
 
 def custom_generate_unique_id(route: APIRoute):
-    logger.info("Generating unique ID for route", tags=route.tags, name=route.name)
+    logger.trace("Generating unique ID for route", tags=route.tags, name=route.name)
     if route.tags:
         return f"{route.tags[0]}-{route.name}"
     return route.name
@@ -361,7 +361,7 @@ async def incoming_webhook(
     )
 
     service = await WorkflowExecutionsService.connect()
-    response = service.create_workflow_execution(
+    response = service.create_workflow_execution_nowait(
         dsl=dsl_input,
         wf_id=path,
         payload=payload,
@@ -487,7 +487,7 @@ async def webhook_callback(
             dsl_input = DSLInput(**defn.content)
 
             wf_exec_service = await WorkflowExecutionsService.connect()
-            response = wf_exec_service.create_workflow_execution(
+            response = wf_exec_service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=path,
                 payload=payload,
@@ -1006,7 +1006,7 @@ async def create_workflow_execution(
             ) from e
         dsl_input = DSLInput(**defn.content)
         try:
-            response = service.create_workflow_execution(
+            response = service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=params.workflow_id,
                 payload=params.inputs,

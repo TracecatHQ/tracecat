@@ -277,6 +277,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         />
       </div>
     ),
+    "core.workflow": ({ className, ...rest }) => (
+      <div className={cn("bg-violet-200/70", basicIconsCommon, className)}>
+        <WorkflowIcon {...rest} />
+      </div>
+    ),
     // AWS namespace
     aws_cloudtrail: ({ className, ...rest }: IconProps) => (
       <svg

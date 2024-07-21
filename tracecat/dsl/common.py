@@ -10,13 +10,16 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat import identifiers
+from tracecat.contexts import RunContext
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.graph import RFEdge, RFGraph, UDFNode, UDFNodeData
 from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
+from tracecat.identifiers import WorkflowID
 from tracecat.logging import logger
 from tracecat.parse import traverse_leaves
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatDSLError, TracecatValidationError
 
 
@@ -61,10 +64,8 @@ class DSLInput(BaseModel):
     inputs: dict[str, Any] = Field(
         default_factory=dict, description="Static input parameters"
     )
-    trigger_inputs: dict[str, Any] = Field(
-        default_factory=dict, description="Dynamic input parameters"
-    )
     tests: list[ActionTest] = Field(default_factory=list, description="Action tests")
+    returns: Any | None = Field(None, description="The action ref or value to return.")
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
@@ -217,3 +218,12 @@ class DSLInput(BaseModel):
         except Exception as e:
             logger.opt(exception=e).error("Error creating graph")
             raise e
+
+
+class DSLRunArgs(BaseModel):
+    role: Role
+    dsl: DSLInput
+    wf_id: WorkflowID
+    trigger_inputs: dict[str, Any] | None = None
+    parent_run_context: RunContext | None = None
+    run_config: dict[str, Any] = Field(default_factory=dict)

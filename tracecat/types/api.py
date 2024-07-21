@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from tracecat import identifiers
 from tracecat.db.schemas import Resource, Schedule
@@ -71,7 +71,6 @@ class CreateWorkflowParams(BaseModel):
 
 
 class UpdateWorkflowParams(BaseModel):
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
     title: str | None = None
     description: str | None = None
     status: Literal["online", "offline"] | None = None

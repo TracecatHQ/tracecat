@@ -9,14 +9,17 @@ export const encode = (str: string): string =>
 export const ERROR_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
   "WORKFLOW_EXECUTION_FAILED",
   "ACTIVITY_TASK_FAILED",
+  "CHILD_WORKFLOW_EXECUTION_FAILED",
 ] as const
 export const SUCCESS_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
   "ACTIVITY_TASK_COMPLETED",
   "WORKFLOW_EXECUTION_COMPLETED",
+  "CHILD_WORKFLOW_EXECUTION_COMPLETED",
 ] as const
 export const STARTED_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
   "ACTIVITY_TASK_STARTED",
   "WORKFLOW_EXECUTION_STARTED",
+  "CHILD_WORKFLOW_EXECUTION_STARTED",
 ] as const
 
 export type Input = {
@@ -47,43 +50,6 @@ export type ActivityTaskStartedEvent = Omit<EventHistoryResponse, "details"> & {
   details: ActivityTaskScheduledEventDetails
 }
 
-export function getEventDetails(event: EventHistoryResponse) {
-  switch (event.event_type) {
-    case "WORKFLOW_EXECUTION_STARTED":
-      return getWorkflowExecutionStartedDetails(
-        event as WorkflowExecutionStartedEvent
-      )
-    case "WORKFLOW_EXECUTION_COMPLETED":
-      return "Workflow Execution Completed"
-    case "WORKFLOW_EXECUTION_FAILED":
-      return "Workflow Execution Failed"
-    // case "ACTIVITY_TASK_SCHEDULED":
-    //   return (event.details as ActivityTaskScheduledEventDetails).input
-    case "ACTIVITY_TASK_STARTED":
-      return "Activity Task Started"
-    case "ACTIVITY_TASK_COMPLETED":
-      return "Activity Task Completed"
-    case "ACTIVITY_TASK_FAILED":
-      return "Activity Task Failed"
-    default:
-      return "Unknown event history type, please check the logs"
-  }
-}
-
-export function getWorkflowExecutionStartedDetails(
-  event: WorkflowExecutionStartedEvent
-) {
-  // Get the details from the event
-  event.details.input.payloads.forEach((payload) => {
-    // Decode the data
-    const decodedData = decode(payload.data)
-    // Parse the data
-    const parsedData = JSON.parse(decodedData)
-    console.log(parsedData)
-  })
-  return "Workflow Execution Started"
-}
-
 export function parseEventType(eventType: EventHistoryResponse["event_type"]) {
   return eventType
     .toString()
@@ -111,18 +77,4 @@ export function getRelativeTime(date: Date) {
   if (minutes > 0) return `about ${minutes} minute${minutes > 1 ? "s" : ""} ago`
   if (seconds > 0) return `${seconds} second${seconds > 1 ? "s" : ""} ago`
   return "just now"
-}
-
-export function getColorScheme(eventType: EventHistoryResponse["event_type"]) {
-  if (ERROR_EVENT_TYPES.includes(eventType)) return "bg-rose-100"
-  if (STARTED_EVENT_TYPES.includes(eventType)) return "bg-sky-100"
-
-  switch (eventType) {
-    case "ACTIVITY_TASK_COMPLETED":
-      return "bg-sky-100"
-    case "WORKFLOW_EXECUTION_COMPLETED":
-      return "bg-emerald-100"
-    default:
-      return "bg-gray-100"
-  }
 }

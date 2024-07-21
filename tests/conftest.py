@@ -49,7 +49,7 @@ def auth_sandbox():
     from tracecat.types.auth import Role
 
     service_role = Role(
-        type="service", user_id="test-tracecat-user", service_id="tracecat-runner"
+        type="service", user_id="default-tracecat-user", service_id="tracecat-runner"
     )
     ctx_role.set(service_role)
     yield

@@ -21,20 +21,21 @@ from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
+from tests import shared
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import (
     DSLActivities,
     DSLContext,
-    DSLRunArgs,
     DSLWorkflow,
     retry_policies,
 )
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
+from tracecat.workflow.definitions import get_workflow_definition_activity
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
@@ -395,3 +396,46 @@ async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbo
                 retry_policy=retry_policies["workflow:fail_fast"],
             )
             assert "Couldn't resolve expression 'ACTIONS.a.result.invalid'" in str(e)
+
+
+@pytest.mark.asyncio
+async def test_child_workflow_success(
+    temporal_cluster, mock_registry, auth_sandbox, env_sandbox
+):
+    test_name = "unit_child_workflow_parent"
+    data_path = DATA_PATH / f"{test_name}.yml"
+    expected_path = DATA_PATH / f"{test_name}_expected.yml"
+    dsl = DSLInput.from_yaml(data_path)
+
+    expected = _get_expected(expected_path)
+
+    test_name = f"test_child_workflow_success-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    client = await get_temporal_client()
+    res = await shared.create_workflow(title="__test_child_workflow")
+    child_workflow_id = res["id"]
+
+    # Inject child workflow id
+    dsl.actions[0].args["workflow_id"] = child_workflow_id
+
+    await shared.commit_workflow(
+        DATA_PATH / "unit_child_workflow_child.yml", workflow_id=child_workflow_id
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    async with Worker(
+        client,
+        task_queue=queue,
+        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        assert result == expected
