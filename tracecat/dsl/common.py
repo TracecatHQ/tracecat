@@ -69,9 +69,16 @@ class DSLInput(BaseModel):
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
         if not self.actions:
-            raise TracecatDSLError("At least one action must be defined")
+            raise TracecatDSLError("At least one action must be defined.")
         if len({action.ref for action in self.actions}) != len(self.actions):
-            raise TracecatDSLError("All task.ref must be unique")
+            counter = {}
+            for action in self.actions:
+                counter[action.ref] = counter.get(action.ref, 0) + 1
+            duplicates = ", ".join(f"{k!r}" for k, v in counter.items() if v > 1)
+            raise TracecatDSLError(
+                "All action references (the action title in snake case) must be unique."
+                f" Duplicate refs: {duplicates}"
+            )
         valid_actions = tuple(action.ref for action in self.actions)
         if self.entrypoint.ref not in valid_actions:
             raise TracecatDSLError(
