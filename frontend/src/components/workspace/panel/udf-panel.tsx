@@ -22,6 +22,7 @@ import YAML from "yaml"
 
 import { usePanelAction } from "@/lib/hooks"
 import { useUDFSchema } from "@/lib/udf"
+import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -82,7 +83,9 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
     values: {
       title: action?.title,
       description: action?.description,
-      inputs: YAML.stringify(action?.inputs ?? ""),
+      inputs: isEmptyObjectOrNullish(action?.inputs)
+        ? ""
+        : YAML.stringify(action?.inputs),
     },
   })
 
@@ -113,8 +116,9 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
     )
   }
 
-  const onSubmit = async (values: FieldValues) => {
-    const actionInputs = YAML.parse(values.inputs)
+  const onSubmit = async (values: UDFFormSchema) => {
+    const { inputs } = values
+    const actionInputs = inputs ? YAML.parse(inputs) : {}
     try {
       const validateResponse = await udfsValidateUdfArgs({
         udfKey: udf.key,
