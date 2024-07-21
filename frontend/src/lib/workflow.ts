@@ -17,10 +17,10 @@ import { client } from "@/lib/api"
 
 export async function updateWorkflowGraphObject(
   workflowId: string,
-  reactFlowInstance: ReactFlowInstance | null
+  reactFlowInstance: ReactFlowInstance
 ) {
   try {
-    const object = reactFlowInstance ? reactFlowInstance.toObject() : null
+    const object = reactFlowInstance.toObject()
     await client.patch(`/workflows/${workflowId}`, {
       object,
     })

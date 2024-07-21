@@ -293,12 +293,14 @@ def validate_incoming_webhook(
         try:
             defn = result.first()
             if not defn:
-                raise NoResultFound("No workflow definition found for workflow ID")
+                raise NoResultFound(
+                    "No workflow definition found for workflow ID. Please commit your changes to the workflow and try again."
+                )
         except NoResultFound as e:
             # No workflow associated with the webhook
-            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            logger.error(str(e), error=e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
             ) from e
 
         # Check if the workflow is active
