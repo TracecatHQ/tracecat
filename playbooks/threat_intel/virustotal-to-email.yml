@@ -12,7 +12,7 @@ actions:
   # Using the hash from the webhook trigger, we'll make
   # an API call to Virustotal
   - ref: call_virustotal
-    action: integrations.enrich.virustotal.analyze_url
+    action: integrations.virustotal.analyze_url
     args:
       url: ${{ TRIGGER.url }} # Pulls from the webhoo
 
