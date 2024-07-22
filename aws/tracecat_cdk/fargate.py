@@ -492,7 +492,7 @@ class FargateStack(Stack):
                 ecs.PortMapping(
                     container_port=7233,
                     name="temporal",
-                    app_protocol=ecs.AppProtocol.http,
+                    app_protocol=ecs.AppProtocol.grpc,
                 )
             ],
             logging=ecs.LogDrivers.aws_logs(
