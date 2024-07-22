@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
 from tracecat.expressions.core import Expression, TemplateExpression
-from tracecat.expressions.shared import ExprContext
+from tracecat.expressions.shared import ExprContext, IterableExpr
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
@@ -109,3 +109,21 @@ def extract_expressions(templated_obj: Any) -> list[Expression]:
 
     _eval_templated_obj_rec(templated_obj, operator)
     return exprs
+
+
+def get_iterables_from_expression(
+    expr: str, operand: OperandType
+) -> list[IterableExpr]:
+    iterable_exprs: IterableExpr | list[IterableExpr] = eval_templated_object(
+        expr, operand=operand
+    )
+    if isinstance(iterable_exprs, IterableExpr):
+        iterable_exprs = [iterable_exprs]
+    elif not (
+        isinstance(iterable_exprs, list)
+        and all(isinstance(expr, IterableExpr) for expr in iterable_exprs)
+    ):
+        raise ValueError(
+            "Invalid for_each expression. Must be an IterableExpr or a list of IterableExprs."
+        )
+    return iterable_exprs

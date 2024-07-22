@@ -69,70 +69,13 @@ export type ActionTest = {
     failure?: unknown;
 };
 
-export type Body_cases_streaming_autofill_case_fields = {
-    cases: Array<Case_Input>;
-    fields: Array<(string)>;
-};
-
 export type Body_validate_workflow = {
     definition: (Blob | File);
     payload?: (Blob | File);
 };
 
 export type Body_workflows_commit_workflow = {
-    yaml_file?: (Blob | File);
-};
-
-/**
- * Case model used in the API and runner.
- */
-export type Case_Input = {
-    id?: string;
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: ListModel_CaseContext__Input;
-    suppression: ListModel_Suppression_;
-    tags: ListModel_Tag_;
-    created_at?: string;
-    updated_at?: string;
-};
-
-export type malice = 'malicious' | 'benign';
-
-export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-
-export type priority = 'low' | 'medium' | 'high' | 'critical';
-
-export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-
-/**
- * Case model used in the API and runner.
- */
-export type Case_Output = {
-    id?: string;
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: ListModel_CaseContext__Output;
-    suppression: ListModel_Suppression_;
-    tags: ListModel_Tag_;
-    created_at?: string;
-    updated_at?: string;
+    yaml_file?: (Blob | File) | null;
 };
 
 export type CaseAction = {
@@ -183,21 +126,6 @@ export type CaseEventParams = {
 } | null;
 };
 
-/**
- * Summary statistics for cases over a time period.
- */
-export type CaseMetrics = {
-    statues: Array<{
-        [key: string]: (number);
-    }>;
-    priority: Array<{
-        [key: string]: (number);
-    }>;
-    malice: Array<{
-        [key: string]: (number);
-    }>;
-};
-
 export type CaseParams = {
     id: string;
     owner_id: string;
@@ -211,11 +139,48 @@ export type CaseParams = {
     malice: 'malicious' | 'benign';
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
-    context: ListModel_CaseContext__Input;
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    suppression: ListModel_Suppression_;
+    context: ListModel_CaseContext__Input;
     tags: ListModel_Tag_;
 };
+
+export type malice = 'malicious' | 'benign';
+
+export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
+
+export type priority = 'low' | 'medium' | 'high' | 'critical';
+
+export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
+
+export type CaseResponse = {
+    id: string;
+    owner_id: string;
+    created_at: string;
+    updated_at: string;
+    workflow_id: string;
+    case_title: string;
+    payload: {
+        [key: string]: unknown;
+    };
+    malice: 'malicious' | 'benign';
+    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
+    context: ListModel_CaseContext__Output;
+    tags: ListModel_Tag_;
+};
+
+export type CommitWorkflowResponse = {
+    workflow_id: string;
+    status: 'success' | 'failure';
+    message: string;
+    errors?: Array<UDFArgsValidationResponse> | null;
+    metadata?: {
+    [key: string]: unknown;
+} | null;
+};
+
+export type status2 = 'success' | 'failure';
 
 export type CopyWorkflowParams = {
     owner_id: string;
@@ -252,7 +217,7 @@ export type CreateScheduleParams = {
     status?: 'online' | 'offline';
 };
 
-export type status2 = 'online' | 'offline';
+export type status3 = 'online' | 'offline';
 
 /**
  * Create a new secret.
@@ -299,6 +264,73 @@ export type CreateWorkflowParams = {
     description?: string | null;
 };
 
+export type DSLConfig = {
+    scheduler?: 'static' | 'dynamic';
+    /**
+     * Enable runtime action tests. This is dynamically set on workflow entry.
+     */
+    enable_runtime_tests?: boolean;
+};
+
+export type scheduler = 'static' | 'dynamic';
+
+export type DSLEntrypoint = {
+    /**
+     * The entrypoint action ref
+     */
+    ref: string;
+    /**
+     * Expected trigger input shape
+     */
+    expects?: unknown | null;
+};
+
+/**
+ * DSL definition for a workflow.
+ *
+ * The difference between this and a normal workflow engine is that here,
+ * our workflow execution order is defined by the DSL itself, independent
+ * of a workflow scheduler.
+ *
+ * With a traditional
+ * This allows the execution of the workflow to be fully deterministic.
+ */
+export type DSLInput = {
+    title: string;
+    description: string;
+    entrypoint: DSLEntrypoint;
+    actions: Array<ActionStatement>;
+    config?: DSLConfig;
+    triggers?: Array<Trigger>;
+    /**
+     * Static input parameters
+     */
+    inputs?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Action tests
+     */
+    tests?: Array<ActionTest>;
+    /**
+     * The action ref or value to return.
+     */
+    returns?: unknown | null;
+};
+
+export type DSLRunArgs = {
+    role: Role;
+    dsl: DSLInput;
+    wf_id: string;
+    trigger_inputs?: {
+    [key: string]: unknown;
+} | null;
+    parent_run_context?: RunContext | null;
+    run_config?: {
+        [key: string]: unknown;
+    };
+};
+
 export type EventFailure = {
     message: string;
     stack_trace: string;
@@ -319,7 +351,7 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: UDFActionInput;
+    action_input: UDFActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
 };
 
@@ -340,9 +372,20 @@ export type EventHistoryResponse = {
 /**
  * The event types we care about.
  */
-export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED';
+export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
 
 export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
+
+export type GetWorkflowDefinitionActivityInputs = {
+    role: Role;
+    task: ActionStatement;
+    workflow_id: string;
+    trigger_inputs: {
+        [key: string]: unknown;
+    };
+    version?: number | null;
+    run_context: RunContext;
+};
 
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
@@ -351,8 +394,6 @@ export type HTTPValidationError = {
 export type ListModel_CaseContext__Input = Array<CaseContext_Input>;
 
 export type ListModel_CaseContext__Output = Array<tracecat__types__api__CaseContext>;
-
-export type ListModel_Suppression_ = Array<Suppression>;
 
 export type ListModel_Tag_ = Array<Tag>;
 
@@ -468,16 +509,20 @@ export type SecretResponse = {
     keys: Array<(string)>;
 };
 
-export type Suppression = {
-    condition: string;
-    result: string;
-};
-
 export type Tag = {
     tag: string;
     value: string;
-    is_ai_generated?: boolean;
 };
+
+export type Trigger = {
+    type: 'schedule' | 'webhook';
+    ref: string;
+    args?: {
+        [key: string]: unknown;
+    };
+};
+
+export type type2 = 'schedule' | 'webhook';
 
 export type UDFActionInput = {
     task: ActionStatement;
@@ -675,11 +720,11 @@ export type WorkflowExecutionResponse = {
     /**
      * When this workflow run started or should start.
      */
-    execution_time: string;
+    execution_time?: string | null;
     /**
      * When the workflow was closed if closed.
      */
-    close_time: string;
+    close_time?: string | null;
     status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
     workflow_type: string;
     task_queue: string;
@@ -689,7 +734,7 @@ export type WorkflowExecutionResponse = {
     history_length: number;
 };
 
-export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
+export type status4 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
 
 export type WorkflowMetadataResponse = {
     id: string;
@@ -802,7 +847,7 @@ export type WorkflowsCommitWorkflowData = {
     workflowId: string;
 };
 
-export type WorkflowsCommitWorkflowResponse = unknown;
+export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
 
 export type WorkflowsGetWorkflowDefinitionData = {
     version?: number | null;
@@ -810,6 +855,12 @@ export type WorkflowsGetWorkflowDefinitionData = {
 };
 
 export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition;
+
+export type WorkflowsCreateWorkflowDefinitionData = {
+    workflowId: string;
+};
+
+export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition;
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
     workflowId?: string | null;
@@ -929,21 +980,21 @@ export type CasesCreateCaseData = {
     workflowId: string;
 };
 
-export type CasesCreateCaseResponse = unknown;
+export type CasesCreateCaseResponse = CaseResponse;
 
 export type CasesListCasesData = {
     limit?: number;
     workflowId: string;
 };
 
-export type CasesListCasesResponse = Array<Case_Output>;
+export type CasesListCasesResponse = Array<CaseResponse>;
 
 export type CasesGetCaseData = {
     caseId: string;
     workflowId: string;
 };
 
-export type CasesGetCaseResponse = Case_Output;
+export type CasesGetCaseResponse = CaseResponse;
 
 export type CasesUpdateCaseData = {
     caseId: string;
@@ -951,7 +1002,7 @@ export type CasesUpdateCaseData = {
     workflowId: string;
 };
 
-export type CasesUpdateCaseResponse = unknown;
+export type CasesUpdateCaseResponse = CaseResponse;
 
 export type CasesCreateCaseEventData = {
     caseId: string;
@@ -975,13 +1026,6 @@ export type CasesGetCaseEventData = {
 };
 
 export type CasesGetCaseEventResponse = unknown;
-
-export type CasesGetCaseMetricsData = {
-    caseId: string;
-    workflowId: string;
-};
-
-export type CasesGetCaseMetricsResponse = CaseMetrics;
 
 export type CasesListCaseActionsResponse = Array<CaseAction>;
 
@@ -1010,14 +1054,6 @@ export type CasesDeleteCaseContextData = {
 };
 
 export type CasesDeleteCaseContextResponse = unknown;
-
-export type CasesStreamingAutofillCaseFieldsData = {
-    requestBody: Body_cases_streaming_autofill_case_fields;
-};
-
-export type CasesStreamingAutofillCaseFieldsResponse = {
-    [key: string]: (string);
-};
 
 export type UsersGetUserResponse = User;
 
@@ -1233,7 +1269,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: unknown;
+                200: CommitWorkflowResponse;
                 /**
                  * Validation Error
                  */
@@ -1244,6 +1280,19 @@ export type $OpenApiTs = {
     '/workflows/{workflow_id}/definition': {
         get: {
             req: WorkflowsGetWorkflowDefinitionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: WorkflowDefinition;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: WorkflowsCreateWorkflowDefinitionData;
             res: {
                 /**
                  * Successful Response
@@ -1515,7 +1564,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                201: unknown;
+                201: CaseResponse;
                 /**
                  * Validation Error
                  */
@@ -1528,7 +1577,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<Case_Output>;
+                200: Array<CaseResponse>;
                 /**
                  * Validation Error
                  */
@@ -1543,7 +1592,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Case_Output;
+                200: CaseResponse;
                 /**
                  * Validation Error
                  */
@@ -1556,7 +1605,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: unknown;
+                200: CaseResponse;
                 /**
                  * Validation Error
                  */
@@ -1600,21 +1649,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/cases/{case_id}/metrics': {
-        get: {
-            req: CasesGetCaseMetricsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseMetrics;
                 /**
                  * Validation Error
                  */
@@ -1691,23 +1725,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/completions/cases/stream': {
-        post: {
-            req: CasesStreamingAutofillCaseFieldsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: (string);
-                };
                 /**
                  * Validation Error
                  */

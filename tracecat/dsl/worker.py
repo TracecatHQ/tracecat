@@ -17,6 +17,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
     from tracecat.registry import registry
+    from tracecat.workflow.definitions import get_workflow_definition_activity
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to
@@ -57,7 +58,7 @@ async def main() -> None:
     async with Worker(
         client,
         task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
-        activities=DSLActivities.load(),
+        activities=[*DSLActivities.load(), get_workflow_definition_activity],
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):

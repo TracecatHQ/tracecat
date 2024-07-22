@@ -5,7 +5,6 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-import pyarrow as pa
 from pydantic import computed_field, field_validator
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -85,6 +84,23 @@ class Secret(Resource, table=True):
         sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
     )
     owner: User | None = Relationship(back_populates="secrets")
+
+
+class Case(Resource, table=True):
+    """The case state."""
+
+    id: str = Field(
+        default_factory=id_factory("case"), nullable=False, unique=True, index=True
+    )
+    workflow_id: str
+    case_title: str
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    malice: str
+    status: str
+    priority: str
+    action: str | None = None
+    context: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
 
 
 class CaseAction(Resource, table=True):
@@ -318,30 +334,3 @@ class Action(Resource, table=True):
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
         return action.ref(self.title)
-
-
-CaseSchema = pa.schema(
-    [
-        pa.field("id", pa.string(), nullable=False),
-        pa.field("owner_id", pa.string(), nullable=False),
-        pa.field("workflow_id", pa.string(), nullable=False),
-        pa.field("case_title", pa.string(), nullable=False),
-        pa.field("payload", pa.string(), nullable=False),  # JSON-serialized
-        pa.field("context", pa.string(), nullable=True),  # JSON-serialized
-        pa.field("malice", pa.string(), nullable=False),
-        pa.field("status", pa.string(), nullable=False),
-        pa.field("priority", pa.string(), nullable=False),
-        pa.field("action", pa.string(), nullable=True),
-        pa.field("suppression", pa.string(), nullable=True),  # JSON-serialized
-        pa.field("tags", pa.string(), nullable=True),  # JSON-serialized
-        pa.field(
-            "created_at", pa.timestamp("us", tz="UTC"), nullable=True
-        ),  # JSON-serialized
-        pa.field(
-            "updated_at", pa.timestamp("us", tz="UTC"), nullable=True
-        ),  # JSON-serialized
-        # pa.field("_action_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
-        # pa.field("_payload_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
-        # pa.field("_context_vector", pa.list_(pa.float32(), list_size=EMBEDDINGS_SIZE)),
-    ]
-)

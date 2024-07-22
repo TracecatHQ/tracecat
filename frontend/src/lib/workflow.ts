@@ -17,14 +17,13 @@ import { client } from "@/lib/api"
 
 export async function updateWorkflowGraphObject(
   workflowId: string,
-  reactFlowInstance: ReactFlowInstance | null
+  reactFlowInstance: ReactFlowInstance
 ) {
   try {
-    const object = reactFlowInstance ? reactFlowInstance.toObject() : null
+    const object = reactFlowInstance.toObject()
     await client.patch(`/workflows/${workflowId}`, {
       object,
     })
-    console.log("Updated DnD flow object")
   } catch (error) {
     console.error("Error updating DnD flow object:", error)
   }
@@ -196,22 +195,6 @@ export async function triggerWorkflow(
   } catch (error) {
     console.error("Error triggering workflow:", error)
   }
-}
-
-export async function fetchWorkflowRuns(
-  workflowId: string
-): Promise<WorkflowRun[]> {
-  // TODO: Hit workflow executions service
-  return []
-  // try {
-  //   const response = await client.get<WorkflowRun[]>(
-  //     `/workflows/${workflowId}/runs`
-  //   )
-  //   return z.array(workflowRunSchema).parse(response.data)
-  // } catch (error) {
-  //   console.error("Error fetching workflow runs:", error)
-  //   throw error
-  // }
 }
 
 export async function fetchWorkflowRun(

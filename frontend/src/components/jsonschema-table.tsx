@@ -29,7 +29,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
       </TableHeader>
       <TableBody>
         {rows.map((row, idx) => (
-          <HoverCard openDelay={100} closeDelay={100}>
+          <HoverCard openDelay={100} closeDelay={100} key={idx}>
             <HoverCardTrigger asChild className="hover:border-none">
               <TableRow
                 key={idx}
@@ -44,52 +44,55 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                   {typeof row.default === "object"
                     ? JSON.stringify(row.default)
                     : row.default}
+                  {/* This is a hacky solution to avoid `<div> cannot appear as a child of <tr>` */}
+                  <HoverCardContent
+                    className="max-w-300 w-200 space-y-2 p-3"
+                    side="left"
+                    align="start"
+                    sideOffset={20}
+                  >
+                    <div className="flex w-full items-center justify-between text-muted-foreground ">
+                      <span className="font-mono text-sm font-semibold">
+                        {row.parameter}
+                      </span>
+                      <span className="text-xs text-muted-foreground/80">
+                        {row.required ? "(required)" : "(optional)"}
+                      </span>
+                    </div>
+                    <div className="w-full space-y-1">
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        Description
+                      </span>
+                      <p className="text-xs text-foreground/70">
+                        {row.description}
+                      </p>
+                    </div>
+                    <div className="w-full space-y-1">
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        Constraints
+                      </span>
+                      <p className="text-xs text-foreground/70">
+                        {row.constraints || "None"}
+                      </p>
+                    </div>
+                    <div className="w-full space-y-1">
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        Example
+                      </span>
+                      <div className="rounded-md border bg-muted-foreground/10 p-2">
+                        <pre className="text-xs text-foreground/70">
+                          {YAML.stringify(
+                            { placeholder: "Examples coming soon!" },
+                            null,
+                            2
+                          )}
+                        </pre>
+                      </div>
+                    </div>
+                  </HoverCardContent>
                 </TableCell>
               </TableRow>
             </HoverCardTrigger>
-            <HoverCardContent
-              className="max-w-300 w-200 space-y-2 p-3"
-              side="left"
-              align="start"
-              sideOffset={20}
-            >
-              <div className="flex w-full items-center justify-between text-muted-foreground ">
-                <span className="font-mono text-sm font-semibold">
-                  {row.parameter}
-                </span>
-                <span className="text-xs text-muted-foreground/80">
-                  {row.required ? "(required)" : "(optional)"}
-                </span>
-              </div>
-              <div className="w-full space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Description
-                </span>
-                <p className="text-xs text-foreground/70">{row.description}</p>
-              </div>
-              <div className="w-full space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Constraints
-                </span>
-                <p className="text-xs text-foreground/70">
-                  {row.constraints || "None"}
-                </p>
-              </div>
-              <div className="w-full space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Example
-                </span>
-                <div className="rounded-md border bg-muted-foreground/10 p-2">
-                  <pre className="text-xs text-foreground/70">
-                    {YAML.stringify(
-                      { placeholder: "Examples coming soon!" },
-                      null,
-                      2
-                    )}
-                  </pre>
-                </div>
-              </div>
-            </HoverCardContent>
           </HoverCard>
         ))}
       </TableBody>

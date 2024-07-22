@@ -46,6 +46,8 @@ const handleStyle = { width: 8, height: 8 }
 export default React.memo(function UDFNode({
   data: { title, isConfigured, numberOfEvents, type: key },
   selected,
+  sourcePosition,
+  targetPosition,
 }: NodeProps<UDFNodeData>) {
   const id = useNodeId()
   const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
@@ -150,13 +152,13 @@ export default React.memo(function UDFNode({
 
       <Handle
         type="target"
-        position={Position.Top}
+        position={targetPosition ?? Position.Top}
         className="w-16 !bg-gray-500"
         style={handleStyle}
       />
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={sourcePosition ?? Position.Bottom}
         className="w-16 !bg-gray-500"
         style={handleStyle}
       />

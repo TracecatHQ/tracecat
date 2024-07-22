@@ -90,7 +90,7 @@ export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
         type: RFGraphUDFNodeType,
         position: {
           x: selectedNode.position.x,
-          y: selectedNode.position.y + 200,
+          y: selectedNode.position.y + (selectedNode.height ?? 200) + 50,
         },
         data: newNodeData,
       } as UDFNodeType

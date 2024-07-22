@@ -172,28 +172,6 @@ export const $ActionTest = {
     title: 'ActionTest'
 } as const;
 
-export const $Body_cases_streaming_autofill_case_fields = {
-    properties: {
-        cases: {
-            items: {
-                '$ref': '#/components/schemas/Case-Input'
-            },
-            type: 'array',
-            title: 'Cases'
-        },
-        fields: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Fields'
-        }
-    },
-    type: 'object',
-    required: ['cases', 'fields'],
-    title: 'Body_cases-streaming_autofill_case_fields'
-} as const;
-
 export const $Body_validate_workflow = {
     properties: {
         definition: {
@@ -215,149 +193,20 @@ export const $Body_validate_workflow = {
 export const $Body_workflows_commit_workflow = {
     properties: {
         yaml_file: {
-            type: 'string',
-            format: 'binary',
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'binary'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Yaml File'
         }
     },
     type: 'object',
     title: 'Body_workflows-commit_workflow'
-} as const;
-
-export const $Case_Input = {
-    properties: {
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        owner_id: {
-            type: 'string',
-            title: 'Owner Id'
-        },
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        case_title: {
-            type: 'string',
-            title: 'Case Title'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        },
-        malice: {
-            type: 'string',
-            enum: ['malicious', 'benign'],
-            title: 'Malice'
-        },
-        status: {
-            type: 'string',
-            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
-            title: 'Status'
-        },
-        priority: {
-            type: 'string',
-            enum: ['low', 'medium', 'high', 'critical'],
-            title: 'Priority'
-        },
-        action: {
-            type: 'string',
-            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
-            title: 'Action'
-        },
-        context: {
-            '$ref': '#/components/schemas/ListModel_CaseContext_-Input'
-        },
-        suppression: {
-            '$ref': '#/components/schemas/ListModel_Suppression_'
-        },
-        tags: {
-            '$ref': '#/components/schemas/ListModel_Tag_'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'suppression', 'tags'],
-    title: 'Case',
-    description: 'Case model used in the API and runner.'
-} as const;
-
-export const $Case_Output = {
-    properties: {
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        owner_id: {
-            type: 'string',
-            title: 'Owner Id'
-        },
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        case_title: {
-            type: 'string',
-            title: 'Case Title'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        },
-        malice: {
-            type: 'string',
-            enum: ['malicious', 'benign'],
-            title: 'Malice'
-        },
-        status: {
-            type: 'string',
-            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
-            title: 'Status'
-        },
-        priority: {
-            type: 'string',
-            enum: ['low', 'medium', 'high', 'critical'],
-            title: 'Priority'
-        },
-        action: {
-            type: 'string',
-            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
-            title: 'Action'
-        },
-        context: {
-            '$ref': '#/components/schemas/ListModel_CaseContext_-Output'
-        },
-        suppression: {
-            '$ref': '#/components/schemas/ListModel_Suppression_'
-        },
-        tags: {
-            '$ref': '#/components/schemas/ListModel_Tag_'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'suppression', 'tags'],
-    title: 'Case',
-    description: 'Case model used in the API and runner.'
 } as const;
 
 export const $CaseAction = {
@@ -571,66 +420,6 @@ export const $CaseEventParams = {
     title: 'CaseEventParams'
 } as const;
 
-export const $CaseMetrics = {
-    properties: {
-        statues: {
-            items: {
-                additionalProperties: {
-                    anyOf: [
-                        {
-                            type: 'integer'
-                        },
-                        {
-                            type: 'number'
-                        }
-                    ]
-                },
-                type: 'object'
-            },
-            type: 'array',
-            title: 'Statues'
-        },
-        priority: {
-            items: {
-                additionalProperties: {
-                    anyOf: [
-                        {
-                            type: 'integer'
-                        },
-                        {
-                            type: 'number'
-                        }
-                    ]
-                },
-                type: 'object'
-            },
-            type: 'array',
-            title: 'Priority'
-        },
-        malice: {
-            items: {
-                additionalProperties: {
-                    anyOf: [
-                        {
-                            type: 'integer'
-                        },
-                        {
-                            type: 'number'
-                        }
-                    ]
-                },
-                type: 'object'
-            },
-            type: 'array',
-            title: 'Malice'
-        }
-    },
-    type: 'object',
-    required: ['statues', 'priority', 'malice'],
-    title: 'CaseMetrics',
-    description: 'Summary statistics for cases over a time period.'
-} as const;
-
 export const $CaseParams = {
     properties: {
         id: {
@@ -676,24 +465,131 @@ export const $CaseParams = {
             enum: ['low', 'medium', 'high', 'critical'],
             title: 'Priority'
         },
-        context: {
-            '$ref': '#/components/schemas/ListModel_CaseContext_-Input'
-        },
         action: {
             type: 'string',
             enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
             title: 'Action'
         },
-        suppression: {
-            '$ref': '#/components/schemas/ListModel_Suppression_'
+        context: {
+            '$ref': '#/components/schemas/ListModel_CaseContext_-Input'
         },
         tags: {
             '$ref': '#/components/schemas/ListModel_Tag_'
         }
     },
     type: 'object',
-    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'context', 'action', 'suppression', 'tags'],
+    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
     title: 'CaseParams'
+} as const;
+
+export const $CaseResponse = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        owner_id: {
+            type: 'string',
+            title: 'Owner Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        },
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        case_title: {
+            type: 'string',
+            title: 'Case Title'
+        },
+        payload: {
+            type: 'object',
+            title: 'Payload'
+        },
+        malice: {
+            type: 'string',
+            enum: ['malicious', 'benign'],
+            title: 'Malice'
+        },
+        status: {
+            type: 'string',
+            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
+            title: 'Status'
+        },
+        priority: {
+            type: 'string',
+            enum: ['low', 'medium', 'high', 'critical'],
+            title: 'Priority'
+        },
+        action: {
+            type: 'string',
+            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
+            title: 'Action'
+        },
+        context: {
+            '$ref': '#/components/schemas/ListModel_CaseContext_-Output'
+        },
+        tags: {
+            '$ref': '#/components/schemas/ListModel_Tag_'
+        }
+    },
+    type: 'object',
+    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
+    title: 'CaseResponse'
+} as const;
+
+export const $CommitWorkflowResponse = {
+    properties: {
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['success', 'failure'],
+            title: 'Status'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        errors: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/UDFArgsValidationResponse'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Errors'
+        },
+        metadata: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Metadata'
+        }
+    },
+    type: 'object',
+    required: ['workflow_id', 'status', 'message'],
+    title: 'CommitWorkflowResponse'
 } as const;
 
 export const $CopyWorkflowParams = {
@@ -936,7 +832,7 @@ export const $CreateWorkflowExecutionResponse = {
         },
         wf_exec_id: {
             type: 'string',
-            pattern: 'wf-[0-9a-f]{32}:exec-[0-9a-f]{32}',
+            pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+',
             title: 'Wf Exec Id'
         }
     },
@@ -972,6 +868,159 @@ export const $CreateWorkflowParams = {
     },
     type: 'object',
     title: 'CreateWorkflowParams'
+} as const;
+
+export const $DSLConfig = {
+    properties: {
+        scheduler: {
+            type: 'string',
+            enum: ['static', 'dynamic'],
+            title: 'Scheduler',
+            default: 'dynamic'
+        },
+        enable_runtime_tests: {
+            type: 'boolean',
+            title: 'Enable Runtime Tests',
+            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
+            default: false
+        }
+    },
+    type: 'object',
+    title: 'DSLConfig'
+} as const;
+
+export const $DSLEntrypoint = {
+    properties: {
+        ref: {
+            type: 'string',
+            title: 'Ref',
+            description: 'The entrypoint action ref'
+        },
+        expects: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects',
+            description: 'Expected trigger input shape'
+        }
+    },
+    type: 'object',
+    required: ['ref'],
+    title: 'DSLEntrypoint'
+} as const;
+
+export const $DSLInput = {
+    properties: {
+        title: {
+            type: 'string',
+            title: 'Title'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        entrypoint: {
+            '$ref': '#/components/schemas/DSLEntrypoint'
+        },
+        actions: {
+            items: {
+                '$ref': '#/components/schemas/ActionStatement'
+            },
+            type: 'array',
+            title: 'Actions'
+        },
+        config: {
+            '$ref': '#/components/schemas/DSLConfig'
+        },
+        triggers: {
+            items: {
+                '$ref': '#/components/schemas/Trigger'
+            },
+            type: 'array',
+            title: 'Triggers'
+        },
+        inputs: {
+            type: 'object',
+            title: 'Inputs',
+            description: 'Static input parameters'
+        },
+        tests: {
+            items: {
+                '$ref': '#/components/schemas/ActionTest'
+            },
+            type: 'array',
+            title: 'Tests',
+            description: 'Action tests'
+        },
+        returns: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Returns',
+            description: 'The action ref or value to return.'
+        }
+    },
+    type: 'object',
+    required: ['title', 'description', 'entrypoint', 'actions'],
+    title: 'DSLInput',
+    description: `DSL definition for a workflow.
+
+The difference between this and a normal workflow engine is that here,
+our workflow execution order is defined by the DSL itself, independent
+of a workflow scheduler.
+
+With a traditional
+This allows the execution of the workflow to be fully deterministic.`
+} as const;
+
+export const $DSLRunArgs = {
+    properties: {
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        dsl: {
+            '$ref': '#/components/schemas/DSLInput'
+        },
+        wf_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Wf Id'
+        },
+        trigger_inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Trigger Inputs'
+        },
+        parent_run_context: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RunContext'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        run_config: {
+            type: 'object',
+            title: 'Run Config'
+        }
+    },
+    type: 'object',
+    required: ['role', 'dsl', 'wf_id'],
+    title: 'DSLRunArgs'
 } as const;
 
 export const $EventFailure = {
@@ -1047,7 +1096,18 @@ export const $EventGroup = {
             title: 'Action Description'
         },
         action_input: {
-            '$ref': '#/components/schemas/UDFActionInput'
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/UDFActionInput'
+                },
+                {
+                    '$ref': '#/components/schemas/DSLRunArgs'
+                },
+                {
+                    '$ref': '#/components/schemas/GetWorkflowDefinitionActivityInputs'
+                }
+            ],
+            title: 'Action Input'
         },
         action_result: {
             anyOf: [
@@ -1130,7 +1190,7 @@ export const $EventHistoryResponse = {
 
 export const $EventHistoryType = {
     type: 'string',
-    enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED'],
+    enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED', 'CHILD_WORKFLOW_EXECUTION_STARTED', 'CHILD_WORKFLOW_EXECUTION_COMPLETED', 'CHILD_WORKFLOW_EXECUTION_FAILED', 'START_CHILD_WORKFLOW_EXECUTION_INITIATED'],
     title: 'EventHistoryType',
     description: 'The event types we care about.'
 } as const;
@@ -1139,6 +1199,43 @@ export const $ExprContext = {
     type: 'string',
     enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var'],
     title: 'ExprContext'
+} as const;
+
+export const $GetWorkflowDefinitionActivityInputs = {
+    properties: {
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        task: {
+            '$ref': '#/components/schemas/ActionStatement'
+        },
+        workflow_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Workflow Id'
+        },
+        trigger_inputs: {
+            type: 'object',
+            title: 'Trigger Inputs'
+        },
+        version: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Version'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        }
+    },
+    type: 'object',
+    required: ['role', 'task', 'workflow_id', 'trigger_inputs', 'run_context'],
+    title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
 export const $HTTPValidationError = {
@@ -1169,14 +1266,6 @@ export const $ListModel_CaseContext__Output = {
     },
     type: 'array',
     title: 'ListModel[CaseContext]'
-} as const;
-
-export const $ListModel_Suppression_ = {
-    items: {
-        '$ref': '#/components/schemas/Suppression'
-    },
-    type: 'array',
-    title: 'ListModel[Suppression]'
 } as const;
 
 export const $ListModel_Tag_ = {
@@ -1250,7 +1339,7 @@ export const $RunContext = {
             anyOf: [
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[0-9a-f]{32}'
+                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
                 },
                 {
                     type: 'string',
@@ -1575,22 +1664,6 @@ export const $SecretResponse = {
     title: 'SecretResponse'
 } as const;
 
-export const $Suppression = {
-    properties: {
-        condition: {
-            type: 'string',
-            title: 'Condition'
-        },
-        result: {
-            type: 'string',
-            title: 'Result'
-        }
-    },
-    type: 'object',
-    required: ['condition', 'result'],
-    title: 'Suppression'
-} as const;
-
 export const $Tag = {
     properties: {
         tag: {
@@ -1600,16 +1673,33 @@ export const $Tag = {
         value: {
             type: 'string',
             title: 'Value'
-        },
-        is_ai_generated: {
-            type: 'boolean',
-            title: 'Is Ai Generated',
-            default: false
         }
     },
     type: 'object',
     required: ['tag', 'value'],
     title: 'Tag'
+} as const;
+
+export const $Trigger = {
+    properties: {
+        type: {
+            type: 'string',
+            enum: ['schedule', 'webhook'],
+            title: 'Type'
+        },
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref'
+        },
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['type', 'ref'],
+    title: 'Trigger'
 } as const;
 
 export const $UDFActionInput = {
@@ -2304,14 +2394,28 @@ export const $WorkflowExecutionResponse = {
             description: 'The start time of the workflow execution'
         },
         execution_time: {
-            type: 'string',
-            format: 'date-time',
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Execution Time',
             description: 'When this workflow run started or should start.'
         },
         close_time: {
-            type: 'string',
-            format: 'date-time',
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Close Time',
             description: 'When the workflow was closed if closed.'
         },
@@ -2334,7 +2438,7 @@ export const $WorkflowExecutionResponse = {
         }
     },
     type: 'object',
-    required: ['id', 'run_id', 'start_time', 'execution_time', 'close_time', 'status', 'workflow_type', 'task_queue', 'history_length'],
+    required: ['id', 'run_id', 'start_time', 'status', 'workflow_type', 'task_queue', 'history_length'],
     title: 'WorkflowExecutionResponse'
 } as const;
 

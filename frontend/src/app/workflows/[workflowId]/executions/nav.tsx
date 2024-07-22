@@ -96,7 +96,11 @@ export function WorkflowExecutionNav({
                   <Label className="text-xs text-muted-foreground">
                     End Time
                   </Label>
-                  <span>{new Date(execution.close_time).toLocaleString()}</span>
+                  <span>
+                    {execution.close_time
+                      ? new Date(execution.close_time).toLocaleString()
+                      : "-"}
+                  </span>
                 </div>
               </div>
             </HoverCardContent>

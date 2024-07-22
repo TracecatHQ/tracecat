@@ -1,5 +1,5 @@
 import React from "react"
-import { EventHistoryResponse } from "@/client"
+import { DSLRunArgs, EventHistoryResponse, UDFActionInput } from "@/client"
 import JsonView from "react18-json-view"
 
 import {
@@ -107,11 +107,11 @@ export function WorkflowExecutionEventDetailView({
           </AccordionItem>
         )}
 
-        {event.event_group?.action_input.exec_context && (
-          <AccordionItem value="execution-context">
+        {isDSLRunArgs(event.event_group?.action_input) && (
+          <AccordionItem value="result">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-              <div className="flex items-center">
-                <span>Execution Context</span>
+              <div className="flex items-end">
+                <span>Input</span>
               </div>
             </AccordionTrigger>
             <AccordionContent>
@@ -120,7 +120,7 @@ export function WorkflowExecutionEventDetailView({
                   <JsonView
                     displaySize
                     enableClipboard
-                    src={event.event_group?.action_input.exec_context}
+                    src={event?.event_group?.action_input}
                     className="text-sm"
                     theme="atom"
                   />
@@ -128,6 +128,31 @@ export function WorkflowExecutionEventDetailView({
               </div>
             </AccordionContent>
           </AccordionItem>
+        )}
+
+        {isUDFActionInput(event.event_group?.action_input) && (
+          <>
+            <AccordionItem value="result">
+              <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                <div className="flex items-end">
+                  <span>Input</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="my-4 flex flex-col space-y-8 px-4">
+                  <div className="rounded-md border p-4 shadow-md">
+                    <JsonView
+                      displaySize
+                      enableClipboard
+                      src={event.event_group.action_input}
+                      className="text-sm"
+                      theme="atom"
+                    />
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </>
         )}
       </Accordion>
     </div>
@@ -168,11 +193,19 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
             ERROR_EVENT_TYPES.includes(event.event_type) && "bg-rose-100",
             event.event_type == "WORKFLOW_EXECUTION_STARTED" &&
               "bg-emerald-100",
-            event.event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-100",
-            event.event_type == "ACTIVITY_TASK_STARTED" && "bg-violet-200/70",
-            event.event_type == "ACTIVITY_TASK_COMPLETED" && "bg-sky-200/70",
             event.event_type == "WORKFLOW_EXECUTION_COMPLETED" &&
-              "bg-emerald-200"
+              "bg-emerald-200",
+            event.event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-100",
+            event.event_type == "ACTIVITY_TASK_STARTED" && "bg-sky-200/70",
+            event.event_type == "ACTIVITY_TASK_COMPLETED" && "bg-sky-200/70",
+            event.event_type == "START_CHILD_WORKFLOW_EXECUTION_INITIATED" &&
+              "bg-amber-100",
+            event.event_type == "CHILD_WORKFLOW_EXECUTION_STARTED" &&
+              "bg-violet-200/70",
+            event.event_type == "CHILD_WORKFLOW_EXECUTION_COMPLETED" &&
+              "bg-violet-200/70",
+            event.event_type == "CHILD_WORKFLOW_EXECUTION_FAILED" &&
+              "bg-rose-200"
           )}
         />
       </div>
@@ -228,52 +261,13 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
           </>
         )}
       </div>
-      <div className="space-x-2">
-        {event_group?.action_input.task.depends_on && (
-          <>
-            <Label className="w-24 text-xs text-muted-foreground">
-              Dependencies
-            </Label>
-            {event_group.action_input.task.depends_on.map((dep) => (
-              <DescriptorBadge
-                key={dep}
-                text={dep}
-                className="font-mono font-semibold"
-              />
-            ))}
-          </>
-        )}
-      </div>
-      <div className="space-x-2">
-        {event_group?.action_input.task.run_if && (
-          <>
-            <Label className="w-24 text-xs text-muted-foreground">Run If</Label>
-            <DescriptorBadge
-              text={event_group.action_input.task.run_if}
-              className="font-mono font-semibold tracking-tight"
-            />
-          </>
-        )}
-      </div>
-      <div className="space-x-2">
-        {event_group?.action_input.task.for_each && (
-          <>
-            <Label className="w-24 text-xs text-muted-foreground">
-              For Each
-            </Label>
-            {(Array.isArray(event_group.action_input.task.for_each)
-              ? event_group.action_input.task.for_each
-              : [event_group.action_input.task.for_each ?? []]
-            ).map((dep, index) => (
-              <DescriptorBadge
-                key={`${dep}-${index}`}
-                text={dep}
-                className="font-mono font-semibold"
-              />
-            ))}
-          </>
-        )}
-      </div>
+
+      {isUDFActionInput(event_group?.action_input) && (
+        <ActionEventGeneralInfo input={event_group.action_input} />
+      )}
+      {isDSLRunArgs(event_group?.action_input) && (
+        <ChildWorkflowEventGeneralInfo input={event_group.action_input} />
+      )}
     </div>
   )
 }
@@ -289,5 +283,91 @@ export function DescriptorBadge({
     >
       {text}
     </Badge>
+  )
+}
+function ChildWorkflowEventGeneralInfo({ input }: { input: DSLRunArgs }) {
+  return (
+    <div className="space-x-2">
+      <Label className="w-24 text-xs text-muted-foreground">
+        Workflow Title
+      </Label>
+      <DescriptorBadge
+        text={input.dsl.title}
+        className="font-mono font-semibold"
+      />
+    </div>
+  )
+}
+
+function ActionEventGeneralInfo({ input }: { input: UDFActionInput }) {
+  return (
+    <div>
+      <div className="space-x-2">
+        {input.task.depends_on && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              Dependencies
+            </Label>
+            {input.task.depends_on?.map((dep) => (
+              <DescriptorBadge
+                key={dep}
+                text={dep}
+                className="font-mono font-semibold"
+              />
+            ))}
+          </>
+        )}
+      </div>
+      <div className="space-x-2">
+        {input.task.run_if && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">Run If</Label>
+            <DescriptorBadge
+              text={input.task.run_if}
+              className="font-mono font-semibold tracking-tight"
+            />
+          </>
+        )}
+      </div>
+      <div className="space-x-2">
+        {input.task.for_each && (
+          <>
+            <Label className="w-24 text-xs text-muted-foreground">
+              For Each
+            </Label>
+            {(Array.isArray(input.task.for_each)
+              ? input.task.for_each
+              : [input.task.for_each ?? []]
+            ).map((dep, index) => (
+              <DescriptorBadge
+                key={`${dep}-${index}`}
+                text={dep}
+                className="font-mono font-semibold"
+              />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function isUDFActionInput(actionInput: unknown): actionInput is UDFActionInput {
+  return (
+    typeof actionInput === "object" &&
+    actionInput !== null &&
+    "task" in actionInput &&
+    typeof (actionInput as UDFActionInput).task === "object"
+  )
+}
+
+function isDSLRunArgs(actionInput: unknown): actionInput is DSLRunArgs {
+  // Define the conditions to check for DSLRunArgs
+  return (
+    typeof actionInput === "object" &&
+    actionInput !== null &&
+    // Check specific properties of DSLRunArgs
+    typeof (actionInput as DSLRunArgs).dsl === "object" &&
+    (actionInput as DSLRunArgs).wf_id !== undefined
   )
 }

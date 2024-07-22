@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { CheckHealthResponse, PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCopyWorkflowData, WorkflowsCopyWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesGetCaseMetricsData, CasesGetCaseMetricsResponse, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, CasesStreamingAutofillCaseFieldsData, CasesStreamingAutofillCaseFieldsResponse, UsersGetUserResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserResponse, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, ValidateWorkflowData, ValidateWorkflowResponse } from './types.gen';
+import type { CheckHealthResponse, PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCopyWorkflowData, WorkflowsCopyWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, UsersGetUserResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserResponse, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, ValidateWorkflowData, ValidateWorkflowResponse } from './types.gen';
 
 /**
  * Check Health
@@ -196,11 +196,13 @@ export const workflowsCopyWorkflow = (data: WorkflowsCopyWorkflowData): Cancelab
  * Commit Workflow
  * Commit a workflow.
  *
+ * XXX: This is actually creating a workflow definition
+ *
  * This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database.
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.formData
- * @returns unknown Successful Response
+ * @returns CommitWorkflowResponse Successful Response
  * @throws ApiError
  */
 export const workflowsCommitWorkflow = (data: WorkflowsCommitWorkflowData): CancelablePromise<WorkflowsCommitWorkflowResponse> => { return __request(OpenAPI, {
@@ -233,6 +235,25 @@ export const workflowsGetWorkflowDefinition = (data: WorkflowsGetWorkflowDefinit
     },
     query: {
         version: data.version
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Create Workflow Definition
+ * Get the latest version of a workflow definition.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @returns WorkflowDefinition Successful Response
+ * @throws ApiError
+ */
+export const workflowsCreateWorkflowDefinition = (data: WorkflowsCreateWorkflowDefinitionData): CancelablePromise<WorkflowsCreateWorkflowDefinitionResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/workflows/{workflow_id}/definition',
+    path: {
+        workflow_id: data.workflowId
     },
     errors: {
         422: 'Validation Error'
@@ -599,7 +620,7 @@ export const actionsDeleteAction = (data: ActionsDeleteActionData): CancelablePr
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns CaseResponse Successful Response
  * @throws ApiError
  */
 export const casesCreateCase = (data: CasesCreateCaseData): CancelablePromise<CasesCreateCaseResponse> => { return __request(OpenAPI, {
@@ -621,7 +642,7 @@ export const casesCreateCase = (data: CasesCreateCaseData): CancelablePromise<Ca
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.limit
- * @returns Case_Output Successful Response
+ * @returns CaseResponse Successful Response
  * @throws ApiError
  */
 export const casesListCases = (data: CasesListCasesData): CancelablePromise<CasesListCasesResponse> => { return __request(OpenAPI, {
@@ -644,7 +665,7 @@ export const casesListCases = (data: CasesListCasesData): CancelablePromise<Case
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.caseId
- * @returns Case_Output Successful Response
+ * @returns CaseResponse Successful Response
  * @throws ApiError
  */
 export const casesGetCase = (data: CasesGetCaseData): CancelablePromise<CasesGetCaseResponse> => { return __request(OpenAPI, {
@@ -666,7 +687,7 @@ export const casesGetCase = (data: CasesGetCaseData): CancelablePromise<CasesGet
  * @param data.workflowId
  * @param data.caseId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns CaseResponse Successful Response
  * @throws ApiError
  */
 export const casesUpdateCase = (data: CasesUpdateCaseData): CancelablePromise<CasesUpdateCaseResponse> => { return __request(OpenAPI, {
@@ -745,27 +766,6 @@ export const casesGetCaseEvent = (data: CasesGetCaseEventData): CancelablePromis
         workflow_id: data.workflowId,
         case_id: data.caseId,
         event_id: data.eventId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Get Case Metrics
- * **[DEPRECATED]** Get a specific case event metrics for a workflow.
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.caseId
- * @returns CaseMetrics Successful Response
- * @throws ApiError
- */
-export const casesGetCaseMetrics = (data: CasesGetCaseMetricsData): CancelablePromise<CasesGetCaseMetricsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/workflows/{workflow_id}/cases/{case_id}/metrics',
-    path: {
-        workflow_id: data.workflowId,
-        case_id: data.caseId
     },
     errors: {
         422: 'Validation Error'
@@ -863,24 +863,6 @@ export const casesDeleteCaseContext = (data: CasesDeleteCaseContextData): Cancel
     path: {
         case_context_id: data.caseContextId
     },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Streaming Autofill Case Fields
- * Use an LLM to autocomplete fields for cases.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns string Successful Response
- * @throws ApiError
- */
-export const casesStreamingAutofillCaseFields = (data: CasesStreamingAutofillCaseFieldsData): CancelablePromise<CasesStreamingAutofillCaseFieldsResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/completions/cases/stream',
-    body: data.requestBody,
-    mediaType: 'application/json',
     errors: {
         422: 'Validation Error'
     }

@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import orjson
-import polars as pl
 from fastapi import (
     Depends,
     FastAPI,
@@ -19,7 +18,7 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.params import Body
-from fastapi.responses import ORJSONResponse, StreamingResponse
+from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 from sqlalchemy import Engine, delete, or_
@@ -27,11 +26,6 @@ from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlmodel import Session, select
 
 from tracecat import config, identifiers, validation
-from tracecat.api.completions import (
-    CategoryConstraint,
-    FieldCons,
-    stream_case_completions,
-)
 from tracecat.auth.credentials import (
     TemporaryRole,
     authenticate_service,
@@ -39,9 +33,10 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import clone_workflow, create_vdb_conn, get_engine
+from tracecat.db.engine import clone_workflow, get_engine
 from tracecat.db.schemas import (
     Action,
+    Case,
     CaseAction,
     CaseContext,
     CaseEvent,
@@ -71,6 +66,7 @@ from tracecat.types.api import (
     CaseContextParams,
     CaseEventParams,
     CaseParams,
+    CaseResponse,
     CommitWorkflowResponse,
     CopyWorkflowParams,
     CreateActionParams,
@@ -93,15 +89,15 @@ from tracecat.types.api import (
     WorkflowResponse,
 )
 from tracecat.types.auth import Role
-from tracecat.types.cases import Case, CaseMetrics
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
+from tracecat.workflow.definitions import WorkflowDefinitionsService
+from tracecat.workflow.executions import WorkflowExecutionsService
 from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
     EventHistoryResponse,
     WorkflowExecutionResponse,
 )
-from tracecat.workflow.service import WorkflowExecutionsService
 
 engine: Engine
 
@@ -114,7 +110,7 @@ async def lifespan(app: FastAPI):
 
 
 def custom_generate_unique_id(route: APIRoute):
-    logger.info("Generating unique ID for route", tags=route.tags, name=route.name)
+    logger.trace("Generating unique ID for route", tags=route.tags, name=route.name)
     if route.tags:
         return f"{route.tags[0]}-{route.name}"
     return route.name
@@ -298,12 +294,14 @@ def validate_incoming_webhook(
         try:
             defn = result.first()
             if not defn:
-                raise NoResultFound("No workflow definition found for workflow ID")
+                raise NoResultFound(
+                    "No workflow definition found for workflow ID. Please commit your changes to the workflow and try again."
+                )
         except NoResultFound as e:
             # No workflow associated with the webhook
-            logger.opt(exception=e).error("Invalid workflow ID", error=e)
+            logger.error(str(e), error=e)
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
             ) from e
 
         # Check if the workflow is active
@@ -366,7 +364,7 @@ async def incoming_webhook(
     )
 
     service = await WorkflowExecutionsService.connect()
-    response = service.create_workflow_execution(
+    response = service.create_workflow_execution_nowait(
         dsl=dsl_input,
         wf_id=path,
         payload=payload,
@@ -492,7 +490,7 @@ async def webhook_callback(
             dsl_input = DSLInput(**defn.content)
 
             wf_exec_service = await WorkflowExecutionsService.connect()
-            response = wf_exec_service.create_workflow_execution(
+            response = wf_exec_service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=path,
                 payload=payload,
@@ -621,11 +619,10 @@ def get_workflow(
             for action in workflow.actions or []
         }
         # Add webhook/schedules
-        whresponse = WebhookResponse(**workflow.webhook.model_dump())
         return WorkflowResponse(
             **workflow.model_dump(),
             actions=actions_responses,
-            webhook=whresponse,
+            webhook=WebhookResponse(**workflow.webhook.model_dump()),
             schedules=workflow.schedules,
         )
 
@@ -654,7 +651,11 @@ def update_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        for key, value in params.model_dump(exclude_unset=True).items():
+        set_params = params.model_dump(exclude_unset=True)
+        logger.debug(
+            "Updating workflow", workflow_id=workflow_id, set_params=set_params
+        )
+        for key, value in set_params.items():
             # Safe because params has been validated
             setattr(workflow, key, value)
 
@@ -730,10 +731,12 @@ def copy_workflow(
 async def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-    yaml_file: UploadFile = File(None),
+    yaml_file: UploadFile | None = File(None),
     session: Session = Depends(get_session),
-) -> ORJSONResponse:
+) -> CommitWorkflowResponse:
     """Commit a workflow.
+
+    XXX: This is actually creating a workflow definition
 
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
 
@@ -752,7 +755,8 @@ async def commit_workflow(
                 workflow = result.one()
             except NoResultFound as e:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Could not find workflow",
                 ) from e
             # Hydrate actions
             _ = workflow.actions
@@ -791,7 +795,7 @@ async def commit_workflow(
                     message=f"Workflow definition construction failed with {len(construction_errors)} errors",
                     errors=construction_errors,
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
-                ).to_orjson(status.HTTP_400_BAD_REQUEST)
+                )
 
             # When we're here, we've verified that the workflow DSL is structurally sound
             # Now, we have to ensure that the arguments are sound
@@ -807,12 +811,24 @@ async def commit_workflow(
                         for val_res in val_errors
                     ],
                     metadata={"filename": yaml_file.filename} if yaml_file else None,
-                ).to_orjson(status.HTTP_400_BAD_REQUEST)
+                )
 
-            # Phase 1: Commit
-            defn = _create_wf_definition(session, role, workflow_id, dsl)
-            # Phase 2: Backpropagate
-            new_graph = dsl.to_graph(workflow)
+            # Validation is complete. We can now construct the workflow definition
+            # Phase 1: Create workflow definition
+            # Workflow definition uses action.refs to refer to actions
+            # We should only instantiate action refs at workflow    runtime
+            service = WorkflowDefinitionsService(session, role=role)
+            # Creating a workflow definition only uses refs
+            defn = service.create_workflow_definition(workflow_id, dsl)
+            # Phase 2:
+            # We actually only need this if we create workflow from yaml
+            id_factory = identifiers.resource.ResourcePrefix.ACTION.factory()
+            ref2id = {action.ref: action.id or id_factory() for action in dsl.actions}
+            logger.debug("Ref2ID mapping", ref2id=ref2id)
+            # We need the old graph to get the trigger node
+            old_graph = RFGraph.from_workflow(workflow)
+            # Create a new graph structure from the DSL
+            new_graph = dsl.to_graph(trigger_node=old_graph.trigger, ref2id=ref2id)
 
             # Replace Actions
             del_stmt = delete(Action).where(
@@ -822,9 +838,10 @@ async def commit_workflow(
             session.flush()  # Ensure deletions are flushed
             session.refresh(workflow)
 
+            # Here, we're recreating the `Action` objects in the db.
             for act_stmt in dsl.actions:
                 new_action = Action(
-                    id=identifiers.action.key(workflow_id, act_stmt.ref),
+                    id=ref2id[act_stmt.ref],
                     owner_id=role.user_id,
                     workflow_id=workflow_id,
                     type=act_stmt.action,
@@ -854,7 +871,7 @@ async def commit_workflow(
                 status="success",
                 message="Workflow committed successfully.",
                 metadata={"version": defn.version},
-            ).to_orjson(status.HTTP_200_OK)
+            )
 
         except SQLAlchemyError as e:
             session.rollback()
@@ -865,78 +882,46 @@ async def commit_workflow(
             ) from e
 
 
-def _create_wf_definition(
-    session: Session, role: Role, workflow_id: str, dsl: DSLInput
-) -> WorkflowDefinition:
-    statement = (
-        select(WorkflowDefinition)
-        .where(
-            WorkflowDefinition.owner_id == role.user_id,
-            WorkflowDefinition.workflow_id == workflow_id,
-        )
-        .order_by(WorkflowDefinition.version.desc())
-    )
-    result = session.exec(statement)
-    latest_defn = result.first()
-
-    version = latest_defn.version + 1 if latest_defn else 1
-    defn = WorkflowDefinition(
-        owner_id=role.user_id,
-        workflow_id=workflow_id,
-        content=dsl.model_dump(),
-        version=version,
-    )
-    return defn
-
-
 # ----- Workflow Definitions ----- #
 
 
 @app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
 async def list_workflow_definitions(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
+    session: Session = Depends(get_session),
 ) -> list[WorkflowDefinition]:
     """List all workflow definitions for a Workflow."""
-    with Session(engine) as session:
-        statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == role.user_id,
-        )
-        if workflow_id:
-            statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
-        result = session.exec(statement)
-        return result.all()
+    service = WorkflowDefinitionsService(session, role=role)
+    return service.list_workflow_definitions(workflow_id)
 
 
 @app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
 def get_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
     version: int | None = None,
+    session: Session = Depends(get_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
-    with Session(engine) as session:
-        statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == role.user_id,
-            WorkflowDefinition.workflow_id == workflow_id,
+    service = WorkflowDefinitionsService(session, role=role)
+    definition = service.get_definition_by_workflow_id(workflow_id, version=version)
+    if definition is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-        if version:
-            statement = statement.where(WorkflowDefinition.version == version)
-        else:
-            # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())
+    return definition
 
-        result = session.exec(statement)
-        try:
-            defn = result.first()
-            if not defn:
-                raise NoResultFound
-            return defn
-        except NoResultFound as e:
-            logger.opt(exception=e).error("Workflow definition does not exist", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
-            ) from e
+
+@app.post("/workflows/{workflow_id}/definition", tags=["workflows"])
+def create_workflow_definition(
+    role: Annotated[Role, Depends(authenticate_user)],
+    workflow_id: identifiers.WorkflowID,
+    session: Session = Depends(get_session),
+) -> WorkflowDefinition:
+    """Get the latest version of a workflow definition."""
+    service = WorkflowDefinitionsService(session, role=role)
+    return service.create_workflow_definition(workflow_id)
 
 
 # ----- Workflow Executions ----- #
@@ -1012,7 +997,7 @@ async def create_workflow_execution(
             ) from e
         dsl_input = DSLInput(**defn.content)
         try:
-            response = service.create_workflow_execution(
+            response = service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=params.workflow_id,
                 payload=params.inputs,
@@ -1506,16 +1491,33 @@ def create_case(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
     cases: list[CaseParams],
-):
+) -> CaseResponse:
     """Create a new case for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    # Should probably also add a check for existing case IDs
-    new_cases = [
-        Case(**c.model_dump(), owner_id=role.user_id, workflow_id=workflow_id)
-        for c in cases
-    ]
-    tbl.add([case.flatten() for case in new_cases])
+    with Session(engine) as session:
+        case = Case(
+            owner_id=role.user_id,
+            workflow_id=workflow_id,
+            **cases.model_dump(),
+        )
+        session.add(case)
+        session.commit()
+        session.refresh(case)
+
+    return CaseResponse(
+        id=case.id,
+        owner_id=case.owner_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        workflow_id=case.workflow_id,
+        case_title=case.case_title,
+        payload=case.payload,
+        malice=case.malice,
+        status=case.status,
+        priority=case.priority,
+        action=case.action,
+        context=case.context,
+        tags=case.tags,
+    )
 
 
 @app.get("/workflows/{workflow_id}/cases", tags=["cases"])
@@ -1523,19 +1525,38 @@ def list_cases(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     limit: int = 100,
-) -> list[Case]:
+) -> list[CaseResponse]:
     """List all cases for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    result = (
-        tbl.search()
-        .where(f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r})")
-        .select(list(Case.model_fields.keys()))
-        .limit(limit)
-        .to_polars()
-        .to_dicts()
-    )
-    return [Case.from_flattened(c) for c in result]
+    with Session(engine) as session:
+        query = select(Case).where(
+            Case.owner_id == role.user_id, Case.workflow_id == workflow_id
+        )
+        result = session.exec(query)
+        try:
+            cases = result.fetchmany(size=limit)
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            ) from e
+
+    return [
+        CaseResponse(
+            id=case.id,
+            owner_id=case.owner_id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            workflow_id=case.workflow_id,
+            case_title=case.case_title,
+            payload=case.payload,
+            malice=case.malice,
+            status=case.status,
+            priority=case.priority,
+            action=case.action,
+            context=case.context,
+            tags=case.tags,
+        )
+        for case in cases
+    ]
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
@@ -1543,25 +1564,34 @@ def get_case(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     case_id: str,
-) -> Case:
+) -> CaseResponse:
     """Get a specific case for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    result = (
-        tbl.search()
-        .where(
-            f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})"
+    with Session(engine) as session:
+        query = select(Case).where(
+            Case.owner_id == role.user_id,
+            Case.workflow_id == workflow_id,
+            Case.id == case_id,
         )
-        .select(list(Case.model_fields.keys()))
-        .limit(1)
-        .to_polars()
-        .to_dicts()
+        case = session.exec(query).one_or_none()
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            )
+    return CaseResponse(
+        id=case.id,
+        owner_id=case.owner_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        workflow_id=case.workflow_id,
+        case_title=case.case_title,
+        payload=case.payload,
+        malice=case.malice,
+        status=case.status,
+        priority=case.priority,
+        action=case.action,
+        context=case.context,
+        tags=case.tags,
     )
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        )
-    return Case.from_flattened(result[0])
 
 
 @app.post("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
@@ -1570,14 +1600,41 @@ def update_case(
     workflow_id: str,
     case_id: str,
     params: CaseParams,
-):
+) -> CaseResponse:
     """Update a specific case for a workflow."""
-    updated_case = Case.from_params(params, owner_id=role.user_id, id=case_id)
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    tbl.update(
-        where=f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})",
-        values=updated_case.flatten(),
+    with Session(engine) as session:
+        query = select(Case).where(
+            Case.owner_id == role.user_id,
+            Case.workflow_id == workflow_id,
+            Case.id == case_id,
+        )
+        case = session.exec(query).one_or_none()
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            )
+
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safety: params have been validated
+            setattr(case, key, value)
+
+        session.add(case)
+        session.commit()
+        session.refresh(case)
+    return CaseResponse(
+        id=case.id,
+        owner_id=case.owner_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        workflow_id=case.workflow_id,
+        case_title=case.case_title,
+        payload=case.payload,
+        malice=case.malice,
+        status=case.status,
+        priority=case.priority,
+        action=case.action,
+        context=case.context,
+        tags=case.tags,
     )
 
 
@@ -1645,26 +1702,6 @@ def get_case_event(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             )
         return case_event
-
-
-@app.get("/workflows/{workflow_id}/cases/{case_id}/metrics", tags=["cases"])
-def get_case_metrics(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    case_id: str,
-) -> CaseMetrics:
-    """**[DEPRECATED]** Get a specific case event metrics for a workflow."""
-    db = create_vdb_conn()
-    tbl = db.open_table("cases")
-    df = pl.DataFrame(
-        tbl.search()
-        .where(
-            f"(owner_id = {role.user_id!r}) AND (workflow_id = {workflow_id!r}) AND (id = {case_id!r})"
-        )
-        .select(list(Case.model_fields.keys()))
-        .to_arrow()
-    ).to_dicts()
-    return df
 
 
 # ----- Available Case Actions ----- #
@@ -1777,55 +1814,6 @@ def delete_case_context(
         session.delete(action)
         session.commit()
     pass
-
-
-@app.post("/completions/cases/stream", tags=["cases", "completions"])
-async def streaming_autofill_case_fields(
-    role: Annotated[Role, Depends(authenticate_user)],
-    cases: list[Case],  # TODO: Replace this with case IDs
-    fields: list[str],
-) -> dict[str, str]:
-    """Use an LLM to autocomplete fields for cases."""
-    fields_set = set(fields)
-
-    if not fields_set:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields provided for completions",
-        )
-    if not all((f in Case.model_fields) for f in fields_set):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid fields provided for case completions",
-        )
-
-    field_cons_map: FieldCons = {}
-
-    if "tags" in fields_set:
-        # TODO: Rename context to tags, in DB as well
-        case_contexts = list_case_contexts(role)
-        contexts_mapping = (
-            pl.DataFrame(case_contexts)
-            .lazy()
-            .select(
-                pl.col.tag,
-                pl.col.value.str.split(".").list.first(),
-            )
-            .unique()
-            .group_by(pl.col.tag)
-            .agg(pl.col.value)
-            .collect(streaming=True)
-            .to_dicts()
-        )
-        context_cons = [
-            CategoryConstraint.model_validate(d, strict=True) for d in contexts_mapping
-        ]
-        field_cons_map["tags"] = context_cons
-
-    return StreamingResponse(
-        stream_case_completions(cases, field_cons=field_cons_map),
-        media_type="application/x-ndjson",
-    )
 
 
 # ----- Users ----- #

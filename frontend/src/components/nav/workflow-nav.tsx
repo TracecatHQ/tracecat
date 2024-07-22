@@ -3,11 +3,16 @@
 import React, { useCallback } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ApiError, workflowExecutionsCreateWorkflowExecution } from "@/client"
+import {
+  ApiError,
+  UDFArgsValidationResponse,
+  workflowExecutionsCreateWorkflowExecution,
+} from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Editor } from "@monaco-editor/react"
 import {
+  AlertTriangleIcon,
   GitPullRequestCreateArrowIcon,
   PlayIcon,
   ShieldAlertIcon,
@@ -62,15 +67,26 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 export default function WorkflowNav() {
   const { workflow, isLoading, isOnline, setIsOnline, commit } = useWorkflow()
 
+  const [commitErrors, setCommitErrors] = React.useState<
+    UDFArgsValidationResponse[] | null
+  >(null)
+
   const handleCommit = async () => {
     console.log("Committing changes...")
-    await commit()
+    const response = await commit()
+    const { status, errors } = response
+    if (status === "failure") {
+      setCommitErrors(errors || null)
+    } else {
+      setCommitErrors(null)
+    }
   }
 
   if (!workflow || isLoading) {
     return null
   }
 
+  const manualTriggerDisabled = workflow.version === null
   return (
     <div className="flex w-full items-center space-x-8">
       <Breadcrumb>
@@ -89,19 +105,34 @@ export default function WorkflowNav() {
       <div className="flex flex-1 items-center justify-end space-x-6">
         {/* Workflow manual trigger */}
         <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+          <Tooltip>
+            <PopoverTrigger asChild>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+                    disabled={manualTriggerDisabled}
+                  >
+                    <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
+                    <span>Run</span>
+                  </Button>
+                </span>
+              </TooltipTrigger>
+            </PopoverTrigger>
+            <TooltipContent
+              side="bottom"
+              className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
             >
-              <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
-              <span>Run</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="p-3">
-            <WorkflowExecutionControls workflowId={workflow.id} />
-          </PopoverContent>
+              {manualTriggerDisabled
+                ? "Please commit changes to enable manual trigger."
+                : "Run the workflow manually without a webhook."}
+            </TooltipContent>
+            <PopoverContent className="p-3">
+              <WorkflowExecutionControls workflowId={workflow.id} />
+            </PopoverContent>
+          </Tooltip>
         </Popover>
 
         {/* Commit button */}
@@ -111,20 +142,47 @@ export default function WorkflowNav() {
               <Button
                 variant="outline"
                 onClick={handleCommit}
-                className="h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+                className={cn(
+                  "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+                  commitErrors &&
+                    "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+                )}
               >
-                <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
+                {commitErrors ? (
+                  <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
+                ) : (
+                  <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
+                )}
                 Commit
               </Button>
             </TooltipTrigger>
+
             <TooltipContent
               side="bottom"
-              className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
+              className="max-w-72 space-y-2 border bg-background p-0 text-xs text-muted-foreground shadow-lg"
             >
-              Create workflow definition v{(workflow.version || 0) + 1} with
-              your changes.
+              {commitErrors ? (
+                <div className="rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
+                  <span className="text-xs font-bold text-rose-500">
+                    Validation errors:
+                  </span>
+                  <ul className="mt-1 space-y-1">
+                    {commitErrors.map((error, index) => (
+                      <li key={index} className="text-xs">
+                        {error.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <span className="m-2">
+                  Create workflow definition v{(workflow.version || 0) + 1} with
+                  your changes.
+                </span>
+              )}
             </TooltipContent>
           </Tooltip>
+
           <Badge
             variant="secondary"
             className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
@@ -260,7 +318,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
       })
       console.log("Workflow started", response)
       toast({
-        title: `Workflow Run Started`,
+        title: `Workflow run started`,
         description: `${response.wf_exec_id} ${response.message}`,
       })
     } catch (error) {
@@ -295,7 +353,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
             render={({ field }) => (
               <FormItem>
                 <FormControl>
-                  <div className="h-full w-full border">
+                  <div className="size-full border">
                     {/* The json contains the view into the data */}
                     <div className="h-36">
                       <Editor

@@ -1,12 +1,9 @@
 FROM python:3.12-slim-bookworm
 
-ARG LANCEDB_CONFIG_DIR=/var/lib/tracecat/lancedb
 # Define the environment variables
-ENV API_MODULE=tracecat.api.app:app
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV TRACECAT_DIR=/var/lib/tracecat
-ENV LANCEDB_CONFIG_DIR=/var/lib/tracecat/lancedb
 
 # Expose the application port
 EXPOSE $PORT
@@ -56,4 +53,4 @@ RUN pip install -r requirements.txt
 RUN pip install ".[cli]"
 
 # Command to run the application
-CMD ["sh", "-c", "python3 -m uvicorn $API_MODULE --host $HOST --port $PORT --reload"]
+CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]

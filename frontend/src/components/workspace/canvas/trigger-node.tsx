@@ -60,6 +60,7 @@ export const TriggerTypename = "trigger" as const
 export default React.memo(function TriggerNode({
   data: { title, isConfigured, type },
   selected,
+  sourcePosition,
 }: NodeProps<TriggerNodeData>) {
   const { workflow } = useWorkflow()
 
@@ -152,7 +153,7 @@ export default React.memo(function TriggerNode({
 
       <CustomHandle
         type="source"
-        position={Position.Bottom}
+        position={sourcePosition ?? Position.Bottom}
         className="w-16 !bg-gray-500"
         style={{ width: 8, height: 8 }}
         isConnectable={1}

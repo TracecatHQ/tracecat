@@ -1,16 +1,14 @@
 "use client"
 
 import { ColumnDef } from "@tanstack/react-table"
-import { Sparkles } from "lucide-react"
 
 import { type Case } from "@/types/schemas"
 import { cn } from "@/lib/utils"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
-import { priorities, statuses } from "@/components/cases/data/categories"
+import { priorities, statuses } from "@/components/cases/categories"
 import { DataTableColumnHeader } from "@/components/data-table/column-header"
 import { AIGeneratedFlair } from "@/components/flair"
-import { LoadingCellState } from "@/components/loading/table"
 
 export const columns: ColumnDef<Case>[] = [
   {
@@ -204,32 +202,12 @@ export const columns: ColumnDef<Case>[] = [
     },
   },
   {
-    accessorKey: "suppression",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Suppressions" />
-    ),
-    cell: ({ row }) => {
-      const suppressions = row.getValue<Case["suppression"]>("suppression")
-      return <span className="text-xs">{suppressions.length}</span>
-    },
-  },
-  {
     accessorKey: "tags",
     header: ({ column }) => (
-      <DataTableColumnHeader
-        column={column}
-        title="Tags"
-        icon={
-          <Sparkles className="mr-1 size-3 animate-pulse fill-yellow-500 text-yellow-500" />
-        }
-      />
+      <DataTableColumnHeader column={column} title="Tags" />
     ),
-    cell: ({ row, table }) => {
+    cell: ({ row }) => {
       const tags = row.getValue<Case["tags"]>("tags")
-      // NOTE: Only run on empty tags, but this may change
-      if (table.options.meta?.isProcessing && tags.length === 0) {
-        return <LoadingCellState />
-      }
       return (
         <div className="flex space-x-2">
           <span className="max-w-[300px] flex-col space-y-1 text-xs text-muted-foreground">

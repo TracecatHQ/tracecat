@@ -213,20 +213,6 @@ export function usePanelAction<T extends Record<string, unknown>>(
   }
 }
 
-export function useActionInputs(action?: Action) {
-  const [actionInputs, setActionInputs] = useState<Record<string, unknown>>(
-    action?.inputs || {}
-  )
-
-  useEffect(() => {
-    if (action?.inputs) {
-      setActionInputs(action.inputs)
-    }
-  }, [action?.inputs])
-
-  return { actionInputs, setActionInputs }
-}
-
 export function useUpdateWebhook(workflowId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({

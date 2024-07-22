@@ -18,7 +18,8 @@ from temporalio.client import (
 from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.workflow import DSLRunArgs, DSLWorkflow
+from tracecat.dsl.common import DSLRunArgs
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.types.api import UpdateScheduleParams
 
 if TYPE_CHECKING:
@@ -102,6 +103,7 @@ async def create_schedule(
     offset: timedelta | None = None,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
+    trigger_inputs: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> ScheduleHandle:
     client = await get_temporal_client()
@@ -113,7 +115,12 @@ async def create_schedule(
             action=ScheduleActionStartWorkflow(
                 DSLWorkflow.run,
                 # The args that should run in the scheduled workflow
-                DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=workflow_id),
+                DSLRunArgs(
+                    dsl=dsl,
+                    role=ctx_role.get(),
+                    wf_id=workflow_id,
+                    trigger_inputs=trigger_inputs,
+                ),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
             ),

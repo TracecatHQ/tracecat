@@ -120,21 +120,3 @@ export function durationToHumanReadable(duration: string): string {
 
   return parts.length > 0 ? parts.join(", ") : "0 seconds"
 }
-
-// write some tests
-console.log(
-  durationToISOString({
-    years: 1,
-    months: 2,
-    weeks: 3,
-    days: 4,
-    hours: 5,
-    minutes: 6,
-    seconds: 7,
-  })
-)
-
-console.log(parseISODuration("P1Y2M3W4DT5H6M7S"))
-
-console.log(durationToHumanReadable("P1Y2M3W4DT5H6M7S"))
-// expected
