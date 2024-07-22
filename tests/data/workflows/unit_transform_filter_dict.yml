@@ -1,5 +1,5 @@
-title: Reshape data
-description: Test that we can use a forwarder to reshape data
+title: Filter data
+description: Test to filter data
 entrypoint:
   ref: filter_empty
 inputs: #2D list

@@ -258,7 +258,7 @@
               "pages": [
                 "integrations/udfs/core_transform_build_reference_table",
                 "integrations/udfs/core_transform_filter",
-                "integrations/udfs/core_transform_forward"
+                "integrations/udfs/core_transform_reshape"
               ]
             }
           ]

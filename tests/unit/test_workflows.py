@@ -238,12 +238,12 @@ correctness_test_cases = [
     "unit_conditional_adder_tree_continues",
     "unit_conditional_adder_tree_skip_propagates",
     "unit_conditional_adder_diamond_skip_with_join_weak_dep",
-    "unit_transform_forwarder_loop",
-    "unit_transform_forwarder_loop_chained",
-    "unit_transform_forwarder_arrange",
-    "unit_transform_forwarder_arrange_loop",
-    "unit_transform_forwarder_zip",
-    "unit_transform_forwarder_map_loop",
+    "unit_transform_reshape_loop",
+    "unit_transform_reshape_loop_chained",
+    "unit_transform_reshape_arrange",
+    "unit_transform_reshape_arrange_loop",
+    "unit_transform_reshape_zip",
+    "unit_transform_reshape_map_loop",
     "unit_runtime_test_adder_tree",
     "unit_runtime_test_chain",
     "unit_transform_filter_dict",
@@ -413,15 +413,12 @@ async def test_child_workflow_success(
     wf_exec_id = generate_test_exec_id(test_name)
 
     client = await get_temporal_client()
-    res = await shared.create_workflow(title="__test_child_workflow")
+    res = await shared.create_workflow(file=DATA_PATH / "unit_child_workflow_child.yml")
     child_workflow_id = res["id"]
+    await shared.commit_workflow(child_workflow_id)
 
     # Inject child workflow id
     dsl.actions[0].args["workflow_id"] = child_workflow_id
-
-    await shared.commit_workflow(
-        DATA_PATH / "unit_child_workflow_child.yml", workflow_id=child_workflow_id
-    )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
     async with Worker(
