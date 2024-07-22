@@ -47,15 +47,21 @@ class VpcStack(Stack):
             vpc=vpc,
             description="Security group for Temporal worker services",
         )
+        # backend_security_group.add_ingress_rule(
+        #     peer=backend_security_group,
+        #     connection=ec2.Port.tcp(7233),
+        #     description="Allow traffic from Temporal server",
+        # )
+        # backend_security_group.add_ingress_rule(
+        #     peer=backend_security_group,
+        #     connection=ec2.Port.tcp(8000),
+        #     description="Allow traffic from core Tracecat services (API and worker)",
+        # )
+        # TEMPORARY: allow all traffic for testing
         backend_security_group.add_ingress_rule(
             peer=backend_security_group,
-            connection=ec2.Port.tcp(7233),
-            description="Allow traffic from Temporal server",
-        )
-        backend_security_group.add_ingress_rule(
-            peer=backend_security_group,
-            connection=ec2.Port.tcp(8000),
-            description="Allow traffic from core Tracecat services (API and worker)",
+            connection=ec2.Port.all_traffic(),
+            description="Allow all traffic for testing",
         )
 
         self.frontend_security_group = frontend_security_group
