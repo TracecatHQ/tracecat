@@ -413,15 +413,12 @@ async def test_child_workflow_success(
     wf_exec_id = generate_test_exec_id(test_name)
 
     client = await get_temporal_client()
-    res = await shared.create_workflow(title="__test_child_workflow")
+    res = await shared.create_workflow(file=DATA_PATH / "unit_child_workflow_child.yml")
     child_workflow_id = res["id"]
+    await shared.commit_workflow(child_workflow_id)
 
     # Inject child workflow id
     dsl.actions[0].args["workflow_id"] = child_workflow_id
-
-    await shared.commit_workflow(
-        DATA_PATH / "unit_child_workflow_child.yml", workflow_id=child_workflow_id
-    )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
     async with Worker(

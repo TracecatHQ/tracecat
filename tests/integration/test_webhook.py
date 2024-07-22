@@ -27,9 +27,7 @@ def test_webhook_runs_successfully(filename, trigger_data):
             "tracecat",
             "workflow",
             "create",
-            "--title",
-            filename,
-            "--commit",
+            "--file",
             path.as_posix(),
             "--activate",
             "--webhook",
@@ -40,7 +38,6 @@ def test_webhook_runs_successfully(filename, trigger_data):
     # Use regex to extract the workflow ID
     # Example output: {"id":"wf-60f4b1b1d4b3b00001f3b3b1"}
     assert "Created workflow" in output.stdout
-    assert "Successfully committed to workflow" in output.stdout
     assert output.returncode == 0
     workflow_id = re.search(r"'id':\s*'(wf-[0-9a-f]+)'", output.stdout).group(1)
     # Run the workflow
