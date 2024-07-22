@@ -259,6 +259,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Send {...rest} />
       </div>
     ),
+    "core.send_email_smtp": ({ className, ...rest }) => (
+      <div className={cn("bg-lime-100", basicIconsCommon, className)}>
+        <Send {...rest} />
+      </div>
+    ),
     /* AI subnamespace */
     "core.ai_action": ({ className, flairsize = "md", ...rest }) => (
       <div
