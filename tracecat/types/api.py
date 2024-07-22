@@ -42,6 +42,7 @@ class WorkflowResponse(BaseModel):
     webhook: WebhookResponse
     schedules: list[Schedule]
     entrypoint: str | None
+    static_inputs: dict[str, Any]
 
 
 class ActionMetadataResponse(BaseModel):
@@ -78,6 +79,7 @@ class UpdateWorkflowParams(BaseModel):
     version: int | None = None
     entrypoint: str | None = None
     icon_url: str | None = None
+    static_inputs: dict[str, Any] | None = None
 
 
 class CreateActionParams(BaseModel):
