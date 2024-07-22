@@ -94,7 +94,10 @@ export const workflowsListWorkflows = (data: WorkflowsListWorkflowsData = {}): C
 
 /**
  * Create Workflow
- * Create new Workflow with title and description.
+ * Create new Workflow.
+ *
+ * Optionally, you can provide a YAML file to create a workflow.
+ * You can also provide a title and description to create a blank workflow.
  * @param data The data for the request.
  * @param data.formData
  * @returns WorkflowMetadataResponse Successful Response

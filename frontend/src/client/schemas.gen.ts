@@ -2562,10 +2562,14 @@ export const $WorkflowResponse = {
                 }
             ],
             title: 'Entrypoint'
+        },
+        static_inputs: {
+            type: 'object',
+            title: 'Static Inputs'
         }
     },
     type: 'object',
-    required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint'],
+    required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'static_inputs'],
     title: 'WorkflowResponse'
 } as const;
 

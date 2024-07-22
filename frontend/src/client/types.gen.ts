@@ -760,6 +760,9 @@ export type WorkflowResponse = {
     webhook: WebhookResponse;
     schedules: Array<Schedule>;
     entrypoint: string | null;
+    static_inputs: {
+        [key: string]: unknown;
+    };
 };
 
 export type tracecat__db__schemas__CaseContext = {
