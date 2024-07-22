@@ -1,50 +1,143 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { PlusCircleIcon } from "lucide-react"
+import { workflowsCreateWorkflow } from "@/client"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { BracesIcon, ChevronDownIcon, PlusCircleIcon } from "lucide-react"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
 
-import { createWorkflow } from "@/lib/workflow"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 
-const CreateWorkflowButton: React.FC = () => {
+const formSchema = z.object({
+  file: z.instanceof(File).refine((file) => file.size <= 5000000, {
+    message: "File size must be less than 5MB.",
+  }),
+})
+
+type FormValues = z.infer<typeof formSchema>
+export function CreateWorkflowButton() {
   const router = useRouter()
-
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+  })
   const handleCreateWorkflow = async () => {
     try {
-      // Get the current date and format it
-      const currentDate = new Date()
-      const formattedDate = currentDate.toLocaleString("en-US", {
-        month: "short",
-        day: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      })
-      const title = `${formattedDate}`
-      const description = `New workflow created ${formattedDate}.`
-
-      const response = await createWorkflow(title, description)
-
-      // Redirect to the new workflow's page
+      const response = await workflowsCreateWorkflow()
       router.push(`/workflows/${response.id}`)
     } catch (error) {
-      console.error("Error adding workflow:", error)
+      console.error("Error creating workflow:", error)
+    }
+  }
+
+  const onSubmit = async (data: FormValues) => {
+    try {
+      const response = await workflowsCreateWorkflow({
+        formData: {
+          file: new Blob([data.file], { type: "application/yaml" }),
+        },
+      })
+      router.push(`/workflows/${response.id}`)
+    } catch (error) {
+      console.error("Error creating workflow:", error)
     }
   }
 
   return (
-    <Button
-      variant="outline"
-      role="combobox"
-      className="space-x-2"
-      onClick={handleCreateWorkflow}
-    >
-      <PlusCircleIcon className="size-4" />
-      <span>New workflow</span>
-    </Button>
+    <Dialog>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            role="combobox"
+            className="items-center space-x-2 bg-emerald-500 font-extrabold tracking-wide text-white shadow-sm hover:bg-emerald-500"
+          >
+            <span>Create New</span>
+            <ChevronDownIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-48 text-xs" align="end">
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              onClick={async () => await handleCreateWorkflow()}
+            >
+              Workflow
+              <DropdownMenuShortcut>
+                <PlusCircleIcon className="size-4" />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DialogTrigger asChild>
+              <DropdownMenuItem>
+                From YAML
+                <DropdownMenuShortcut>
+                  <BracesIcon className="size-4" />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </DialogTrigger>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Import workflow from file</DialogTitle>
+          <DialogDescription>
+            Import a workflow from either a YAML file.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            <FormField
+              control={form.control}
+              name="file"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>File</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="file"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          field.onChange(file)
+                        }
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription>Upload a file (max 5MB)</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button type="submit">Upload</Button>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
   )
 }
-
-export default CreateWorkflowButton

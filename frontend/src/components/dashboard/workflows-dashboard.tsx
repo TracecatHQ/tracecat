@@ -5,7 +5,7 @@ import { ConeIcon } from "lucide-react"
 
 import { useWorkflows } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import CreateWorkflowButton from "@/components/dashboard/create-workflow-button"
+import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
 import { AlertNotification } from "@/components/notifications"
 import { ListItemSkeletion } from "@/components/skeletons"
@@ -21,14 +21,14 @@ export function WorkflowsDashboard() {
               Your workflows dashboard.
             </p>
           </div>
-          <div className="ml-auto space-x-2">
-            <CreateWorkflowButton />
+          <div className="ml-auto flex items-center space-x-2">
             <Link href="/playbooks">
               <Button variant="outline" role="combobox" className="space-x-2">
                 <ConeIcon className="size-4 text-emerald-600" />
                 <span>Find playbook</span>
               </Button>
             </Link>
+            <CreateWorkflowButton />
           </div>
         </div>
         <WorkflowList />

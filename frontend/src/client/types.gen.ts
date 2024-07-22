@@ -74,8 +74,10 @@ export type Body_validate_workflow = {
     payload?: (Blob | File);
 };
 
-export type Body_workflows_commit_workflow = {
-    yaml_file?: (Blob | File) | null;
+export type Body_workflows_create_workflow = {
+    title?: string | null;
+    description?: string | null;
+    file?: (Blob | File) | null;
 };
 
 export type CaseAction = {
@@ -257,11 +259,6 @@ export type CreateWorkflowExecutionResponse = {
     message: string;
     wf_id: string;
     wf_exec_id: string;
-};
-
-export type CreateWorkflowParams = {
-    title?: string | null;
-    description?: string | null;
 };
 
 export type DSLConfig = {
@@ -811,7 +808,7 @@ export type WorkflowsListWorkflowsData = {
 export type WorkflowsListWorkflowsResponse = Array<WorkflowMetadataResponse>;
 
 export type WorkflowsCreateWorkflowData = {
-    requestBody: CreateWorkflowParams;
+    formData?: Body_workflows_create_workflow;
 };
 
 export type WorkflowsCreateWorkflowResponse = WorkflowMetadataResponse;
@@ -843,7 +840,6 @@ export type WorkflowsCopyWorkflowData = {
 export type WorkflowsCopyWorkflowResponse = void;
 
 export type WorkflowsCommitWorkflowData = {
-    formData?: Body_workflows_commit_workflow;
     workflowId: string;
 };
 

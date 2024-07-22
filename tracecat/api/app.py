@@ -4,10 +4,12 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import orjson
+import yaml
 from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -21,8 +23,8 @@ from fastapi.params import Body
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
-from sqlalchemy import Engine, delete, or_
-from sqlalchemy.exc import NoResultFound, SQLAlchemyError
+from sqlalchemy import Engine, or_
+from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
 from tracecat import config, identifiers, validation
@@ -72,7 +74,6 @@ from tracecat.types.api import (
     CreateActionParams,
     CreateScheduleParams,
     CreateSecretParams,
-    CreateWorkflowParams,
     SearchScheduleParams,
     SearchSecretsParams,
     SecretResponse,
@@ -92,6 +93,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
 from tracecat.workflow.definitions import WorkflowDefinitionsService
 from tracecat.workflow.executions import WorkflowExecutionsService
+from tracecat.workflow.management import WorkflowsManagementService
 from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
@@ -548,39 +550,72 @@ def list_workflows(
 
 
 @app.post("/workflows", status_code=status.HTTP_201_CREATED, tags=["workflows"])
-def create_workflow(
+async def create_workflow(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
-    params: CreateWorkflowParams,
+    title: str | None = Form(None),
+    description: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    session: Session = Depends(get_session),
 ) -> WorkflowMetadataResponse:
     """Create new Workflow with title and description."""
+    if file:
+        # if file.content_type in ("application/x-yaml", "text/yaml", "application/json"):
+        try:
+            data = await file.read()
+            if file.content_type in ("application/yaml", "text/yaml"):
+                dsl_data = yaml.safe_load(data)
+            elif file.content_type == "application/json":
+                dsl_data = orjson.loads(data)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid file type {file.content_type}. Only YAML and JSON files are supported.",
+                )
+        except (yaml.YAMLError, orjson.JSONDecodeError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error parsing file: {str(e)}",
+            ) from e
 
-    now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
-    title = now if params.title is None else params.title
-    # Create the message
-    description = (
-        f"New workflow created {now}"
-        if params.description is None
-        else params.description
-    )
-
-    with Session(engine) as session:
-        workflow = Workflow(
-            title=title,
-            description=description,
-            owner_id=role.user_id,
+        service = WorkflowsManagementService(session, role)
+        result = await service.create_workflow_from_dsl(
+            dsl_data, skip_secret_validation=True
         )
+        if result.errors:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "status": "failure",
+                    "message": f"Workflow definition construction failed with {len(result.errors)} errors",
+                    "errors": [e.model_dump() for e in result.errors],
+                },
+            )
+        workflow = result.workflow
+    else:
+        now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+        title = title or now
+        description = description or f"New workflow created {now}"
+
+        workflow = Workflow(title=title, description=description, owner_id=role.user_id)
         # When we create a workflow, we automatically create a webhook
+        # Add the Workflow to the session first to generate an ID
+        session.add(workflow)
+        session.flush()  # Flush to generate workflow.id
+
+        # Create and associate Webhook with the Workflow
         webhook = Webhook(
             owner_id=role.user_id,
             workflow_id=workflow.id,
         )
-        graph = RFGraph.with_defaults(workflow, webhook)
-        workflow.object = graph.model_dump(by_alias=True)
-        session.add(workflow)
         session.add(webhook)
+        workflow.webhook = webhook
+
+        graph = RFGraph.with_defaults(workflow)
+        workflow.object = graph.model_dump(by_alias=True, mode="json")
+        workflow.entrypoint = graph.entrypoint.id if graph.entrypoint else None
+        session.add(workflow)
         session.commit()
         session.refresh(workflow)
-        session.refresh(webhook)
 
     return WorkflowMetadataResponse(
         id=workflow.id,
@@ -651,11 +686,7 @@ def update_workflow(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
             ) from e
 
-        set_params = params.model_dump(exclude_unset=True)
-        logger.debug(
-            "Updating workflow", workflow_id=workflow_id, set_params=set_params
-        )
-        for key, value in set_params.items():
+        for key, value in params.model_dump(exclude_unset=True).items():
             # Safe because params has been validated
             setattr(workflow, key, value)
 
@@ -731,155 +762,102 @@ def copy_workflow(
 async def commit_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
-    yaml_file: UploadFile | None = File(None),
     session: Session = Depends(get_session),
 ) -> CommitWorkflowResponse:
     """Commit a workflow.
 
-    XXX: This is actually creating a workflow definition
-
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
 
+    # XXX: This is actually the logical equivalent of creating a workflow definition (deployment)
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
 
     with logger.contextualize(role=role):
+        # Validate that our target workflow exists
+        # Grab workflow and actions from tables
+        statement = select(Workflow).where(
+            Workflow.owner_id == role.user_id, Workflow.id == workflow_id
+        )
+        result = session.exec(statement)
         try:
-            # Validate that our target workflow exists
-            # Grab workflow and actions from tables
-            statement = select(Workflow).where(
-                Workflow.owner_id == role.user_id,
-                Workflow.id == workflow_id,
-            )
-            result = session.exec(statement)
-            try:
-                workflow = result.one()
-            except NoResultFound as e:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Could not find workflow",
-                ) from e
-            # Hydrate actions
+            workflow = result.one()
+        except NoResultFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Could not find workflow",
+            ) from e
+        # Hydrate actions
+        _ = workflow.actions
+
+        # Perform Tiered Validation
+        # Tier 1: DSLInput validation
+        # Verify that the workflow DSL is structurally sound
+        construction_errors = []
+        try:
+            # Convert the workflow into a WorkflowDefinition
             _ = workflow.actions
-
-            # Perform Tiered Validation
-            # Tier 1: DSLInput validation
-            # Verify that the workflow DSL is structurally sound
-            construction_errors = []
-            try:
-                if yaml_file:
-                    # Uploaded YAML file overrides the workflow in the database
-                    dsl = DSLInput.from_yaml(yaml_file.file)
-                    logger.info("Commiting workflow from yaml file")
-                else:
-                    # Convert the workflow into a WorkflowDefinition
-                    dsl = DSLInput.from_workflow(workflow)
-                    logger.info("Commiting workflow from database")
-            except* TracecatValidationError as eg:
-                logger.error(eg.message, error=eg.exceptions)
-                construction_errors.extend(
-                    UDFArgsValidationResponse.from_dsl_validation_error(e)
-                    for e in eg.exceptions
-                )
-
-            except* ValidationError as eg:
-                logger.error(eg.message, error=eg.exceptions)
-                construction_errors.extend(
-                    UDFArgsValidationResponse.from_pydantic_validation_error(e)
-                    for e in eg.exceptions
-                )
-
-            if construction_errors:
-                return CommitWorkflowResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"Workflow definition construction failed with {len(construction_errors)} errors",
-                    errors=construction_errors,
-                    metadata={"filename": yaml_file.filename} if yaml_file else None,
-                )
-
-            # When we're here, we've verified that the workflow DSL is structurally sound
-            # Now, we have to ensure that the arguments are sound
-
-            if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
-                logger.warning("Validation errors", errors=val_errors)
-                return CommitWorkflowResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"{len(val_errors)} validation error(s)",
-                    errors=[
-                        UDFArgsValidationResponse.from_validation_result(val_res)
-                        for val_res in val_errors
-                    ],
-                    metadata={"filename": yaml_file.filename} if yaml_file else None,
-                )
-
-            # Validation is complete. We can now construct the workflow definition
-            # Phase 1: Create workflow definition
-            # Workflow definition uses action.refs to refer to actions
-            # We should only instantiate action refs at workflow    runtime
-            service = WorkflowDefinitionsService(session, role=role)
-            # Creating a workflow definition only uses refs
-            defn = service.create_workflow_definition(workflow_id, dsl)
-            # Phase 2:
-            # We actually only need this if we create workflow from yaml
-            id_factory = identifiers.resource.ResourcePrefix.ACTION.factory()
-            ref2id = {action.ref: action.id or id_factory() for action in dsl.actions}
-            logger.debug("Ref2ID mapping", ref2id=ref2id)
-            # We need the old graph to get the trigger node
-            old_graph = RFGraph.from_workflow(workflow)
-            # Create a new graph structure from the DSL
-            new_graph = dsl.to_graph(trigger_node=old_graph.trigger, ref2id=ref2id)
-
-            # Replace Actions
-            del_stmt = delete(Action).where(
-                Action.workflow_id == workflow_id, Action.owner_id == role.user_id
+            # XXX: When we commit from the workflow, we have action IDs
+            dsl = DSLInput.from_workflow(workflow)
+        except* TracecatValidationError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            construction_errors.extend(
+                UDFArgsValidationResponse.from_dsl_validation_error(e)
+                for e in eg.exceptions
             )
-            session.exec(del_stmt)
-            session.flush()  # Ensure deletions are flushed
-            session.refresh(workflow)
-
-            # Here, we're recreating the `Action` objects in the db.
-            for act_stmt in dsl.actions:
-                new_action = Action(
-                    id=ref2id[act_stmt.ref],
-                    owner_id=role.user_id,
-                    workflow_id=workflow_id,
-                    type=act_stmt.action,
-                    inputs=act_stmt.args,
-                    title=act_stmt.title,
-                    description=act_stmt.description,
-                )
-                session.add(new_action)
-
-            # Update Workflow
-            workflow.object = new_graph.model_dump(by_alias=True)
-            workflow.version = defn.version
-            workflow.title = dsl.title
-            workflow.description = dsl.description
-            workflow.entrypoint = (
-                new_graph.entrypoint.id if new_graph.entrypoint else None
+        except* ValidationError as eg:
+            logger.error(eg.message, error=eg.exceptions)
+            construction_errors.extend(
+                UDFArgsValidationResponse.from_pydantic_validation_error(e)
+                for e in eg.exceptions
             )
 
-            session.add(workflow)
-            session.add(defn)
-            session.commit()
-            session.refresh(workflow)
-            session.refresh(defn)
-
+        if construction_errors:
             return CommitWorkflowResponse(
                 workflow_id=workflow_id,
-                status="success",
-                message="Workflow committed successfully.",
-                metadata={"version": defn.version},
+                status="failure",
+                message=f"Workflow definition construction failed with {len(construction_errors)} errors",
+                errors=construction_errors,
             )
 
-        except SQLAlchemyError as e:
-            session.rollback()
-            logger.opt(exception=e).error("Error committing workflow", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while committing the workflow.",
-            ) from e
+        # When we're here, we've verified that the workflow DSL is structurally sound
+        # Now, we have to ensure that the arguments are sound
+
+        if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
+            logger.warning("Validation errors", errors=val_errors)
+            return CommitWorkflowResponse(
+                workflow_id=workflow_id,
+                status="failure",
+                message=f"{len(val_errors)} validation error(s)",
+                errors=[
+                    UDFArgsValidationResponse.from_validation_result(val_res)
+                    for val_res in val_errors
+                ],
+            )
+
+        # Validation is complete. We can now construct the workflow definition
+        # Phase 1: Create workflow definition
+        # Workflow definition uses action.refs to refer to actions
+        # We should only instantiate action refs at workflow    runtime
+        service = WorkflowDefinitionsService(session, role=role)
+        # Creating a workflow definition only uses refs
+        defn = service.create_workflow_definition(workflow_id, dsl)
+
+        # Update Workflow
+        # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
+        # We only need to update the workflow definition version
+        workflow.version = defn.version
+
+        session.add(workflow)
+        session.add(defn)
+        session.commit()
+        session.refresh(workflow)
+        session.refresh(defn)
+
+        return CommitWorkflowResponse(
+            workflow_id=workflow_id,
+            status="success",
+            message="Workflow committed successfully.",
+            metadata={"version": defn.version},
+        )
 
 
 # ----- Workflow Definitions ----- #
