@@ -1,16 +1,17 @@
 /** @type {import('next').NextConfig} */
 
-const nextConfig = {}
-
-if (process.env.NODE_ENV !== "production") {
-  nextConfig.reactStrictMode = false
-} else {
-  nextConfig.reactStrictMode = true
-  nextConfig.output = "standalone"
+const nextConfig = {
+  reactStrictMode: true, // Default to true; overridden in development
+  output: "standalone", // Ensure standalone output for production
   generateBuildId: async () => {
     // Return a unique identifier for each build.
-    return Date.now().toString()
-  }
+    return Date.now().toString();
+  },
+};
+
+// Override settings for non-production environments
+if (process.env.NODE_ENV !== "production") {
+  nextConfig.reactStrictMode = false;
 }
 
-export default nextConfig
+export default nextConfig;
