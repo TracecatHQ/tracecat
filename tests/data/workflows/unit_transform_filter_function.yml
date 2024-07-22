@@ -1,5 +1,5 @@
-title: Reshape data
-description: Test that we can use a forwarder to reshape data
+title: Filter data inline
+description: Test to filter data inline
 entrypoint:
   ref: filter_empty
 inputs: #2D list
@@ -13,6 +13,6 @@ inputs: #2D list
 
 actions:
   - ref: filter_empty
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value: ${{ FN.filter(INPUTS.matrix, 'len(x) > 0') }}

@@ -1,5 +1,5 @@
-title: Chained forwarder loop
-description: Test that we can chain for loops back to back
+title: Chained reshape loop
+description: Test that we can chain reshaping for loops back to back
 entrypoint:
   ref: a
 inputs:
@@ -9,12 +9,12 @@ inputs:
 
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     for_each: ${{ for var.x in INPUTS.list }}
     args:
       value: ${{ FN.add(var.x, INPUTS.first) }}
   - ref: b
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - a
     for_each: ${{ for var.x in ACTIONS.a.result }}

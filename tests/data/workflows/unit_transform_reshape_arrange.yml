@@ -1,5 +1,5 @@
 title: Reshape data
-description: Test that we can use a forwarder to reshape data
+description: Test reshape data
 entrypoint:
   ref: flatten
 inputs:
@@ -19,7 +19,7 @@ inputs:
 
 actions:
   - ref: flatten
-    action: core.transform.forward
+    action: core.transform.reshape
     # Flatten the mapping into a list of key-value pairs
     args:
       value:

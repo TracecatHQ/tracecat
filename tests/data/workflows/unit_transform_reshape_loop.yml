@@ -1,5 +1,5 @@
-title: Forwarder loop
-description: Test that we can loop
+title: Reshape loop
+description: Test that we can loop reshape actions
 entrypoint:
   ref: a
 inputs:
@@ -9,7 +9,7 @@ inputs:
 
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     for_each: ${{ for var.x in INPUTS.list }}
     args:
       value: I received ${{ var.x }} from you
