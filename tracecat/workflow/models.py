@@ -18,8 +18,10 @@ from pydantic import (
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
+from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLContext, UDFActionInput
+from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
 from tracecat.workflow.definitions import GetWorkflowDefinitionActivityInputs
 
@@ -251,3 +253,8 @@ class CreateWorkflowExecutionResponse(TypedDict):
 class DispatchWorkflowResult(TypedDict):
     wf_id: identifiers.WorkflowID
     final_context: DSLContext
+
+
+class CreateWorkflowFromDSLResponse(BaseModel):
+    workflow: Workflow | None = None
+    errors: list[UDFArgsValidationResponse] | None = None

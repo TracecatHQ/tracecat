@@ -127,7 +127,7 @@ export default function WorkflowNav() {
             >
               {manualTriggerDisabled
                 ? "Please commit changes to enable manual trigger."
-                : "Run the workflow manually without a webhook."}
+                : "Run the workflow manually without a webhook. Click to configure inputs."}
             </TooltipContent>
             <PopoverContent className="p-3">
               <WorkflowExecutionControls workflowId={workflow.id} />
