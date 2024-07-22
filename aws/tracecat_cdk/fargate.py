@@ -33,13 +33,13 @@ class FargateStack(Stack):
         id: str,
         cluster: ecs.Cluster,
         dns_namespace: servicediscovery.INamespace,
+        frontend_security_group: ec2.SecurityGroup,
+        backend_security_group: ec2.SecurityGroup,
         core_database: rds.DatabaseInstance,
         core_db_secret: secretsmanager.Secret,
-        core_security_group: ec2.SecurityGroup,
         core_db_security_group: ec2.SecurityGroup,
         temporal_database: rds.DatabaseInstance,
         temporal_db_secret: secretsmanager.Secret,
-        temporal_security_group: ec2.SecurityGroup,
         temporal_db_security_group: ec2.SecurityGroup,
         **kwargs,
     ):
@@ -274,7 +274,7 @@ class FargateStack(Stack):
                 ecs.ServiceConnectService(
                     port_mapping_name="worker",
                     dns_name="worker-service",
-                    port=8001,
+                    port=8000,
                     idle_timeout=Duration.minutes(15),
                 )
             ],
@@ -362,8 +362,8 @@ class FargateStack(Stack):
             # Attach the security group to your ECS service
             task_definition=api_task_definition,
             security_groups=[
-                core_security_group,
-                temporal_security_group,
+                frontend_security_group,
+                backend_security_group,
                 core_db_security_group,
             ],
             service_connect_configuration=api_service_connect,
@@ -383,11 +383,12 @@ class FargateStack(Stack):
         worker_task_definition.add_container(  # noqa
             "TracecatWorkerContainer",
             image=ecs.ContainerImage.from_registry(name=TRACECAT_IMAGE),
+            command=["python", "tracecat/dsl/worker.py"],
             environment=tracecat_environment,
             secrets=tracecat_secrets,
             port_mappings=[
                 ecs.PortMapping(
-                    container_port=8001,
+                    container_port=8000,
                     name="worker",
                     app_protocol=ecs.AppProtocol.http,
                 )
@@ -403,11 +404,7 @@ class FargateStack(Stack):
             service_name="tracecat-worker",
             # Attach the security group to your ECS service
             task_definition=worker_task_definition,
-            security_groups=[
-                core_security_group,
-                core_db_security_group,
-                temporal_security_group,
-            ],
+            security_groups=[backend_security_group, core_db_security_group],
             service_connect_configuration=worker_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
@@ -465,7 +462,7 @@ class FargateStack(Stack):
             service_name="tracecat-ui",
             # Attach the security group to your ECS service
             task_definition=ui_task_definition,
-            security_groups=[core_security_group],
+            security_groups=[frontend_security_group],
             service_connect_configuration=ui_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
@@ -495,7 +492,7 @@ class FargateStack(Stack):
                 ecs.PortMapping(
                     container_port=7233,
                     name="temporal",
-                    app_protocol=ecs.AppProtocol.http,
+                    app_protocol=ecs.AppProtocol.grpc,
                 )
             ],
             logging=ecs.LogDrivers.aws_logs(
@@ -509,7 +506,10 @@ class FargateStack(Stack):
             service_name="temporal-server",
             # Attach the security group to your ECS service
             task_definition=temporal_task_definition,
-            security_groups=[temporal_security_group, temporal_db_security_group],
+            security_groups=[
+                backend_security_group,
+                temporal_db_security_group,
+            ],
             service_connect_configuration=temporal_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
