@@ -80,10 +80,14 @@ jobs:
           # Create secrets
           aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
 
-  push-ui-to-ecr:
-    name: Build and push UI Docker image to ECR
+  deploy:
+    name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
+    needs: [create-secrets, push-ui-to-ecr]
+    env:
+      CDK_VERSION: 2.147
     permissions:
       id-token: write # This line allows GitHub Actions to request an OIDC token
       contents: read
@@ -96,7 +100,7 @@ jobs:
         with:
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: GitHubActionsECR
+          role-session-name: GitHubActions
           role-duration-seconds: 3600
 
       - name: Get SHA
@@ -134,29 +138,6 @@ jobs:
             --build-arg NODE_ENV=$NODE_ENV
 
           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
-
-  deploy:
-    name: Deploy AWS CDK Stack
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
-    needs: [create-secrets, push-ui-to-ecr]
-    env:
-      CDK_VERSION: 2.147
-    permissions:
-      id-token: write # This line allows GitHub Actions to request an OIDC token
-      contents: read
-    steps:
-      - name: Checkout 🛎️
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: GitHubActions
-          role-duration-seconds: 3600
 
       - name: Install CDK CLI
         run: npm install -g aws-cdk@${{ env.CDK_VERSION }} && cdk --version
