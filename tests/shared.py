@@ -22,17 +22,29 @@ def user_client() -> httpx.AsyncClient:
     )
 
 
-async def create_workflow(title: str | None = None, description: str | None = None):
-    async with user_client() as client:
-        # Get the webhook url
+async def create_workflow(
+    title: str | None = None, description: str | None = None, file: Path | None = None
+):
+    # Passing a file supercedes creating a blank workflow with title and description
+    if file:
+        with file.open() as f:
+            yaml_content = f.read()
+        async with user_client() as client:
+            res = await client.post(
+                "/workflows",
+                files={"file": (file.name, yaml_content, "application/yaml")},
+            )
+    else:
         params = {}
         if title:
             params["title"] = title
         if description:
             params["description"] = description
-        res = await client.post("/workflows", json=params)
-        res.raise_for_status()
-        return res.json()
+        with user_client() as client:
+            # Get the webhook url
+            res = client.post("/workflows", data=params)
+
+    return handle_response(res)
 
 
 async def activate_workflow(workflow_id: str, with_webhook: bool = False):
@@ -70,17 +82,10 @@ def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:
     return secret_dict
 
 
-async def commit_workflow(yaml_path: Path, workflow_id: str):
-    kwargs = {}
-    if yaml_path:
-        with yaml_path.open() as f:
-            yaml_content = f.read()
-        kwargs["files"] = {
-            "yaml_file": (yaml_path.name, yaml_content, "application/yaml")
-        }
-
+async def commit_workflow(workflow_id: str):
+    """Create a workflow definition from a workflow."""
     async with user_client() as client:
-        res = await client.post(f"/workflows/{workflow_id}/commit", **kwargs)
+        res = await client.post(f"/workflows/{workflow_id}/commit")
         res.raise_for_status()
         return res.json()
 
