@@ -18,11 +18,13 @@ permissions:
   contents: read
   packages: write
 
-jobs:
-  create-secrets:
-    name: Create AWS Secrets
+  deploy:
+    name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
+    env:
+      CDK_VERSION: 2.147
     permissions:
       id-token: write # This line allows GitHub Actions to request an OIDC token
       contents: read
@@ -38,7 +40,7 @@ jobs:
           role-session-name: GitHubActions
           role-duration-seconds: 3600
 
-      - name: Create postgres secrets
+      - name: 🔑 Create postgres secrets
         continue-on-error: true
         run: |
           # Create URL-safe postgres passwords
@@ -52,7 +54,7 @@ jobs:
           aws secretsmanager create-secret --name ${{ vars.TEMPORAL_DB_PASS_NAME }} --secret-string "${TRACECAT__DB_PASS}" --region ${{ secrets.AWS_DEFAULT_REGION }}
           aws secretsmanager create-secret --name ${{ vars.TRACECAT_DB_PASS_NAME }} --secret-string "${TEMPORAL__DB_PASS}" --region ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Create encryption keys
+      - name: 🔑 Create encryption keys
         continue-on-error: true
         run: |
           bash env.sh
@@ -74,33 +76,11 @@ jobs:
           aws secretsmanager create-secret --name ${{ vars.SERVICE_KEY_NAME }} --secret-string "${SERVICE_KEY}" --region ${{ secrets.AWS_DEFAULT_REGION }}
           aws secretsmanager create-secret --name ${{ vars.SIGNING_SECRET_NAME }} --secret-string "${SIGNING_SECRET}" --region ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Create Clerk secrets
+      - name: 🔑 Create Clerk secrets
         continue-on-error: true
         run: |
           # Create secrets
           aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
-
-  deploy:
-    name: Deploy AWS CDK Stack
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
-    env:
-      CDK_VERSION: 2.147
-    permissions:
-      id-token: write # This line allows GitHub Actions to request an OIDC token
-      contents: read
-    steps:
-      - name: Checkout 🛎️
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: GitHubActions
-          role-duration-seconds: 3600
 
       - name: Get SHA
         id: get-sha
