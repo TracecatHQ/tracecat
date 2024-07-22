@@ -94,10 +94,6 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
 
-      - name: Wait for secrets to be created
-        run: sleep 30s
-        shell: bash
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -114,7 +110,15 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Check if image tag exists
+        id: check-image
+        run: |
+          IMAGE_TAG=${{ steps.get-sha.outputs.sha }}
+          REPOSITORY=tracecat-ui
+          aws ecr describe-images --repository-name $REPOSITORY --image-ids imageTag=$IMAGE_TAG > /dev/null 2>&1 && echo "IMAGE_EXISTS=true" >> $GITHUB_ENV || echo "IMAGE_EXISTS=false" >> $GITHUB_ENV
+
       - name: Build, tag, and push docker image to Amazon ECR
+        if: env.IMAGE_EXISTS == 'false'
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           REPOSITORY: tracecat-ui
