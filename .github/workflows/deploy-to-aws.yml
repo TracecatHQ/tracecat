@@ -10,7 +10,7 @@ on:
   pull_request:
     branches: ["main"]
     paths:
-      - aws/stack/*
+      - aws/tracecat_cdk/*
       - aws/app.py
       - .github/workflows/deploy-to-aws.yml
 
@@ -80,10 +80,13 @@ jobs:
           # Create secrets
           aws secretsmanager create-secret --name ${{ vars.CLERK_SECRET_KEY_NAME }} --secret-string ${{ secrets.CLERK_SECRET_KEY }} --region ${{ secrets.AWS_DEFAULT_REGION }}
 
-  push-ui-to-ecr:
-    name: Build and push UI Docker image to ECR
+  deploy:
+    name: Deploy AWS CDK Stack
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
+    env:
+      CDK_VERSION: 2.147
     permissions:
       id-token: write # This line allows GitHub Actions to request an OIDC token
       contents: read
@@ -91,12 +94,16 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
 
+      - name: Wait for secrets to be created
+        run: sleep 30s
+        shell: bash
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: GitHubActionsECR
+          role-session-name: GitHubActions
           role-duration-seconds: 3600
 
       - name: Get SHA
@@ -135,29 +142,6 @@ jobs:
 
           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
 
-  deploy:
-    name: Deploy AWS CDK Stack
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
-    needs: [create-secrets, push-ui-to-ecr]
-    env:
-      CDK_VERSION: 2.147
-    permissions:
-      id-token: write # This line allows GitHub Actions to request an OIDC token
-      contents: read
-    steps:
-      - name: Checkout 🛎️
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: GitHubActions
-          role-duration-seconds: 3600
-
       - name: Install CDK CLI
         run: npm install -g aws-cdk@${{ env.CDK_VERSION }} && cdk --version
 
@@ -165,10 +149,6 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install aws-cdk-lib==${{ env.CDK_VERSION }}
-
-      - name: Get SHA
-        id: get-sha
-        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Get image tag
         id: set-image-tag
@@ -216,7 +196,7 @@ jobs:
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
           NEXT_PUBLIC_CLERK_SIGN_OUT_URL: /sign-out
           # Temporal
-          TEMPORAL__CLUSTER_URL: http://temporal-service:7233
+          TEMPORAL__CLUSTER_URL: temporal-service:7233
           TEMPORAL__CLUSTER_QUEUE: tracecat-task-queue
           TEMPORAL__CLUSTER_NAMESPACE: default
           TEMPORAL__VERSION: 1.24.2

@@ -21,58 +21,42 @@ class VpcStack(Stack):
         )
 
         # Create security group for core Tracecat services
-        core_security_group = ec2.SecurityGroup(
+        frontend_security_group = ec2.SecurityGroup(
             self,
-            "CoreSecurityGroup",
+            "FrontendSecurityGroup",
             vpc=vpc,
             description="Security group for core Tracecat services",
         )
 
-        # Tracecat rules
-        core_security_group.add_ingress_rule(
-            peer=core_security_group,
-            connection=ec2.Port.tcp(8000),
-            description="Allow internal traffic to the Tracecat API service on port 8000",
-        )
-        core_security_group.add_ingress_rule(
-            peer=core_security_group,
-            connection=ec2.Port.tcp(8001),
-            description="Allow internal traffic to the Tracecat Worker service on port 8001",
-        )
-        core_security_group.add_ingress_rule(
-            peer=core_security_group,
+        # API to UI (frontend) communication
+        frontend_security_group.add_ingress_rule(
+            peer=frontend_security_group,
             connection=ec2.Port.tcp(3000),
-            description="Allow internal traffic to the Tracecat UI service on port 3000",
+            description="Allow internal traffic from Tracecat UI",
         )
-
-        # Create security group for Temporal services
-        temporal_security_group = ec2.SecurityGroup(
-            self,
-            "TemporalSecurityGroup",
-            vpc=vpc,
-            description="Security group for Temporal services",
-        )
-        # Temporal rules
-        temporal_security_group.add_ingress_rule(
-            peer=temporal_security_group,
-            connection=ec2.Port.tcp(8080),
-            description="Allow internal traffic to the Temporal UI service on port 8080",
-        )
-        temporal_security_group.add_ingress_rule(
-            peer=temporal_security_group,
-            connection=ec2.Port.tcp(7233),
-            description="Allow internal traffic to the Temporal server on port 7233",
-        )
-        temporal_security_group.add_ingress_rule(
-            peer=temporal_security_group,
+        frontend_security_group.add_ingress_rule(
+            peer=frontend_security_group,
             connection=ec2.Port.tcp(8000),
-            description="Allow internal traffic from Tracecat API service on port 8000",
-        )
-        temporal_security_group.add_ingress_rule(
-            peer=temporal_security_group,
-            connection=ec2.Port.tcp(8001),
-            description="Allow internal traffic from Tracecat Worker service on port 8001",
+            description="Allow internal traffic from Tracecat API",
         )
 
-        self.core_security_group = core_security_group
-        self.temporal_security_group = temporal_security_group
+        # Security group for API, worker, and temporal server
+        backend_security_group = ec2.SecurityGroup(
+            self,
+            "BackendSecurityGroup",
+            vpc=vpc,
+            description="Security group for Temporal worker services",
+        )
+        backend_security_group.add_ingress_rule(
+            peer=backend_security_group,
+            connection=ec2.Port.tcp(7233),
+            description="Allow traffic from Temporal server",
+        )
+        backend_security_group.add_ingress_rule(
+            peer=backend_security_group,
+            connection=ec2.Port.tcp(8000),
+            description="Allow traffic from core Tracecat services (API and worker)",
+        )
+
+        self.frontend_security_group = frontend_security_group
+        self.backend_security_group = backend_security_group
