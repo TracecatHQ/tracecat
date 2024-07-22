@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Optional
 
 import httpx
 import orjson
@@ -16,37 +17,66 @@ app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
 @app.command(help="Create a workflow")
 def create(
-    title: str = typer.Option(None, "--title", "-t", help="Title of the workflow"),
-    description: str = typer.Option(None, "--description", "-d", help="Description"),
+    title: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--title", "-t", help="Title of the workflow"
+    ),
+    description: Optional[str] = typer.Option(  # noqa: UP007
+        None, "--description", "-d", help="Description"
+    ),
+    file: Optional[Path] = typer.Option(  #  # noqa: UP007
+        None, "--file", "-f", help="Path to the workflow definition YAML file"
+    ),
     activate_workflow: bool = typer.Option(
         False, "--activate", help="Activate the workflow"
     ),
     activate_webhook: bool = typer.Option(
         False, "--webhook", help="Activate the webhook"
     ),
-    defn_file: Path = typer.Option(
-        None, "--commit", "-c", help="Create with workflow definition"
-    ),
 ):
     """Create a new workflow."""
 
-    result = _create_workflow(title=title, description=description)
+    # Passing a file supercedes creating a blank workflow with title and description
+    if file:
+        with file.open() as f:
+            yaml_content = f.read()
+        with Client() as client:
+            res = client.post(
+                "/workflows",
+                files={"file": (file.name, yaml_content, "application/yaml")},
+            )
+            result = Client.handle_response(res)
+        rich.print("Created workflow from file")
+    else:
+        params = {}
+        if title:
+            params["title"] = title
+        if description:
+            params["description"] = description
+        with Client() as client:
+            # Get the webhook url
+            res = client.post("/workflows", data=params)
+            result = Client.handle_response(res)
+        rich.print("Created workflow")
+
     rich.print(result)
     if activate_workflow:
         _activate_workflow(result["id"], activate_webhook)
-    if defn_file:
-        _commit_workflow(defn_file, result["id"])
 
 
 @app.command(help="Commit a workflow definition")
 def commit(
     workflow_id: str = typer.Argument(..., help="ID of the workflow"),
-    file: Path = typer.Option(
-        None, "--file", "-f", help="Path to the workflow definition YAML file"
-    ),
 ):
     """Commit a workflow definition to the database."""
-    return _commit_workflow(file, workflow_id)
+
+    try:
+        with Client() as client:
+            res = client.post(f"/workflows/{workflow_id}/commit")
+            Client.handle_response(res)
+            rich.print(f"Successfully committed workflow {workflow_id!r}!")
+    except httpx.HTTPStatusError as e:
+        rich.print(f"[red]Failed to commit workflow {workflow_id!r}![/red]")
+        rich.print(orjson.dumps(e.response.json(), option=orjson.OPT_INDENT_2).decode())
 
 
 @app.command(name="list", help="List all workflow definitions")
@@ -133,27 +163,6 @@ def inspect(
     rich.print(result)
 
 
-def _commit_workflow(yaml_path: Path, workflow_id: str):
-    """Commit a workflow definition to the database."""
-
-    kwargs = {}
-    if yaml_path:
-        with yaml_path.open() as f:
-            yaml_content = f.read()
-        kwargs["files"] = {
-            "yaml_file": (yaml_path.name, yaml_content, "application/yaml")
-        }
-
-    try:
-        with Client() as client:
-            res = client.post(f"/workflows/{workflow_id}/commit", **kwargs)
-            Client.handle_response(res)
-            rich.print(f"Successfully committed to workflow {workflow_id!r}!")
-    except httpx.HTTPStatusError as e:
-        rich.print(f"[red]Failed to commit to workflow {workflow_id!r}![/red]")
-        rich.print(orjson.dumps(e.response.json(), option=orjson.OPT_INDENT_2).decode())
-
-
 def _run_workflow(
     workflow_id: str,
     payload: dict[str, str] | None = None,
@@ -195,20 +204,6 @@ def _run_workflow(
                 )
             else:
                 rich.print(e.response.json())
-
-
-def _create_workflow(title: str | None = None, description: str | None = None):
-    with Client() as client:
-        # Get the webhook url
-        params = {}
-        if title:
-            params["title"] = title
-        if description:
-            params["description"] = description
-        res = client.post("/workflows", content=orjson.dumps(params))
-        result = Client.handle_response(res)
-    rich.print("Created workflow")
-    return result
 
 
 def _activate_workflow(workflow_id: str, with_webhook: bool = False):

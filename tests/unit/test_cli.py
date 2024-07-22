@@ -154,24 +154,20 @@ def test_list_workflows():
     assert "Workflows" in list_result.stdout
 
 
-def test_create_workflow_with_commit():
-    title = "__test_workflow_with_commit"
-    description = "This is a test workflow"
+def test_create_workflow_with_file():
+    expected_title = "Reshape data in a loop"
+    expected_description = "Test that we can use a forwarder to reshape data from a list of mappings to a list of key-value pairs"
     cmd = [
         "tracecat",
         "workflow",
         "create",
-        "--title",
-        title,
-        "--description",
-        description,
-        "--commit",
-        DATA_PATH.joinpath("unit_transform_reshape_arrange_loop.yml").as_posix(),
+        "--file",
+        DATA_PATH.joinpath("unit_transform_forwarder_arrange_loop.yml").as_posix(),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
-    assert "Created workflow" in result.stdout
-    assert title in result.stdout
-    assert description in result.stdout
-    assert "'version': None" in result.stdout
-    assert "Successfully committed to workflow" in result.stdout
+    cleaned_output = result.stdout.replace("\n", " ")
+    assert "Created workflow from file" in cleaned_output
+    assert expected_title in cleaned_output
+    assert expected_description in cleaned_output
+    assert "'version': None" in cleaned_output

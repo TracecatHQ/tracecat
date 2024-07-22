@@ -96,15 +96,15 @@ export const workflowsListWorkflows = (data: WorkflowsListWorkflowsData = {}): C
  * Create Workflow
  * Create new Workflow with title and description.
  * @param data The data for the request.
- * @param data.requestBody
+ * @param data.formData
  * @returns WorkflowMetadataResponse Successful Response
  * @throws ApiError
  */
-export const workflowsCreateWorkflow = (data: WorkflowsCreateWorkflowData): CancelablePromise<WorkflowsCreateWorkflowResponse> => { return __request(OpenAPI, {
+export const workflowsCreateWorkflow = (data: WorkflowsCreateWorkflowData = {}): CancelablePromise<WorkflowsCreateWorkflowResponse> => { return __request(OpenAPI, {
     method: 'POST',
     url: '/workflows',
-    body: data.requestBody,
-    mediaType: 'application/json',
+    formData: data.formData,
+    mediaType: 'multipart/form-data',
     errors: {
         422: 'Validation Error'
     }
@@ -196,12 +196,9 @@ export const workflowsCopyWorkflow = (data: WorkflowsCopyWorkflowData): Cancelab
  * Commit Workflow
  * Commit a workflow.
  *
- * XXX: This is actually creating a workflow definition
- *
  * This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database.
  * @param data The data for the request.
  * @param data.workflowId
- * @param data.formData
  * @returns CommitWorkflowResponse Successful Response
  * @throws ApiError
  */
@@ -211,8 +208,6 @@ export const workflowsCommitWorkflow = (data: WorkflowsCommitWorkflowData): Canc
     path: {
         workflow_id: data.workflowId
     },
-    formData: data.formData,
-    mediaType: 'multipart/form-data',
     errors: {
         422: 'Validation Error'
     }

@@ -190,9 +190,31 @@ export const $Body_validate_workflow = {
     title: 'Body_validate_workflow'
 } as const;
 
-export const $Body_workflows_commit_workflow = {
+export const $Body_workflows_create_workflow = {
     properties: {
-        yaml_file: {
+        title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        file: {
             anyOf: [
                 {
                     type: 'string',
@@ -202,11 +224,11 @@ export const $Body_workflows_commit_workflow = {
                     type: 'null'
                 }
             ],
-            title: 'Yaml File'
+            title: 'File'
         }
     },
     type: 'object',
-    title: 'Body_workflows-commit_workflow'
+    title: 'Body_workflows-create_workflow'
 } as const;
 
 export const $CaseAction = {
@@ -839,35 +861,6 @@ export const $CreateWorkflowExecutionResponse = {
     type: 'object',
     required: ['message', 'wf_id', 'wf_exec_id'],
     title: 'CreateWorkflowExecutionResponse'
-} as const;
-
-export const $CreateWorkflowParams = {
-    properties: {
-        title: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        }
-    },
-    type: 'object',
-    title: 'CreateWorkflowParams'
 } as const;
 
 export const $DSLConfig = {
