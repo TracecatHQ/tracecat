@@ -85,7 +85,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
-    needs: [create-secrets, push-ui-to-ecr]
     env:
       CDK_VERSION: 2.147
     permissions:
@@ -94,6 +93,10 @@ jobs:
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
+
+      - name: Wait for secrets to be created
+        run: sleep 30s
+        shell: bash
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
