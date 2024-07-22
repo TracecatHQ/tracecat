@@ -90,7 +90,7 @@ class ResendMailProvider(AsyncMailProvider):
 
 
 @registry.register(
-    namespace="integrations.email",
+    namespace="integrations.email.resend",
     version="0.1.0",
     description="Perform a send email action using Resend",
     secrets=[resend_secret],
