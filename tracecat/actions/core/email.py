@@ -334,7 +334,7 @@ async def send_email_smtp(
         }
     except Exception as e:
         msg = "Failed to send email"
-        logger.opt(exception=smtp_e).error(msg, exc_info=smtp_e)
+        logger.opt(exception=smtp_e).error(msg, exc_info=e)
         email_response = {
             "status": "error",
             "message": msg,
