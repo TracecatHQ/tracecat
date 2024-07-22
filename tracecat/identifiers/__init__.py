@@ -38,7 +38,7 @@ e.g. wf-77932a0b140a4465a1a25a5c95edcfb8:run-b140a425a577932a0c95edcfb8465a1a
 
 """
 
-from tracecat.identifiers import action, schedules, workflow
+from tracecat.identifiers import action, resource, schedules, workflow
 from tracecat.identifiers.action import ActionID, ActionKey, ActionRef
 from tracecat.identifiers.resource import id_factory
 from tracecat.identifiers.schedules import ScheduleID
@@ -62,4 +62,5 @@ __all__ = [
     "action",
     "workflow",
     "schedules",
+    "resource",
 ]

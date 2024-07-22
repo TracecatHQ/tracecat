@@ -19,7 +19,7 @@ from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
-    from tracecat.db.schemas import Webhook, Workflow
+    from tracecat.db.schemas import Workflow
 
 
 class Position(BaseModel):
@@ -269,7 +269,7 @@ class RFGraph(TSObject):
             )
 
         actions = workflow.actions or []
-        action_map = {action.ref: action for action in actions}
+        ref2action = {action.ref: action for action in actions}
 
         statements = []
         for node in self.action_nodes():
@@ -277,8 +277,9 @@ class RFGraph(TSObject):
                 self.node_map[nid].ref for nid in self.dep_list[node.id]
             )
 
-            action = action_map[node.ref]
+            action = ref2action[node.ref]
             action_stmt = ActionStatement(
+                id=action.id,
                 ref=node.ref,
                 action=node.data.type,
                 args=action.inputs,
@@ -301,7 +302,7 @@ class RFGraph(TSObject):
         return list(ts.static_order())
 
     @staticmethod
-    def with_defaults(workflow: Workflow, webhook: Webhook):
+    def with_defaults(workflow: Workflow) -> RFGraph:
         # Create a default graph object with only the webhook
         initial_data = {
             "nodes": [
@@ -313,7 +314,7 @@ class RFGraph(TSObject):
                         "title": "Trigger",
                         "status": "offline",
                         "isConfigured": False,
-                        "webhook": webhook,
+                        "webhook": workflow.webhook,
                         "schedules": workflow.schedules or [],
                     },
                 }

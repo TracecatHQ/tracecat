@@ -24,7 +24,6 @@ export async function updateWorkflowGraphObject(
     await client.patch(`/workflows/${workflowId}`, {
       object,
     })
-    console.log("Updated DnD flow object")
   } catch (error) {
     console.error("Error updating DnD flow object:", error)
   }

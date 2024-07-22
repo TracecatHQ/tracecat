@@ -10,8 +10,6 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   BanIcon,
   CalendarClockIcon,
-  CheckCheckIcon,
-  CopyIcon,
   PlusCircleIcon,
   SaveIcon,
   SettingsIcon,
@@ -29,7 +27,7 @@ import {
   durationToHumanReadable,
   durationToISOString,
 } from "@/lib/time"
-import { cn, copyToClipboard } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -97,6 +95,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -279,41 +278,6 @@ export function WebhookControls({
         </div>
       </div>
     </div>
-  )
-}
-function CopyButton({
-  value,
-  toastMessage,
-}: {
-  value: string
-  toastMessage: string
-}) {
-  const [copied, setCopied] = React.useState(false)
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          className="group m-0 size-4 p-0"
-          onClick={() => {
-            copyToClipboard({
-              value,
-              message: toastMessage,
-            })
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
-          }}
-        >
-          {copied ? (
-            <CheckCheckIcon className="size-3 text-muted-foreground" />
-          ) : (
-            <CopyIcon className="size-3 text-muted-foreground" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>Copy</TooltipContent>
-    </Tooltip>
   )
 }
 export function ScheduleControls({ workflowId }: { workflowId: string }) {

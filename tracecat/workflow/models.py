@@ -18,8 +18,10 @@ from pydantic import (
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
+from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLContext, UDFActionInput
+from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
 from tracecat.workflow.definitions import GetWorkflowDefinitionActivityInputs
 
@@ -59,8 +61,8 @@ class WorkflowExecutionResponse(BaseModel):
     start_time: datetime = Field(
         ..., description="The start time of the workflow execution"
     )
-    execution_time: datetime = Field(
-        ..., description="When this workflow run started or should start."
+    execution_time: datetime | None = Field(
+        None, description="When this workflow run started or should start."
     )
     close_time: datetime | None = Field(
         None, description="When the workflow was closed if closed."
@@ -118,7 +120,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     @staticmethod
     def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[UDFActionInput | GetWorkflowDefinitionActivityInputs]:
+    ) -> EventGroup[EventInput]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
@@ -251,3 +253,8 @@ class CreateWorkflowExecutionResponse(TypedDict):
 class DispatchWorkflowResult(TypedDict):
     wf_id: identifiers.WorkflowID
     final_context: DSLContext
+
+
+class CreateWorkflowFromDSLResponse(BaseModel):
+    workflow: Workflow | None = None
+    errors: list[UDFArgsValidationResponse] | None = None

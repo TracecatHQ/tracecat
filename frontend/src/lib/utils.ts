@@ -136,3 +136,10 @@ export function groupBy<T, K extends keyof T>(
 export function isServer() {
   return typeof window === "undefined"
 }
+
+export function isEmptyObjectOrNullish(value: unknown) {
+  return value === null || value === undefined || isEmptyObject(value)
+}
+export function isEmptyObject(obj: object) {
+  return typeof obj === "object" && Object.keys(obj).length === 0
+}

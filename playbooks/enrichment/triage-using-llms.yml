@@ -31,7 +31,7 @@ actions:
       text: ${{ ACTIONS.receive_alert.result.text }}
 
   - ref: enrich_ip_addresses
-    action: integrations.enrich.virustotal.analyze_ip
+    action: integrations.virustotal.analyze_ip_address
     for_each: ${{ for var.ip_address in ACTIONS.extract_iocs.result.ip_addresses }}
     depends_on:
       - extract_ip_addresses
@@ -39,7 +39,7 @@ actions:
       ip_address: ${{ var.ip_address }}
 
   - ref: enrich_urls
-    action: integrations.enrich.virustotal.analyze_url
+    action: integrations.virustotal.analyze_url
     for_each: ${{ for var.url in ACTIONS.extract_iocs.result.urls }}
     depends_on:
       - extract_urls
