@@ -157,19 +157,20 @@ class FargateStack(Stack):
             "TRACECAT__DB_PASS": ecs.Secret.from_secrets_manager(secret=core_db_secret),
         }
 
-        tracecat_ui_secrets = {
-            "CLERK_SECRET_KEY": ecs.Secret.from_secrets_manager(
-                secretsmanager.Secret.from_secret_partial_arn(
-                    self,
-                    "ClerkFullSecretKey",
-                    secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+        if os.getenv("CLERK_SECRET_KEY_NAME"):
+            tracecat_ui_secrets = {
+                "CLERK_SECRET_KEY": ecs.Secret.from_secrets_manager(
+                    secretsmanager.Secret.from_secret_partial_arn(
                         self,
-                        "ClerkPartialSecretKey",
-                        secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
-                    ).secret_arn,
-                )
-            ),
-        }
+                        "ClerkFullSecretKey",
+                        secret_partial_arn=secretsmanager.Secret.from_secret_name_v2(
+                            self,
+                            "ClerkPartialSecretKey",
+                            secret_name=os.environ["CLERK_SECRET_KEY_NAME"],
+                        ).secret_arn,
+                    )
+                ),
+            }
 
         temporal_secrets = {
             "POSTGRES_PWD": ecs.Secret.from_secrets_manager(secret=temporal_db_secret)
@@ -414,20 +415,29 @@ class FargateStack(Stack):
             "NEXT_PUBLIC_API_URL": os.environ["NEXT_PUBLIC_API_URL"],
             "NEXT_PUBLIC_APP_ENV": os.environ["NEXT_PUBLIC_APP_ENV"],
             "NEXT_PUBLIC_APP_URL": os.environ["NEXT_PUBLIC_APP_URL"],
-            "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ[
-                "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
-            ],
-            "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ[
-                "NEXT_PUBLIC_CLERK_SIGN_IN_URL"
-            ],
-            "NEXT_PUBLIC_CLERK_SIGN_OUT_URL": os.environ[
-                "NEXT_PUBLIC_CLERK_SIGN_OUT_URL"
-            ],
             "NEXT_PUBLIC_DISABLE_AUTH": os.environ["NEXT_PUBLIC_DISABLE_AUTH"],
-            "NEXT_PUBLIC_POSTHOG_KEY": os.environ["NEXT_PUBLIC_POSTHOG_KEY"],
             "NEXT_SERVER_API_URL": os.environ["NEXT_SERVER_API_URL"],
             "NODE_ENV": os.environ["NODE_ENV"],
         }
+        if os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"):
+            tracecat_ui_environment.update(
+                {
+                    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ[
+                        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+                    ],
+                    "NEXT_PUBLIC_CLERK_SIGN_IN_URL": os.environ[
+                        "NEXT_PUBLIC_CLERK_SIGN_IN_URL"
+                    ],
+                    "NEXT_PUBLIC_CLERK_SIGN_OUT_URL": os.environ[
+                        "NEXT_PUBLIC_CLERK_SIGN_OUT_URL"
+                    ],
+                }
+            )
+        if os.getenv("NEXT_PUBLIC_POSTHOG_KEY"):
+            tracecat_ui_environment["NEXT_PUBLIC_POSTHOG_KEY"] = os.environ[
+                "NEXT_PUBLIC_POSTHOG_KEY"
+            ]
+
         ui_task_definition = ecs.FargateTaskDefinition(
             self,
             "TracecatUiTaskDefinition",
@@ -487,6 +497,7 @@ class FargateStack(Stack):
                 "DB": "postgres12",  # Database driver for temporal
                 "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
+                "TEMPORAL_ADDRESS": "temporal-server:7233",
             },
             port_mappings=[
                 ecs.PortMapping(
