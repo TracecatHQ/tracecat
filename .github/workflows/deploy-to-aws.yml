@@ -147,10 +147,6 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install aws-cdk-lib==${{ env.CDK_VERSION }}
 
-      - name: Get SHA
-        id: get-sha
-        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - name: Get image tag
         id: set-image-tag
         run: |
