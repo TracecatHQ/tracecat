@@ -43,6 +43,13 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      # SMTP
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_TLS: ${SMTP_TLS}
+      SMTP_AUTH: ${SMTP_AUTH}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
     restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
