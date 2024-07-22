@@ -24,9 +24,6 @@ def create(
     activate_webhook: bool = typer.Option(
         False, "--webhook", help="Activate the webhook"
     ),
-    defn_file: Path = typer.Option(
-        None, "--commit", "-c", help="Create with workflow definition"
-    ),
 ):
     """Create a new workflow."""
 
@@ -34,8 +31,6 @@ def create(
     rich.print(result)
     if activate_workflow:
         _activate_workflow(result["id"], activate_webhook)
-    if defn_file:
-        _commit_workflow(defn_file, result["id"])
 
 
 @app.command(help="Commit a workflow definition")
@@ -205,7 +200,7 @@ def _create_workflow(title: str | None = None, description: str | None = None):
             params["title"] = title
         if description:
             params["description"] = description
-        res = client.post("/workflows", content=orjson.dumps(params))
+        res = client.post("/workflows", data=params)
         result = Client.handle_response(res)
     rich.print("Created workflow")
     return result
