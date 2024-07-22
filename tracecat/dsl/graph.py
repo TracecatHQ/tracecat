@@ -16,6 +16,7 @@ from pydantic.alias_generators import to_camel
 from tracecat.dsl.models import ActionStatement
 from tracecat.identifiers import action
 from tracecat.logging import logger
+from tracecat.types.api import ActionControlFlow
 from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
@@ -278,12 +279,18 @@ class RFGraph(TSObject):
             )
 
             action = ref2action[node.ref]
+            control_flow = ActionControlFlow(
+                run_if=action.control_flow.get("run_if"),
+                for_each=action.control_flow.get("for_each"),
+            )
             action_stmt = ActionStatement(
                 id=action.id,
                 ref=node.ref,
                 action=node.data.type,
                 args=action.inputs,
                 depends_on=dependencies,
+                run_if=control_flow.run_if,
+                for_each=control_flow.for_each,
             )
             statements.append(action_stmt)
         return statements

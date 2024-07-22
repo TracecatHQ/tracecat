@@ -176,9 +176,9 @@ class DSLInput(BaseModel):
                 "expects": {},
             },
             actions=graph.action_statements(workflow),
-            # config=workflow.config,
+            inputs=workflow.static_inputs,
+            config=workflow.config,
             # triggers=workflow.triggers,
-            # inputs=workflow.inputs,
         )
 
     def to_graph(self, trigger_node: TriggerNode, ref2id: dict[str, str]) -> RFGraph:

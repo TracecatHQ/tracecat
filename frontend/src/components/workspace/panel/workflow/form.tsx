@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import "@radix-ui/react-dialog"
 
 import { useRouter } from "next/navigation"
-import { ApiError } from "@/client"
+import { ApiError, UpdateWorkflowParams } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { Editor } from "@monaco-editor/react"
 import { FileInputIcon, SaveIcon, Settings2Icon } from "lucide-react"
@@ -47,7 +47,7 @@ import { WorkflowSettings } from "@/components/workspace/panel/workflow/settings
 const workflowFormSchema = z.object({
   title: z.string(),
   description: z.string(),
-  staticInputs: z.string(),
+  static_inputs: z.string(),
 })
 
 type TWorkflowForm = z.infer<typeof workflowFormSchema>
@@ -64,25 +64,25 @@ export function WorkflowForm({
     defaultValues: {
       title: workflow.title || "",
       description: workflow.description || "",
-      staticInputs: isEmptyObjectOrNullish(workflow.static_inputs)
+      static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
         ? ""
         : YAML.stringify(workflow.static_inputs),
     },
   })
 
   const onSubmit = async (values: TWorkflowForm) => {
-    let params
+    let params: UpdateWorkflowParams
     try {
       params = {
         ...values,
-        static_inputs: YAML.parse(values.staticInputs),
+        static_inputs: YAML.parse(values.static_inputs) || {},
       }
     } catch (error) {
       console.error("Error parsing static inputs:", error)
-      form.setError("staticInputs", { message: "Invalid YAML format" })
+      form.setError("static_inputs", { message: "Invalid YAML format" })
       return
     }
-    console.log("Saving changes...")
+    console.log("Saving changes...", params)
     try {
       await update(params)
       toast({
@@ -206,7 +206,7 @@ export function WorkflowForm({
                   Edit the static workflow inputs in YAML below.
                 </span>
                 <Controller
-                  name="staticInputs"
+                  name="static_inputs"
                   control={form.control}
                   render={({ field }) => (
                     <div className="h-48 w-full border">

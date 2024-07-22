@@ -7,16 +7,19 @@ import {
   ApiError,
   UDFArgsValidationResponse,
   udfsValidateUdfArgs,
+  UpdateActionParams,
 } from "@/client"
 import Editor from "@monaco-editor/react"
 import {
   AlertTriangleIcon,
+  Info,
   LayoutListIcon,
+  RepeatIcon,
   SaveIcon,
   SettingsIcon,
   Shapes,
 } from "lucide-react"
-import { Controller, FieldValues, FormProvider, useForm } from "react-hook-form"
+import { Controller, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
@@ -37,6 +40,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -66,8 +74,16 @@ type UDFFormSchema = {
   title?: string
   description?: string
   inputs?: string
+  control_flow: {
+    for_each?: string
+    run_if?: string
+  }
 }
-export function UDFActionPanel<T extends Record<string, unknown>>({
+function itemOrEmptyString(item: object | undefined) {
+  return isEmptyObjectOrNullish(item) ? "" : YAML.stringify(item)
+}
+
+export function UDFActionPanel({
   node,
   workflowId,
 }: {
@@ -85,9 +101,15 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
     values: {
       title: action?.title,
       description: action?.description,
-      inputs: isEmptyObjectOrNullish(action?.inputs)
-        ? ""
-        : YAML.stringify(action?.inputs),
+      inputs: itemOrEmptyString(action?.inputs),
+      control_flow: {
+        for_each: action?.control_flow?.for_each
+          ? YAML.stringify(action?.control_flow?.for_each)
+          : "",
+        run_if: action?.control_flow?.run_if
+          ? YAML.stringify(action?.control_flow?.run_if)
+          : "",
+      },
     },
   })
 
@@ -119,8 +141,14 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
   }
 
   const onSubmit = async (values: UDFFormSchema) => {
-    const { inputs } = values
+    const { inputs, title, description, control_flow } = values
     const actionInputs = inputs ? YAML.parse(inputs) : {}
+    const actionControlFlow = {
+      for_each: control_flow.for_each
+        ? YAML.parse(control_flow.for_each)
+        : undefined,
+      run_if: control_flow.run_if ? YAML.parse(control_flow.run_if) : undefined,
+    }
     try {
       const validateResponse = await udfsValidateUdfArgs({
         udfKey: udf.key,
@@ -137,12 +165,13 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
       } else {
         setValidationErrors(null)
         const params = {
-          title: values.title as string,
-          description: values.description as string,
+          title: title as string,
+          description: description as string,
           inputs: actionInputs,
-        } as FieldValues
+          control_flow: actionControlFlow,
+        } as UpdateActionParams
         console.log("Submitting action form", params)
-        await updateAction(params as T)
+        await updateAction(params)
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -198,7 +227,13 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
           {/* Metadata */}
           <Accordion
             type="multiple"
-            defaultValue={["action-settings", "action-schema", "action-inputs"]}
+            defaultValue={[
+              "action-settings",
+              "action-schema",
+              "action-inputs",
+              "action-control-flow",
+            ]}
+            className="pb-10"
           >
             <AccordionItem value="action-settings">
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -375,9 +410,207 @@ export function UDFActionPanel<T extends Record<string, unknown>>({
                 </div>
               </AccordionContent>
             </AccordionItem>
+            <AccordionItem value="action-control-flow">
+              <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                <div className="flex items-center">
+                  <RepeatIcon className="mr-3 size-4" />
+                  <span>Control Flow</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4">
+                {/* Run if */}
+                <div className="flex flex-col space-y-2 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Run If</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        align="end"
+                        sideOffset={20}
+                      >
+                        <RunIfTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define a conditional expression that determines if the
+                      action executes.
+                    </span>
+                  </div>
+
+                  <Controller
+                    name="control_flow.run_if"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <div className="h-16 w-full border">
+                        <Editor
+                          defaultLanguage="yaml"
+                          value={field.value}
+                          onChange={field.onChange}
+                          height="100%"
+                          theme="vs-light"
+                          loading={<CenteredSpinner />}
+                          options={{
+                            tabSize: 2,
+                            minimap: { enabled: false },
+                            scrollbar: {
+                              verticalScrollbarSize: 5,
+                              horizontalScrollbarSize: 5,
+                            },
+                          }}
+                        />
+                      </div>
+                    )}
+                  />
+                </div>
+                {/* Loop */}
+                <div className="flex flex-col space-y-4 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Loop Iteration</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        align="end"
+                        sideOffset={20}
+                      >
+                        <ForEachTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define one or more loop expressions for the action.
+                    </span>
+                  </div>
+
+                  <Controller
+                    name="control_flow.for_each"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <div className="h-24 w-full border">
+                        <Editor
+                          defaultLanguage="yaml"
+                          value={field.value}
+                          onChange={field.onChange}
+                          height="100%"
+                          theme="vs-light"
+                          loading={<CenteredSpinner />}
+                          options={{
+                            tabSize: 2,
+                            minimap: { enabled: false },
+                            scrollbar: {
+                              verticalScrollbarSize: 5,
+                              horizontalScrollbarSize: 5,
+                            },
+                          }}
+                        />
+                      </div>
+                    )}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           </Accordion>
         </form>
       </FormProvider>
+    </div>
+  )
+}
+
+function RunIfTooltip() {
+  return (
+    <div className="w-full space-y-4">
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <span className="font-mono text-sm font-semibold">run_if</span>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <span>
+          A run-if expression is just a conditional expression that evaluates to
+          a truthy or falsy value:
+        </span>
+      </div>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">{"${{ <condition> }}"}</pre>
+      </div>
+      <div className="w-full items-center text-start">
+        <span>Example inputs: </span>
+      </div>
+      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            {"${{ FN.not_empty(ACTIONS.my_action.result) }}"}
+          </pre>
+        </div>
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            {"${{ ACTIONS.my_action.result.value > 5 }}"}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ForEachTooltip() {
+  return (
+    <div className="w-full space-y-4">
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <span className="font-mono text-sm font-semibold">for_each</span>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <span>A loop expression has the form:</span>
+      </div>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">
+          {"${{ for var.item in <collection> }}"}
+        </pre>
+      </div>
+      <div className="w-full items-center text-start text-muted-foreground ">
+        <span>
+          Here, `var.item` references an item in the collection, and is local to
+          a single loop iteration. This is synonymous to assigning a loop
+          variable.
+        </span>
+      </div>
+      <div className="w-full items-center text-start">
+        <span>Example inputs: </span>
+      </div>
+      <div className="flex w-full flex-col text-muted-foreground ">
+        <span className="mt-2">Single expression (string):</span>
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            {"${{ for var.item in ACTIONS.my_action.result }}"}
+          </pre>
+        </div>
+      </div>
+      <div className="w-full text-muted-foreground ">
+        <span className="mt-2">
+          Multiple expressions (array; zipped/lockstep iteration):
+        </span>
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="flex flex-col text-xs text-foreground/70">
+            <span>
+              {"- ${{ for var.first in ACTIONS.first_action.result }}"}
+            </span>
+            <span>
+              {"- ${{ for var.second in ACTIONS.second_action.result }}"}
+            </span>
+          </pre>
+        </div>
+      </div>
     </div>
   )
 }

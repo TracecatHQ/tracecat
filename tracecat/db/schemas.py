@@ -232,6 +232,11 @@ class Workflow(Resource, table=True):
     object: dict[str, Any] | None = Field(
         sa_column=Column(JSONB), description="React flow graph object"
     )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Workflow configuration",
+    )
     icon_url: str | None = None
     # Owner
     owner_id: str = Field(

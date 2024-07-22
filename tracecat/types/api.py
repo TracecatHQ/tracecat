@@ -20,6 +20,11 @@ from tracecat.types.validation import ValidationResult
 RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 
 
+class ActionControlFlow(BaseModel):
+    run_if: str | None = None
+    for_each: str | list[str] | None = None
+
+
 class ActionResponse(BaseModel):
     id: str
     type: str
@@ -28,6 +33,7 @@ class ActionResponse(BaseModel):
     status: str
     inputs: dict[str, Any]
     key: str  # Computed field
+    control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
 
 
 class WorkflowResponse(BaseModel):
@@ -43,6 +49,7 @@ class WorkflowResponse(BaseModel):
     schedules: list[Schedule]
     entrypoint: str | None
     static_inputs: dict[str, Any]
+    config: dict[str, Any] | None
 
 
 class ActionMetadataResponse(BaseModel):
@@ -93,6 +100,7 @@ class UpdateActionParams(BaseModel):
     description: str | None = None
     status: str | None = None
     inputs: dict[str, Any] | None = None
+    control_flow: ActionControlFlow | None = None
 
 
 class UpsertWebhookParams(BaseModel):
