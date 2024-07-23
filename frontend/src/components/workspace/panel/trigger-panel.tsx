@@ -451,35 +451,47 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
 }
 
 const scheduleInputsSchema = z.object({
-  inputs: z.string().refine((val) => {
-    try {
-      JSON.parse(val)
-      return true
-    } catch {
-      return false
-    }
-  }, "Invalid JSON format"),
+  duration: durationSchema,
+  inputs: z
+    .string()
+    .optional()
+    .refine((val) => {
+      if (!val) return true
+      try {
+        JSON.parse(val)
+        return true
+      } catch {
+        return false
+      }
+    }, "Invalid JSON format")
+    .transform((val) => (val ? JSON.parse(val) : {})),
 })
-
+type DurationType =
+  | "duration.years"
+  | "duration.months"
+  | "duration.days"
+  | "duration.hours"
+  | "duration.minutes"
+  | "duration.seconds"
 type ScheduleInputs = z.infer<typeof scheduleInputsSchema>
 
 export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const { createSchedule } = useSchedules(workflowId)
-  const form = useForm<ScheduleInputs & Duration>({
-    resolver: zodResolver(durationSchema.and(scheduleInputsSchema)),
+  const form = useForm<ScheduleInputs>({
+    resolver: zodResolver(scheduleInputsSchema),
     defaultValues: {
       inputs: '{"example": "value"}',
     },
   })
 
-  const onSubmit = async () => {
-    const { inputs, ...duration } = form.getValues()
+  const onSubmit = async (values: ScheduleInputs) => {
+    const { duration, inputs } = values
     try {
       const response = await createSchedule({
         requestBody: {
           workflow_id: workflowId,
           every: durationToISOString(duration),
-          inputs: JSON.parse(inputs),
+          inputs,
         },
       })
       console.log("Schedule created", response)
@@ -524,34 +536,39 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
             })}
           >
             <div className="grid grid-cols-2 gap-2">
-              {["years", "months", "days", "hours", "minutes", "seconds"].map(
-                (unit) => (
-                  <FormField
-                    key={unit}
-                    control={form.control}
-                    name={unit as keyof Duration}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs capitalize text-foreground/80">
-                          {unit}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            className="text-xs capitalize"
-                            placeholder={unit}
-                            value={Math.max(0, Number(field.value || 0))}
-                            {...form.register(unit as keyof Duration, {
-                              valueAsNumber: true,
-                            })}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )
-              )}
+              {[
+                "duration.years",
+                "duration.months",
+                "duration.days",
+                "duration.hours",
+                "duration.minutes",
+                "duration.seconds",
+              ].map((unit) => (
+                <FormField
+                  key={unit}
+                  control={form.control}
+                  name={unit as DurationType}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs capitalize text-foreground/80">
+                        {unit}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          className="text-xs capitalize"
+                          placeholder={unit}
+                          value={Math.max(0, Number(field.value || 0))}
+                          {...form.register(unit as DurationType, {
+                            valueAsNumber: true,
+                          })}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ))}
 
               <div className="col-span-2 w-full">
                 <FormField
@@ -560,8 +577,14 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   name="inputs"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-xs capitalize text-foreground/80">
-                        Scheduled Workflow Inputs
+                      <FormLabel className="text-xs text-foreground/80">
+                        <span>
+                          Scheduled workflow inputs. Access these through the{" "}
+                          <p className="inline-block rounded-sm bg-amber-100 p-[0.75px] font-mono">
+                            TRIGGER
+                          </p>{" "}
+                          conttext.
+                        </span>
                       </FormLabel>
                       <FormControl>
                         <CustomEditor
