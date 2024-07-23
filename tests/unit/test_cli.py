@@ -156,13 +156,15 @@ def test_list_workflows():
 
 def test_create_workflow_with_file():
     expected_title = "Reshape data in a loop"
-    expected_description = "Test that we can use a forwarder to reshape data from a list of mappings to a list of key-value pairs"
+    expected_description = (
+        "Test reshaping data from a list of mappings to a list of  key-value pairs"
+    )
     cmd = [
         "tracecat",
         "workflow",
         "create",
         "--file",
-        DATA_PATH.joinpath("unit_transform_forwarder_arrange_loop.yml").as_posix(),
+        DATA_PATH.joinpath("unit_transform_reshape_arrange_loop.yml").as_posix(),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
