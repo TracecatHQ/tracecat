@@ -2187,6 +2187,15 @@ export const $UpdateWorkflowParams = {
                 }
             ],
             title: 'Static Inputs'
+        },
+        returns: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Returns'
         }
     },
     type: 'object',
@@ -2625,10 +2634,24 @@ export const $WorkflowResponse = {
         static_inputs: {
             type: 'object',
             title: 'Static Inputs'
+        },
+        returns: {
+            title: 'Returns'
+        },
+        config: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Config'
         }
     },
     type: 'object',
-    required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'static_inputs'],
+    required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'static_inputs', 'returns', 'config'],
     title: 'WorkflowResponse'
 } as const;
 

@@ -635,6 +635,7 @@ export type UpdateWorkflowParams = {
     static_inputs?: {
     [key: string]: unknown;
 } | null;
+    returns?: unknown | null;
 };
 
 export type UpsertWebhookParams = {
@@ -773,6 +774,10 @@ export type WorkflowResponse = {
     static_inputs: {
         [key: string]: unknown;
     };
+    returns: unknown;
+    config: {
+    [key: string]: unknown;
+} | null;
 };
 
 export type tracecat__db__schemas__CaseContext = {
