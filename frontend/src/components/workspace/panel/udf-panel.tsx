@@ -9,7 +9,6 @@ import {
   udfsValidateUdfArgs,
   UpdateActionParams,
 } from "@/client"
-import Editor from "@monaco-editor/react"
 import {
   AlertTriangleIcon,
   Info,
@@ -64,6 +63,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
+import { CustomEditor } from "@/components/editor"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -379,24 +379,12 @@ export function UDFActionPanel({
                     name="inputs"
                     control={methods.control}
                     render={({ field }) => (
-                      <div className="h-96 w-full border">
-                        <Editor
-                          defaultLanguage="yaml"
-                          value={field.value}
-                          onChange={field.onChange}
-                          height="100%"
-                          theme="vs-light"
-                          loading={<CenteredSpinner />}
-                          options={{
-                            tabSize: 2,
-                            minimap: { enabled: false },
-                            scrollbar: {
-                              verticalScrollbarSize: 5,
-                              horizontalScrollbarSize: 5,
-                            },
-                          }}
-                        />
-                      </div>
+                      <CustomEditor
+                        className="h-96 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
                     )}
                   />
                   {validationErrors && (
@@ -431,7 +419,6 @@ export function UDFActionPanel({
                       <HoverCardContent
                         className="w-[500px] p-3 font-mono text-xs tracking-tight"
                         side="left"
-                        align="end"
                         sideOffset={20}
                       >
                         <RunIfTooltip />
@@ -448,24 +435,12 @@ export function UDFActionPanel({
                     name="control_flow.run_if"
                     control={methods.control}
                     render={({ field }) => (
-                      <div className="h-16 w-full border">
-                        <Editor
-                          defaultLanguage="yaml"
-                          value={field.value}
-                          onChange={field.onChange}
-                          height="100%"
-                          theme="vs-light"
-                          loading={<CenteredSpinner />}
-                          options={{
-                            tabSize: 2,
-                            minimap: { enabled: false },
-                            scrollbar: {
-                              verticalScrollbarSize: 5,
-                              horizontalScrollbarSize: 5,
-                            },
-                          }}
-                        />
-                      </div>
+                      <CustomEditor
+                        className="h-16 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
                     )}
                   />
                 </div>
@@ -482,7 +457,6 @@ export function UDFActionPanel({
                       <HoverCardContent
                         className="w-[500px] p-3 font-mono text-xs tracking-tight"
                         side="left"
-                        align="end"
                         sideOffset={20}
                       >
                         <ForEachTooltip />
@@ -498,24 +472,12 @@ export function UDFActionPanel({
                     name="control_flow.for_each"
                     control={methods.control}
                     render={({ field }) => (
-                      <div className="h-24 w-full border">
-                        <Editor
-                          defaultLanguage="yaml"
-                          value={field.value}
-                          onChange={field.onChange}
-                          height="100%"
-                          theme="vs-light"
-                          loading={<CenteredSpinner />}
-                          options={{
-                            tabSize: 2,
-                            minimap: { enabled: false },
-                            scrollbar: {
-                              verticalScrollbarSize: 5,
-                              horizontalScrollbarSize: 5,
-                            },
-                          }}
-                        />
-                      </div>
+                      <CustomEditor
+                        className="h-24 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
                     )}
                   />
                 </div>

@@ -10,7 +10,6 @@ import {
 } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Editor } from "@monaco-editor/react"
 import {
   AlertTriangleIcon,
   GitPullRequestCreateArrowIcon,
@@ -62,6 +61,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { CustomEditor } from "@/components/editor"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function WorkflowNav() {
@@ -353,31 +353,12 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
             render={({ field }) => (
               <FormItem>
                 <FormControl>
-                  <div className="size-full border">
-                    {/* The json contains the view into the data */}
-                    <div className="h-36">
-                      <Editor
-                        height="100%"
-                        theme="vs-light"
-                        defaultLanguage="json"
-                        defaultValue={"{}"}
-                        value={field.value}
-                        onChange={field.onChange}
-                        loading={<CenteredSpinner />}
-                        options={{
-                          tabSize: 2,
-                          minimap: { enabled: false },
-                          scrollbar: {
-                            verticalScrollbarSize: 5,
-                            horizontalScrollbarSize: 5,
-                          },
-                          folding: false,
-                          glyphMargin: true,
-                          lineNumbersMinChars: 2,
-                        }}
-                      />
-                    </div>
-                  </div>
+                  <CustomEditor
+                    className="size-full h-36"
+                    defaultLanguage="yaml"
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

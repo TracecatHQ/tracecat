@@ -57,7 +57,9 @@ export function CustomEditor({
             verticalScrollbarSize: 5,
             horizontalScrollbarSize: 5,
           },
+          renderLineHighlight: "all",
         }}
+        // We're using a custom tailwind class to achieve rounded corners
         wrapperProps={{ className: "editor-wrapper" }}
         {...props}
       />

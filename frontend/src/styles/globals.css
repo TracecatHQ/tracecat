@@ -72,4 +72,12 @@
     scrollbar-width: none;
     /* Firefox */
   }
+
+  .editor-wrapper .monaco-editor {
+    border-radius: 10px;
+  }
+  .editor-wrapper .overflow-guard {
+    border-radius: 10px;
+    border: 1px solid #d9d9d9;
+  }
 }

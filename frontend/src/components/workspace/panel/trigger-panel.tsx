@@ -5,7 +5,6 @@ import "react18-json-view/src/style.css"
 import React from "react"
 import { ApiError } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Editor } from "@monaco-editor/react"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   BanIcon,
@@ -96,6 +95,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
+import { CustomEditor } from "@/components/editor"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -564,27 +564,12 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                         Scheduled Workflow Inputs
                       </FormLabel>
                       <FormControl>
-                        <div className="h-36 border">
-                          <Editor
-                            height="100%"
-                            theme="vs-light"
-                            defaultLanguage="json"
-                            loading={<CenteredSpinner />}
-                            value={field.value}
-                            onChange={field.onChange}
-                            options={{
-                              tabSize: 2,
-                              minimap: { enabled: false },
-                              scrollbar: {
-                                verticalScrollbarSize: 5,
-                                horizontalScrollbarSize: 5,
-                              },
-                              folding: false,
-                              glyphMargin: true,
-                              lineNumbersMinChars: 2,
-                            }}
-                          />
-                        </div>
+                        <CustomEditor
+                          className="h-36 w-full"
+                          defaultLanguage="yaml"
+                          value={field.value}
+                          onChange={field.onChange}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
