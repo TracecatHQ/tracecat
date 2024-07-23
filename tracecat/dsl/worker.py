@@ -47,9 +47,6 @@ interrupt_event = asyncio.Event()
 
 
 async def main() -> None:
-    # Connect client
-    logger.info("Connecting to Temporal")
-
     registry.init()
     client = await get_temporal_client()
 
