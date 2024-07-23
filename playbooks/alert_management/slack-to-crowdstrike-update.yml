@@ -19,7 +19,7 @@ triggers:
 
 actions:
   - ref: extract_slack_payload
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value:
         username: ${{ TRIGGER.username }}

@@ -23,7 +23,7 @@ actions:
       limit: 10
 
   - ref: reshape_signals
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - pull_datadog_siem_signals
     run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_siem_signals.result) }}
@@ -73,7 +73,7 @@ actions:
             text: ${{ var.signal.description }}
 
   - ref: reshape_findings_into_smac
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - pull_datadog_signals
     run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result) }}

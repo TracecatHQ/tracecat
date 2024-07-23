@@ -11,7 +11,7 @@ triggers:
 
 actions:
   - ref: extract_slack_payload
-    action: core.transform.forward
+    action: core.transform.reshape
     # Check if action received is as expected
     run_if: ${{ FN.is_equal(TRIGGER.action.action_id, 'update_sentinelone_alert') }}
     args:
