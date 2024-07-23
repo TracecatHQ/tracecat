@@ -1384,6 +1384,7 @@ def get_action(
         status=action.status,
         inputs=action.inputs,
         key=action.key,
+        control_flow=action.control_flow,
     )
 
 
@@ -1416,6 +1417,8 @@ def update_action(
             action.status = params.status
         if params.inputs is not None:
             action.inputs = params.inputs
+        if params.control_flow is not None:
+            action.control_flow = params.control_flow.model_dump(mode="json")
 
         session.add(action)
         session.commit()
