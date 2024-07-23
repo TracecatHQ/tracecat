@@ -56,13 +56,14 @@ export default React.memo(function UDFNode({
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)
+    const ref = `ACTIONS.${slug}`
     copyToClipboard({
-      value: slug,
-      message: `Node ref copied to clipboard`,
+      value: ref,
+      message: `Action reference copied to clipboard`,
     })
     toast({
       title: "Copied action node reference",
-      description: `The node reference '${slug}' has been copied to your clipboard.`,
+      description: `The action reference '${ref}' has been copied to your clipboard.`,
     })
   }, [title, toast])
 
@@ -113,7 +114,7 @@ export default React.memo(function UDFNode({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleCopyToClipboard}>
                   <Copy className="mr-2 size-4" />
-                  <span className="text-xs">Copy JSONPath</span>
+                  <span className="text-xs">Copy Action Reference</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
                   <ScanSearchIcon className="mr-2 size-4" />
