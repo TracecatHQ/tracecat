@@ -59,6 +59,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Copy the shell script into the image
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
 # Switch to the next.js user
 USER nextjs
 
@@ -67,5 +71,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Start the application using the standalone server.js
-CMD ["node", "server.js"]
+# Start the application using the shell script
+CMD ["/bin/sh", "/start.sh"]
