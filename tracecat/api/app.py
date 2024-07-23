@@ -83,11 +83,8 @@ from tracecat.types.api import (
     UpdateScheduleParams,
     UpdateSecretParams,
     UpdateUserParams,
-    UpdateWorkflowParams,
     UpsertWebhookParams,
     WebhookResponse,
-    WorkflowMetadataResponse,
-    WorkflowResponse,
 )
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
@@ -98,7 +95,10 @@ from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
     EventHistoryResponse,
+    UpdateWorkflowParams,
     WorkflowExecutionResponse,
+    WorkflowMetadataResponse,
+    WorkflowResponse,
 )
 
 engine: Engine
@@ -631,7 +631,7 @@ async def create_workflow(
 
 @app.get("/workflows/{workflow_id}", tags=["workflows"])
 def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""

@@ -178,6 +178,7 @@ class DSLInput(BaseModel):
             actions=graph.action_statements(workflow),
             inputs=workflow.static_inputs,
             config=workflow.config,
+            returns=workflow.returns,
             # triggers=workflow.triggers,
         )
 

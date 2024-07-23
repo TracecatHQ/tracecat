@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from tracecat import identifiers
-from tracecat.db.schemas import Resource, Schedule
+from tracecat.db.schemas import Resource
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
@@ -36,22 +36,6 @@ class ActionResponse(BaseModel):
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
 
 
-class WorkflowResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    actions: dict[str, ActionResponse]
-    object: dict[str, Any] | None  # React Flow object
-    owner_id: str
-    version: int | None = None
-    webhook: WebhookResponse
-    schedules: list[Schedule]
-    entrypoint: str | None
-    static_inputs: dict[str, Any]
-    config: dict[str, Any] | None
-
-
 class ActionMetadataResponse(BaseModel):
     id: str
     workflow_id: str
@@ -60,33 +44,6 @@ class ActionMetadataResponse(BaseModel):
     description: str
     status: str
     key: str
-
-
-class WorkflowMetadataResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    icon_url: str | None
-    created_at: datetime
-    updated_at: datetime
-    version: int | None
-
-
-class CreateWorkflowParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-
-
-class UpdateWorkflowParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    status: Literal["online", "offline"] | None = None
-    object: dict[str, Any] | None = None
-    version: int | None = None
-    entrypoint: str | None = None
-    icon_url: str | None = None
-    static_inputs: dict[str, Any] | None = None
 
 
 class CreateActionParams(BaseModel):

@@ -93,6 +93,7 @@ export const workflowSchema = z.object({
   schedules: z.array(scheduleSchema).default([]),
   entrypoint: z.string().nullable(),
   static_inputs: z.record(z.string(), z.any()),
+  returns: z.unknown().nullable(),
 })
 
 export type Workflow = z.infer<typeof workflowSchema>

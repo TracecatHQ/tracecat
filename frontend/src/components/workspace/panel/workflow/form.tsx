@@ -6,10 +6,15 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import "@radix-ui/react-dialog"
 
 import { useRouter } from "next/navigation"
-import { ApiError, UpdateWorkflowParams } from "@/client"
+import { ApiError } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
-import { Editor } from "@monaco-editor/react"
-import { FileInputIcon, SaveIcon, Settings2Icon } from "lucide-react"
+import {
+  FileInputIcon,
+  Info,
+  SaveIcon,
+  Settings2Icon,
+  Undo2Icon,
+} from "lucide-react"
 import { Controller, useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
@@ -31,6 +36,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
@@ -41,16 +51,37 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { CustomEditor } from "@/components/editor"
 import { WorkflowSettings } from "@/components/workspace/panel/workflow/settings"
 
-const workflowFormSchema = z.object({
+const workflowConfigFormSchema = z.object({
   title: z.string(),
   description: z.string(),
-  static_inputs: z.string(),
+  static_inputs: z.string().transform((val, ctx) => {
+    try {
+      return YAML.parse(val) || {}
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid YAML format",
+      })
+      return z.NEVER
+    }
+  }),
+  returns: z.string().transform((val, ctx) => {
+    try {
+      return YAML.parse(val) || null
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid YAML format",
+      })
+      return z.NEVER
+    }
+  }),
 })
 
-type TWorkflowForm = z.infer<typeof workflowFormSchema>
+type WorkflowConfigForm = z.infer<typeof workflowConfigFormSchema>
 
 export function WorkflowForm({
   workflow,
@@ -59,32 +90,23 @@ export function WorkflowForm({
 }): React.JSX.Element {
   const router = useRouter()
   const { update } = useWorkflow()
-  const form = useForm<TWorkflowForm>({
-    resolver: zodResolver(workflowFormSchema),
+  const form = useForm<WorkflowConfigForm>({
+    resolver: zodResolver(workflowConfigFormSchema),
     defaultValues: {
       title: workflow.title || "",
       description: workflow.description || "",
       static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
         ? ""
         : YAML.stringify(workflow.static_inputs),
+
+      returns: !workflow.returns ? "" : YAML.stringify(workflow.returns),
     },
   })
 
-  const onSubmit = async (values: TWorkflowForm) => {
-    let params: UpdateWorkflowParams
+  const onSubmit = async (values: WorkflowConfigForm) => {
+    console.log("Saving changes...", values)
     try {
-      params = {
-        ...values,
-        static_inputs: YAML.parse(values.static_inputs) || {},
-      }
-    } catch (error) {
-      console.error("Error parsing static inputs:", error)
-      form.setError("static_inputs", { message: "Invalid YAML format" })
-      return
-    }
-    console.log("Saving changes...", params)
-    try {
-      await update(params)
+      await update(values)
       toast({
         title: "Saved changes",
         description: "Workflow updated successfully.",
@@ -121,7 +143,11 @@ export function WorkflowForm({
         {/* Workflow Settings */}
         <Accordion
           type="multiple"
-          defaultValue={["workflow-settings", "workflow-static-inputs"]}
+          defaultValue={[
+            "workflow-settings",
+            "workflow-static-inputs",
+            "workflow-returns",
+          ]}
         >
           <AccordionItem value="workflow-settings">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -188,45 +214,87 @@ export function WorkflowForm({
           </AccordionItem>
           <AccordionItem value="workflow-static-inputs">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center">
-                    <FileInputIcon className="mr-3 size-4" />
-                    <span>Static Inputs</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Unchanging inputs that the workflow always has access to.
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex items-center">
+                <Undo2Icon className="mr-3 size-4" />
+                <span className="capitalize">
+                  Workflow return value expression
+                </span>
+              </div>
             </AccordionTrigger>
             <AccordionContent>
               <div className="flex flex-col space-y-4 px-4">
+                <div className="flex items-center">
+                  <HoverCard openDelay={100} closeDelay={100}>
+                    <HoverCardTrigger asChild className="hover:border-none">
+                      <Info className="mr-1 size-3 stroke-muted-foreground" />
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                      side="left"
+                      sideOffset={20}
+                    >
+                      <WorkflowReturnValueTooltip />
+                    </HoverCardContent>
+                  </HoverCard>
+                  <span className="text-xs text-muted-foreground">
+                    Edit the workflow return expression in YAML below.
+                  </span>
+                </div>
                 <span className="text-xs text-muted-foreground">
-                  Edit the static workflow inputs in YAML below.
+                  If left blank, the workflow will return its entire execution
+                  context by default.
                 </span>
+                <Controller
+                  name="returns"
+                  control={form.control}
+                  render={({ field }) => (
+                    <CustomEditor
+                      className="h-48 w-full"
+                      defaultLanguage="yaml"
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="workflow-returns">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-center">
+                <FileInputIcon className="mr-3 size-4" />
+                <span>Static Inputs</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="flex flex-col space-y-4 px-4">
+                <div className="flex items-center">
+                  <HoverCard openDelay={100} closeDelay={100}>
+                    <HoverCardTrigger asChild className="hover:border-none">
+                      <Info className="mr-1 size-3 stroke-muted-foreground" />
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                      side="left"
+                      sideOffset={20}
+                    >
+                      <StaticInputTooltip />
+                    </HoverCardContent>
+                  </HoverCard>
+                  <span className="text-xs text-muted-foreground">
+                    Edit the static workflow inputs in YAML below.
+                  </span>
+                </div>
                 <Controller
                   name="static_inputs"
                   control={form.control}
                   render={({ field }) => (
-                    <div className="h-48 w-full border">
-                      <Editor
-                        defaultLanguage="yaml"
-                        value={field.value}
-                        onChange={field.onChange}
-                        height="100%"
-                        theme="vs-light"
-                        loading={<CenteredSpinner />}
-                        options={{
-                          tabSize: 2,
-                          minimap: { enabled: false },
-                          scrollbar: {
-                            verticalScrollbarSize: 5,
-                            horizontalScrollbarSize: 5,
-                          },
-                        }}
-                      />
-                    </div>
+                    <CustomEditor
+                      className="h-48 w-full"
+                      defaultLanguage="yaml"
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
                   )}
                 />
               </div>
@@ -235,5 +303,54 @@ export function WorkflowForm({
         </Accordion>
       </form>
     </Form>
+  )
+}
+
+function StaticInputTooltip() {
+  return (
+    <div className="w-full space-y-4">
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <span className="font-mono text-sm font-semibold">Static Inputs</span>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="flex w-full flex-col items-center justify-between space-y-4 text-muted-foreground">
+        <span>
+          Static inputs are unchanging inputs that are passed into every
+          workflow definition and their executions.
+        </span>
+        <span>The values are availble in the INPUTS context, for example:</span>
+      </div>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">
+          {"${{ INPUTS.my_static_input }}"}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function WorkflowReturnValueTooltip() {
+  return (
+    <div className="flex w-full flex-col space-y-4">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
+        <span className="font-mono text-sm font-semibold">
+          Return Value Expression
+        </span>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <span className="w-full text-muted-foreground">
+        Define an expression that will be evaluated and returned as the
+        workflow's output.
+      </span>
+      <span className="w-full text-muted-foreground">
+        For example, to return the result of an action `My Action` (reference
+        `my_action`), use the following expression:
+      </span>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">
+          {"${{ ACTIONS.my_action.result }}"}
+        </pre>
+      </div>
+    </div>
   )
 }

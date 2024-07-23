@@ -229,6 +229,11 @@ class Workflow(Resource, table=True):
         sa_column=Column(JSONB),
         description="Static inputs for the workflow",
     )
+    returns: Any | None = Field(
+        None,
+        sa_column=Column(JSONB),
+        description="Workflow return values",
+    )
     object: dict[str, Any] | None = Field(
         sa_column=Column(JSONB), description="React flow graph object"
     )

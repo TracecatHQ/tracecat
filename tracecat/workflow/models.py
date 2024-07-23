@@ -18,10 +18,14 @@ from pydantic import (
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
-from tracecat.db.schemas import Workflow
+from tracecat.db.schemas import Schedule, Workflow
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLContext, UDFActionInput
-from tracecat.types.api import UDFArgsValidationResponse
+from tracecat.types.api import (
+    ActionResponse,
+    UDFArgsValidationResponse,
+    WebhookResponse,
+)
 from tracecat.types.auth import Role
 from tracecat.workflow.definitions import GetWorkflowDefinitionActivityInputs
 
@@ -258,3 +262,48 @@ class DispatchWorkflowResult(TypedDict):
 class CreateWorkflowFromDSLResponse(BaseModel):
     workflow: Workflow | None = None
     errors: list[UDFArgsValidationResponse] | None = None
+
+
+class WorkflowResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    status: str
+    actions: dict[str, ActionResponse]
+    object: dict[str, Any] | None  # React Flow object
+    owner_id: str
+    version: int | None = None
+    webhook: WebhookResponse
+    schedules: list[Schedule]
+    entrypoint: str | None
+    static_inputs: dict[str, Any]
+    returns: Any
+    config: dict[str, Any] | None
+
+
+class UpdateWorkflowParams(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: Literal["online", "offline"] | None = None
+    object: dict[str, Any] | None = None
+    version: int | None = None
+    entrypoint: str | None = None
+    icon_url: str | None = None
+    static_inputs: dict[str, Any] | None = None
+    returns: Any | None = None
+
+
+class WorkflowMetadataResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    status: str
+    icon_url: str | None
+    created_at: datetime
+    updated_at: datetime
+    version: int | None
+
+
+class CreateWorkflowParams(BaseModel):
+    title: str | None = None
+    description: str | None = None
