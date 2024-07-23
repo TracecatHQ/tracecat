@@ -1,0 +1,42 @@
+# Non-development docker compose extension file
+# - Removes all volume bindings
+# - Uses the multi-stage frontend Dockerfile
+# - Changes env vars to production
+services:
+  api:
+    build: .
+    volumes:
+      - ./tracecat:/app/tracecat
+      - core-app:/var/lib/tracecat
+    environment:
+      DUMP_TRACECAT_RESULT: 1
+
+  worker:
+    build: .
+    volumes:
+      - ./tracecat:/app/tracecat
+      - core-app:/var/lib/tracecat
+    environment:
+      DUMP_TRACECAT_RESULT: 1
+
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.nohotload
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY} # Sensitive
+        NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
+        NODE_ENV: ${NODE_ENV}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+#      - ./frontend/node_modules:/app/node_modules
+
+  temporal_ui:
+    attach: false
+
+volumes:
+  core-app:
