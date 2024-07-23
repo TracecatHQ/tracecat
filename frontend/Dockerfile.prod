@@ -1,16 +1,19 @@
+# https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 FROM node:22-alpine AS deps
 WORKDIR /app
 
 RUN apk add --no-cache libc6-compat
 
-COPY package.json pnpm-lock.yaml ./
+# Copy only the files needed to install dependencies
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 
-RUN corepack enable pnpm && pnpm install --frozen-lockfile
+# Install dependencies with pnpm
+RUN corepack enable pnpm && pnpm i --frozen-lockfile
 
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-ARG NODE_ENV=production
+ARG NODE_ENV
 ARG NEXT_PUBLIC_APP_ENV
 ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_API_URL
@@ -18,9 +21,8 @@ ARG NEXT_PUBLIC_DISABLE_AUTH
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ARG NEXT_SERVER_API_URL
 
-# Environment variables for the build process
-ENV NODE_ENV=$NODE_ENV
-ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_APP_ENV=production
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_DISABLE_AUTH=$NEXT_PUBLIC_DISABLE_AUTH
@@ -28,8 +30,11 @@ ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
 
 COPY --from=deps /app/node_modules ./node_modules
+
+# Copy the rest of the files
 COPY . .
 
+# Run build with the preferred package manager
 RUN corepack enable pnpm && pnpm build
 
 FROM node:22-alpine AS runner
@@ -38,16 +43,27 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_APP_ENV=production
 
+# Add nextjs user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+# https://nextjs.org/docs/advanced-features/output-file-tracing
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
 EXPOSE 3000
+
 ENV PORT 3000
 
-CMD ["node", "server.js"]
+# server.js is created by next build from the standalone output
+# https://nextjs.org/docs/pages/api-reference/next-config-js/output
+CMD HOSTNAME="0.0.0.0" node server.js
