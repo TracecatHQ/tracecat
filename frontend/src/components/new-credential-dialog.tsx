@@ -98,7 +98,7 @@ export function NewCredentialsDialog({
           {children}
           <DialogContent className={className}>
             <DialogHeader>
-              <DialogTitle>Create New Secret</DialogTitle>
+              <DialogTitle>Create new secret</DialogTitle>
               <div className="flex text-sm leading-relaxed text-muted-foreground">
                 <span>
                   Create a secret that can have multiple key-value credential

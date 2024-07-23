@@ -82,7 +82,7 @@ export default function CredentialsPage() {
               className="ml-auto space-x-2"
             >
               <PlusCircle className="mr-2 size-4" />
-              Create New Secret
+              Create new secret
             </Button>
           </NewCredentialsDialogTrigger>
         </NewCredentialsDialog>
