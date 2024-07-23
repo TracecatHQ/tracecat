@@ -557,7 +557,11 @@ async def create_workflow(
     file: UploadFile | None = File(None),
     session: Session = Depends(get_session),
 ) -> WorkflowMetadataResponse:
-    """Create new Workflow with title and description."""
+    """Create a new Workflow.
+
+    Optionally, you can provide a YAML file to create a workflow.
+    You can also provide a title and description to create a blank workflow."""
+
     if file:
         # if file.content_type in ("application/x-yaml", "text/yaml", "application/json"):
         try:
