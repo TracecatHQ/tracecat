@@ -340,7 +340,7 @@ function WorkflowReturnValueTooltip() {
       </div>
       <span className="w-full text-muted-foreground">
         Define an expression that will be evaluated and returned as the
-        workflow's output.
+        workflow&apos;s output.
       </span>
       <span className="w-full text-muted-foreground">
         For example, to return the result of an action `My Action` (reference

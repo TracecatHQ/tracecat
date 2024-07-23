@@ -62,7 +62,6 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CustomEditor } from "@/components/editor"
-import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function WorkflowNav() {
   const { workflow, isLoading, isOnline, setIsOnline, commit } = useWorkflow()
