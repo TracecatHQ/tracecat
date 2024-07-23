@@ -19,7 +19,7 @@ actions:
 
   # Transform the list of GuardDuty findings into a list of SMAC findings
   - ref: reshape_findings_into_smac
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - pull_aws_guardduty_findings
     run_if: ${{ FN.not_empty(ACTIONS.pull_aws_guardduty_findings.result) }}

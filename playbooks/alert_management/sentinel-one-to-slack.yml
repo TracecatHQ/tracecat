@@ -31,7 +31,7 @@ actions:
         text: Tracecat ran workflow for SentinelOne alerts, but no alerts were found
 
   - ref: reshape_alerts_into_smac
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - pull_sentinelone_alerts
     run_if: ${{ FN.not_empty(ACTIONS.pull_sentinelone_alerts.result) }}

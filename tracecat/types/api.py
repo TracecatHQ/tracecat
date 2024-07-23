@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from tracecat import identifiers
-from tracecat.db.schemas import Resource, Schedule
+from tracecat.db.schemas import Resource
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
@@ -20,6 +20,11 @@ from tracecat.types.validation import ValidationResult
 RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 
 
+class ActionControlFlow(BaseModel):
+    run_if: str | None = None
+    for_each: str | list[str] | None = None
+
+
 class ActionResponse(BaseModel):
     id: str
     type: str
@@ -28,20 +33,7 @@ class ActionResponse(BaseModel):
     status: str
     inputs: dict[str, Any]
     key: str  # Computed field
-
-
-class WorkflowResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    actions: dict[str, ActionResponse]
-    object: dict[str, Any] | None  # React Flow object
-    owner_id: str
-    version: int | None = None
-    webhook: WebhookResponse
-    schedules: list[Schedule]
-    entrypoint: str | None
+    control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
 
 
 class ActionMetadataResponse(BaseModel):
@@ -52,32 +44,6 @@ class ActionMetadataResponse(BaseModel):
     description: str
     status: str
     key: str
-
-
-class WorkflowMetadataResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    icon_url: str | None
-    created_at: datetime
-    updated_at: datetime
-    version: int | None
-
-
-class CreateWorkflowParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-
-
-class UpdateWorkflowParams(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    status: Literal["online", "offline"] | None = None
-    object: dict[str, Any] | None = None
-    version: int | None = None
-    entrypoint: str | None = None
-    icon_url: str | None = None
 
 
 class CreateActionParams(BaseModel):
@@ -91,6 +57,7 @@ class UpdateActionParams(BaseModel):
     description: str | None = None
     status: str | None = None
     inputs: dict[str, Any] | None = None
+    control_flow: ActionControlFlow | None = None
 
 
 class UpsertWebhookParams(BaseModel):

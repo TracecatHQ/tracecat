@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react"
 import {
+  ActionResponse,
+  actionsGetAction,
+  actionsUpdateAction,
   EventHistoryResponse,
   Schedule,
   schedulesCreateSchedule,
@@ -9,6 +12,7 @@ import {
   schedulesListSchedules,
   schedulesUpdateSchedule,
   SchedulesUpdateScheduleData,
+  UpdateActionParams,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
@@ -17,7 +21,6 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
-  Action,
   CaseEvent,
   type Case,
   type WorkflowMetadata,
@@ -30,11 +33,10 @@ import {
   updateCase,
 } from "@/lib/cases"
 import { updateWebhook } from "@/lib/trigger"
+import { isEmptyObject } from "@/lib/utils"
 import {
   fetchAllPlaybooks,
   fetchAllWorkflows,
-  getActionById,
-  updateAction,
 } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
@@ -136,51 +138,54 @@ export function useCaseEvents(workflowId: string, caseId: string) {
   }
 }
 
-export type PanelAction<T extends Record<string, unknown>> = {
-  action?: Action
+export type PanelAction = {
+  action?: ActionResponse
   isLoading: boolean
   error: Error | null
-  mutateAsync: (values: T) => Promise<unknown>
+  mutateAsync: (values: UpdateActionParams) => Promise<ActionResponse>
   queryClient: ReturnType<typeof useQueryClient>
   queryKeys: {
     selectedAction: [string, string, string]
     workflow: [string, string]
   }
 }
-export function usePanelAction<T extends Record<string, unknown>>(
+export function usePanelAction(
   actionId: string,
   workflowId: string
-): PanelAction<T> {
+): PanelAction {
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
   const {
     data: action,
     isLoading,
     error,
-  } = useQuery<Action, Error>({
+  } = useQuery<ActionResponse, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
-      return await getActionById(actionId, workflowId)
+      return await actionsGetAction({ actionId, workflowId })
     },
   })
   const { mutateAsync } = useMutation({
-    mutationFn: (values: T) => updateAction(actionId, values),
-    onSuccess: (data: Action) => {
+    mutationFn: async (values: UpdateActionParams) =>
+      await actionsUpdateAction({ actionId, requestBody: values }),
+    onSuccess: (updatedAction: ActionResponse) => {
       setNodes((nds: UDFNodeType[]) =>
         nds.map((node: UDFNodeType) => {
           if (node.id === actionId) {
-            const { title } = data
+            const { title } = updatedAction
             node.data = {
               ...node.data, // Overwrite the existing node data
               title,
-              isConfigured: data.inputs !== null,
+              isConfigured:
+                updatedAction.inputs !== null ||
+                isEmptyObject(updatedAction.inputs),
             }
           }
           return node
         })
       )
-      console.log("Action update successful", data)
+      console.log("Action update successful", updatedAction)
       toast({
         title: "Saved action",
         description: "Your action has been updated successfully.",

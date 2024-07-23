@@ -41,7 +41,7 @@ actions:
       end_time: ${{ TRIGGER.end_time }}
 
   - ref: reshape_alerts_into_smac
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - pull_crowdstrike_alerts
     for_each: ${{ for var.alert in ACTIONS.pull_crowdstrike_alerts.result }}

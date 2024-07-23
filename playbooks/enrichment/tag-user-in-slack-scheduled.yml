@@ -33,7 +33,7 @@ actions:
         target: Datadog
 
   - ref: reshape_conversations
-    action: core.transform.forward
+    action: core.transform.reshape
     depends_on:
       - filter_datadog_messages_only
     run_if: ${{ FN.not_empty(ACTIONS.filter_datadog_messages_only.result) }}

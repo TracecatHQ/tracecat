@@ -54,6 +54,10 @@ export type Schedule = z.infer<typeof scheduleSchema>
 const actionStatusSchema = z.enum(["online", "offline"])
 export type ActionStatus = z.infer<typeof actionStatusSchema>
 
+export const actionControlFlowSchema = z.object({
+  run_if: z.string().nullable(),
+  for_each: z.string().nullable(),
+})
 export const actionSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -61,6 +65,7 @@ export const actionSchema = z.object({
   description: z.string(),
   status: actionStatusSchema,
   inputs: z.record(z.any()),
+  control_flow: actionControlFlowSchema,
 })
 
 export type Action = z.infer<typeof actionSchema>
@@ -87,6 +92,8 @@ export const workflowSchema = z.object({
   webhook: webhookSchema,
   schedules: z.array(scheduleSchema).default([]),
   entrypoint: z.string().nullable(),
+  static_inputs: z.record(z.string(), z.any()),
+  returns: z.unknown().nullable(),
 })
 
 export type Workflow = z.infer<typeof workflowSchema>

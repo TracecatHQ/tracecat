@@ -77,6 +77,8 @@ class WorkflowsManagementService:
                 title=dsl.title,
                 description=dsl.description,
                 owner_id=self.role.user_id,
+                static_inputs=dsl.inputs,
+                returns=dsl.returns,
             )
 
             # Add the Workflow to the session first to generate an ID

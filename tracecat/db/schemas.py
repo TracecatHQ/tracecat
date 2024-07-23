@@ -224,8 +224,23 @@ class Workflow(Resource, table=True):
         None,
         description="ID of the node directly connected to the trigger.",
     )
+    static_inputs: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Static inputs for the workflow",
+    )
+    returns: Any | None = Field(
+        None,
+        sa_column=Column(JSONB),
+        description="Workflow return values",
+    )
     object: dict[str, Any] | None = Field(
         sa_column=Column(JSONB), description="React flow graph object"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Workflow configuration",
     )
     icon_url: str | None = None
     # Owner
@@ -319,6 +334,8 @@ class Action(Resource, table=True):
     description: str
     status: str = "offline"  # "online" or "offline"
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    control_flow: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )

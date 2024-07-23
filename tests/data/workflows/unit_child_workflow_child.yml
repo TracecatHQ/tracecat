@@ -7,7 +7,7 @@ entrypoint:
 
 actions:
   - ref: a
-    action: core.transform.forward
+    action: core.transform.reshape
     args:
       value: ${{ TRIGGER.number + 1000 }}
 

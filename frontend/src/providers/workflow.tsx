@@ -12,7 +12,9 @@ import { useParams } from "next/navigation"
 import {
   ApiError,
   CommitWorkflowResponse,
+  UpdateWorkflowParams,
   workflowsCommitWorkflow,
+  workflowsUpdateWorkflow,
 } from "@/client"
 import {
   MutateFunction,
@@ -20,7 +22,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { AxiosError } from "axios"
 
 import { Workflow } from "@/types/schemas"
 import { fetchWorkflow, updateWorkflow } from "@/lib/workflow"
@@ -34,7 +35,7 @@ type WorkflowContextType = {
   isOnline: boolean
   setIsOnline: (isOnline: boolean) => void
   commit: MutateFunction<CommitWorkflowResponse, ApiError, void, unknown>
-  update: MutateFunction<unknown, Error, Record<string, unknown>, unknown>
+  update: MutateFunction<void, ApiError, UpdateWorkflowParams, unknown>
 }
 type TracecatErrorMessage = {
   type?: string
@@ -96,17 +97,17 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   })
 
   const { mutateAsync: update } = useMutation({
-    mutationFn: async (values: Record<string, unknown>) =>
-      await updateWorkflow(workflowId, values),
+    mutationFn: async (values: UpdateWorkflowParams) =>
+      await workflowsUpdateWorkflow({ workflowId, requestBody: values }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
-    onError: (error: AxiosError) => {
+    onError: (error: ApiError) => {
       console.error("Failed to update workflow:", error)
       toast({
         title: "Error updating workflow",
         description:
-          (error.response?.data as TracecatErrorMessage).message ||
+          (error.body as TracecatErrorMessage).message ||
           "Could not update workflow. Please try again.",
         variant: "destructive",
       })

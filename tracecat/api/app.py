@@ -83,11 +83,8 @@ from tracecat.types.api import (
     UpdateScheduleParams,
     UpdateSecretParams,
     UpdateUserParams,
-    UpdateWorkflowParams,
     UpsertWebhookParams,
     WebhookResponse,
-    WorkflowMetadataResponse,
-    WorkflowResponse,
 )
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
@@ -98,7 +95,10 @@ from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
     EventHistoryResponse,
+    UpdateWorkflowParams,
     WorkflowExecutionResponse,
+    WorkflowMetadataResponse,
+    WorkflowResponse,
 )
 
 engine: Engine
@@ -557,7 +557,11 @@ async def create_workflow(
     file: UploadFile | None = File(None),
     session: Session = Depends(get_session),
 ) -> WorkflowMetadataResponse:
-    """Create new Workflow with title and description."""
+    """Create a new Workflow.
+
+    Optionally, you can provide a YAML file to create a workflow.
+    You can also provide a title and description to create a blank workflow."""
+
     if file:
         # if file.content_type in ("application/x-yaml", "text/yaml", "application/json"):
         try:
@@ -631,7 +635,7 @@ async def create_workflow(
 
 @app.get("/workflows/{workflow_id}", tags=["workflows"])
 def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
@@ -1384,6 +1388,7 @@ def get_action(
         status=action.status,
         inputs=action.inputs,
         key=action.key,
+        control_flow=action.control_flow,
     )
 
 
@@ -1416,6 +1421,8 @@ def update_action(
             action.status = params.status
         if params.inputs is not None:
             action.inputs = params.inputs
+        if params.control_flow is not None:
+            action.control_flow = params.control_flow.model_dump(mode="json")
 
         session.add(action)
         session.commit()
