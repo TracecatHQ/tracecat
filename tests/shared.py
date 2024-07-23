@@ -40,9 +40,9 @@ async def create_workflow(
             params["title"] = title
         if description:
             params["description"] = description
-        with user_client() as client:
+        async with user_client() as client:
             # Get the webhook url
-            res = client.post("/workflows", data=params)
+            res = await client.post("/workflows", data=params)
 
     return handle_response(res)
 
