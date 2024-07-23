@@ -114,7 +114,7 @@ export default React.memo(function UDFNode({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleCopyToClipboard}>
                   <Copy className="mr-2 size-4" />
-                  <span className="text-xs">Copy Action Reference</span>
+                  <span className="text-xs">Copy action reference</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>
                   <ScanSearchIcon className="mr-2 size-4" />
