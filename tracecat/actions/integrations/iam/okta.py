@@ -54,7 +54,7 @@ async def suspend_okta_user(
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/api/v1/users/${username}/lifecycle/suspend",
+            f"{base_url}/api/v1/users/{username}/lifecycle/suspend",
             headers=headers,
         )
         response.raise_for_status()
@@ -84,7 +84,7 @@ async def unsuspend_okta_user(
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/api/v1/users/${username}/lifecycle/unsuspend",
+            f"{base_url}/api/v1/users/{username}/lifecycle/unsuspend",
             headers=headers,
         )
         response.raise_for_status()
