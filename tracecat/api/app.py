@@ -95,6 +95,7 @@ from tracecat.workflow.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
     EventHistoryResponse,
+    TerminateWorkflowExecutionParams,
     UpdateWorkflowParams,
     WorkflowExecutionResponse,
     WorkflowMetadataResponse,
@@ -995,6 +996,37 @@ async def create_workflow_execution(
                     "detail": e.detail,
                 },
             ) from e
+
+
+@app.post(
+    "/workflow-executions/{execution_id}/cancel",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflow-executions"],
+)
+async def cancel_workflow_execution(
+    role: Annotated[Role, Depends(authenticate_user)],
+    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+) -> None:
+    """Get a workflow execution."""
+    with logger.contextualize(role=role):
+        service = await WorkflowExecutionsService.connect()
+        await service.cancel_workflow_execution(execution_id)
+
+
+@app.post(
+    "/workflow-executions/{execution_id}/terminate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["workflow-executions"],
+)
+async def terminate_workflow_execution(
+    role: Annotated[Role, Depends(authenticate_user)],
+    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+    params: TerminateWorkflowExecutionParams,
+) -> None:
+    """Get a workflow execution."""
+    with logger.contextualize(role=role):
+        service = await WorkflowExecutionsService.connect()
+        await service.terminate_workflow_execution(execution_id, reason=params.reason)
 
 
 # ----- Workflow Webhooks ----- #
