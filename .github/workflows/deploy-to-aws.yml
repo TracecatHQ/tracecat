@@ -154,6 +154,7 @@ jobs:
 
       - name: CDK synth, bootstrap and deploy
         env:
+          ENVIRONMENT: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'preview' }}
           # General
           LOG_LEVEL: INFO
           AWS_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}

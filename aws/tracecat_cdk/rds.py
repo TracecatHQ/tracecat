@@ -6,6 +6,8 @@ from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
+from .config import IS_PRODUCTION
+
 # RDS settings
 INSTANCE_TYPE = ec2.InstanceType.of(
     ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.MEDIUM
@@ -77,17 +79,19 @@ class RdsStack(Stack):
                 engine=engine_version,
                 instance_type=INSTANCE_TYPE,
                 vpc=vpc,
-                multi_az=True,
+                multi_az=IS_PRODUCTION,
                 allocated_storage=allocated_storage,
                 storage_type=STORAGE_TYPE,
                 credentials=rds.Credentials.from_password(
                     username="postgres", password=db_secret.secret_value
                 ),
-                deletion_protection=True,
+                deletion_protection=IS_PRODUCTION,
                 database_name=db_name,
                 backup_retention=BACKUP_RETENTION,
                 monitoring_interval=MONITORING_INTERVAL,
-                removal_policy=RemovalPolicy.RETAIN,
+                removal_policy=RemovalPolicy.RETAIN
+                if IS_PRODUCTION
+                else RemovalPolicy.DESTROY,
                 security_groups=[security_group],
                 storage_encrypted=True,
                 preferred_backup_window=PREFERRED_BACKUP_WINDOW,

@@ -12,6 +12,7 @@ from aws_cdk import aws_servicediscovery as servicediscovery
 from constructs import Construct
 
 from .config import (
+    IS_PRODUCTION,
     TEMPORAL_SERVER_CPU,
     TEMPORAL_SERVER_IMAGE,
     TEMPORAL_SERVER_RAM,
@@ -360,7 +361,6 @@ class FargateStack(Stack):
             "TracecatApiFargateService",
             cluster=cluster,
             service_name="tracecat-api",
-            # Attach the security group to your ECS service
             task_definition=api_task_definition,
             security_groups=[
                 frontend_security_group,
@@ -403,7 +403,7 @@ class FargateStack(Stack):
             "TracecatWorkerFargateService",
             cluster=cluster,
             service_name="tracecat-worker",
-            # Attach the security group to your ECS service
+            enable_execute_command=not IS_PRODUCTION,
             task_definition=worker_task_definition,
             security_groups=[backend_security_group, core_db_security_group],
             service_connect_configuration=worker_service_connect,
@@ -470,7 +470,6 @@ class FargateStack(Stack):
             "TracecatUiFargateService",
             cluster=cluster,
             service_name="tracecat-ui",
-            # Attach the security group to your ECS service
             task_definition=ui_task_definition,
             security_groups=[frontend_security_group],
             service_connect_configuration=ui_service_connect,
@@ -514,7 +513,7 @@ class FargateStack(Stack):
             "TemporalFargateService",
             cluster=cluster,
             service_name="temporal-server",
-            # Attach the security group to your ECS service
+            enable_execute_command=not IS_PRODUCTION,
             task_definition=temporal_task_definition,
             security_groups=[
                 backend_security_group,

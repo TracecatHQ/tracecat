@@ -1,8 +1,6 @@
 import os
 
-# NOTE: All public / service API urls are equivalent
-# as this deployment is fully airgapped inside a
-# single security group with no external internet access
+IS_PRODUCTION = os.getenv("ENVIRONMENT", "preview") == "production"
 
 # Used to pull Tracecat image from ghcr via the version tag
 TRACECAT_IMAGE_TAG = os.getenv("TRACECAT__IMAGE_TAG", "latest")
