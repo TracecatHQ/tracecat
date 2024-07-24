@@ -6,7 +6,7 @@ from tracecat.logging import logger
 
 
 async def get_temporal_client() -> Client:
-    logger.info("Connecting to Temporal at %s", config.TEMPORAL__CLUSTER_URL)
+    logger.info(f"Connecting to Temporal at {config.TEMPORAL__CLUSTER_URL}")
 
     tls_config = False
     if config.TEMPORAL__TLS_ENABLED:
