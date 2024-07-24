@@ -55,7 +55,12 @@ class VpcStack(Stack):
         backend_security_group.add_ingress_rule(
             peer=backend_security_group,
             connection=ec2.Port.tcp(8000),
-            description="Allow traffic from core Tracecat services (API and worker)",
+            description="Allow traffic from core Tracecat API",
+        )
+        backend_security_group.add_ingress_rule(
+            peer=backend_security_group,
+            connection=ec2.Port.tcp(8001),
+            description="Allow traffic from core Tracecat worker",
         )
 
         self.frontend_security_group = frontend_security_group

@@ -389,7 +389,7 @@ class FargateStack(Stack):
             secrets=tracecat_secrets,
             port_mappings=[
                 ecs.PortMapping(
-                    container_port=8000,
+                    container_port=8001,
                     name="worker",
                     app_protocol=ecs.AppProtocol.http,
                 )
@@ -497,13 +497,12 @@ class FargateStack(Stack):
                 "DB": "postgres12",  # Database driver for temporal
                 "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
-                # "TEMPORAL_ADDRESS": "temporal-server:7233",
             },
             port_mappings=[
                 ecs.PortMapping(
                     container_port=7233,
                     name="temporal",
-                    app_protocol=ecs.AppProtocol.http2,
+                    app_protocol=ecs.AppProtocol.grpc,
                 ),
             ],
             logging=ecs.LogDrivers.aws_logs(
