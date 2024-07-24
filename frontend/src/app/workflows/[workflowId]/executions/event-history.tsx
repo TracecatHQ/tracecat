@@ -5,6 +5,7 @@ import { EventHistoryResponse } from "@/client"
 import {
   CalendarCheck,
   CircleCheck,
+  CircleMinusIcon,
   CircleX,
   GlobeIcon,
   Play,
@@ -150,6 +151,18 @@ function getEventHistoryIcon(
       )
     case "WORKFLOW_EXECUTION_FAILED":
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+    case "WORKFLOW_EXECUTION_CANCELED":
+      return (
+        <CircleMinusIcon
+          className={cn("fill-orange-500 stroke-white", className)}
+        />
+      )
+    case "WORKFLOW_EXECUTION_TERMINATED":
+      return (
+        <CircleMinusIcon
+          className={cn("fill-rose-500 stroke-white", className)}
+        />
+      )
     case "START_CHILD_WORKFLOW_EXECUTION_INITIATED":
       return (
         <WorkflowIcon

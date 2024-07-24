@@ -1,11 +1,21 @@
 "use client"
 
 import React from "react"
-import { EventHistoryResponse, WorkflowExecutionResponse } from "@/client"
-import { BanIcon, CircleCheck, CircleX, Loader2 } from "lucide-react"
+import {
+  EventHistoryResponse,
+  WorkflowExecutionResponse,
+  workflowExecutionsTerminateWorkflowExecution,
+} from "@/client"
+import {
+  CircleCheck,
+  CircleMinusIcon,
+  CircleX,
+  CircleXIcon,
+  Loader2,
+} from "lucide-react"
 
 import { cn, undoSlugify } from "@/lib/utils"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { buttonVariants } from "@/components/ui/button"
 import {
   HoverCard,
   HoverCardContent,
@@ -20,6 +30,12 @@ import {
 import NoContent from "@/components/no-content"
 
 import "react18-json-view/src/style.css"
+
+import { useRouter } from "next/navigation"
+import { TriangleRightIcon } from "@radix-ui/react-icons"
+
+import { ToastAction } from "@/components/ui/toast"
+import { toast } from "@/components/ui/use-toast"
 
 /**
  * The top-level view of workflow executions (shows each execution and its status)
@@ -38,8 +54,41 @@ export function WorkflowExecutionNav({
   setExecutionId: (id?: string) => void
   setSelectedEvent: (event?: EventHistoryResponse) => void
 }) {
+  const router = useRouter()
   if (!workflowExecutions) {
     return <NoContent message="No workflow executions found." />
+  }
+
+  const handleTerminateExecuton = async (executionId: string) => {
+    console.log("Terminate execution")
+    try {
+      await workflowExecutionsTerminateWorkflowExecution({
+        executionId,
+        requestBody: {
+          reason: "User terminated execution",
+        },
+      })
+      toast({
+        title: "Successfully requested termination",
+        description: `Execution ${executionId} has been terminated. You can refresh the page to see the updated status.`,
+        action: (
+          <ToastAction
+            altText="Refresh"
+            onClick={() => window.location.reload()}
+          >
+            Refresh
+          </ToastAction>
+        ),
+      })
+      router.refresh()
+    } catch (error) {
+      console.error(error)
+      toast({
+        title: "Failed to terminate execution",
+        description: `Execution ${executionId} could not be terminated. Please try again
+              later.`,
+      })
+    }
   }
 
   return (
@@ -49,20 +98,20 @@ export function WorkflowExecutionNav({
     >
       <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
         {workflowExecutions.map((execution, index) => (
-          <HoverCard openDelay={100} closeDelay={100} key={index}>
-            <HoverCardTrigger asChild>
-              <Button
-                key={index}
-                className={cn(
-                  buttonVariants({ variant: "default", size: "sm" }),
-                  "justify-start bg-background text-muted-foreground shadow-none hover:cursor-default hover:bg-gray-100",
-                  execution.id === executionId && "bg-gray-200"
-                )}
-                onClick={() => {
-                  setSelectedEvent(undefined)
-                  setExecutionId(execution.id)
-                }}
-              >
+          <HoverCard openDelay={10} closeDelay={10} key={index}>
+            <div
+              key={index}
+              className={cn(
+                buttonVariants({ variant: "default", size: "sm" }),
+                "justify-start bg-background text-muted-foreground shadow-none hover:cursor-default hover:bg-gray-100",
+                execution.id === executionId && "bg-gray-200"
+              )}
+              onClick={() => {
+                setSelectedEvent(undefined)
+                setExecutionId(execution.id)
+              }}
+            >
+              <div className="flex items-center">
                 <WorkflowExecutionStatusIcon
                   status={execution.status}
                   className="size-4"
@@ -70,9 +119,41 @@ export function WorkflowExecutionNav({
                 <span className="ml-2">
                   {new Date(execution.start_time).toLocaleString()}
                 </span>
-              </Button>
-            </HoverCardTrigger>
-            <HoverCardContent className="w-100" side="right" align="start">
+              </div>
+              <div className="ml-auto">
+                <HoverCardTrigger asChild>
+                  <div className="flex items-center justify-center">
+                    {execution.status === "RUNNING" ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CircleXIcon
+                            className="mr-1 size-4 fill-muted-foreground/70 stroke-white transition-all hover:cursor-pointer hover:fill-rose-500"
+                            onClick={async () =>
+                              await handleTerminateExecuton(execution.id)
+                            }
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="left"
+                          className="flex items-center gap-4  shadow-lg"
+                        >
+                          <span>Terminate Run</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <TriangleRightIcon className="m-0 size-6 p-0 text-muted-foreground/70" />
+                    )}
+                  </div>
+                </HoverCardTrigger>
+              </div>
+            </div>
+            <HoverCardContent
+              className="w-100"
+              side="right"
+              align="start"
+              sideOffset={30}
+              alignOffset={-10}
+            >
               <div className="flex flex-col items-start justify-between space-y-2 text-start text-xs">
                 <div className="flex flex-col">
                   <Label className="text-xs text-muted-foreground">
@@ -150,13 +231,15 @@ export function getExecutionStatusIcon(
       )
     case "TERMINATED":
       return (
-        <BanIcon
-          className={cn("fill-orange-500/50 stroke-orange-700", className)}
+        <CircleMinusIcon
+          className={cn("fill-rose-500 stroke-white", className)}
         />
       )
     case "CANCELED":
       return (
-        <CircleX className={cn("fill-orange-500 stroke-white", className)} />
+        <CircleMinusIcon
+          className={cn("fill-orange-500 stroke-white", className)}
+        />
       )
     default:
       throw new Error("Invalid status")
