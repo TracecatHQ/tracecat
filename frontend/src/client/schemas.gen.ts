@@ -1221,7 +1221,7 @@ export const $EventHistoryResponse = {
 
 export const $EventHistoryType = {
     type: 'string',
-    enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED', 'CHILD_WORKFLOW_EXECUTION_STARTED', 'CHILD_WORKFLOW_EXECUTION_COMPLETED', 'CHILD_WORKFLOW_EXECUTION_FAILED', 'START_CHILD_WORKFLOW_EXECUTION_INITIATED'],
+    enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'WORKFLOW_EXECUTION_TERMINATED', 'WORKFLOW_EXECUTION_CANCELED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED', 'CHILD_WORKFLOW_EXECUTION_STARTED', 'CHILD_WORKFLOW_EXECUTION_COMPLETED', 'CHILD_WORKFLOW_EXECUTION_FAILED', 'START_CHILD_WORKFLOW_EXECUTION_INITIATED'],
     title: 'EventHistoryType',
     description: 'The event types we care about.'
 } as const;
@@ -1709,6 +1709,24 @@ export const $Tag = {
     type: 'object',
     required: ['tag', 'value'],
     title: 'Tag'
+} as const;
+
+export const $TerminateWorkflowExecutionParams = {
+    properties: {
+        reason: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reason'
+        }
+    },
+    type: 'object',
+    title: 'TerminateWorkflowExecutionParams'
 } as const;
 
 export const $Trigger = {

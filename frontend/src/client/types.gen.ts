@@ -375,7 +375,7 @@ export type EventHistoryResponse = {
 /**
  * The event types we care about.
  */
-export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
+export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
 
 export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
 
@@ -515,6 +515,10 @@ export type SecretResponse = {
 export type Tag = {
     tag: string;
     value: string;
+};
+
+export type TerminateWorkflowExecutionParams = {
+    reason?: string | null;
 };
 
 export type Trigger = {
@@ -899,6 +903,19 @@ export type WorkflowExecutionsListWorkflowExecutionEventHistoryData = {
 };
 
 export type WorkflowExecutionsListWorkflowExecutionEventHistoryResponse = Array<EventHistoryResponse>;
+
+export type WorkflowExecutionsCancelWorkflowExecutionData = {
+    executionId: string;
+};
+
+export type WorkflowExecutionsCancelWorkflowExecutionResponse = void;
+
+export type WorkflowExecutionsTerminateWorkflowExecutionData = {
+    executionId: string;
+    requestBody: TerminateWorkflowExecutionParams;
+};
+
+export type WorkflowExecutionsTerminateWorkflowExecutionResponse = void;
 
 export type TriggersCreateWebhookData = {
     requestBody: UpsertWebhookParams;
@@ -1370,6 +1387,36 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: Array<EventHistoryResponse>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/workflow-executions/{execution_id}/cancel': {
+        post: {
+            req: WorkflowExecutionsCancelWorkflowExecutionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/workflow-executions/{execution_id}/terminate': {
+        post: {
+            req: WorkflowExecutionsTerminateWorkflowExecutionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
                 /**
                  * Validation Error
                  */
