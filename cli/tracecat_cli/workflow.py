@@ -238,3 +238,46 @@ async def _delete_workflows(workflow_ids: list[str]):
             tg.create_task(client.delete(f"/workflows/{workflow_id}"))
 
     rich.print("[green]Deleted workflows successfully![/green]")
+
+
+@app.command(help="Cancel a workflow execution")
+def cancel(
+    workflow_execution_id: str = typer.Argument(
+        ..., help="ID of the workflow execution to cancel"
+    ),
+):
+    """Delete workflows"""
+
+    if typer.confirm(
+        f"Are you sure you want to cancel workflow execution {workflow_execution_id!r}"
+    ):
+        with Client() as client:
+            res = client.post(
+                f"/workflow-executions/{workflow_execution_id}/cancel",
+            )
+            Client.handle_response(res)
+            rich.print("Successfully sent cancellation request!")
+    else:
+        rich.print("Aborted")
+
+
+@app.command(help="Terminate a workflow execution")
+def terminate(
+    workflow_execution_id: str = typer.Argument(
+        ..., help="ID of the workflow execution to terminate"
+    ),
+):
+    """Delete workflows"""
+
+    if typer.confirm(
+        f"Are you sure you want to terminate workflow execution {workflow_execution_id!r}"
+    ):
+        with Client() as client:
+            res = client.post(
+                f"/workflow-executions/{workflow_execution_id}/terminate",
+                json={"reason": "User requested termination"},
+            )
+            Client.handle_response(res)
+            rich.print("Successfully sent termination request!")
+    else:
+        rich.print("Aborted")

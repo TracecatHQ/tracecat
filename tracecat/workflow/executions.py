@@ -218,6 +218,24 @@ class WorkflowExecutionsService:
                             failure=EventFailure.from_history_event(event),
                         )
                     )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_TERMINATED,
+                            task_id=event.task_id,
+                        )
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_CANCELED,
+                            task_id=event.task_id,
+                        )
+                    )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
                     group = EventGroup.from_scheduled_activity(event)
                     event_group_names[event.event_id] = group
@@ -394,6 +412,21 @@ class WorkflowExecutionsService:
         else:
             logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
+
+    def cancel_workflow_execution(
+        self,
+        wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+    ) -> None:
+        """Cancel a workflow execution."""
+        return self.handle(wf_exec_id).cancel()
+
+    def terminate_workflow_execution(
+        self,
+        wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+        reason: str | None = None,
+    ) -> None:
+        """Terminate a workflow execution."""
+        return self.handle(wf_exec_id).terminate(reason=reason)
 
 
 if __name__ == "__main__":
