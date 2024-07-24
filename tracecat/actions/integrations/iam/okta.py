@@ -15,9 +15,6 @@ import httpx
 
 from tracecat.registry import Field, RegistrySecret, registry
 
-ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
-ANALYST_VERDICT_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts/analyst-verdict"
-
 okta_secret = RegistrySecret(
     name="okta",
     keys=["OKTA_BASE_URL", "OKTA_API_TOKEN"],
