@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import orjson
+import temporalio.service
 import yaml
 from fastapi import (
     Depends,
@@ -1010,7 +1011,16 @@ async def cancel_workflow_execution(
     """Get a workflow execution."""
     with logger.contextualize(role=role):
         service = await WorkflowExecutionsService.connect()
-        await service.cancel_workflow_execution(execution_id)
+        try:
+            await service.cancel_workflow_execution(execution_id)
+        except temporalio.service.RPCError as e:
+            if "workflow execution already completed" in e.message:
+                logger.info(
+                    "Workflow execution already completed, ignoring cancellation request",
+                )
+            else:
+                logger.error(e.message, error=e, execution_id=execution_id)
+                raise e
 
 
 @app.post(
@@ -1026,7 +1036,18 @@ async def terminate_workflow_execution(
     """Get a workflow execution."""
     with logger.contextualize(role=role):
         service = await WorkflowExecutionsService.connect()
-        await service.terminate_workflow_execution(execution_id, reason=params.reason)
+        try:
+            await service.terminate_workflow_execution(
+                execution_id, reason=params.reason
+            )
+        except temporalio.service.RPCError as e:
+            if "workflow execution already completed" in e.message:
+                logger.info(
+                    "Workflow execution already completed, ignoring termination request",
+                )
+            else:
+                logger.error(e.message, error=e, execution_id=execution_id)
+                raise e
 
 
 # ----- Workflow Webhooks ----- #
