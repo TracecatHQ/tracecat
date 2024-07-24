@@ -129,13 +129,13 @@ async def update_sentinelone_alert_status(
 
 
 @registry.register(
-    default_title="Get agents by username",
-    description="Find agent(s) by the last used username field",
+    default_title="Get Sentinel One agents by username",
+    description="Find Sentinel One agent(s) by the last used username field",
     display_group="Sentinel One",
     namespace="integrations.sentinel_one",
     secrets=[sentinel_one_secret],
 )
-async def get_agents_by_username(
+async def get_sentinelone_agents_by_username(
     username: Annotated[str, Field(..., description="Username to search for")],
     exact_match: Annotated[
         bool,
@@ -169,13 +169,13 @@ async def get_agents_by_username(
 
 
 @registry.register(
-    default_title="Get agents by hostname",
-    description="Find agent(s) by hostname",
+    default_title="Get Sentinel One agents by hostname",
+    description="Find Sentinel One agent(s) by hostname",
     display_group="Sentinel One",
     namespace="integrations.sentinel_one",
     secrets=[sentinel_one_secret],
 )
-async def get_agents_by_hostname(
+async def get_sentinelone_agents_by_hostname(
     hostname: Annotated[str, Field(..., description="Hostname to search for")],
     exact_match: Annotated[
         bool,
@@ -204,13 +204,13 @@ async def get_agents_by_hostname(
 
 
 @registry.register(
-    default_title="Isolate agent",
-    description="Isolate an agent from the network",
+    default_title="Isolate Sentinel One agent",
+    description="Isolate a Sentinel One agent from the network",
     display_group="Sentinel One",
     namespace="integrations.sentinel_one",
     secrets=[sentinel_one_secret],
 )
-async def isolate_agent(
+async def isolate_sentinelone_agent(
     agent_id: Annotated[str, Field(..., description="ID of the agent to isolate")],
 ) -> dict[str, Any]:
     api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
@@ -231,13 +231,13 @@ async def isolate_agent(
 
 
 @registry.register(
-    default_title="Unisolate agent",
-    description="Unisolate an agent from the network",
+    default_title="Unisolate Sentinel One agent",
+    description="Unisolate a Sentinel One agent from the network",
     display_group="Sentinel One",
     namespace="integrations.sentinel_one",
     secrets=[sentinel_one_secret],
 )
-async def unisolate_agent(
+async def unisolate_sentinelone_agent(
     agent_id: Annotated[str, Field(..., description="ID of the agent to unisolate")],
 ) -> dict[str, Any]:
     api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
