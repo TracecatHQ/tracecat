@@ -10,7 +10,12 @@ from typing import Any, TypedDict
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    ChildWorkflowError,
+    FailureError,
+)
 
 with workflow.unsafe.imports_passed_through():
     import httpx
@@ -84,6 +89,8 @@ class DSLContext(TypedDict, total=False):
 
 non_retryable_error_types = [
     # General
+    Exception.__name__,
+    TypeError.__name__,
     ValueError.__name__,
     RuntimeError.__name__,
     # Pydantic
@@ -94,6 +101,10 @@ non_retryable_error_types = [
     TracecatValidationError.__name__,
     TracecatDSLError.__name__,
     TracecatCredentialsError.__name__,
+    # Temporal
+    ApplicationError.__name__,
+    ChildWorkflowError.__name__,
+    FailureError.__name__,
 ]
 
 
@@ -106,6 +117,7 @@ retry_policies = {
     "workflow:fail_fast": RetryPolicy(
         # XXX: Do not set max attempts to 0, it will default to unlimited
         maximum_attempts=1,
+        non_retryable_error_types=non_retryable_error_types,
     ),
 }
 
@@ -319,22 +331,32 @@ class DSLWorkflow:
         try:
             await self.scheduler.start()
         except ApplicationError as e:
-            self.logger.error(
-                "DSL workflow execution failed",
-                error=e.message,
-                type=e.__class__.__name__,
-                details=e.details,
-            )
-            raise
+            raise ApplicationError(
+                e.message, non_retryable=True, type=e.__class__.__name__
+            ) from e
         except Exception as e:
-            self.logger.error(
-                "DSL workflow execution failed with unexpected error",
-                error=str(e),
+            msg = f"DSL workflow execution failed with unexpected error: {e}"
+            raise ApplicationError(
+                msg,
+                non_retryable=True,
                 type=e.__class__.__name__,
-            )
-            raise
-        self.logger.info("DSL workflow completed")
-        return self._handle_return()
+            ) from e
+
+        try:
+            self.logger.info("DSL workflow completed")
+            return self._handle_return()
+        except TracecatExpressionError as e:
+            raise ApplicationError(
+                f"Couldn't parse return value expression: {e}",
+                non_retryable=True,
+                type=e.__class__.__name__,
+            ) from e
+        except Exception as e:
+            raise ApplicationError(
+                f"Unexpected error handling return value: {e}",
+                non_retryable=True,
+                type=e.__class__.__name__,
+            ) from e
 
     async def execute_task(self, task: ActionStatement) -> None:
         """Purely execute a task and manage the results.
@@ -427,12 +449,27 @@ class DSLWorkflow:
                 )
             except ActivityError as e:
                 logger.error("Activity execution failed", error=e.message)
-                raise
+                raise ApplicationError(
+                    e.message, non_retryable=True, type=e.__class__.__name__
+                ) from e
+            except ChildWorkflowError as e:
+                logger.error("Child workflow execution failed", error=e.message)
+                raise ApplicationError(
+                    e.message, non_retryable=True, type=e.__class__.__name__
+                ) from e
+            except FailureError as e:
+                logger.error("Workflow execution failed", error=e.message)
+                raise ApplicationError(
+                    e.message, non_retryable=True, type=e.__class__.__name__
+                ) from e
             except Exception as e:
+                msg = f"Task execution failed with unexpected error: {e}"
                 logger.error(
-                    "Activity execution failed with unexpected error", error=str(e)
+                    "Activity execution failed with unexpected error", error=msg
                 )
-                raise
+                raise ApplicationError(
+                    msg, non_retryable=True, type=e.__class__.__name__
+                ) from e
 
     async def _execute_workflow_batch(
         self,
