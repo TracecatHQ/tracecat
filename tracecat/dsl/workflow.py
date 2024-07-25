@@ -87,6 +87,30 @@ class DSLContext(TypedDict, total=False):
         )
 
 
+class DSLExecutionError(TypedDict, total=False):
+    """A proxy for an exception.
+
+    This is the object that gets returned in place of an exception returned when
+    using `asyncio.gather(..., return_exceptions=True)`, as Exception types aren't serializable."""
+
+    is_error: bool
+    """A flag to indicate that this object is an error."""
+
+    type: str
+    """The type of the exception. e.g. `ValueError`"""
+
+    message: str
+    """The message of the exception."""
+
+    @staticmethod
+    def from_exception(e: BaseException) -> DSLExecutionError:
+        return DSLExecutionError(
+            is_error=True,
+            type=e.__class__.__name__,
+            message=str(e),
+        )
+
+
 non_retryable_error_types = [
     # General
     Exception.__name__,
@@ -484,26 +508,32 @@ class DSLWorkflow:
                     run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
                     tg.create_task(self._run_child_workflow(run_args))
             return tg.results()
-        elif fail_strategy == FailStrategy.ISOLATED:
+        else:
+            # Isolated
             coros = []
             for patched_args in batch:
                 run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
                 # Shallow copy here to avoid sharing the same model object for each execution
                 coro = self._run_child_workflow(run_args.model_copy())
                 coros.append(coro)
-            return await asyncio.gather(*coros, return_exceptions=True)
-        else:
-            raise ValueError("Invalid fail strategy")
+            gather_result = await asyncio.gather(*coros, return_exceptions=True)
+            result: list[DSLExecutionError | Any] = [
+                DSLExecutionError.from_exception(val)
+                if isinstance(val, BaseException)
+                else val
+                for val in gather_result
+            ]
+            return result
 
     def _handle_return(self) -> Any:
         if self.dsl.returns is None:
             # Return the context
             # XXX: Don't return ENV context for now
-            self.logger.warning("Returning DSL context")
+            self.logger.trace("Returning DSL context")
             self.context.pop(ExprContext.ENV, None)
             return self.context
         # Return some custom value that should be evaluated
-        self.logger.warning("Returning custom value")
+        self.logger.trace("Returning value from expression")
         return eval_templated_object(self.dsl.returns, operand=self.context)
 
     def _prepare_child_workflow(self, task: ActionStatement) -> Awaitable[DSLRunArgs]:
