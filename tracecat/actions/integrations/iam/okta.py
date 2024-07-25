@@ -33,7 +33,7 @@ def create_okta_client() -> httpx.AsyncClient:
     if OKTA_API_TOKEN is None:
         raise ValueError("OKTA_API_TOKEN is not set")
     client = httpx.AsyncClient(
-        base_url=os.getenv("OKTA_BASE_URL"),
+        base_url=f"{os.getenv("OKTA_BASE_URL")}/api/v1",
         headers={
             "Authorization": f"SSWS {OKTA_API_TOKEN}",
             "Accept": "application/json",
@@ -63,7 +63,7 @@ async def find_okta_user(
             )
         }
         response = await client.get(
-            "/api/v1/users",
+            "/users",
             params=params,
         )
 
@@ -86,7 +86,7 @@ async def suspend_okta_user(
 ) -> bool:
     async with create_okta_client() as client:
         response = await client.post(
-            f"/api/v1/users/{okta_user_id}/lifecycle/suspend",
+            f"/users/{okta_user_id}/lifecycle/suspend",
         )
         response.raise_for_status()
         return True
@@ -107,7 +107,7 @@ async def unsuspend_okta_user(
 ) -> bool:
     async with create_okta_client() as client:
         response = await client.post(
-            f"/api/v1/users/{okta_user_id}/lifecycle/unsuspend",
+            f"/users/{okta_user_id}/lifecycle/unsuspend",
         )
         response.raise_for_status()
         return True
@@ -128,7 +128,7 @@ async def expire_okta_sessions(
 ) -> bool:
     async with create_okta_client() as client:
         response = await client.delete(
-            f"/api/v1/users/{okta_user_id}/sessions",
+            f"/users/{okta_user_id}/sessions",
         )
         response.raise_for_status()
         return True
