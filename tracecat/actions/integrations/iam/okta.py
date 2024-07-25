@@ -33,7 +33,7 @@ def create_okta_client() -> httpx.AsyncClient:
     if OKTA_API_TOKEN is None:
         raise ValueError("OKTA_API_TOKEN is not set")
     client = httpx.AsyncClient(
-        base_url=f"{os.getenv("OKTA_BASE_URL")}/api/v1",
+        base_url=f'{os.getenv("OKTA_BASE_URL")}/api/v1',
         headers={
             "Authorization": f"SSWS {OKTA_API_TOKEN}",
             "Accept": "application/json",
