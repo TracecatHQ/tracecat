@@ -496,7 +496,7 @@ class FargateStack(Stack):
                 "DB": "postgres12",  # Database driver for temporal
                 "DB_PORT": "5432",
                 "POSTGRES_SEEDS": temporal_database.db_instance_endpoint_address,
-                "TEMPORAL_BROADCAST_ADDRESS": "temporal-service:7233",
+                "TEMPORAL_ADDRESS": "temporal-service:7233",
             },
             port_mappings=[
                 ecs.PortMapping(
