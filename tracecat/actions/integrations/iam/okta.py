@@ -28,6 +28,21 @@ okta_secret = RegistrySecret(
 """
 
 
+def create_okta_client() -> httpx.AsyncClient:
+    OKTA_API_TOKEN = os.getenv("OKTA_API_TOKEN")
+    if OKTA_API_TOKEN is None:
+        raise ValueError("OKTA_API_TOKEN is not set")
+    client = httpx.AsyncClient(
+        base_url=os.getenv("OKTA_BASE_URL"),
+        headers={
+            "Authorization": f"SSWS {OKTA_API_TOKEN}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    return client
+
+
 @registry.register(
     default_title="Find Okta User",
     description="Find an Okta user by login username or email",
@@ -41,19 +56,17 @@ async def find_okta_user(
         Field(..., description="Login username or e-mail to find"),
     ],
 ) -> list:
-    api_token = os.getenv("OKTA_API_TOKEN")
-    base_url = os.getenv("OKTA_BASE_URL")
-    headers = {
-        "Authorization": f"SSWS {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient() as client:
+    async with create_okta_client() as client:
+        params = [
+            "search",
+            f"profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
+        ]
         response = await client.get(
-            f"{base_url}/api/v1/users?search=profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
-            headers=headers,
+            f"{client.base_url}/api/v1/users?search=profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
+            headers=client.headers,
+            params=params,
         )
+
         response.raise_for_status()
         return response.json()
 
@@ -71,18 +84,10 @@ async def suspend_okta_user(
         Field(..., description="Okta user id to suspend"),
     ],
 ) -> bool:
-    api_token = os.getenv("OKTA_API_TOKEN")
-    base_url = os.getenv("OKTA_BASE_URL")
-    headers = {
-        "Authorization": f"SSWS {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient() as client:
+    async with create_okta_client() as client:
         response = await client.post(
-            f"{base_url}/api/v1/users/{okta_user_id}/lifecycle/suspend",
-            headers=headers,
+            f"{client.base_url}/api/v1/users/{okta_user_id}/lifecycle/suspend",
+            headers=client.headers,
         )
         response.raise_for_status()
         return True
@@ -101,18 +106,10 @@ async def unsuspend_okta_user(
         Field(..., description="Okta user id to unsuspend"),
     ],
 ) -> bool:
-    api_token = os.getenv("OKTA_API_TOKEN")
-    base_url = os.getenv("OKTA_BASE_URL")
-    headers = {
-        "Authorization": f"SSWS {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient() as client:
+    async with create_okta_client() as client:
         response = await client.post(
-            f"{base_url}/api/v1/users/{okta_user_id}/lifecycle/unsuspend",
-            headers=headers,
+            f"{client.base_url}/api/v1/users/{okta_user_id}/lifecycle/unsuspend",
+            headers=client.headers,
         )
         response.raise_for_status()
         return True
@@ -131,18 +128,10 @@ async def expire_okta_sessions(
         Field(..., description="Okta user id to expire sessions for"),
     ],
 ) -> bool:
-    api_token = os.getenv("OKTA_API_TOKEN")
-    base_url = os.getenv("OKTA_BASE_URL")
-    headers = {
-        "Authorization": f"SSWS {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient() as client:
+    async with create_okta_client() as client:
         response = await client.delete(
-            f"{base_url}/api/v1/users/{okta_user_id}/sessions",
-            headers=headers,
+            f"{client.base_url}/api/v1/users/{okta_user_id}/sessions",
+            headers=client.headers,
         )
         response.raise_for_status()
         return True
