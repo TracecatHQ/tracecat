@@ -57,13 +57,13 @@ async def find_okta_user(
     ],
 ) -> list:
     async with create_okta_client() as client:
-        params = [
-            "search",
-            f'profile.login eq "{username_or_email}" or profile.email eq "{username_or_email}"',
-        ]
+        params = {
+            "search": (
+                f'profile.login eq "{username_or_email}" or profile.email eq "{username_or_email}"'
+            )
+        }
         response = await client.get(
-            f"{client.base_url}/api/v1/users?search=profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
-            headers=client.headers,
+            "/api/v1/users",
             params=params,
         )
 
@@ -86,8 +86,7 @@ async def suspend_okta_user(
 ) -> bool:
     async with create_okta_client() as client:
         response = await client.post(
-            f"{client.base_url}/api/v1/users/{okta_user_id}/lifecycle/suspend",
-            headers=client.headers,
+            f"/api/v1/users/{okta_user_id}/lifecycle/suspend",
         )
         response.raise_for_status()
         return True
@@ -108,8 +107,7 @@ async def unsuspend_okta_user(
 ) -> bool:
     async with create_okta_client() as client:
         response = await client.post(
-            f"{client.base_url}/api/v1/users/{okta_user_id}/lifecycle/unsuspend",
-            headers=client.headers,
+            f"/api/v1/users/{okta_user_id}/lifecycle/unsuspend",
         )
         response.raise_for_status()
         return True
@@ -130,8 +128,7 @@ async def expire_okta_sessions(
 ) -> bool:
     async with create_okta_client() as client:
         response = await client.delete(
-            f"{client.base_url}/api/v1/users/{okta_user_id}/sessions",
-            headers=client.headers,
+            f"/api/v1/users/{okta_user_id}/sessions",
         )
         response.raise_for_status()
         return True
