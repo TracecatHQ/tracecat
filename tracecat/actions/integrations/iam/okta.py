@@ -27,6 +27,7 @@ okta_secret = RegistrySecret(
     - `OKTA_API_TOKEN`
 """
 
+
 @registry.register(
     default_title="Find Okta User",
     description="Find an Okta user by login username or email",
@@ -49,12 +50,13 @@ async def find_okta_user(
     }
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(
+        response = await client.get(
             f"{base_url}/api/v1/users?search=profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
             headers=headers,
         )
         response.raise_for_status()
         return response.json()
+
 
 @registry.register(
     default_title="Suspend Okta user",
