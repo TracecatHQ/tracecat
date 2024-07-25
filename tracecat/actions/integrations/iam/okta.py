@@ -59,7 +59,7 @@ async def find_okta_user(
     async with create_okta_client() as client:
         params = [
             "search",
-            f"profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
+            f'profile.login eq "{username_or_email}" or profile.email eq "{username_or_email}"',
         ]
         response = await client.get(
             f"{client.base_url}/api/v1/users?search=profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
