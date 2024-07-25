@@ -27,6 +27,34 @@ okta_secret = RegistrySecret(
     - `OKTA_API_TOKEN`
 """
 
+@registry.register(
+    default_title="Find Okta User",
+    description="Find an Okta user by login username or email",
+    display_group="Okta",
+    namespace="integrations.okta",
+    secrets=[okta_secret],
+)
+async def find_okta_user(
+    username_or_email: Annotated[
+        str,
+        Field(..., description="Login username or e-mail to find"),
+    ],
+) -> list:
+    api_token = os.getenv("OKTA_API_TOKEN")
+    base_url = os.getenv("OKTA_BASE_URL")
+    headers = {
+        "Authorization": f"SSWS {api_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{base_url}/api/v1/users?search=profile.login%20eq%20%22{username_or_email}%22%20or%20profile.email%20eq%20%22{username_or_email}%22",
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
 
 @registry.register(
     default_title="Suspend Okta user",
@@ -36,9 +64,9 @@ okta_secret = RegistrySecret(
     secrets=[okta_secret],
 )
 async def suspend_okta_user(
-    username: Annotated[
+    okta_user_id: Annotated[
         str,
-        Field(..., description="Username to suspend"),
+        Field(..., description="Okta user id to suspend"),
     ],
 ) -> bool:
     api_token = os.getenv("OKTA_API_TOKEN")
@@ -51,7 +79,7 @@ async def suspend_okta_user(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/api/v1/users/{username}/lifecycle/suspend",
+            f"{base_url}/api/v1/users/{okta_user_id}/lifecycle/suspend",
             headers=headers,
         )
         response.raise_for_status()
@@ -66,9 +94,9 @@ async def suspend_okta_user(
     secrets=[okta_secret],
 )
 async def unsuspend_okta_user(
-    username: Annotated[
+    okta_user_id: Annotated[
         str,
-        Field(..., description="Username to unsuspend"),
+        Field(..., description="Okta user id to unsuspend"),
     ],
 ) -> bool:
     api_token = os.getenv("OKTA_API_TOKEN")
@@ -81,7 +109,7 @@ async def unsuspend_okta_user(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/api/v1/users/{username}/lifecycle/unsuspend",
+            f"{base_url}/api/v1/users/{okta_user_id}/lifecycle/unsuspend",
             headers=headers,
         )
         response.raise_for_status()
@@ -96,9 +124,9 @@ async def unsuspend_okta_user(
     secrets=[okta_secret],
 )
 async def expire_okta_sessions(
-    username: Annotated[
+    okta_user_id: Annotated[
         str,
-        Field(..., description="Username for whom to expire sessions"),
+        Field(..., description="Okta user id to expire sessions for"),
     ],
 ) -> bool:
     api_token = os.getenv("OKTA_API_TOKEN")
@@ -111,7 +139,7 @@ async def expire_okta_sessions(
 
     async with httpx.AsyncClient() as client:
         response = await client.delete(
-            f"{base_url}/api/v1/users/{username}/sessions",
+            f"{base_url}/api/v1/users/{okta_user_id}/sessions",
             headers=headers,
         )
         response.raise_for_status()
