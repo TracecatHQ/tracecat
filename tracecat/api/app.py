@@ -122,20 +122,18 @@ def custom_generate_unique_id(route: APIRoute):
 
 def create_app(**kwargs) -> FastAPI:
     global logger
-    if config.TRACECAT__APP_ENV == "production":
-        cors_origins_kwargs = {"allow_origins": config.TRACECAT__ALLOW_ORIGINS}
-    elif config.TRACECAT__APP_ENV == "staging":
-        cors_origins_kwargs = {"allow_origins": config.TRACECAT__ALLOW_ORIGINS}
+    if config.TRACECAT__ALLOW_ORIGINS is not None:
+        allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
     else:
-        cors_origins_kwargs = {"allow_origins": "*"}
+        allow_origins = ["*"]
     app = FastAPI(
         title="Tracecat API",
         description=(
-            "Tracecat is the security automation platform built for builders."
+            "Tracecat is the open source Tines / Splunk SOAR alternative."
             " You can operate Tracecat in headless mode by using the API to create, manage, and run workflows."
         ),
         summary="Tracecat API",
-        version="0.1.0",
+        version="0.4.1",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
         contact={"name": "Tracecat Founders", "email": "founders@tracecat.com"},
         license_info={
@@ -156,17 +154,15 @@ def create_app(**kwargs) -> FastAPI:
         **kwargs,
     )
     app.logger = logger
+    app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        **cors_origins_kwargs,
+        allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.add_middleware(RequestLoggingMiddleware)
-    logger.warning(
-        "App started", env=config.TRACECAT__APP_ENV, origins=cors_origins_kwargs
-    )
+    logger.info("App started", env=config.TRACECAT__APP_ENV, origins=allow_origins)
     return app
 
 
