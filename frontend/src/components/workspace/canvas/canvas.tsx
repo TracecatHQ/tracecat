@@ -417,6 +417,9 @@ export function WorkflowCanvas() {
         fitView
         fitViewOptions={fitViewOptions}
         nodeDragThreshold={4}
+        maxZoom={1}
+        minZoom={0.75}
+        panOnScroll
       >
         <Background />
         <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />
