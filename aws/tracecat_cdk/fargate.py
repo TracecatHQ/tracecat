@@ -505,19 +505,24 @@ class FargateStack(Stack):
         )
 
         # Temporal Target Group
-        listener = alb.add_listener(
-            "TemporalListener",
-            port=7233,
-            protocol=elbv2.ApplicationProtocol.HTTP,
-            open=False,
-        )
-        self.temporal_target_group = listener.add_targets(
-            "TemporalTarget",
+        temporal_target_group = elbv2.ApplicationTargetGroup(
+            self,
+            "TemporalTargetGroup",
             port=7233,
             protocol=elbv2.ApplicationProtocol.HTTP,
             protocol_version=elbv2.ApplicationProtocolVersion.GRPC,
             targets=[temporal_service],
+            vpc=alb.vpc,
         )
+
+        self.listener = alb.add_listener(
+            "TemporalListener",
+            port=7233,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            open=False,
+            default_target_groups=[temporal_target_group],
+        )
+
         # Allow connections from the ALB to the target services
         backend_security_group.add_ingress_rule(
             peer=alb.connections.security_groups[0],
