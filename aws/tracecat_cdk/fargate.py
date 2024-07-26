@@ -522,6 +522,7 @@ class FargateStack(Stack):
         self.temporal_target_group = listener.add_targets(
             "TemporalTarget",
             port=7233,
+            protocol=elbv2.ApplicationProtocol.HTTP,
             protocol_version=elbv2.ApplicationProtocolVersion.GRPC,
             targets=[temporal_service],
         )
