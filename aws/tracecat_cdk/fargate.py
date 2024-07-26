@@ -504,21 +504,25 @@ class FargateStack(Stack):
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
-        # Allow connections from the ALB to the target services
-        backend_security_group.add_ingress_rule(
-            peer=alb.connections.security_groups[0],
-            connection=ec2.Port.tcp(7233),
-            description="Allow gRPC traffic from ALB to Temporal",
-        )
-
         # Temporal Target Group
-        listener = alb.add_listener("TemporalListener", port=7233)
+        listener = alb.add_listener(
+            "TemporalListener",
+            port=7233,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            open=False,
+        )
         self.temporal_target_group = listener.add_targets(
             "TemporalTarget",
             port=7233,
             protocol=elbv2.ApplicationProtocol.HTTP,
             protocol_version=elbv2.ApplicationProtocolVersion.GRPC,
             targets=[temporal_service],
+        )
+        # Allow connections from the ALB to the target services
+        backend_security_group.add_ingress_rule(
+            peer=alb.connections.security_groups[0],
+            connection=ec2.Port.tcp(7233),
+            description="Allow gRPC traffic from ALB to Temporal",
         )
 
         ### RDS Permissions
