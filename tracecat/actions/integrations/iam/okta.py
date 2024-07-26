@@ -9,7 +9,8 @@ Requires: A secret named `okta` with the following keys:
 """
 
 import os
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Any
 
 import httpx
 
@@ -44,13 +45,13 @@ def create_okta_client() -> httpx.AsyncClient:
 
 
 @registry.register(
-    default_title="Find Okta User",
-    description="Find an Okta user by login username or email",
+    default_title="Find Okta Users",
+    description="Find Okta users by login username or email",
     display_group="Okta",
     namespace="integrations.okta",
     secrets=[okta_secret],
 )
-async def find_okta_user(
+async def find_okta_users(
     username_or_email: Annotated[
         str,
         Field(..., description="Login username or e-mail to find"),
@@ -132,3 +133,42 @@ async def expire_okta_sessions(
         )
         response.raise_for_status()
         return True
+
+
+@registry.register(
+    default_title="List Okta user events",
+    description="List Okta events for a user",
+    display_group="Okta",
+    namespace="integrations.okta",
+    secrets=[okta_secret],
+)
+async def list_okta_user_events(
+    okta_user_id: Annotated[
+        str,
+        Field(..., description="Okta user id to list events for."),
+    ],
+    start_time: Annotated[
+        datetime,
+        Field(..., description="Start time, return alerts created after this time."),
+    ],
+    end_time: Annotated[
+        datetime,
+        Field(..., description="End time, return alerts created before this time."),
+    ],
+    limit: Annotated[
+        int, Field(default=1000, description="Maximum number of alerts to return.")
+    ] = 1000,
+) -> list[dict[str, Any]]:
+    async with create_okta_client() as client:
+        params = {
+            "filter": (f'actor.id eq "{okta_user_id}"'),
+            "since": (start_time.strftime("%Y-%m-%dT%H:%M:%S")),
+            "until": (end_time.strftime("%Y-%m-%dT%H:%M:%S")),
+            "limit": limit,
+        }
+        response = await client.get(
+            "/logs",
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
