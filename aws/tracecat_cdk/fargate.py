@@ -4,6 +4,7 @@ from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
+from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_rds as rds
@@ -45,6 +46,22 @@ class FargateStack(Stack):
         **kwargs,
     ):
         super().__init__(scope, id, **kwargs)
+
+        ### Internal ALB to route traffic to temporal service
+        alb = elbv2.ApplicationLoadBalancer(
+            self,
+            "FargateALB",
+            vpc=cluster.vpc,
+            internet_facing=False,
+            security_group=backend_security_group,
+        )
+
+        # Add a listener on port 80, set open=False to restrict access
+        listener = alb.add_listener(
+            "Listener",
+            port=80,
+            open=False,
+        )
 
         ### Tracecat API / Worker
         # Execution roles
@@ -271,20 +288,6 @@ class FargateStack(Stack):
                 stream_prefix="service-connect-api", log_group=log_group
             ),
         )
-        worker_service_connect = ecs.ServiceConnectProps(
-            services=[
-                ecs.ServiceConnectService(
-                    port_mapping_name="worker",
-                    dns_name="worker-service",
-                    port=8000,
-                    idle_timeout=Duration.minutes(15),
-                )
-            ],
-            namespace=dns_namespace.namespace_name,
-            log_driver=ecs.LogDrivers.aws_logs(
-                stream_prefix="service-connect-worker", log_group=log_group
-            ),
-        )
         ui_service_connect = ecs.ServiceConnectProps(
             services=[
                 ecs.ServiceConnectService(
@@ -299,20 +302,6 @@ class FargateStack(Stack):
                 stream_prefix="service-connect-ui", log_group=log_group
             ),
         )
-        temporal_service_connect = ecs.ServiceConnectProps(
-            services=[
-                ecs.ServiceConnectService(
-                    port_mapping_name="temporal",
-                    dns_name="temporal-service",
-                    port=7233,
-                    idle_timeout=Duration.minutes(15),
-                )
-            ],
-            namespace=dns_namespace.namespace_name,
-            log_driver=ecs.LogDrivers.aws_logs(
-                stream_prefix="service-connect-temporal", log_group=log_group
-            ),
-        )
 
         ### Shared API / worker environment
         tracecat_environment = {
@@ -325,7 +314,7 @@ class FargateStack(Stack):
             "TRACECAT__DB_PORT": core_database.db_instance_endpoint_port,
             "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
             "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
-            "TEMPORAL__CLUSTER_URL": os.environ["TEMPORAL__CLUSTER_URL"],
+            "TEMPORAL__CLUSTER_URL": f"{alb.load_balancer_dns_name}:7233",
             "TEMPORAL__CLUSTER_QUEUE": os.environ["TEMPORAL__CLUSTER_QUEUE"],
         }
 
@@ -406,7 +395,6 @@ class FargateStack(Stack):
             enable_execute_command=not IS_PRODUCTION,
             task_definition=worker_task_definition,
             security_groups=[backend_security_group, core_db_security_group],
-            service_connect_configuration=worker_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
@@ -519,8 +507,40 @@ class FargateStack(Stack):
                 backend_security_group,
                 temporal_db_security_group,
             ],
-            service_connect_configuration=temporal_service_connect,
             capacity_provider_strategies=[capacity_provider_strategy],
+        )
+
+        # Allow connections from the ALB to the target services
+        backend_security_group.add_ingress_rule(
+            peer=alb.connections.security_groups[0],
+            connection=ec2.Port.tcp(80),
+            description="Allow HTTP traffic from ALB",
+        )
+        backend_security_group.add_ingress_rule(
+            peer=alb.connections.security_groups[0],
+            connection=ec2.Port.tcp(7233),
+            description="Allow gRPC traffic from ALB to Temporal",
+        )
+
+        # API Target Group (note: might not be needed)
+        self.api_target_group = listener.add_targets(
+            "ApiTarget",
+            port=80,
+            targets=[api_fargate_service],
+        )
+
+        # Worker Target Group (note: might not be needed)
+        self.worker_target_group = listener.add_targets(
+            "WorkerTarget",
+            port=80,
+            targets=[worker_fargate_service],
+        )
+
+        # Temporal Target Group
+        self.temporal_target_group = listener.add_targets(
+            "TemporalTarget",
+            port=7233,
+            targets=[temporal_service],
         )
 
         ### RDS Permissions
