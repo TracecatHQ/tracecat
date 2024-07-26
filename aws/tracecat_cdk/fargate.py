@@ -50,24 +50,6 @@ class FargateStack(Stack):
     ):
         super().__init__(scope, id, **kwargs)
 
-        # Create a new private hosted zone
-        private_hosted_zone = route53.PrivateHostedZone(
-            self,
-            "TemporalPrivateHostedZone",
-            zone_name="temporal.local",
-            vpc=cluster.vpc,
-        )
-
-        ### Internal ALB to route traffic to temporal service
-        alb = elbv2.ApplicationLoadBalancer(
-            self,
-            "FargateALB",
-            vpc=cluster.vpc,
-            http2_enabled=True,
-            internet_facing=False,
-            security_group=backend_security_group,
-        )
-
         ### Tracecat API / Worker
         # Execution roles
         api_execution_role = iam.Role(
@@ -515,13 +497,39 @@ class FargateStack(Stack):
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
+        ### Internal ALB to route traffic to temporal service
+        alb = elbv2.ApplicationLoadBalancer(
+            self,
+            "FargateALB",
+            vpc=cluster.vpc,
+            http2_enabled=True,
+            internet_facing=False,
+            security_group=backend_security_group,
+        )
+
+        # Create a new private hosted zone
+        private_hosted_zone = route53.PrivateHostedZone(
+            self,
+            "TemporalPrivateHostedZone",
+            zone_name="temporal.local",
+            vpc=cluster.vpc,
+        )
+
         # Create a new SSL certificate for the internal domain dynamically
         certificate = acm.Certificate(
             self,
             "TemporalCertificate",
             domain_name="temporal.local",
-            validation=acm.CertificateValidation.from_dns(private_hosted_zone),
+            validation=acm.CertificateValidation.from_dns(),
         )
+        validation_record = route53.TxtRecord(
+            self,
+            "CertificateValidationRecord",
+            zone=private_hosted_zone,
+            record_name=certificate.domain_validation_options[0].resource_record_name,
+            values=[certificate.domain_validation_options[0].resource_record_value],
+        )
+        validation_record.node.add_dependency(certificate)
 
         # Create an A record to point the internal domain to the ALB
         route53.ARecord(
@@ -553,11 +561,16 @@ class FargateStack(Stack):
             default_target_groups=[temporal_target_group],
         )
 
-        # Allow connections from the ALB to the target services
+        # Allow traffic to / from backend security group and the ALB
         backend_security_group.add_ingress_rule(
-            peer=alb.connections.security_groups[0],
-            connection=ec2.Port.tcp(7233),
-            description="Allow gRPC traffic from ALB to Temporal",
+            peer=backend_security_group,
+            connection=ec2.Port.tcp(443),
+            description="Allow HTTPS traffic within the security group",
+        )
+        alb.connections.allow_from(
+            backend_security_group,
+            port_range=ec2.Port.tcp(443),
+            description="Allow HTTPS traffic from the backend security group",
         )
 
         ### RDS Permissions
