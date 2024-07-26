@@ -313,7 +313,7 @@ class FargateStack(Stack):
             "TRACECAT__DB_PORT": core_database.db_instance_endpoint_port,
             "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
             "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
-            "TEMPORAL__CLUSTER_URL": f"{alb.load_balancer_dns_name}:443",
+            "TEMPORAL__CLUSTER_URL": f"temporal.{API_DOMAIN_NAME}:443",
             "TEMPORAL__CLUSTER_QUEUE": os.environ["TEMPORAL__CLUSTER_QUEUE"],
         }
 
@@ -527,13 +527,15 @@ class FargateStack(Stack):
         )
 
         # Create an A record for the Temporal subdomain
-        route53.ARecord(
+        temporal_a_record = route53.ARecord(
             self,
             "TemporalApiARecord",
             zone=api_hosted_zone,
             record_name="temporal",
             target=route53.RecordTarget.from_alias(targets.LoadBalancerTarget(alb)),
         )
+        # Add dependency
+        worker_fargate_service.node.add_dependency(temporal_a_record)
 
         # Temporal Target Group
         temporal_target_group = elbv2.ApplicationTargetGroup(
