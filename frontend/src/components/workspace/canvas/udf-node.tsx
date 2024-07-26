@@ -30,6 +30,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
+import { CustomFloatingHandle } from "@/components/workspace/canvas/custom-handle"
 
 export interface UDFNodeData {
   type: string // alias for key
@@ -42,7 +43,6 @@ export interface UDFNodeData {
 export type UDFNodeType = Node<UDFNodeData>
 export const RFGraphUDFNodeType = "udf" as const
 
-const handleStyle = { width: 8, height: 8 }
 export default React.memo(function UDFNode({
   data: { title, isConfigured, numberOfEvents, type: key },
   selected,
@@ -151,17 +151,13 @@ export default React.memo(function UDFNode({
         </div>
       </CardContent>
 
-      <Handle
+      <CustomFloatingHandle
         type="target"
         position={targetPosition ?? Position.Top}
-        className="w-16 !bg-gray-500"
-        style={handleStyle}
       />
-      <Handle
+      <CustomFloatingHandle
         type="source"
         position={sourcePosition ?? Position.Bottom}
-        className="w-16 !bg-gray-500"
-        style={handleStyle}
       />
     </Card>
   )
