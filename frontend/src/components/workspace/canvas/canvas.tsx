@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from "react"
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
+} from "react"
 import ReactFlow, {
   addEdge,
   Background,
@@ -8,6 +15,7 @@ import ReactFlow, {
   FitViewOptions,
   MarkerType,
   NodeChange,
+  OnConnectStartParams,
   Panel,
   Position,
   ReactFlowInstance,
@@ -18,12 +26,13 @@ import ReactFlow, {
   type Node,
   type ReactFlowJsonObject,
 } from "reactflow"
+import { v4 as uuid4 } from "uuid"
 
 import "reactflow/dist/style.css"
 
 import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
-import { MoveHorizontalIcon, MoveVerticalIcon } from "lucide-react"
+import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import {
   createAction,
@@ -33,6 +42,10 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import selectorNode, {
+  SelectorNodeType,
+  SelectorTypename,
+} from "@/components/workspace/canvas/selector-node"
 import triggerNode, {
   TriggerNodeData,
   TriggerNodeType,
@@ -51,6 +64,8 @@ const fitViewOptions: FitViewOptions = {
   minZoom: 0.75,
   maxZoom: 1,
 }
+
+const getId = () => uuid4()
 
 /**
  * Taken from https://reactflow.dev/examples/layout/dagre
@@ -106,14 +121,16 @@ function getLayoutedElements(
 }
 
 export type NodeTypename = "udf" | "trigger"
-export type NodeType = UDFNodeType | TriggerNodeType
+export type NodeType = UDFNodeType | TriggerNodeType | SelectorNodeType
 export type NodeData = UDFNodeData | TriggerNodeData
 
 export const invincibleNodeTypes: readonly string[] = [TriggerTypename]
+export const ephemeralNodeTypes: readonly string[] = [SelectorTypename]
 
 const nodeTypes = {
   udf: udfNode,
   trigger: triggerNode,
+  selector: selectorNode,
 }
 
 const defaultEdgeOptions = {
@@ -123,11 +140,14 @@ const defaultEdgeOptions = {
   style: { strokeWidth: 2 },
 }
 
-function isInvincible<T>(node: Node<T>): boolean {
+export function isInvincible<T>(node: Node<T>): boolean {
   return invincibleNodeTypes.includes(node?.type as string)
 }
+export function isEphemeral<T>(node: Node<T>): boolean {
+  return ephemeralNodeTypes.includes(node?.type as string)
+}
 
-async function createNewNode(
+export async function createNewNode(
   type: NodeTypename,
   workflowId: string,
   nodeData: NodeData,
@@ -161,13 +181,17 @@ async function createNewNode(
 
 export function WorkflowCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
+  const connectingNodeId = useRef<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
-  const { setViewport, getNode } = useReactFlow()
+  const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
   const { toast } = useToast()
   const { workflowId, workflow, update: updateWorkflow } = useWorkflow()
+  const [silhouettePosition, setSilhouettePosition] =
+    useState<XYPosition | null>(null)
+  const [isConnecting, setIsConnecting] = useState(false)
 
   /**
    * Load the saved workflow
@@ -199,9 +223,9 @@ export function WorkflowCanvas() {
       }
     }
     initializeReactFlowInstance()
-  }, [workflow?.id, reactFlowInstance])
+  }, [workflow?.id, reactFlowInstance]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // React Flow callbacks
+  // Connections
   const onConnect = useCallback(
     async (params: Edge | Connection) => {
       console.log("Edge connected:", params)
@@ -227,16 +251,80 @@ export function WorkflowCanvas() {
       }
       setEdges((eds) => addEdge(params, eds))
     },
-    [edges, setEdges, getNode, setNodes]
+    [edges, setEdges, getNode, setNodes] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  const onDragOver = useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault()
-      event.dataTransfer.dropEffect = "move"
+  const onConnectStart = useCallback(
+    (
+      event: ReactMouseEvent | ReactTouchEvent,
+      params: OnConnectStartParams
+    ) => {
+      connectingNodeId.current = params.nodeId
+      setIsConnecting(true)
     },
-    [nodes]
+    []
   )
+
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      try {
+        if (!connectingNodeId.current) return
+
+        const targetIsPane = (event?.target as HTMLElement)?.classList.contains(
+          "react-flow__pane"
+        )
+
+        if (targetIsPane) {
+          // we need to remove the wrapper bounds, in order to get the correct position
+          // const bounds = containerRef.current!.getBoundingClientRect()
+          const x = (event as MouseEvent).clientX - defaultNodeWidth / 2
+          const y = (event as MouseEvent).clientY - defaultNodeHeight / 2
+          const id = getId()
+          const newNode = {
+            id,
+            type: SelectorTypename,
+            position: screenToFlowPosition({ x, y }),
+            data: {},
+            origin: [0.5, 0.0],
+          } as Node
+
+          setNodes((nds) => nds.concat(newNode))
+          const edge = {
+            id,
+            source: connectingNodeId.current,
+            target: id,
+          } as Edge
+          setEdges((eds) => eds.concat(edge))
+        }
+      } finally {
+        console.log("Cleaning up connect end")
+        setSilhouettePosition(null)
+        setIsConnecting(false)
+      }
+    },
+    [screenToFlowPosition] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  const onPaneMouseMove = useCallback(
+    (event: ReactMouseEvent) => {
+      if (!isConnecting || !containerRef.current) return
+
+      const bounds = containerRef.current.getBoundingClientRect()
+      const x = event.clientX - bounds.left
+      const y = event.clientY - bounds.top
+
+      setSilhouettePosition({ x, y })
+    },
+    [isConnecting]
+  )
+
+  // Drag and drop
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+  }, [])
 
   // Adding a new node
   const onDrop = async (event: React.DragEvent) => {
@@ -327,7 +415,9 @@ export function WorkflowCanvas() {
             params.target! /* Target is non-null as we are in a connect callback */
           )
           if (!triggerNode || !entrypointNode) {
-            throw new Error("Could not find trigger or entrypoint node")
+            console.warn("Could not find trigger or entrypoint node")
+            // Delete the edge anyways
+            setEdges((eds) => eds.filter((ed) => ed.id !== params.id))
           }
 
           // 3. Update the trigger node UI state with the entrypoint id
@@ -339,7 +429,7 @@ export function WorkflowCanvas() {
         eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id))
       )
     },
-    [edges, setEdges, getNode, setNodes]
+    [edges, setEdges, getNode, setNodes] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const handleNodesChange = useCallback(
@@ -367,7 +457,7 @@ export function WorkflowCanvas() {
       // apply the changes we kept
       onNodesChange(nextChanges)
     },
-    [nodes, setNodes]
+    [nodes, setNodes] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const onLayout = useCallback(
@@ -380,7 +470,7 @@ export function WorkflowCanvas() {
       setNodes(newNodes)
       setEdges(newEdges)
     },
-    [nodes, edges]
+    [nodes, edges] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   // Saving react flow instance state
@@ -402,6 +492,9 @@ export function WorkflowCanvas() {
         nodes={nodes}
         edges={edges}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        onPaneMouseMove={onPaneMouseMove}
         onDragOver={onDragOver}
         onDrop={onDrop}
         onEdgesChange={onEdgesChange}
@@ -446,7 +539,35 @@ export function WorkflowCanvas() {
             <MoveHorizontalIcon className="size-3" strokeWidth={2} />
           </Button>
         </Panel>
+        <NodeSilhouette
+          position={silhouettePosition}
+          isConnecting={isConnecting}
+        />
       </ReactFlow>
     </div>
+  )
+}
+
+function NodeSilhouette({
+  position,
+  isConnecting,
+}: {
+  position: XYPosition | null
+  isConnecting: boolean
+}) {
+  return (
+    isConnecting &&
+    position && (
+      <div
+        className="pointer-events-none absolute flex min-h-24 min-w-72 items-center justify-center rounded-md border border-emerald-500 bg-emerald-500/30 opacity-50"
+        style={{
+          left: position.x,
+          top: position.y,
+          transform: "translate(-50%, 20%)",
+        }}
+      >
+        <PlusIcon className="size-6 text-muted-foreground/70" />
+      </div>
+    )
   )
 }

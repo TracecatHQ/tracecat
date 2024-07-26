@@ -10,7 +10,7 @@ import {
   LayoutListIcon,
   ScanSearchIcon,
 } from "lucide-react"
-import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
+import { Node, NodeProps, Position, useNodeId } from "reactflow"
 
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"

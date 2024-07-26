@@ -87,7 +87,7 @@ export function CustomFloatingHandle({
       type={type}
       position={position}
       className={cn(
-        "group left-1/2 !size-10 !-translate-x-1/2 !border-none !bg-transparent",
+        "group left-1/2 !size-8 !-translate-x-1/2 !border-none !bg-transparent",
         position === Position.Top && "!-top-8",
         position === Position.Bottom && "!-bottom-8",
         position === Position.Left && "!-left-8",
@@ -95,7 +95,7 @@ export function CustomFloatingHandle({
         className
       )}
     >
-      <div className="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/50 transition-all group-hover:size-3 group-hover:bg-emerald-400 group-hover:shadow-lg" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/50 transition-all group-hover:size-4 group-hover:bg-emerald-400 group-hover:shadow-lg" />
     </Handle>
   )
 }
