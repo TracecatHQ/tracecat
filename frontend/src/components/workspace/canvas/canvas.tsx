@@ -439,8 +439,9 @@ export function WorkflowCanvas() {
           </Button>
           <Button
             variant="outline"
-            className="m-0 size-6 p-0 text-xs"
+            className="m-0 hidden size-6 p-0 text-xs"
             onClick={() => onLayout("LR")}
+            disabled
           >
             <MoveHorizontalIcon className="size-3" strokeWidth={2} />
           </Button>
