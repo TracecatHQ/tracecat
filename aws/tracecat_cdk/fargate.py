@@ -57,13 +57,6 @@ class FargateStack(Stack):
             security_group=backend_security_group,
         )
 
-        # Add a listener on port 80, set open=False to restrict access
-        listener = alb.add_listener(
-            "Listener",
-            port=80,
-            open=False,
-        )
-
         ### Tracecat API / Worker
         # Execution roles
         api_execution_role = iam.Role(
@@ -519,6 +512,7 @@ class FargateStack(Stack):
         )
 
         # Temporal Target Group
+        listener = alb.add_listener("TemporalListener", port=7233)
         self.temporal_target_group = listener.add_targets(
             "TemporalTarget",
             port=7233,
