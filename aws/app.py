@@ -26,6 +26,7 @@ fargate = FargateStack(
     id="TracecatFargateStack",
     cluster=vpc.cluster,
     dns_namespace=vpc.dns_namespace,
+    api_hosted_zone=route53.api_hosted_zone,
     frontend_security_group=vpc.frontend_security_group,
     backend_security_group=vpc.backend_security_group,
     core_database=rds.core_database,
