@@ -52,6 +52,7 @@ class FargateStack(Stack):
             self,
             "FargateALB",
             vpc=cluster.vpc,
+            http2_enabled=True,
             internet_facing=False,
             security_group=backend_security_group,
         )
@@ -513,33 +514,15 @@ class FargateStack(Stack):
         # Allow connections from the ALB to the target services
         backend_security_group.add_ingress_rule(
             peer=alb.connections.security_groups[0],
-            connection=ec2.Port.tcp(80),
-            description="Allow HTTP traffic from ALB",
-        )
-        backend_security_group.add_ingress_rule(
-            peer=alb.connections.security_groups[0],
             connection=ec2.Port.tcp(7233),
             description="Allow gRPC traffic from ALB to Temporal",
-        )
-
-        # API Target Group (note: might not be needed)
-        self.api_target_group = listener.add_targets(
-            "ApiTarget",
-            port=80,
-            targets=[api_fargate_service],
-        )
-
-        # Worker Target Group (note: might not be needed)
-        self.worker_target_group = listener.add_targets(
-            "WorkerTarget",
-            port=80,
-            targets=[worker_fargate_service],
         )
 
         # Temporal Target Group
         self.temporal_target_group = listener.add_targets(
             "TemporalTarget",
             port=7233,
+            protocol_version=elbv2.ApplicationProtocolVersion.GRPC,
             targets=[temporal_service],
         )
 
