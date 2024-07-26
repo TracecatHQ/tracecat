@@ -1,6 +1,7 @@
 import os
 
 from aws_cdk import Duration, RemovalPolicy, Stack
+from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
@@ -8,6 +9,8 @@ from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_rds as rds
+from aws_cdk import aws_route53 as route53
+from aws_cdk import aws_route53_targets as targets
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_servicediscovery as servicediscovery
 from constructs import Construct
@@ -46,6 +49,14 @@ class FargateStack(Stack):
         **kwargs,
     ):
         super().__init__(scope, id, **kwargs)
+
+        # Create a new private hosted zone
+        private_hosted_zone = route53.PrivateHostedZone(
+            self,
+            "TemporalPrivateHostedZone",
+            zone_name="temporal.local",
+            vpc=cluster.vpc,
+        )
 
         ### Internal ALB to route traffic to temporal service
         alb = elbv2.ApplicationLoadBalancer(
@@ -308,7 +319,7 @@ class FargateStack(Stack):
             "TRACECAT__DB_PORT": core_database.db_instance_endpoint_port,
             "TRACECAT__DISABLE_AUTH": os.environ["TRACECAT__DISABLE_AUTH"],
             "TRACECAT__PUBLIC_RUNNER_URL": os.environ["TRACECAT__PUBLIC_RUNNER_URL"],
-            "TEMPORAL__CLUSTER_URL": f"{alb.load_balancer_dns_name}:7233",
+            "TEMPORAL__CLUSTER_URL": "temporal.local:443",
             "TEMPORAL__CLUSTER_QUEUE": os.environ["TEMPORAL__CLUSTER_QUEUE"],
         }
 
@@ -504,6 +515,22 @@ class FargateStack(Stack):
             capacity_provider_strategies=[capacity_provider_strategy],
         )
 
+        # Create a new SSL certificate for the internal domain dynamically
+        certificate = acm.Certificate(
+            self,
+            "TemporalCertificate",
+            domain_name="temporal.local",
+            validation=acm.CertificateValidation.from_dns(private_hosted_zone),
+        )
+
+        # Create an A record to point the internal domain to the ALB
+        route53.ARecord(
+            self,
+            "TemporalAliasRecord",
+            zone=private_hosted_zone,
+            target=route53.RecordTarget.from_alias(targets.LoadBalancerTarget(alb)),
+        )
+
         # Temporal Target Group
         temporal_target_group = elbv2.ApplicationTargetGroup(
             self,
@@ -512,14 +539,17 @@ class FargateStack(Stack):
             protocol=elbv2.ApplicationProtocol.HTTP,
             protocol_version=elbv2.ApplicationProtocolVersion.GRPC,
             targets=[temporal_service],
+            health_check=elbv2.HealthCheck(enabled=True, healthy_grpc_codes="0-99"),
             vpc=alb.vpc,
         )
 
+        # Listener with SSL certificate
         self.listener = alb.add_listener(
             "TemporalListener",
-            port=7233,
-            protocol=elbv2.ApplicationProtocol.HTTP,
+            port=443,
+            protocol=elbv2.ApplicationProtocol.HTTPS,
             open=False,
+            certificates=[certificate],
             default_target_groups=[temporal_target_group],
         )
 
