@@ -3,6 +3,7 @@ import "@/styles/globals.css"
 import React from "react"
 import { type Metadata } from "next"
 import dynamic from "next/dynamic"
+import Script from "next/script"
 import { type PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { ClerkProvider } from "@clerk/nextjs"
@@ -48,7 +49,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   return (
     <MaybeClerk>
       <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
-        <head />
+        <head>
+          <Script src="/runtime-config.js" strategy="beforeInteractive" />
+        </head>
         <MaybeAnalytics>
           <body
             className={cn(
