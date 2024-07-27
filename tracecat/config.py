@@ -1,12 +1,8 @@
 import os
-from pathlib import Path
 
 HTTP_MAX_RETRIES = 10
 LLM_MAX_RETRIES = 3
 
-TRACECAT_DIR = (
-    Path(os.environ.get("TRACECAT_DIR", "~/.tracecat")).expanduser().resolve()
-)
 TRACECAT__SCHEDULE_INTERVAL_SECONDS = os.environ.get(
     "TRACECAT__SCHEDULE_INTERVAL_SECONDS", 60
 )
@@ -27,12 +23,6 @@ TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
 TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
-
-TRACECAT__TIMESTAMP_FORMAT = "%Y%m%d%H%M%S"
-TRACECAT__TRIAGE_DIR = TRACECAT_DIR / "triage"
-TRACECAT__TRIAGE_DIR.mkdir(parents=True, exist_ok=True)
-TRACECAT__EXECUTIONS_DIR = TRACECAT_DIR / "executions"
-TRACECAT__EXECUTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
