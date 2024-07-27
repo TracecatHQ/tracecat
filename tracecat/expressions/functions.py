@@ -8,6 +8,7 @@ import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import wraps
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, ParamSpec, TypedDict, TypeVar
 
 import jsonpath_ng
@@ -65,6 +66,26 @@ def _str_to_b64(x: str) -> str:
 
 def _b64_to_str(x: str) -> str:
     return base64.b64decode(x).decode()
+
+
+def _ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
+    if IPv4Address(ipv4) in IPv4Network(subnet):
+        return True
+    return False
+
+
+def _ipv6_in_subnet(ipv6: str, subnet: str) -> bool:
+    if IPv6Address(ipv6) in IPv6Network(subnet):
+        return True
+    return False
+
+
+def _ipv4_is_public(ipv4: str) -> bool:
+    return IPv4Address(ipv4).is_global
+
+
+def _ipv6_is_public(ipv6: str) -> bool:
+    return IPv6Address(ipv6).is_global
 
 
 class SafeEvaluator(ast.NodeVisitor):
@@ -323,6 +344,11 @@ _FUNCTION_MAPPING = {
     "from_base64": _b64_to_str,
     # Utils
     "lookup": lambda d, k: d.get(k),
+    # IP addresses
+    "ipv4_in_subnet": lambda i, s: _ipv4_in_subnet(i, s),
+    "ipv6_in_subnet": lambda i, s: _ipv6_in_subnet(i, s),
+    "ipv4_is_public": lambda i: _ipv4_is_public(i),
+    "ipv6_is_public": lambda i: _ipv6_is_public(i),
 }
 
 
