@@ -73,6 +73,7 @@
     "sharp": "^0.33.4",
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7",
+    "uuid": "^10.0.0",
     "vaul": "^0.9.1",
     "yaml": "^2.4.5",
     "zod": "^3.23.8"

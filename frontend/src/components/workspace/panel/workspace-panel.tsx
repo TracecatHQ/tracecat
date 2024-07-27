@@ -65,6 +65,9 @@ function NodePanel({ node, workflow }: { node: NodeType; workflow: Workflow }) {
           workflow={workflow}
         />
       )
+    case "selector":
+      // XXX: Unreachable, as we never select the selector node
+      return <></>
     default:
       return <AlertNotification level="error" message="Unknown node type" />
   }

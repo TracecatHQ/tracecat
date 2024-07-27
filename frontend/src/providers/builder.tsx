@@ -66,8 +66,11 @@ export const WorkflowBuilderProvider: React.FC<
   )
   useOnSelectionChange({
     onChange: ({ nodes }: { nodes: NodeType[] }) => {
-      const actionNodeSelected = nodes[0]
-      setSelectedNodeId(actionNodeSelected?.id ?? null)
+      const nodeSelected = nodes[0]
+      if (nodeSelected?.type === "selector") {
+        return
+      }
+      setSelectedNodeId(nodeSelected?.id ?? null)
     },
   })
   if (error) {
