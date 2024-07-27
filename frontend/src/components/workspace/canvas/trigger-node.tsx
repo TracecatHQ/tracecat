@@ -154,8 +154,6 @@ export default React.memo(function TriggerNode({
       <CustomHandle
         type="source"
         position={sourcePosition ?? Position.Bottom}
-        className="w-16 !bg-gray-500"
-        style={{ width: 8, height: 8 }}
         isConnectable={1}
       />
     </Card>

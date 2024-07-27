@@ -13,10 +13,16 @@ import { isServer } from "@/lib/utils"
  * 3. http://localhost:8000
  */
 export function getBaseUrl() {
-  const url = isServer()
-    ? process.env.NEXT_SERVER_API_URL
-    : process.env.NEXT_PUBLIC_API_URL
-  return url ?? "http://localhost:8000"
+  // Server side
+  if (isServer()) {
+    return process.env.NEXT_SERVER_API_URL ?? process.env.NEXT_PUBLIC_API_URL
+  }
+
+  // Client side
+  return (
+    // @ts-expect-error Reason: Suppressing TypeScript error for the following code block
+    global.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+  )
 }
 
 // Legacy axiosclient
