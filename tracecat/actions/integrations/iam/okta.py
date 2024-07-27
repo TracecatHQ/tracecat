@@ -56,7 +56,7 @@ async def find_okta_users(
         str,
         Field(..., description="Login username or e-mail to find"),
     ],
-) -> list:
+) -> list[dict[str, Any]]:
     async with create_okta_client() as client:
         params = {
             "search": (
@@ -161,9 +161,9 @@ async def list_okta_user_events(
 ) -> list[dict[str, Any]]:
     async with create_okta_client() as client:
         params = {
-            "filter": (f'actor.id eq "{okta_user_id}"'),
-            "since": (start_time.strftime("%Y-%m-%dT%H:%M:%S")),
-            "until": (end_time.strftime("%Y-%m-%dT%H:%M:%S")),
+            "filter": f'actor.id eq "{okta_user_id}"',
+            "since": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "until": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
             "limit": limit,
         }
         response = await client.get(
