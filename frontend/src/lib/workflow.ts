@@ -14,6 +14,7 @@ import {
   type WorkflowMetadata,
 } from "@/types/schemas"
 import { client } from "@/lib/api"
+import { isEphemeral } from "@/components/workspace/canvas/canvas"
 
 export async function updateWorkflowGraphObject(
   workflowId: string,
@@ -21,6 +22,24 @@ export async function updateWorkflowGraphObject(
 ) {
   try {
     const object = reactFlowInstance.toObject()
+
+    // Filter out non-ephemeral nodes and their associated edges
+    const ephemeralNodeIds = new Set(
+      object.nodes.filter(isEphemeral).map((node) => node.id)
+    )
+
+    // Keep nodes that are NOT ephemeral
+    object.nodes = object.nodes.filter((node) => !ephemeralNodeIds.has(node.id))
+    // Keep edges that are NOT connected to ephemeral nodes
+    object.edges = object.edges.filter(
+      (edge) => !ephemeralNodeIds.has(edge.target)
+    )
+
+    // Check that the object at least contains the trigger node
+    if (!object.nodes.some((node) => node.type === "trigger")) {
+      throw new Error("Workflow cannot be saved without a trigger node")
+    }
+
     await client.patch(`/workflows/${workflowId}`, {
       object,
     })

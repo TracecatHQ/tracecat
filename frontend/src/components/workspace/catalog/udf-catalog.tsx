@@ -22,9 +22,9 @@ import {
   UDFNodeType,
 } from "@/components/workspace/canvas/udf-node"
 
-const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
+export const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
 
-const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
+export const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
   const groups = {} as Record<string, UDF[]>
   udfs.forEach((udf) => {
     const displayGroup = (
