@@ -12,20 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get ruff version from requirements file
-        id: version
-        run: |
-          VERSION=$(grep -m 1 -oP 'ruff==\K(.*)' requirements-lint.txt)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - uses: chartboost/ruff-action@v1
         with:
           src: tracecat/
-          version: ${{ steps.version.outputs.version }}
+          version: v0.5.5
           args: check --no-fix
 
       - uses: chartboost/ruff-action@v1
         with:
           src: tracecat/
-          version: ${{ steps.version.outputs.version }}
+          version: v0.5.5
           args: format --diff
