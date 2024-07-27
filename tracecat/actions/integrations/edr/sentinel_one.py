@@ -50,12 +50,12 @@ sentinel_one_secret = RegistrySecret(
 """
 
 
-def create_sentinel_one_client() -> httpx.AsyncClient:
+def create_sentinel_one_client(api_version: str = "v2.1") -> httpx.AsyncClient:
     SENTINEL_ONE_API_TOKEN = os.getenv("SENTINEL_ONE_API_TOKEN")
     if SENTINEL_ONE_API_TOKEN is None:
         raise ValueError("SENTINEL_ONE_API_TOKEN is not set")
     client = httpx.AsyncClient(
-        base_url=f'{os.getenv("SENTINEL_ONE_BASE_URL")}/web/api/v2.1',
+        base_url=f'{os.getenv("SENTINEL_ONE_BASE_URL")}/web/api/{api_version}',
         headers={
             "Authorization": f"ApiToken {SENTINEL_ONE_API_TOKEN}",
             "Accept": "application/json",
