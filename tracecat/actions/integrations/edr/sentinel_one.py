@@ -28,11 +28,12 @@ import httpx
 
 from tracecat.registry import Field, RegistrySecret, registry
 
-ALERTS_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts"
-ANALYST_VERDICT_ENDPOINT = "/web/api/v2.1/cloud-detection/alerts/analyst-verdict"
-AGENT_ENDPOINT = "/web/api/v2.1/agents"
-DISCONNECT_ENDPOINT = "/web/api/v2.1/agents/actions/disconnect"
-CONNECT_ENDPOINT = "/web/api/v2.1/agents/actions/connect"
+ALERTS_ENDPOINT = "/cloud-detection/alerts"
+ANALYST_VERDICT_ENDPOINT = "/cloud-detection/alerts/analyst-verdict"
+AGENT_ENDPOINT = "/agents"
+DISCONNECT_ENDPOINT = "/agents/actions/disconnect"
+CONNECT_ENDPOINT = "/agents/actions/connect"
+FIREWALL_CONTROL_ENDPOINT = "/firewall-control"
 
 AnalystVerdict = Literal["FALSE_POSITIVE", "SUSPICIOUS", "TRUE_POSITIVE", "UNDEFINED"]
 
@@ -47,6 +48,21 @@ sentinel_one_secret = RegistrySecret(
     - `SENTINEL_ONE_BASE_URL`
     - `SENTINEL_ONE_API_TOKEN`
 """
+
+
+def create_sentinel_one_client() -> httpx.AsyncClient:
+    SENTINEL_ONE_API_TOKEN = os.getenv("SENTINEL_ONE_API_TOKEN")
+    if SENTINEL_ONE_API_TOKEN is None:
+        raise ValueError("SENTINEL_ONE_API_TOKEN is not set")
+    client = httpx.AsyncClient(
+        base_url=f'{os.getenv("SENTINEL_ONE_BASE_URL")}/web/api/v2.1',
+        headers={
+            "Authorization": f"ApiToken {SENTINEL_ONE_API_TOKEN}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    return client
 
 
 @registry.register(
@@ -69,24 +85,15 @@ async def list_sentinelone_alerts(
         int, Field(default=1000, description="Maximum number of alerts to return.")
     ] = 1000,
 ) -> list[dict[str, Any]]:
-    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
-    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
-    headers = {
-        "Authorization": f"ApiToken {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
     params = {
         "createdAt__gte": start_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "createdAt__lte": end_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "limit": limit,
     }
 
-    async with httpx.AsyncClient() as client:
+    async with create_sentinel_one_client() as client:
         response = await client.get(
-            f"{base_url}/{ALERTS_ENDPOINT}",
-            headers=headers,
+            ALERTS_ENDPOINT,
             params=params,
         )
         response.raise_for_status()
@@ -108,17 +115,9 @@ async def update_sentinelone_alert_status(
         AnalystVerdict, Field(..., description="New status for the alerts")
     ],
 ) -> dict[str, Any]:
-    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
-    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
-    headers = {
-        "Authorization": f"ApiToken {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient() as client:
+    async with create_sentinel_one_client() as client:
         response = await client.post(
-            f"{base_url}/{ANALYST_VERDICT_ENDPOINT}",
-            headers=headers,
+            ANALYST_VERDICT_ENDPOINT,
             json={
                 "data": {"analystVerdict": status},
                 "filter": {"ids": alert_ids},
@@ -144,17 +143,13 @@ async def get_sentinelone_agents_by_username(
         ),
     ],
 ) -> list[dict[str, Any]]:
-    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
-    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
-    headers = {
-        "Authorization": f"ApiToken {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient() as client:
+    async with create_sentinel_one_client() as client:
+        params = {
+            "lastLoggedInUserName__contains": username,
+        }
         response = await client.get(
-            f"{base_url}/{AGENT_ENDPOINT}?lastLoggedInUserName__contains={username}",
-            headers=headers,
+            AGENT_ENDPOINT,
+            params=params,
         )
         response.raise_for_status()
         results = []
@@ -184,21 +179,12 @@ async def get_sentinelone_agents_by_hostname(
         ),
     ],
 ) -> list[dict[str, Any]]:
-    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
-    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
-    headers = {
-        "Authorization": f"ApiToken {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient() as client:
+    async with create_sentinel_one_client() as client:
         query_param = "computerName__contains"
         if exact_match:
             query_param = "computerName"
-        response = await client.get(
-            f"{base_url}/{AGENT_ENDPOINT}?{query_param}={hostname}",
-            headers=headers,
-        )
+        params = {query_param: hostname}
+        response = await client.get(AGENT_ENDPOINT, params=params)
         response.raise_for_status()
         return response.json()["data"]
 
@@ -213,17 +199,9 @@ async def get_sentinelone_agents_by_hostname(
 async def isolate_sentinelone_agent(
     agent_id: Annotated[str, Field(..., description="ID of the agent to isolate")],
 ) -> dict[str, Any]:
-    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
-    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
-    headers = {
-        "Authorization": f"ApiToken {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient() as client:
+    async with create_sentinel_one_client() as client:
         response = await client.post(
-            f"{base_url}/{DISCONNECT_ENDPOINT}",
-            headers=headers,
+            DISCONNECT_ENDPOINT,
             json={"filter": {"ids": [agent_id]}},
         )
         response.raise_for_status()
@@ -240,18 +218,52 @@ async def isolate_sentinelone_agent(
 async def unisolate_sentinelone_agent(
     agent_id: Annotated[str, Field(..., description="ID of the agent to unisolate")],
 ) -> dict[str, Any]:
-    api_token = os.getenv("SENTINEL_ONE_API_TOKEN")
-    base_url = os.getenv("SENTINEL_ONE_BASE_URL")
-    headers = {
-        "Authorization": f"ApiToken {api_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient() as client:
+    async with create_sentinel_one_client() as client:
         response = await client.post(
-            f"{base_url}/{CONNECT_ENDPOINT}",
-            headers=headers,
+            CONNECT_ENDPOINT,
             json={"filter": {"ids": [agent_id]}},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Get Sentinel One firewall rule",
+    description="",
+    display_group="Sentinel One",
+    namespace="integrations.sentinel_one",
+    secrets=[sentinel_one_secret],
+)
+async def get_sentinel_one_firewall_rule(
+    rule_id: Annotated[str, Field(..., description="ID of the rule to get")],
+    scope_type: Literal["accountIds", "siteIds", "groupIds"],
+    scope_id: Annotated[
+        str, Field(..., description="ID of the scope the rule is attached to")
+    ],
+) -> dict[str, Any]:
+    async with create_sentinel_one_client() as client:
+        params = {"ids": rule_id, scope_type: scope_id}
+        response = await client.get(FIREWALL_CONTROL_ENDPOINT, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Update Sentinel One firewall rule",
+    description="Update an existing Sentinel One firewall rule",
+    display_group="Sentinel One",
+    namespace="integrations.sentinel_one",
+    secrets=[sentinel_one_secret],
+)
+async def update_sentinel_one_firewall_rule(
+    rule_id: Annotated[str, Field(..., description="Existing rule ID")],
+    rule_data: Annotated[
+        dict[str, Any], Field(..., description="Updated rule data to set")
+    ],
+) -> dict[str, Any]:
+    async with create_sentinel_one_client() as client:
+        response = await client.put(
+            f"{FIREWALL_CONTROL_ENDPOINT}/{rule_id}", json={"data": rule_data}
         )
         response.raise_for_status()
         return response.json()
