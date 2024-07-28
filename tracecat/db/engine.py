@@ -16,17 +16,12 @@ from tracecat.db.schemas import (
     DEFAULT_CASE_ACTIONS,
     Action,
     CaseAction,
-    CaseContext,
     UDFSpec,
     User,
     Webhook,
     Workflow,
 )
-from tracecat.labels.mitre import get_mitre_tactics_techniques
 from tracecat.registry import registry
-
-STORAGE_PATH = config.TRACECAT_DIR / "storage"
-STORAGE_PATH.mkdir(parents=True, exist_ok=True)
 
 _engine: Engine = None
 
@@ -69,18 +64,6 @@ def initialize_db() -> Engine:
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
-        # Add TTPs to context table only if context table is empty
-        case_contexts_count = session.exec(select(CaseContext)).all()
-        if len(case_contexts_count) == 0:
-            mitre_labels = get_mitre_tactics_techniques()
-            mitre_contexts = [
-                CaseContext(owner_id="tracecat", tag="mitre", value=label)
-                for label in mitre_labels
-            ]
-            session.add_all(mitre_contexts)
-            session.commit()
-            logger.info("Added default MITRE labels to case context table.")
-
         case_actions_count = session.exec(select(CaseAction)).all()
         if len(case_actions_count) == 0:
             default_actions = [

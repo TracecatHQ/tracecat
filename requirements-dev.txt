@@ -1,6 +1,0 @@
-hatchling
-pytest
-pytest-benchmark
-pytest-cov
-pytest-memray
-pytest-xdist
