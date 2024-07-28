@@ -120,6 +120,48 @@ def custom_generate_unique_id(route: APIRoute):
     return route.name
 
 
+# Catch-all exception handler to prevent stack traces from leaking
+def generic_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unexpected error",
+        exc=exc,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "An unexpected error occurred. Please try again later."},
+    )
+
+
+def tracecat_exception_handler(request: Request, exc: TracecatException):
+    """Generic exception handler for Tracecat exceptions.
+
+    We can customize exceptions to expose only what should be user facing.
+    """
+    msg = str(exc)
+    logger.error(
+        msg,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"type": type(exc).__name__, "message": msg, "detail": exc.detail},
+    )
+
+
+def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Improves visiblity of 422 errors."""
+    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
+    logger.error(f"{request}: {exc_str}")
+    return ORJSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
+    )
+
+
 def create_app(**kwargs) -> FastAPI:
     global logger
     if config.TRACECAT__ALLOW_ORIGINS is not None:
@@ -151,9 +193,17 @@ def create_app(**kwargs) -> FastAPI:
             {"name": "cases", "description": "Case management"},
         ],
         generate_unique_id_function=custom_generate_unique_id,
+        lifespan=lifespan,
+        default_response_class=ORJSONResponse,
         **kwargs,
     )
     app.logger = logger
+    # Exception handlers
+    app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+    # Middleware
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -162,60 +212,15 @@ def create_app(**kwargs) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
     logger.info("App started", env=config.TRACECAT__APP_ENV, origins=allow_origins)
     return app
 
 
-app = create_app(lifespan=lifespan, default_response_class=ORJSONResponse)
+app = create_app()
 
 
 # ----- Utility ----- #
-
-
-# Catch-all exception handler to prevent stack traces from leaking
-@app.exception_handler(Exception)
-async def custom_exception_handler(request: Request, exc: Exception):
-    logger.error(
-        "Unexpected error",
-        exc=exc,
-        role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
-    )
-    return ORJSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"message": "An unexpected error occurred. Please try again later."},
-    )
-
-
-@app.exception_handler(TracecatValidationError)
-@app.exception_handler(TracecatException)
-async def tracecat_exception_handler(request: Request, exc: TracecatException):
-    """Generic exception handler for Tracecat exceptions.
-
-    We can customize exceptions to expose only what should be user facing.
-    """
-    msg = str(exc)
-    logger.error(
-        msg,
-        role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
-    )
-    return ORJSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"type": type(exc).__name__, "message": msg, "detail": exc.detail},
-    )
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Improves visiblity of 422 errors."""
-    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
-    logger.error(f"{request}: {exc_str}")
-    return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
-    )
 
 
 @app.get("/", include_in_schema=False)
