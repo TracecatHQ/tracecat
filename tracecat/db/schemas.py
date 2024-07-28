@@ -27,7 +27,7 @@ class Resource(SQLModel):
     """Base class for all resources in the system."""
 
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
-    owner_id: str
+    owner_id: str  # NOTE: Equivalent to team_id
     created_at: datetime = Field(
         sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
@@ -45,23 +45,49 @@ class Resource(SQLModel):
     )
 
 
+class Organization(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    memberships: list["Membership"] = Relationship(back_populates="organization")
+    teams: list["Team"] = Relationship(back_populates="organization")
+
+
+class Team(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    organization_id: int = Field(foreign_key="organization.id")
+    organization: Organization = Relationship(back_populates="teams")
+    memberships: list["Membership"] = Relationship(back_populates="team")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    secrets: list["Secret"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+
+
 class User(Resource, table=True):
     # The id is also the JWT 'sub' claim
     id: str = Field(
         default_factory=id_factory("user"), nullable=False, unique=True, index=True
     )
-    tier: str = "free"  # "free" or "premium"
-    settings: str | None = None  # JSON-serialized String of settings
-    owned_workflows: list["Workflow"] = Relationship(
-        back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
-    case_actions: list["CaseAction"] = Relationship(back_populates="user")
-    case_contexts: list["CaseContext"] = Relationship(back_populates="user")
-    secrets: list["Secret"] = Relationship(
-        back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
+    email: str | None = None
+    external_user_id: str | None = None
+    settings: dict[str, Any] | None = Field(sa_column=Column(JSONB))
+
+
+class Membership(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    organization_id: int = Field(foreign_key="organization.id")
+    team_id: int | None = Field(foreign_key="team.id", default=None)
+    is_owner: bool = Field(default=False)
+    role: str | None = None
+    user: User = Relationship(back_populates="memberships")
+    organization: Organization = Relationship(back_populates="memberships")
+    team: Team | None = Relationship(back_populates="memberships")
 
 
 class Secret(Resource, table=True):
@@ -81,9 +107,9 @@ class Secret(Resource, table=True):
     encrypted_keys: bytes
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
     owner_id: str = Field(
-        sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
+        sa_column=Column(String, ForeignKey("team.id", ondelete="CASCADE"))
     )
-    owner: User | None = Relationship(back_populates="secrets")
+    owner: Team | None = Relationship(back_populates="secrets")
 
 
 class Case(Resource, table=True):
@@ -243,12 +269,12 @@ class Workflow(Resource, table=True):
         description="Workflow configuration",
     )
     icon_url: str | None = None
-    # Owner
+    # Owner (team ID)
     owner_id: str = Field(
-        sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
+        sa_column=Column(String, ForeignKey("team.id", ondelete="CASCADE"))
     )
     # Relationships
-    owner: User | None = Relationship(back_populates="owned_workflows")
+    owner: Team | None = Relationship(back_populates="workflows")  # Change to Team
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={"cascade": "all, delete"},
