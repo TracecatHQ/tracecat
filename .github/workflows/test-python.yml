@@ -72,6 +72,5 @@ jobs:
 
       - name: Run tests (headless mode)
         env:
-          TRACECAT__IMAGE_TAG: ${{ env.TRACECAT__IMAGE_TAG }}
           LOG_LEVEL: WARNING
         run: pytest tests/unit --temporal-no-restart --tracecat-no-restart
