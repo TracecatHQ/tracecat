@@ -226,10 +226,6 @@ class StartWorkflowResponse(BaseModel):
     id: str
 
 
-class CopyWorkflowParams(BaseModel):
-    owner_id: str
-
-
 class SecretResponse(BaseModel):
     id: str
     type: Literal["custom"]  # Support other types later
