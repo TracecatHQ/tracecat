@@ -20,11 +20,10 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.params import Body
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
-from sqlalchemy import Engine, or_
+from sqlalchemy import or_
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
@@ -36,7 +35,7 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import clone_workflow, get_engine
+from tracecat.db.engine import get_session, get_session_context_manager, initialize_db
 from tracecat.db.schemas import (
     Action,
     Case,
@@ -71,7 +70,6 @@ from tracecat.types.api import (
     CaseParams,
     CaseResponse,
     CommitWorkflowResponse,
-    CopyWorkflowParams,
     CreateActionParams,
     CreateScheduleParams,
     CreateSecretParams,
@@ -103,13 +101,10 @@ from tracecat.workflow.models import (
     WorkflowResponse,
 )
 
-engine: Engine
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
-    engine = get_engine()
+    initialize_db()
     yield
 
 
@@ -118,6 +113,48 @@ def custom_generate_unique_id(route: APIRoute):
     if route.tags:
         return f"{route.tags[0]}-{route.name}"
     return route.name
+
+
+# Catch-all exception handler to prevent stack traces from leaking
+def generic_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unexpected error",
+        exc=exc,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "An unexpected error occurred. Please try again later."},
+    )
+
+
+def tracecat_exception_handler(request: Request, exc: TracecatException):
+    """Generic exception handler for Tracecat exceptions.
+
+    We can customize exceptions to expose only what should be user facing.
+    """
+    msg = str(exc)
+    logger.error(
+        msg,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"type": type(exc).__name__, "message": msg, "detail": exc.detail},
+    )
+
+
+def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Improves visiblity of 422 errors."""
+    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
+    logger.error(f"{request}: {exc_str}")
+    return ORJSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
+    )
 
 
 def create_app(**kwargs) -> FastAPI:
@@ -151,9 +188,17 @@ def create_app(**kwargs) -> FastAPI:
             {"name": "cases", "description": "Case management"},
         ],
         generate_unique_id_function=custom_generate_unique_id,
+        lifespan=lifespan,
+        default_response_class=ORJSONResponse,
         **kwargs,
     )
     app.logger = logger
+    # Exception handlers
+    app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+    # Middleware
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -162,60 +207,15 @@ def create_app(**kwargs) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
     logger.info("App started", env=config.TRACECAT__APP_ENV, origins=allow_origins)
     return app
 
 
-app = create_app(lifespan=lifespan, default_response_class=ORJSONResponse)
+app = create_app()
 
 
 # ----- Utility ----- #
-
-
-# Catch-all exception handler to prevent stack traces from leaking
-@app.exception_handler(Exception)
-async def custom_exception_handler(request: Request, exc: Exception):
-    logger.error(
-        "Unexpected error",
-        exc=exc,
-        role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
-    )
-    return ORJSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"message": "An unexpected error occurred. Please try again later."},
-    )
-
-
-@app.exception_handler(TracecatValidationError)
-@app.exception_handler(TracecatException)
-async def tracecat_exception_handler(request: Request, exc: TracecatException):
-    """Generic exception handler for Tracecat exceptions.
-
-    We can customize exceptions to expose only what should be user facing.
-    """
-    msg = str(exc)
-    logger.error(
-        msg,
-        role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
-    )
-    return ORJSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"type": type(exc).__name__, "message": msg, "detail": exc.detail},
-    )
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Improves visiblity of 422 errors."""
-    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
-    logger.error(f"{request}: {exc_str}")
-    return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
-    )
 
 
 @app.get("/", include_in_schema=False)
@@ -226,12 +226,6 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
-
-
-# ----- Dependencies ----- #
-def get_session():
-    with Session(engine) as session:
-        yield session
 
 
 # ----- Trigger handlers ----- #
@@ -248,7 +242,7 @@ def validate_incoming_webhook(
 
     NOte: The webhook ID here is the workflow ID.
     """
-    with Session(engine) as session:
+    with get_session_context_manager() as session:
         result = session.exec(select(Webhook).where(Webhook.workflow_id == webhook_id))
         try:
             # One webhook per workflow
@@ -558,6 +552,7 @@ async def webhook_callback(
 def list_workflows(
     role: Annotated[Role, Depends(authenticate_user)],
     library: bool = False,
+    session: Session = Depends(get_session),
 ) -> list[WorkflowMetadataResponse]:
     """
     List workflows.
@@ -565,10 +560,9 @@ def list_workflows(
     If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
     """
     query_user_id = role.user_id if not library else "tracecat"
-    with Session(engine) as session:
-        statement = select(Workflow).where(Workflow.owner_id == query_user_id)
-        results = session.exec(statement)
-        workflows = results.all()
+    statement = select(Workflow).where(Workflow.owner_id == query_user_id)
+    results = session.exec(statement)
+    workflows = results.all()
     workflow_metadata = [
         WorkflowMetadataResponse(
             id=workflow.id,
@@ -599,7 +593,6 @@ async def create_workflow(
     You can also provide a title and description to create a blank workflow."""
 
     if file:
-        # if file.content_type in ("application/x-yaml", "text/yaml", "application/json"):
         try:
             data = await file.read()
             if file.content_type in ("application/yaml", "text/yaml"):
@@ -673,33 +666,33 @@ async def create_workflow(
 def get_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
-    with Session(engine) as session:
-        # Get Workflow given workflow_id
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    # Get Workflow given workflow_id
+    statement = select(Workflow).where(
+        Workflow.owner_id == role.user_id,
+        Workflow.id == workflow_id,
+    )
+    result = session.exec(statement)
+    try:
+        workflow = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
-        actions_responses = {
-            action.id: ActionResponse(**action.model_dump())
-            for action in workflow.actions or []
-        }
-        # Add webhook/schedules
-        return WorkflowResponse(
-            **workflow.model_dump(),
-            actions=actions_responses,
-            webhook=WebhookResponse(**workflow.webhook.model_dump()),
-            schedules=workflow.schedules,
-        )
+    actions_responses = {
+        action.id: ActionResponse(**action.model_dump())
+        for action in workflow.actions or []
+    }
+    # Add webhook/schedules
+    return WorkflowResponse(
+        **workflow.model_dump(),
+        actions=actions_responses,
+        webhook=WebhookResponse(**workflow.webhook.model_dump()),
+        schedules=workflow.schedules,
+    )
 
 
 @app.patch(
@@ -711,27 +704,27 @@ def update_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     params: UpdateWorkflowParams,
+    session: Session = Depends(get_session),
 ) -> None:
     """Update a workflow."""
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    statement = select(Workflow).where(
+        Workflow.owner_id == role.user_id,
+        Workflow.id == workflow_id,
+    )
+    result = session.exec(statement)
+    try:
+        workflow = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
-        for key, value in params.model_dump(exclude_unset=True).items():
-            # Safe because params has been validated
-            setattr(workflow, key, value)
+    for key, value in params.model_dump(exclude_unset=True).items():
+        # Safe because params has been validated
+        setattr(workflow, key, value)
 
-        session.add(workflow)
-        session.commit()
+    session.add(workflow)
+    session.commit()
 
 
 @app.delete(
@@ -742,60 +735,23 @@ def update_workflow(
 def delete_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> None:
     """Delete a workflow."""
 
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        session.delete(workflow)
-        session.commit()
-
-
-@app.post(
-    "/workflows/{workflow_id}/copy",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def copy_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-    params: Annotated[CopyWorkflowParams | None, Body(...)] = None,
-) -> None:
-    """Copy a workflow. Not intended for users."""
-    if role.type == "user" and params is not None:
+    statement = select(Workflow).where(
+        Workflow.owner_id == role.user_id,
+        Workflow.id == workflow_id,
+    )
+    result = session.exec(statement)
+    try:
+        workflow = result.one()
+    except NoResultFound as e:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Users can only clone tracecat workflows",
-        )
-    # Users cannot pass owner_id, and defaults to 'tracecat'
-    owner_id = params.owner_id if params else "tracecat"
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == owner_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        # Assign it a new workflow ID and owner ID
-        new_workflow = clone_workflow(workflow, session, role.user_id)
-        session.commit()
-        session.refresh(new_workflow)
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
+    session.delete(workflow)
+    session.commit()
 
 
 @app.post("/workflows/{workflow_id}/commit", tags=["workflows"])
@@ -1096,6 +1052,7 @@ def create_webhook(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     workflow_id: str,
     params: UpsertWebhookParams,
+    session: Session = Depends(get_session),
 ) -> None:
     """Create a webhook for a workflow."""
 
@@ -1105,31 +1062,30 @@ def create_webhook(
         method=params.method or "POST",
         workflow_id=workflow_id,
     )
-    with Session(engine) as session:
-        session.add(webhook)
-        session.commit()
-        session.refresh(webhook)
+    session.add(webhook)
+    session.commit()
+    session.refresh(webhook)
 
 
 @app.get("/workflows/{workflow_id}/webhook", tags=["triggers"])
 def get_webhook(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> WebhookResponse:
     """Get the webhook from a workflow."""
-    with Session(engine) as session:
-        statement = select(Webhook).where(
-            Webhook.owner_id == role.user_id,
-            Webhook.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            webhook = result.one()
-            return WebhookResponse(**webhook.model_dump())
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    statement = select(Webhook).where(
+        Webhook.owner_id == role.user_id,
+        Webhook.workflow_id == workflow_id,
+    )
+    result = session.exec(statement)
+    try:
+        webhook = result.one()
+        return WebhookResponse(**webhook.model_dump())
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
 
 @app.patch(
@@ -1141,30 +1097,30 @@ def update_webhook(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     params: UpsertWebhookParams,
+    session: Session = Depends(get_session),
 ) -> None:
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
-    with Session(engine) as session:
-        result = session.exec(
-            select(Workflow).where(
-                Workflow.owner_id == role.user_id, Workflow.id == workflow_id
-            )
+    result = session.exec(
+        select(Workflow).where(
+            Workflow.owner_id == role.user_id, Workflow.id == workflow_id
         )
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    )
+    try:
+        workflow = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
-        webhook = workflow.webhook
+    webhook = workflow.webhook
 
-        for key, value in params.model_dump(exclude_unset=True).items():
-            # Safety: params have been validated
-            setattr(webhook, key, value)
+    for key, value in params.model_dump(exclude_unset=True).items():
+        # Safety: params have been validated
+        setattr(webhook, key, value)
 
-        session.add(webhook)
-        session.commit()
-        session.refresh(webhook)
+    session.add(webhook)
+    session.commit()
+    session.refresh(webhook)
 
 
 # ----- Workflow Schedules ----- #
@@ -1174,29 +1130,30 @@ def update_webhook(
 async def list_schedules(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: identifiers.WorkflowID | None = None,
+    session: Session = Depends(get_session),
 ) -> list[Schedule]:
     """List all schedules for a workflow."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(Schedule.owner_id == role.user_id)
-        if workflow_id:
-            statement = statement.where(Schedule.workflow_id == workflow_id)
-        result = session.exec(statement)
-        try:
-            return result.all()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+    if workflow_id:
+        statement = statement.where(Schedule.workflow_id == workflow_id)
+    result = session.exec(statement)
+    try:
+        return result.all()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
 
 @app.post("/schedules", tags=["schedules"])
 async def create_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateScheduleParams,
+    session: Session = Depends(get_session),
 ) -> Schedule:
     """Create a schedule for a workflow."""
 
-    with Session(engine) as session, logger.contextualize(role=role):
+    with logger.contextualize(role=role):
         result = session.exec(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == params.workflow_id)
@@ -1261,19 +1218,19 @@ async def create_schedule(
 def get_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
+    session: Session = Depends(get_session),
 ) -> Schedule:
     """Get a schedule from a workflow."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
-        )
-        result = session.exec(statement)
-        try:
-            return result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    statement = select(Schedule).where(
+        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+    )
+    result = session.exec(statement)
+    try:
+        return result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
 
 @app.post("/schedules/{schedule_id}", tags=["schedules"])
@@ -1281,40 +1238,40 @@ async def update_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
     params: UpdateScheduleParams,
+    session: Session = Depends(get_session),
 ) -> Schedule:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
-        )
-        result = session.exec(statement)
-        try:
-            schedule = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    statement = select(Schedule).where(
+        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+    )
+    result = session.exec(statement)
+    try:
+        schedule = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
-        try:
-            # (1) Synchronize with Temporal
-            await schedules.update_schedule(schedule_id, params)
+    try:
+        # (1) Synchronize with Temporal
+        await schedules.update_schedule(schedule_id, params)
 
-            # (2) Update the schedule
-            for key, value in params.model_dump(exclude_unset=True).items():
-                # Safety: params have been validated
-                setattr(schedule, key, value)
+        # (2) Update the schedule
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safety: params have been validated
+            setattr(schedule, key, value)
 
-            session.add(schedule)
-            session.commit()
-            session.refresh(schedule)
-            return schedule
-        except Exception as e:
-            session.rollback()
-            logger.opt(exception=e).error("Error creating schedule", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error creating schedule",
-            ) from e
+        session.add(schedule)
+        session.commit()
+        session.refresh(schedule)
+        return schedule
+    except Exception as e:
+        session.rollback()
+        logger.opt(exception=e).error("Error creating schedule", error=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error creating schedule",
+        ) from e
 
 
 @app.delete(
@@ -1325,51 +1282,51 @@ async def update_schedule(
 async def delete_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
+    session: Session = Depends(get_session),
 ) -> None:
     """Delete a schedule from a workflow."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(
-            Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+    statement = select(Schedule).where(
+        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+    )
+    result = session.exec(statement)
+    schedule = result.one_or_none()
+    if not schedule:
+        logger.warning(
+            "Schedule not found, attempt to delete underlying Temporal schedule...",
+            schedule_id=schedule_id,
         )
-        result = session.exec(statement)
-        schedule = result.one_or_none()
-        if not schedule:
+
+    try:
+        # Delete the schedule from Temporal first
+        await schedules.delete_schedule(schedule_id)
+
+        # If successful, delete the schedule from the database
+        if schedule:
+            session.delete(schedule)
+            session.commit()
+        else:
             logger.warning(
-                "Schedule not found, attempt to delete underlying Temporal schedule...",
+                "Schedule was already deleted from the database",
                 schedule_id=schedule_id,
             )
-
-        try:
-            # Delete the schedule from Temporal first
-            await schedules.delete_schedule(schedule_id)
-
-            # If successful, delete the schedule from the database
-            if schedule:
-                session.delete(schedule)
-                session.commit()
-            else:
-                logger.warning(
-                    "Schedule was already deleted from the database",
-                    schedule_id=schedule_id,
-                )
-        except Exception as e:
-            logger.error("Error deleting schedule", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error deleting schedule",
-            ) from e
+    except Exception as e:
+        logger.error("Error deleting schedule", error=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error deleting schedule",
+        ) from e
 
 
 @app.get("/schedules/search", tags=["schedules"])
 def search_schedules(
     role: Annotated[Role, Depends(authenticate_user)],
     params: SearchScheduleParams,
+    session: Session = Depends(get_session),
 ) -> list[Schedule]:
     """**[WORK IN PROGRESS]** Search for schedules."""
-    with Session(engine) as session:
-        statement = select(Schedule).where(Schedule.owner_id == role.user_id)
-        results = session.exec(statement)
-        schedules = results.all()
+    statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+    results = session.exec(statement)
+    schedules = results.all()
     return schedules
 
 
@@ -1380,15 +1337,15 @@ def search_schedules(
 def list_actions(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> list[ActionMetadataResponse]:
     """List all actions for a workflow."""
-    with Session(engine) as session:
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.workflow_id == workflow_id,
-        )
-        results = session.exec(statement)
-        actions = results.all()
+    statement = select(Action).where(
+        Action.owner_id == role.user_id,
+        Action.workflow_id == workflow_id,
+    )
+    results = session.exec(statement)
+    actions = results.all()
     action_metadata = [
         ActionMetadataResponse(
             id=action.id,
@@ -1408,31 +1365,31 @@ def list_actions(
 def create_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateActionParams,
+    session: Session = Depends(get_session),
 ) -> ActionMetadataResponse:
     """Create a new action for a workflow."""
-    with Session(engine) as session:
-        action = Action(
-            owner_id=role.user_id,
-            workflow_id=params.workflow_id,
-            type=params.type,
-            title=params.title,
-            description="",  # Default to empty string
+    action = Action(
+        owner_id=role.user_id,
+        workflow_id=params.workflow_id,
+        type=params.type,
+        title=params.title,
+        description="",  # Default to empty string
+    )
+    # Check if a clashing action ref exists
+    statement = select(Action).where(
+        Action.owner_id == role.user_id,
+        Action.workflow_id == action.workflow_id,
+        Action.ref == action.ref,
+    )
+    if session.exec(statement).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Action ref already exists in the workflow",
         )
-        # Check if a clashing action ref exists
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.workflow_id == action.workflow_id,
-            Action.ref == action.ref,
-        )
-        if session.exec(statement).first():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Action ref already exists in the workflow",
-            )
 
-        session.add(action)
-        session.commit()
-        session.refresh(action)
+    session.add(action)
+    session.commit()
+    session.refresh(action)
 
     action_metadata = ActionMetadataResponse(
         id=action.id,
@@ -1451,21 +1408,21 @@ def get_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
     workflow_id: str,
+    session: Session = Depends(get_session),
 ) -> ActionResponse:
     """Get an action."""
-    with Session(engine) as session:
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.id == action_id,
-            Action.workflow_id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    statement = select(Action).where(
+        Action.owner_id == role.user_id,
+        Action.id == action_id,
+        Action.workflow_id == workflow_id,
+    )
+    result = session.exec(statement)
+    try:
+        action = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
     return ActionResponse(
         id=action.id,
@@ -1484,36 +1441,36 @@ def update_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
     params: UpdateActionParams,
+    session: Session = Depends(get_session),
 ) -> ActionResponse:
     """Update an action."""
-    with Session(engine) as session:
-        # Fetch the action by id
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.id == action_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    # Fetch the action by id
+    statement = select(Action).where(
+        Action.owner_id == role.user_id,
+        Action.id == action_id,
+    )
+    result = session.exec(statement)
+    try:
+        action = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
-        if params.title is not None:
-            action.title = params.title
-        if params.description is not None:
-            action.description = params.description
-        if params.status is not None:
-            action.status = params.status
-        if params.inputs is not None:
-            action.inputs = params.inputs
-        if params.control_flow is not None:
-            action.control_flow = params.control_flow.model_dump(mode="json")
+    if params.title is not None:
+        action.title = params.title
+    if params.description is not None:
+        action.description = params.description
+    if params.status is not None:
+        action.status = params.status
+    if params.inputs is not None:
+        action.inputs = params.inputs
+    if params.control_flow is not None:
+        action.control_flow = params.control_flow.model_dump(mode="json")
 
-        session.add(action)
-        session.commit()
-        session.refresh(action)
+    session.add(action)
+    session.commit()
+    session.refresh(action)
 
     return ActionResponse(
         id=action.id,
@@ -1532,23 +1489,23 @@ def update_action(
 def delete_action(
     role: Annotated[Role, Depends(authenticate_user)],
     action_id: str,
+    session: Session = Depends(get_session),
 ) -> None:
     """Delete an action."""
-    with Session(engine) as session:
-        statement = select(Action).where(
-            Action.owner_id == role.user_id,
-            Action.id == action_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        # If the user doesn't own this workflow, they can't delete the action
-        session.delete(action)
-        session.commit()
+    statement = select(Action).where(
+        Action.owner_id == role.user_id,
+        Action.id == action_id,
+    )
+    result = session.exec(statement)
+    try:
+        action = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
+    # If the user doesn't own this workflow, they can't delete the action
+    session.delete(action)
+    session.commit()
 
 
 # ----- Case Management ----- #
@@ -1563,17 +1520,17 @@ def create_case(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
     workflow_id: str,
     cases: list[CaseParams],
+    session: Session = Depends(get_session),
 ) -> CaseResponse:
     """Create a new case for a workflow."""
-    with Session(engine) as session:
-        case = Case(
-            owner_id=role.user_id,
-            workflow_id=workflow_id,
-            **cases.model_dump(),
-        )
-        session.add(case)
-        session.commit()
-        session.refresh(case)
+    case = Case(
+        owner_id=role.user_id,
+        workflow_id=workflow_id,
+        **cases.model_dump(),
+    )
+    session.add(case)
+    session.commit()
+    session.refresh(case)
 
     return CaseResponse(
         id=case.id,
@@ -1597,19 +1554,19 @@ def list_cases(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     limit: int = 100,
+    session: Session = Depends(get_session),
 ) -> list[CaseResponse]:
     """List all cases for a workflow."""
-    with Session(engine) as session:
-        query = select(Case).where(
-            Case.owner_id == role.user_id, Case.workflow_id == workflow_id
-        )
-        result = session.exec(query)
-        try:
-            cases = result.fetchmany(size=limit)
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
+    query = select(Case).where(
+        Case.owner_id == role.user_id, Case.workflow_id == workflow_id
+    )
+    result = session.exec(query)
+    try:
+        cases = result.fetchmany(size=limit)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
     return [
         CaseResponse(
@@ -1636,19 +1593,19 @@ def get_case(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     case_id: str,
+    session: Session = Depends(get_session),
 ) -> CaseResponse:
     """Get a specific case for a workflow."""
-    with Session(engine) as session:
-        query = select(Case).where(
-            Case.owner_id == role.user_id,
-            Case.workflow_id == workflow_id,
-            Case.id == case_id,
+    query = select(Case).where(
+        Case.owner_id == role.user_id,
+        Case.workflow_id == workflow_id,
+        Case.id == case_id,
+    )
+    case = session.exec(query).one_or_none()
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-        case = session.exec(query).one_or_none()
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            )
     return CaseResponse(
         id=case.id,
         owner_id=case.owner_id,
@@ -1672,27 +1629,27 @@ def update_case(
     workflow_id: str,
     case_id: str,
     params: CaseParams,
+    session: Session = Depends(get_session),
 ) -> CaseResponse:
     """Update a specific case for a workflow."""
-    with Session(engine) as session:
-        query = select(Case).where(
-            Case.owner_id == role.user_id,
-            Case.workflow_id == workflow_id,
-            Case.id == case_id,
+    query = select(Case).where(
+        Case.owner_id == role.user_id,
+        Case.workflow_id == workflow_id,
+        Case.id == case_id,
+    )
+    case = session.exec(query).one_or_none()
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-        case = session.exec(query).one_or_none()
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            )
 
-        for key, value in params.model_dump(exclude_unset=True).items():
-            # Safety: params have been validated
-            setattr(case, key, value)
+    for key, value in params.model_dump(exclude_unset=True).items():
+        # Safety: params have been validated
+        setattr(case, key, value)
 
-        session.add(case)
-        session.commit()
-        session.refresh(case)
+    session.add(case)
+    session.commit()
+    session.refresh(case)
     return CaseResponse(
         id=case.id,
         owner_id=case.owner_id,
@@ -1720,6 +1677,7 @@ def create_case_event(
     workflow_id: str,
     case_id: str,
     params: CaseEventParams,
+    session: Session = Depends(get_session),
 ) -> None:
     """Create a new Case Event."""
     case_event = CaseEvent(
@@ -1729,11 +1687,10 @@ def create_case_event(
         initiator_role=role.type,
         **params.model_dump(),
     )
-    with Session(engine) as session:
-        session.add(case_event)
-        session.commit()
-        session.refresh(case_event)
-        return case_event
+    session.add(case_event)
+    session.commit()
+    session.refresh(case_event)
+    return case_event
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}/events", tags=["cases"])
@@ -1741,16 +1698,16 @@ def list_case_events(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: str,
     case_id: str,
+    session: Session = Depends(get_session),
 ) -> list[CaseEvent]:
     """List all Case Events."""
-    with Session(engine) as session:
-        query = select(CaseEvent).where(
-            CaseEvent.owner_id == role.user_id,
-            CaseEvent.workflow_id == workflow_id,
-            CaseEvent.case_id == case_id,
-        )
-        case_events = session.exec(query).all()
-        return case_events
+    query = select(CaseEvent).where(
+        CaseEvent.owner_id == role.user_id,
+        CaseEvent.workflow_id == workflow_id,
+        CaseEvent.case_id == case_id,
+    )
+    case_events = session.exec(query).all()
+    return case_events
 
 
 @app.get("/workflows/{workflow_id}/cases/{case_id}/events/{event_id}", tags=["cases"])
@@ -1759,21 +1716,21 @@ def get_case_event(
     workflow_id: str,
     case_id: str,
     event_id: str,
+    session: Session = Depends(get_session),
 ):
     """Get a specific case event."""
-    with Session(engine) as session:
-        query = select(CaseEvent).where(
-            CaseEvent.owner_id == role.user_id,
-            CaseEvent.workflow_id == workflow_id,
-            CaseEvent.case_id == case_id,
-            CaseEvent.id == event_id,
+    query = select(CaseEvent).where(
+        CaseEvent.owner_id == role.user_id,
+        CaseEvent.workflow_id == workflow_id,
+        CaseEvent.case_id == case_id,
+        CaseEvent.id == event_id,
+    )
+    case_event = session.exec(query).one_or_none()
+    if case_event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-        case_event = session.exec(query).one_or_none()
-        if case_event is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            )
-        return case_event
+    return case_event
 
 
 # ----- Available Case Actions ----- #
@@ -1782,16 +1739,16 @@ def get_case_event(
 @app.get("/case-actions", tags=["cases"])
 def list_case_actions(
     role: Annotated[Role, Depends(authenticate_user)],
+    session: Session = Depends(get_session),
 ) -> list[CaseAction]:
     """List all case actions."""
-    with Session(engine) as session:
-        statement = select(CaseAction).where(
-            or_(
-                CaseAction.owner_id == "tracecat",
-                CaseAction.owner_id == role.user_id,
-            )
+    statement = select(CaseAction).where(
+        or_(
+            CaseAction.owner_id == "tracecat",
+            CaseAction.owner_id == role.user_id,
         )
-        actions = session.exec(statement).all()
+    )
+    actions = session.exec(statement).all()
     return actions
 
 
@@ -1799,13 +1756,13 @@ def list_case_actions(
 def create_case_action(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseActionParams,
+    session: Session = Depends(get_session),
 ) -> CaseAction:
     """Create a new case action."""
     case_action = CaseAction(owner_id=role.user_id, **params.model_dump())
-    with Session(engine) as session:
-        session.add(case_action)
-        session.commit()
-        session.refresh(case_action)
+    session.add(case_action)
+    session.commit()
+    session.refresh(case_action)
     return case_action
 
 
@@ -1813,22 +1770,22 @@ def create_case_action(
 def delete_case_action(
     role: Annotated[Role, Depends(authenticate_user)],
     case_action_id: str,
+    session: Session = Depends(get_session),
 ):
     """Delete a case action."""
-    with Session(engine) as session:
-        statement = select(CaseAction).where(
-            CaseAction.owner_id == role.user_id,
-            CaseAction.id == case_action_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        session.delete(action)
-        session.commit()
+    statement = select(CaseAction).where(
+        CaseAction.owner_id == role.user_id,
+        CaseAction.id == case_action_id,
+    )
+    result = session.exec(statement)
+    try:
+        action = result.one()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
+    session.delete(action)
+    session.commit()
 
 
 # ----- Available Context Labels ----- #
@@ -1837,16 +1794,16 @@ def delete_case_action(
 @app.get("/case-contexts", tags=["cases"])
 def list_case_contexts(
     role: Annotated[Role, Depends(authenticate_user)],
+    session: Session = Depends(get_session),
 ) -> list[CaseContext]:
     """List all case contexts."""
-    with Session(engine) as session:
-        statement = select(CaseContext).where(
-            or_(
-                CaseContext.owner_id == "tracecat",
-                CaseContext.owner_id == role.user_id,
-            )
+    statement = select(CaseContext).where(
+        or_(
+            CaseContext.owner_id == "tracecat",
+            CaseContext.owner_id == role.user_id,
         )
-        actions = session.exec(statement).all()
+    )
+    actions = session.exec(statement).all()
     return actions
 
 
@@ -1854,13 +1811,13 @@ def list_case_contexts(
 def create_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseContextParams,
+    session: Session = Depends(get_session),
 ) -> CaseContext:
     """Create a new case context."""
     case_context = CaseContext(owner_id=role.user_id, **params.model_dump())
-    with Session(engine) as session:
-        session.add(case_context)
-        session.commit()
-        session.refresh(case_context)
+    session.add(case_context)
+    session.commit()
+    session.refresh(case_context)
     return params
 
 
@@ -1868,24 +1825,23 @@ def create_case_context(
 def delete_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     case_context_id: str,
+    session: Session = Depends(get_session),
 ):
     """Delete a case context."""
-    with Session(engine) as session:
-        statement = select(CaseContext).where(
-            CaseContext.owner_id == role.user_id,
-            CaseContext.id == case_context_id,
-        )
-        result = session.exec(statement)
-        try:
-            action = result.one()
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-        session.delete(action)
-        session.delete(action)
-        session.commit()
-    pass
+    statement = select(CaseContext).where(
+        CaseContext.owner_id == role.user_id,
+        CaseContext.id == case_context_id,
+    )
+    result = session.exec(statement)
+    try:
+        action = result.one()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
+    session.delete(action)
+    session.delete(action)
+    session.commit()
 
 
 # ----- Users ----- #
@@ -1894,89 +1850,89 @@ def delete_case_context(
 @app.post("/users", status_code=status.HTTP_201_CREATED, tags=["users"])
 def create_user(
     role: Annotated[Role, Depends(authenticate_user)],
+    session: Session = Depends(get_session),
 ) -> User:
     """Create new user."""
 
-    with Session(engine) as session:
-        # Check if user exists
-        statement = select(User).where(User.id == role.user_id).limit(1)
-        result = session.exec(statement)
+    # Check if user exists
+    statement = select(User).where(User.id == role.user_id).limit(1)
+    result = session.exec(statement)
 
-        user = result.one_or_none()
-        if user is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="User already exists"
-            )
-        user = User(owner_id="tracecat", id=role.user_id)
+    user = result.one_or_none()
+    if user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="User already exists"
+        )
+    user = User(owner_id="tracecat", id=role.user_id)
 
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-        return user
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 @app.get("/users", tags=["users"])
 def get_user(
     role: Annotated[Role, Depends(authenticate_user)],
+    session: Session = Depends(get_session),
 ) -> User:
     """Get a user."""
 
-    with Session(engine) as session:
-        # Get user given user_id
-        statement = select(User).where(User.id == role.user_id)
-        result = session.exec(statement)
-        try:
-            user = result.one()
-            return user
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            ) from e
+    # Get user given user_id
+    statement = select(User).where(User.id == role.user_id)
+    result = session.exec(statement)
+    try:
+        user = result.one()
+        return user
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
 
 
 @app.post("/users", status_code=status.HTTP_204_NO_CONTENT, tags=["users"])
 def update_user(
     role: Annotated[Role, Depends(authenticate_user)],
     params: UpdateUserParams,
+    session: Session = Depends(get_session),
 ) -> None:
     """Update a user."""
 
-    with Session(engine) as session:
-        statement = select(User).where(User.id == role.user_id)
-        result = session.exec(statement)
-        try:
-            user = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            ) from e
+    statement = select(User).where(User.id == role.user_id)
+    result = session.exec(statement)
+    try:
+        user = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
 
-        if params.tier is not None:
-            user.tier = params.tier
-        if params.settings is not None:
-            user.settings = params.settings
+    if params.tier is not None:
+        user.tier = params.tier
+    if params.settings is not None:
+        user.settings = params.settings
 
-        session.add(user)
-        session.commit()
+    session.add(user)
+    session.commit()
 
 
 @app.delete("/users", status_code=status.HTTP_204_NO_CONTENT, tags=["users"])
 def delete_user(
     role: Annotated[Role, Depends(authenticate_user)],
+    session: Session = Depends(get_session),
 ) -> None:
     """Delete a user."""
 
-    with Session(engine) as session:
-        statement = select(User).where(User.id == role.user_id)
-        result = session.exec(statement)
-        try:
-            user = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            ) from e
-        session.delete(user)
-        session.commit()
+    statement = select(User).where(User.id == role.user_id)
+    result = session.exec(statement)
+    try:
+        user = result.one()
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
+    session.delete(user)
+    session.commit()
 
 
 # ----- Secrets ----- #
@@ -2007,25 +1963,25 @@ def get_secret(
     # NOTE(auth): Worker service can also access secrets
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     secret_name: str,
+    session: Session = Depends(get_session),
 ) -> Secret:
     """Get a secret."""
 
-    with Session(engine) as session:
-        # Check if secret exists
-        statement = (
-            select(Secret)
-            .where(Secret.owner_id == role.user_id, Secret.name == secret_name)
-            .limit(1)
+    # Check if secret exists
+    statement = (
+        select(Secret)
+        .where(Secret.owner_id == role.user_id, Secret.name == secret_name)
+        .limit(1)
+    )
+    result = session.exec(statement)
+    secret = result.one_or_none()
+    if secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found"
         )
-        result = session.exec(statement)
-        secret = result.one_or_none()
-        if secret is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found"
-            )
-        # NOTE: IMPLICIT TYPE COERCION
-        # Encrypted keys as bytes gets cast a string as to be JSON serializable
-        return secret
+    # NOTE: IMPLICIT TYPE COERCION
+    # Encrypted keys as bytes gets cast a string as to be JSON serializable
+    return secret
 
 
 @app.post("/secrets", status_code=status.HTTP_201_CREATED, tags=["secrets"])
@@ -2101,17 +2057,17 @@ def delete_secret(
 def search_secrets(
     role: Annotated[Role, Depends(authenticate_user)],
     params: SearchSecretsParams,
+    session: Session = Depends(get_session),
 ) -> list[Secret]:
     """**[WORK IN PROGRESS]**   Get a secret by ID."""
-    with Session(engine) as session:
-        statement = (
-            select(Secret)
-            .where(Secret.owner_id == role.user_id)
-            .filter(*[Secret.name == name for name in params.names])
-        )
-        result = session.exec(statement)
-        secrets = result.all()
-        return secrets
+    statement = (
+        select(Secret)
+        .where(Secret.owner_id == role.user_id)
+        .filter(*[Secret.name == name for name in params.names])
+    )
+    result = session.exec(statement)
+    secrets = result.all()
+    return secrets
 
 
 # ----- UDFs ----- #
@@ -2122,23 +2078,23 @@ def list_udfs(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     limit: int | None = None,
     ns: list[str] | None = Query(None),
+    session: Session = Depends(get_session),
 ) -> list[UDFSpec]:
     """List all user-defined function specifications for a user."""
-    with Session(engine) as session:
-        statement = select(UDFSpec).where(
-            or_(
-                UDFSpec.owner_id == "tracecat",
-                UDFSpec.owner_id == role.user_id,
-            )
+    statement = select(UDFSpec).where(
+        or_(
+            UDFSpec.owner_id == "tracecat",
+            UDFSpec.owner_id == role.user_id,
         )
-        if ns:
-            ns_conds = [UDFSpec.key.startswith(n) for n in ns]
-            statement = statement.where(or_(*ns_conds))
-        if limit:
-            statement = statement.limit(limit)
-        result = session.exec(statement)
-        udfs = result.all()
-        return udfs
+    )
+    if ns:
+        ns_conds = [UDFSpec.key.startswith(n) for n in ns]
+        statement = statement.where(or_(*ns_conds))
+    if limit:
+        statement = statement.limit(limit)
+    result = session.exec(statement)
+    udfs = result.all()
+    return udfs
 
 
 @app.get("/udfs/{udf_key}", tags=["udfs"])
@@ -2146,47 +2102,47 @@ def get_udf(
     role: Annotated[Role, Depends(authenticate_user_or_service)],
     udf_key: str,
     namespace: str = Query(None),
+    session: Session = Depends(get_session),
 ) -> UDFSpec:
     """Get a user-defined function specification."""
-    with Session(engine) as session:
-        statement = select(UDFSpec).where(
-            or_(
-                UDFSpec.owner_id == "tracecat",
-                UDFSpec.owner_id == role.user_id,
-            ),
-            UDFSpec.key == udf_key,
+    statement = select(UDFSpec).where(
+        or_(
+            UDFSpec.owner_id == "tracecat",
+            UDFSpec.owner_id == role.user_id,
+        ),
+        UDFSpec.key == udf_key,
+    )
+    if namespace:
+        statement = statement.where(UDFSpec.namespace == namespace)
+    result = session.exec(statement)
+    udf = result.one_or_none()
+    if udf is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
         )
-        if namespace:
-            statement = statement.where(UDFSpec.namespace == namespace)
-        result = session.exec(statement)
-        udf = result.one_or_none()
-        if udf is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
-            )
-        return udf
+    return udf
 
 
 @app.post("/udfs/{udf_key}", tags=["udfs"])
 def create_udf(
     role: Annotated[Role, Depends(authenticate_user)],
     udf_key: str,
+    session: Session = Depends(get_session),
 ) -> UDFSpec:
     """Create a user-defined function specification."""
     _, platform, name = udf_key.split(".")
-    with Session(engine) as session:
-        statement = select(UDFSpec).where(
-            UDFSpec.owner_id == role.user_id,
-            UDFSpec.platform == platform,
-            UDFSpec.name == name,
+    statement = select(UDFSpec).where(
+        UDFSpec.owner_id == role.user_id,
+        UDFSpec.platform == platform,
+        UDFSpec.name == name,
+    )
+    result = session.exec(statement)
+    udf = result.one_or_none()
+    if udf is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
         )
-        result = session.exec(statement)
-        udf = result.one_or_none()
-        if udf is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="udf not found"
-            )
-        return udf
+    return udf
 
 
 @app.post("/udfs/{udf_key}/validate", tags=["udfs"])
