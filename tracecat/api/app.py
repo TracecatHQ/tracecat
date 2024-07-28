@@ -381,7 +381,8 @@ async def incoming_webhook_Wait(
     x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """
-    Webhook endpoint to trigger a workflow.
+    Webhook endpoint to trigger a workflow synchronously and return the final_context from the
+    workflow as the response.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
