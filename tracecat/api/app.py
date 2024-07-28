@@ -374,7 +374,7 @@ async def incoming_webhook(
 
 
 @app.post("/webhooks/{path}/{secret}/wait", tags=["public"])
-async def incoming_webhook_Wait(
+async def incoming_webhook_wait(
     defn: Annotated[WorkflowDefinition, Depends(handle_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
