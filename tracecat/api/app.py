@@ -35,7 +35,7 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_session, initialize_db
+from tracecat.db.engine import get_session, get_session_context_manager, initialize_db
 from tracecat.db.schemas import (
     Action,
     Case,
@@ -242,7 +242,7 @@ def validate_incoming_webhook(
 
     NOte: The webhook ID here is the workflow ID.
     """
-    with get_session() as session:
+    with get_session_context_manager() as session:
         result = session.exec(select(Webhook).where(Webhook.workflow_id == webhook_id))
         try:
             # One webhook per workflow

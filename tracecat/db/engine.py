@@ -1,15 +1,10 @@
+import contextlib
 import os
 from collections.abc import Generator
 
 from loguru import logger
 from sqlalchemy import Engine
-from sqlmodel import (
-    Session,
-    SQLModel,
-    create_engine,
-    delete,
-    select,
-)
+from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from tracecat import config
 from tracecat.db.schemas import DEFAULT_CASE_ACTIONS, CaseAction, UDFSpec, User
@@ -96,3 +91,7 @@ def get_engine() -> Engine:
 def get_session() -> Generator[Session, None, None]:
     with Session(get_engine()) as session:
         yield session
+
+
+def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
+    return contextlib.contextmanager(get_session)()
