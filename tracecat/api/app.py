@@ -20,7 +20,6 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.params import Body
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
@@ -36,7 +35,7 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import clone_workflow, get_engine
+from tracecat.db.engine import get_engine
 from tracecat.db.schemas import (
     Action,
     Case,
@@ -71,7 +70,6 @@ from tracecat.types.api import (
     CaseParams,
     CaseResponse,
     CommitWorkflowResponse,
-    CopyWorkflowParams,
     CreateActionParams,
     CreateScheduleParams,
     CreateSecretParams,
@@ -726,43 +724,6 @@ def delete_workflow(
             ) from e
         session.delete(workflow)
         session.commit()
-
-
-@app.post(
-    "/workflows/{workflow_id}/copy",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def copy_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-    params: Annotated[CopyWorkflowParams | None, Body(...)] = None,
-) -> None:
-    """Copy a workflow. Not intended for users."""
-    if role.type == "user" and params is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Users can only clone tracecat workflows",
-        )
-    # Users cannot pass owner_id, and defaults to 'tracecat'
-    owner_id = params.owner_id if params else "tracecat"
-    with Session(engine) as session:
-        statement = select(Workflow).where(
-            Workflow.owner_id == owner_id,
-            Workflow.id == workflow_id,
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-            ) from e
-
-        # Assign it a new workflow ID and owner ID
-        new_workflow = clone_workflow(workflow, session, role.user_id)
-        session.commit()
-        session.refresh(new_workflow)
 
 
 @app.post("/workflows/{workflow_id}/commit", tags=["workflows"])
