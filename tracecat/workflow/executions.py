@@ -8,7 +8,6 @@ from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
 
 import orjson
-from sqlmodel import Session
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -30,7 +29,6 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.workflow.definitions import WorkflowDefinitionsService
 from tracecat.workflow.models import (
     CreateWorkflowExecutionResponse,
     DispatchWorkflowResult,
@@ -427,25 +425,3 @@ class WorkflowExecutionsService:
     ) -> None:
         """Terminate a workflow execution."""
         return self.handle(wf_exec_id).terminate(reason=reason)
-
-
-if __name__ == "__main__":
-    from dotenv import find_dotenv, load_dotenv
-
-    from tracecat.db.engine import create_db_engine
-
-    load_dotenv(find_dotenv())
-
-    engine = create_db_engine()
-
-    with Session(engine) as session:
-        service = WorkflowDefinitionsService(
-            session,
-            role=Role(
-                type="user",
-                user_id="default-tracecat-user",
-                service_id="tracecat-service",
-            ),
-        )
-        res = service.get_definition_by_workflow_title("Child workflow")
-        service.logger.warning("Result", res=res)

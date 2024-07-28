@@ -35,7 +35,7 @@ from tracecat.auth.credentials import (
     authenticate_user_or_service,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_engine
+from tracecat.db.engine import get_session, initialize_db
 from tracecat.db.schemas import (
     Action,
     Case,
@@ -107,7 +107,7 @@ engine: Engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    engine = get_engine()
+    engine = initialize_db()
     yield
 
 
@@ -229,12 +229,6 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
-
-
-# ----- Dependencies ----- #
-def get_session():
-    with Session(engine) as session:
-        yield session
 
 
 # ----- Trigger handlers ----- #

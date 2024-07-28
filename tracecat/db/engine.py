@@ -1,4 +1,5 @@
 import os
+from collections.abc import Generator
 
 from loguru import logger
 from sqlalchemy import Engine
@@ -14,10 +15,13 @@ from tracecat import config
 from tracecat.db.schemas import DEFAULT_CASE_ACTIONS, CaseAction, UDFSpec, User
 from tracecat.registry import registry
 
+# Global so we don't create more than one engine per process.
+# Outside of being best practice, this is needed so we can properly pool
+# connections and not create a new pool on every request
 _engine: Engine | None = None
 
 
-def create_db_engine() -> Engine:
+def _create_db_engine() -> Engine:
     if config.TRACECAT__APP_ENV == "production":
         # Postgres
         sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
@@ -50,8 +54,7 @@ def create_db_engine() -> Engine:
 
 
 def initialize_db() -> Engine:
-    # Relational table
-    engine = create_db_engine()
+    engine = get_engine()
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
@@ -86,5 +89,10 @@ def initialize_db() -> Engine:
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        _engine = initialize_db()
+        _engine = _create_db_engine()
     return _engine
+
+
+def get_session() -> Generator[Session, None, None]:
+    with Session(get_engine()) as session:
+        yield session
