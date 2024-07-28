@@ -1,32 +1,22 @@
-import json
+import contextlib
 import os
+from collections.abc import Generator
 
 from loguru import logger
 from sqlalchemy import Engine
-from sqlmodel import (
-    Session,
-    SQLModel,
-    create_engine,
-    delete,
-    select,
-)
+from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from tracecat import config
-from tracecat.db.schemas import (
-    DEFAULT_CASE_ACTIONS,
-    Action,
-    CaseAction,
-    UDFSpec,
-    User,
-    Webhook,
-    Workflow,
-)
+from tracecat.db.schemas import DEFAULT_CASE_ACTIONS, CaseAction, UDFSpec, User
 from tracecat.registry import registry
 
-_engine: Engine = None
+# Global so we don't create more than one engine per process.
+# Outside of being best practice, this is needed so we can properly pool
+# connections and not create a new pool on every request
+_engine: Engine | None = None
 
 
-def create_db_engine() -> Engine:
+def _create_db_engine() -> Engine:
     if config.TRACECAT__APP_ENV == "production":
         # Postgres
         sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
@@ -59,8 +49,7 @@ def create_db_engine() -> Engine:
 
 
 def initialize_db() -> Engine:
-    # Relational table
-    engine = create_db_engine()
+    engine = get_engine()
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
@@ -95,74 +84,14 @@ def initialize_db() -> Engine:
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        _engine = initialize_db()
+        _engine = _create_db_engine()
     return _engine
 
 
-def clone_workflow(
-    workflow: Workflow,
-    session: Session,
-    new_owner_id: str,
-) -> Workflow:
-    """
-    Clones a Resource, including its relationships (up to a certain depth).
+def get_session() -> Generator[Session, None, None]:
+    with Session(get_engine()) as session:
+        yield session
 
-    :param model_instance: The SQLModel instance to clone.
-    :param session: The SQLModel session.
-    :param _depth: Current depth level, used to limit recursive depth.
-    :return: The cloned instance.
-    """
 
-    # Create a new instance of the same model without the primary key
-    cloned_workflow = Workflow(
-        **workflow.model_dump(
-            exclude={"id", "created_at", "updated_at", "owner_id", "object", "status"}
-        ),
-        owner_id=new_owner_id,
-        status="offline",
-    )
-
-    # Iterate over relationships and clone them
-    action_replacements = {}
-    for action in workflow.actions:
-        # Special treatment for webhook actions:
-        # Need to update the action.path
-
-        cloned_action = Action(
-            owner_id=new_owner_id,
-            workflow_id=cloned_workflow.id,
-            **action.model_dump(
-                exclude={"id", "created_at", "updated_at", "owner_id", "workflow_id"}
-            ),
-        )
-
-        action_inputs: dict[str, str] = json.loads(cloned_action.inputs)
-        if action.type == "webhook":
-            cloned_webhook = Webhook(
-                owner_id=new_owner_id,
-                action_id=cloned_action.id,
-                workflow_id=cloned_workflow.id,
-            )
-            # Update the action inputs to point to the new webhook path
-            action_inputs.update(path=cloned_webhook.id, secret=cloned_webhook.secret)
-
-            # Assert that there's a new computed secret
-            session.add(cloned_webhook)
-        cloned_action.inputs = json.dumps(action_inputs)
-        action_replacements[action.id] = (cloned_action.id, action_inputs)
-        session.add(cloned_action)
-
-    # For each action in the workflow, update the workflow object
-    graph = json.loads(workflow.object)
-    for edge in graph["edges"]:
-        edge["source"] = action_replacements[edge["source"]][0]
-        edge["target"] = action_replacements[edge["target"]][0]
-        edge["id"] = f"{edge['source']}-{edge['target']}"
-    for node in graph["nodes"]:
-        new_id, new_inputs = action_replacements[node["id"]]
-        node["id"] = new_id
-        node["data"].update(id=new_id, inputs=new_inputs, selected=False)
-    cloned_workflow.object = json.dumps(graph)
-
-    session.add(cloned_workflow)
-    return cloned_workflow
+def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
+    return contextlib.contextmanager(get_session)()

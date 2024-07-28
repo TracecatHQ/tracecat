@@ -38,7 +38,7 @@ services:
       - ./tracecat:/app/tracecat
       - core-app:/var/lib/tracecat
     environment:
-      DUMP_TRACECAT_RESULT: 1
+      DUMP_TRACECAT_RESULT: 0
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}

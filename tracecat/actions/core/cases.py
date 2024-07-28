@@ -3,10 +3,9 @@
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
-from sqlmodel import Session
 
 from tracecat.contexts import ctx_role, ctx_run
-from tracecat.db.engine import create_db_engine
+from tracecat.db.engine import get_session_context_manager
 from tracecat.db.schemas import Case
 from tracecat.registry import registry
 from tracecat.types.api import CaseContext, Tag
@@ -56,14 +55,13 @@ async def open_case(
     ] = None,
 ) -> dict[str, Any]:
     """Open a new case in the case management system."""
-    engine = create_db_engine()
     run = ctx_run.get()
     role = ctx_role.get()
     tags = tags or []
     context = context or []
     if isinstance(context, dict):
         context = [CaseContext(key=key, value=value) for key, value in context.items()]
-    with Session(engine) as session:
+    with get_session_context_manager() as session:
         case = Case(
             owner_id=role.user_id,
             workflow_id=run.wf_id,
