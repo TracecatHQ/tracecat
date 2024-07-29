@@ -53,7 +53,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatExpressionError,
         TracecatValidationError,
     )
-    from tracecat.workflow.definitions import (
+    from tracecat.workflow.management.definitions import (
         GetWorkflowDefinitionActivityInputs,
         get_workflow_definition_activity,
     )

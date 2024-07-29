@@ -35,7 +35,7 @@ from tracecat.dsl.workflow import (
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.workflow.definitions import get_workflow_definition_activity
+from tracecat.workflow.management.definitions import get_workflow_definition_activity
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))

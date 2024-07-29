@@ -1,16 +1,12 @@
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Annotated, Any
 
 import orjson
-import temporalio.service
-import yaml
 from fastapi import (
     Depends,
     FastAPI,
     File,
-    Form,
     Header,
     HTTPException,
     Query,
@@ -47,7 +43,6 @@ from tracecat.db.schemas import (
     UDFSpec,
     User,
     Webhook,
-    Workflow,
     WorkflowDefinition,
 )
 from tracecat.dsl import schedules
@@ -55,7 +50,6 @@ from tracecat.dsl.common import DSLInput
 
 # TODO: Clean up API params / response "zoo"
 # lots of repetition and inconsistency
-from tracecat.dsl.graph import RFGraph
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
@@ -69,7 +63,6 @@ from tracecat.types.api import (
     CaseEventParams,
     CaseParams,
     CaseResponse,
-    CommitWorkflowResponse,
     CreateActionParams,
     CreateScheduleParams,
     CreateSecretParams,
@@ -82,24 +75,13 @@ from tracecat.types.api import (
     UpdateScheduleParams,
     UpdateSecretParams,
     UpdateUserParams,
-    UpsertWebhookParams,
-    WebhookResponse,
 )
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, TracecatValidationError
-from tracecat.workflow.definitions import WorkflowDefinitionsService
-from tracecat.workflow.executions import WorkflowExecutionsService
-from tracecat.workflow.management import WorkflowsManagementService
-from tracecat.workflow.models import (
-    CreateWorkflowExecutionParams,
-    CreateWorkflowExecutionResponse,
-    EventHistoryResponse,
-    TerminateWorkflowExecutionParams,
-    UpdateWorkflowParams,
-    WorkflowExecutionResponse,
-    WorkflowMetadataResponse,
-    WorkflowResponse,
-)
+from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
+from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management.router import router as workflow_management_router
 
 
 @asynccontextmanager
@@ -193,6 +175,9 @@ def create_app(**kwargs) -> FastAPI:
         **kwargs,
     )
     app.logger = logger
+    # Routers
+    app.include_router(workflow_management_router)
+    app.include_router(workflow_executions_router)
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
@@ -223,7 +208,7 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
-@app.get("/health")
+@app.get("/health", tags=["public"])
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
 
@@ -505,584 +490,6 @@ async def webhook_callback(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported next action in webhook callback for {service!r} service",
             )
-
-
-# ----- Workflows ----- #
-
-
-@app.get("/workflows", tags=["workflows"])
-def list_workflows(
-    role: Annotated[Role, Depends(authenticate_user)],
-    library: bool = False,
-    session: Session = Depends(get_session),
-) -> list[WorkflowMetadataResponse]:
-    """
-    List workflows.
-
-    If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
-    """
-    query_user_id = role.user_id if not library else "tracecat"
-    statement = select(Workflow).where(Workflow.owner_id == query_user_id)
-    results = session.exec(statement)
-    workflows = results.all()
-    workflow_metadata = [
-        WorkflowMetadataResponse(
-            id=workflow.id,
-            title=workflow.title,
-            description=workflow.description,
-            status=workflow.status,
-            icon_url=workflow.icon_url,
-            created_at=workflow.created_at,
-            updated_at=workflow.updated_at,
-            version=workflow.version,
-        )
-        for workflow in workflows
-    ]
-    return workflow_metadata
-
-
-@app.post("/workflows", status_code=status.HTTP_201_CREATED, tags=["workflows"])
-async def create_workflow(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    title: str | None = Form(None),
-    description: str | None = Form(None),
-    file: UploadFile | None = File(None),
-    session: Session = Depends(get_session),
-) -> WorkflowMetadataResponse:
-    """Create a new Workflow.
-
-    Optionally, you can provide a YAML file to create a workflow.
-    You can also provide a title and description to create a blank workflow."""
-
-    if file:
-        try:
-            data = await file.read()
-            if file.content_type in ("application/yaml", "text/yaml"):
-                dsl_data = yaml.safe_load(data)
-            elif file.content_type == "application/json":
-                dsl_data = orjson.loads(data)
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid file type {file.content_type}. Only YAML and JSON files are supported.",
-                )
-        except (yaml.YAMLError, orjson.JSONDecodeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error parsing file: {str(e)}",
-            ) from e
-
-        service = WorkflowsManagementService(session, role)
-        result = await service.create_workflow_from_dsl(
-            dsl_data, skip_secret_validation=True
-        )
-        if result.errors:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": "failure",
-                    "message": f"Workflow definition construction failed with {len(result.errors)} errors",
-                    "errors": [e.model_dump() for e in result.errors],
-                },
-            )
-        workflow = result.workflow
-    else:
-        now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
-        title = title or now
-        description = description or f"New workflow created {now}"
-
-        workflow = Workflow(title=title, description=description, owner_id=role.user_id)
-        # When we create a workflow, we automatically create a webhook
-        # Add the Workflow to the session first to generate an ID
-        session.add(workflow)
-        session.flush()  # Flush to generate workflow.id
-
-        # Create and associate Webhook with the Workflow
-        webhook = Webhook(
-            owner_id=role.user_id,
-            workflow_id=workflow.id,
-        )
-        session.add(webhook)
-        workflow.webhook = webhook
-
-        graph = RFGraph.with_defaults(workflow)
-        workflow.object = graph.model_dump(by_alias=True, mode="json")
-        workflow.entrypoint = graph.entrypoint.id if graph.entrypoint else None
-        session.add(workflow)
-        session.commit()
-        session.refresh(workflow)
-
-    return WorkflowMetadataResponse(
-        id=workflow.id,
-        title=workflow.title,
-        description=workflow.description,
-        status=workflow.status,
-        icon_url=workflow.icon_url,
-        created_at=workflow.created_at,
-        updated_at=workflow.updated_at,
-        version=workflow.version,
-    )
-
-
-@app.get("/workflows/{workflow_id}", tags=["workflows"])
-def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    session: Session = Depends(get_session),
-) -> WorkflowResponse:
-    """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
-    # Get Workflow given workflow_id
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.user_id,
-        Workflow.id == workflow_id,
-    )
-    result = session.exec(statement)
-    try:
-        workflow = result.one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-
-    actions_responses = {
-        action.id: ActionResponse(**action.model_dump())
-        for action in workflow.actions or []
-    }
-    # Add webhook/schedules
-    return WorkflowResponse(
-        **workflow.model_dump(),
-        actions=actions_responses,
-        webhook=WebhookResponse(**workflow.webhook.model_dump()),
-        schedules=workflow.schedules,
-    )
-
-
-@app.patch(
-    "/workflows/{workflow_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def update_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    params: UpdateWorkflowParams,
-    session: Session = Depends(get_session),
-) -> None:
-    """Update a workflow."""
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.user_id,
-        Workflow.id == workflow_id,
-    )
-    result = session.exec(statement)
-    try:
-        workflow = result.one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-
-    for key, value in params.model_dump(exclude_unset=True).items():
-        # Safe because params has been validated
-        setattr(workflow, key, value)
-
-    session.add(workflow)
-    session.commit()
-
-
-@app.delete(
-    "/workflows/{workflow_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflows"],
-)
-def delete_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    session: Session = Depends(get_session),
-) -> None:
-    """Delete a workflow."""
-
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.user_id,
-        Workflow.id == workflow_id,
-    )
-    result = session.exec(statement)
-    try:
-        workflow = result.one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-    session.delete(workflow)
-    session.commit()
-
-
-@app.post("/workflows/{workflow_id}/commit", tags=["workflows"])
-async def commit_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    session: Session = Depends(get_session),
-) -> CommitWorkflowResponse:
-    """Commit a workflow.
-
-    This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
-
-    # XXX: This is actually the logical equivalent of creating a workflow definition (deployment)
-    # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
-
-    with logger.contextualize(role=role):
-        # Validate that our target workflow exists
-        # Grab workflow and actions from tables
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id, Workflow.id == workflow_id
-        )
-        result = session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Could not find workflow",
-            ) from e
-        # Hydrate actions
-        _ = workflow.actions
-
-        # Perform Tiered Validation
-        # Tier 1: DSLInput validation
-        # Verify that the workflow DSL is structurally sound
-        construction_errors = []
-        try:
-            # Convert the workflow into a WorkflowDefinition
-            _ = workflow.actions
-            # XXX: When we commit from the workflow, we have action IDs
-            dsl = DSLInput.from_workflow(workflow)
-        except* TracecatValidationError as eg:
-            logger.error(eg.message, error=eg.exceptions)
-            construction_errors.extend(
-                UDFArgsValidationResponse.from_dsl_validation_error(e)
-                for e in eg.exceptions
-            )
-        except* ValidationError as eg:
-            logger.error(eg.message, error=eg.exceptions)
-            construction_errors.extend(
-                UDFArgsValidationResponse.from_pydantic_validation_error(e)
-                for e in eg.exceptions
-            )
-
-        if construction_errors:
-            return CommitWorkflowResponse(
-                workflow_id=workflow_id,
-                status="failure",
-                message=f"Workflow definition construction failed with {len(construction_errors)} errors",
-                errors=construction_errors,
-            )
-
-        # When we're here, we've verified that the workflow DSL is structurally sound
-        # Now, we have to ensure that the arguments are sound
-
-        if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
-            logger.warning("Validation errors", errors=val_errors)
-            return CommitWorkflowResponse(
-                workflow_id=workflow_id,
-                status="failure",
-                message=f"{len(val_errors)} validation error(s)",
-                errors=[
-                    UDFArgsValidationResponse.from_validation_result(val_res)
-                    for val_res in val_errors
-                ],
-            )
-
-        # Validation is complete. We can now construct the workflow definition
-        # Phase 1: Create workflow definition
-        # Workflow definition uses action.refs to refer to actions
-        # We should only instantiate action refs at workflow    runtime
-        service = WorkflowDefinitionsService(session, role=role)
-        # Creating a workflow definition only uses refs
-        defn = service.create_workflow_definition(workflow_id, dsl)
-
-        # Update Workflow
-        # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
-        # We only need to update the workflow definition version
-        workflow.version = defn.version
-
-        session.add(workflow)
-        session.add(defn)
-        session.commit()
-        session.refresh(workflow)
-        session.refresh(defn)
-
-        return CommitWorkflowResponse(
-            workflow_id=workflow_id,
-            status="success",
-            message="Workflow committed successfully.",
-            metadata={"version": defn.version},
-        )
-
-
-# ----- Workflow Definitions ----- #
-
-
-@app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
-async def list_workflow_definitions(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
-    session: Session = Depends(get_session),
-) -> list[WorkflowDefinition]:
-    """List all workflow definitions for a Workflow."""
-    service = WorkflowDefinitionsService(session, role=role)
-    return service.list_workflow_definitions(workflow_id)
-
-
-@app.get("/workflows/{workflow_id}/definition", tags=["workflows"])
-def get_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
-    version: int | None = None,
-    session: Session = Depends(get_session),
-) -> WorkflowDefinition:
-    """Get the latest version of a workflow definition."""
-    service = WorkflowDefinitionsService(session, role=role)
-    definition = service.get_definition_by_workflow_id(workflow_id, version=version)
-    if definition is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        )
-    return definition
-
-
-@app.post("/workflows/{workflow_id}/definition", tags=["workflows"])
-def create_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
-    session: Session = Depends(get_session),
-) -> WorkflowDefinition:
-    """Get the latest version of a workflow definition."""
-    service = WorkflowDefinitionsService(session, role=role)
-    return service.create_workflow_definition(workflow_id)
-
-
-# ----- Workflow Executions ----- #
-
-
-@app.get("/workflow-executions", tags=["workflow-executions"])
-async def list_workflow_executions(
-    role: Annotated[Role, Depends(authenticate_user)],
-    # Filters
-    workflow_id: identifiers.WorkflowID | None = Query(None),
-) -> list[WorkflowExecutionResponse]:
-    """List all workflow executions."""
-    with logger.contextualize(role=role):
-        service = await WorkflowExecutionsService.connect()
-        if workflow_id:
-            executions = await service.list_executions_by_workflow_id(workflow_id)
-        else:
-            executions = await service.list_executions()
-        return [
-            WorkflowExecutionResponse.from_dataclass(execution)
-            for execution in executions
-        ]
-
-
-@app.get("/workflow-executions/{execution_id}", tags=["workflow-executions"])
-async def get_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
-) -> WorkflowExecutionResponse:
-    """Get a workflow execution."""
-    with logger.contextualize(role=role):
-        service = await WorkflowExecutionsService.connect()
-        execution = await service.get_execution(execution_id)
-        return WorkflowExecutionResponse.from_dataclass(execution)
-
-
-@app.get("/workflow-executions/{execution_id}/history", tags=["workflow-executions"])
-async def list_workflow_execution_event_history(
-    role: Annotated[Role, Depends(authenticate_user)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
-) -> list[EventHistoryResponse]:
-    """Get a workflow execution."""
-    with logger.contextualize(role=role):
-        service = await WorkflowExecutionsService.connect()
-        events = await service.list_workflow_execution_event_history(execution_id)
-        return events
-
-
-@app.post("/workflow-executions", tags=["workflow-executions"])
-async def create_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
-    params: CreateWorkflowExecutionParams,
-    session: Session = Depends(get_session),
-) -> CreateWorkflowExecutionResponse:
-    """Create and schedule a workflow execution."""
-    with logger.contextualize(role=role):
-        service = await WorkflowExecutionsService.connect()
-        # Get the dslinput from the workflow definition
-        try:
-            result = session.exec(
-                select(WorkflowDefinition)
-                .where(WorkflowDefinition.workflow_id == params.workflow_id)
-                .order_by(WorkflowDefinition.version.desc())
-            )
-            defn = result.first()
-            if not defn:
-                raise NoResultFound("No workflow definition found for workflow ID")
-        except NoResultFound as e:
-            # No workflow associated with the webhook
-            logger.opt(exception=e).error("Invalid workflow ID", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
-            ) from e
-        dsl_input = DSLInput(**defn.content)
-        try:
-            response = service.create_workflow_execution_nowait(
-                dsl=dsl_input,
-                wf_id=params.workflow_id,
-                payload=params.inputs,
-                enable_runtime_tests=params.enable_runtime_tests,
-            )
-            return response
-        except TracecatValidationError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "type": "TracecatValidationError",
-                    "message": str(e),
-                    "detail": e.detail,
-                },
-            ) from e
-
-
-@app.post(
-    "/workflow-executions/{execution_id}/cancel",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflow-executions"],
-)
-async def cancel_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
-) -> None:
-    """Get a workflow execution."""
-    with logger.contextualize(role=role):
-        service = await WorkflowExecutionsService.connect()
-        try:
-            await service.cancel_workflow_execution(execution_id)
-        except temporalio.service.RPCError as e:
-            if "workflow execution already completed" in e.message:
-                logger.info(
-                    "Workflow execution already completed, ignoring cancellation request",
-                )
-            else:
-                logger.error(e.message, error=e, execution_id=execution_id)
-                raise e
-
-
-@app.post(
-    "/workflow-executions/{execution_id}/terminate",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflow-executions"],
-)
-async def terminate_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
-    params: TerminateWorkflowExecutionParams,
-) -> None:
-    """Get a workflow execution."""
-    with logger.contextualize(role=role):
-        service = await WorkflowExecutionsService.connect()
-        try:
-            await service.terminate_workflow_execution(
-                execution_id, reason=params.reason
-            )
-        except temporalio.service.RPCError as e:
-            if "workflow execution already completed" in e.message:
-                logger.info(
-                    "Workflow execution already completed, ignoring termination request",
-                )
-            else:
-                logger.error(e.message, error=e, execution_id=execution_id)
-                raise e
-
-
-# ----- Workflow Webhooks ----- #
-
-
-@app.post(
-    "/workflows/{workflow_id}/webhook",
-    status_code=status.HTTP_201_CREATED,
-    tags=["triggers"],
-)
-def create_webhook(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
-    workflow_id: str,
-    params: UpsertWebhookParams,
-    session: Session = Depends(get_session),
-) -> None:
-    """Create a webhook for a workflow."""
-
-    webhook = Webhook(
-        owner_id=role.user_id,
-        entrypoint_ref=params.entrypoint_ref,
-        method=params.method or "POST",
-        workflow_id=workflow_id,
-    )
-    session.add(webhook)
-    session.commit()
-    session.refresh(webhook)
-
-
-@app.get("/workflows/{workflow_id}/webhook", tags=["triggers"])
-def get_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    session: Session = Depends(get_session),
-) -> WebhookResponse:
-    """Get the webhook from a workflow."""
-    statement = select(Webhook).where(
-        Webhook.owner_id == role.user_id,
-        Webhook.workflow_id == workflow_id,
-    )
-    result = session.exec(statement)
-    try:
-        webhook = result.one()
-        return WebhookResponse(**webhook.model_dump())
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-
-
-@app.patch(
-    "/workflows/{workflow_id}/webhook",
-    tags=["triggers"],
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def update_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
-    params: UpsertWebhookParams,
-    session: Session = Depends(get_session),
-) -> None:
-    """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
-    result = session.exec(
-        select(Workflow).where(
-            Workflow.owner_id == role.user_id, Workflow.id == workflow_id
-        )
-    )
-    try:
-        workflow = result.one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
-
-    webhook = workflow.webhook
-
-    for key, value in params.model_dump(exclude_unset=True).items():
-        # Safety: params have been validated
-        setattr(webhook, key, value)
-
-    session.add(webhook)
-    session.commit()
-    session.refresh(webhook)
 
 
 # ----- Workflow Schedules ----- #
@@ -2135,7 +1542,7 @@ def validate_udf_args(
         ) from e
 
 
-@app.post("/validate-workflow")
+@app.post("/validate-workflow", tags=["validation"])
 async def validate_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     definition: UploadFile = File(...),
