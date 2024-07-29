@@ -3,10 +3,10 @@ import "@/styles/globals.css"
 import React from "react"
 import { type Metadata } from "next"
 import dynamic from "next/dynamic"
-import Script from "next/script"
 import { type PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
 import { ClerkProvider } from "@clerk/nextjs"
+import { PublicEnvScript } from "next-runtime-env"
 
 import { authConfig } from "@/config/auth"
 import { siteConfig } from "@/config/site"
@@ -50,7 +50,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     <MaybeClerk>
       <html lang="en" className="h-full min-h-screen" suppressHydrationWarning>
         <head>
-          <Script src="/runtime-config.js" strategy="beforeInteractive" />
+          <PublicEnvScript />
         </head>
         <MaybeAnalytics>
           <body

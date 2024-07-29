@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
     container_name: tracecat_api
     ports:
       - 8000:8000
@@ -28,7 +28,7 @@ services:
       - temporal
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
     # container_name: tracecat_worker
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
@@ -59,13 +59,12 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.5.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.5.2}
     container_name: tracecat_ui
     ports:
       - 3000:3000
     environment:
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY} # Sensitive
-      API_URL: ${API_URL}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
