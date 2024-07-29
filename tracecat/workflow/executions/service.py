@@ -29,7 +29,7 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.workflow.models import (
+from tracecat.workflow.executions.models import (
     CreateWorkflowExecutionResponse,
     DispatchWorkflowResult,
     EventFailure,
