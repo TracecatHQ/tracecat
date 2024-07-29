@@ -14,7 +14,7 @@ from tracecat.logging import logger
 from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.workflow.models import CreateWorkflowFromDSLResponse
+from tracecat.workflow.management.models import CreateWorkflowFromDSLResponse
 
 
 class WorkflowsManagementService:
