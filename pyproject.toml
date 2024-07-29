@@ -44,6 +44,7 @@ dependencies = [
     "polars-lts-cpu==1.2.0",
     "psycopg[binary]==3.1.19",
     "psycopg2-binary==2.9.9",
+    "asyncpg==0.29.0",
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
     "python-jose[cryptography]",
