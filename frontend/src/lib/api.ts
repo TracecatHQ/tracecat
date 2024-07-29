@@ -19,10 +19,13 @@ export function getBaseUrl() {
   }
 
   // Client side
-  return (
+  // @ts-expect-error Reason: Suppressing TypeScript error for the following code block
+  if (global.API_URL === "__PLACEHOLDER_API_URL__") {
+    return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+  } else {
     // @ts-expect-error Reason: Suppressing TypeScript error for the following code block
-    global.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-  )
+    return global.API_URL
+  }
 }
 
 // Legacy axiosclient

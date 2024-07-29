@@ -17,7 +17,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
     from tracecat.registry import registry
-    from tracecat.workflow.definitions import get_workflow_definition_activity
+    from tracecat.workflow.management.definitions import (
+        get_workflow_definition_activity,
+    )
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to

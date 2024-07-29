@@ -12,7 +12,7 @@ from temporalio import activity
 
 from tracecat import identifiers
 from tracecat.contexts import RunContext, ctx_role, ctx_run
-from tracecat.db.engine import create_db_engine
+from tracecat.db.engine import get_engine
 from tracecat.db.schemas import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
@@ -30,7 +30,7 @@ class WorkflowDefinitionsService:
     @contextmanager
     @staticmethod
     def get_session(role: Role) -> Generator[WorkflowDefinitionsService, None, None]:
-        engine = create_db_engine()
+        engine = get_engine()
         with Session(engine) as session:
             yield WorkflowDefinitionsService(session, role)
 
