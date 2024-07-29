@@ -1,5 +1,6 @@
 import { OpenAPI } from "@/client"
 import axios, { type InternalAxiosRequestConfig } from "axios"
+import { env } from "next-runtime-env"
 
 import { getAuthToken } from "@/lib/auth"
 import { isServer } from "@/lib/utils"
@@ -7,25 +8,28 @@ import { isServer } from "@/lib/utils"
 /**
  *
  * @returns The base URL for the API based on the execution environment
- * Selection order:
+ * Server side:
  * 1. NEXT_SERVER_API_URL (process.env)
  * 2. NEXT_PUBLIC_API_URL (process.env)
- * 3. http://localhost:8000
+ * 3. http://api:8000
+ *
+ * Client side:
+ * 1. NEXT_PUBLIC_API_URL (.env)
+ * 2. http://localhost:8000
  */
 export function getBaseUrl() {
   // Server side
   if (isServer()) {
-    return process.env.NEXT_SERVER_API_URL ?? process.env.NEXT_PUBLIC_API_URL
+    return (
+      process.env.NEXT_SERVER_API_URL ??
+      process.env.NEXT_PUBLIC_API_URL ??
+      "http://api:8000"
+    )
   }
 
   // Client side
-  // @ts-expect-error Reason: Suppressing TypeScript error for the following code block
-  if (global.API_URL === "__PLACEHOLDER_API_URL__") {
-    return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-  } else {
-    // @ts-expect-error Reason: Suppressing TypeScript error for the following code block
-    return global.API_URL
-  }
+  const baseUrl = env("NEXT_PUBLIC_API_URL")
+  return baseUrl ?? "http://localhost:8000"
 }
 
 // Legacy axiosclient
