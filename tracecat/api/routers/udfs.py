@@ -2,11 +2,12 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import validation
-from tracecat.auth.credentials import authenticate_user, authenticate_user_or_service
-from tracecat.db.engine import get_session
+from tracecat.auth.credentials import authenticate_user
+from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import UDFSpec
 from tracecat.logging import logger
 from tracecat.types.api import UDFArgsValidationResponse
@@ -16,11 +17,11 @@ router = APIRouter(prefix="/udfs")
 
 
 @router.get("", tags=["udfs"])
-def list_udfs(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+async def list_udfs(
+    role: Annotated[Role, Depends(authenticate_user)],
     limit: int | None = None,
     ns: list[str] | None = Query(None),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> list[UDFSpec]:
     """List all user-defined function specifications for a user."""
     statement = select(UDFSpec).where(
@@ -34,17 +35,17 @@ def list_udfs(
         statement = statement.where(or_(*ns_conds))
     if limit:
         statement = statement.limit(limit)
-    result = session.exec(statement)
+    result = await session.exec(statement)
     udfs = result.all()
     return udfs
 
 
 @router.get("/{udf_key}", tags=["udfs"])
-def get_udf(
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+async def get_udf(
+    role: Annotated[Role, Depends(authenticate_user)],
     udf_key: str,
     namespace: str = Query(None),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> UDFSpec:
     """Get a user-defined function specification."""
     statement = select(UDFSpec).where(
@@ -56,7 +57,7 @@ def get_udf(
     )
     if namespace:
         statement = statement.where(UDFSpec.namespace == namespace)
-    result = session.exec(statement)
+    result = await session.exec(statement)
     udf = result.one_or_none()
     if udf is None:
         raise HTTPException(
@@ -66,10 +67,10 @@ def get_udf(
 
 
 @router.post("/{udf_key}", tags=["udfs"])
-def create_udf(
+async def create_udf(
     role: Annotated[Role, Depends(authenticate_user)],
     udf_key: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> UDFSpec:
     """Create a user-defined function specification."""
     _, platform, name = udf_key.split(".")
@@ -78,7 +79,7 @@ def create_udf(
         UDFSpec.platform == platform,
         UDFSpec.name == name,
     )
-    result = session.exec(statement)
+    result = await session.exec(statement)
     udf = result.one_or_none()
     if udf is None:
         raise HTTPException(
@@ -88,7 +89,7 @@ def create_udf(
 
 
 @router.post("/{udf_key}/validate", tags=["udfs"])
-def validate_udf_args(
+async def validate_udf_args(
     role: Annotated[Role, Depends(authenticate_user)],
     udf_key: str,
     args: dict[str, Any],
