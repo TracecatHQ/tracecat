@@ -95,7 +95,7 @@ def create_app(**kwargs) -> FastAPI:
             " You can operate Tracecat in headless mode by using the API to create, manage, and run workflows."
         ),
         summary="Tracecat API",
-        version="0.4.1",
+        version="1",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
         contact={"name": "Tracecat Founders", "email": "founders@tracecat.com"},
         license_info={

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import wraps
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
+from html.parser import HTMLParser
 from typing import Any, ParamSpec, TypedDict, TypeVar
 
 import jsonpath_ng
@@ -273,6 +274,23 @@ def _to_datetime(x: Any) -> datetime:
     raise ValueError(f"Invalid datetime value {x!r}")
 
 
+def extract_text_from_html(input: str) -> list[str]:
+    parser = HTMLToTextParser()
+    parser.feed(input)
+    parser.close()
+    return parser._output
+
+
+class HTMLToTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._output = []
+        self.convert_charrefs = True
+
+    def handle_data(self, data):
+        self._output += [data.strip()]
+
+
 def custom_chain(*args):
     for arg in args:
         if is_iterable(arg, container_only=True):
@@ -334,6 +352,7 @@ _FUNCTION_MAPPING = {
     # Convert JSON to string
     "serialize_json": lambda x: orjson.dumps(x).decode(),
     "deserialize_json": lambda x: orjson.loads(x),
+    "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
     "now": lambda: datetime.now(),

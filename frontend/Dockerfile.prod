@@ -59,26 +59,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Add runtime configuration file
-COPY ./public/runtime-config.js ./public/runtime-config.js
-
-# Add entrypoint script
-COPY docker/entrypoint.sh ./entrypoint.sh
-RUN chmod +x ./entrypoint.sh
-# Important: Ensure correct permissions
-RUN chown -R nextjs:nodejs /app
-
-# Ensure runtime-config.js is writable by nextjs user
-RUN chmod 664 /app/public/runtime-config.js
-
 # Switch to the next.js user
 USER nextjs
 
 # Expose the application port
 EXPOSE 3000
 ENV PORT=3000
-
-ENTRYPOINT ["./entrypoint.sh"]
 
 # https://nextjs.org/docs/pages/api-reference/next-config-js/output#how-it-works
 # NOTE: https://github.com/aws/containers-roadmap/issues/1325

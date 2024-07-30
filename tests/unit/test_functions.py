@@ -6,6 +6,7 @@ from tracecat.expressions.functions import (
     _ipv6_in_subnet,
     _ipv6_is_public,
     lambda_filter,
+    extract_text_from_html,
 )
 
 
@@ -82,3 +83,11 @@ def test_ip_functions():
     )
     assert not _ipv6_is_public("fd12:3456:789a:1::1")
     assert _ipv6_is_public("2607:f8b0:4002:c00::64")
+
+    
+def test_extract_text_from_html():
+    assert extract_text_from_html("<a>Test</a><br />Line 2<p>Line 3</p>") == [
+        "Test",
+        "Line 2",
+        "Line 3",
+    ]
