@@ -54,13 +54,13 @@ class User(Resource, table=True):
     settings: str | None = None  # JSON-serialized String of settings
     owned_workflows: list["Workflow"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
     )
     case_actions: list["CaseAction"] = Relationship(back_populates="user")
     case_contexts: list["CaseContext"] = Relationship(back_populates="user")
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
     )
 
 
@@ -251,20 +251,20 @@ class Workflow(Resource, table=True):
     owner: User | None = Relationship(back_populates="owned_workflows")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
     )
     definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
     )
     # Triggers
     webhook: "Webhook" = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
     )
     schedules: list["Schedule"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
     )
 
 

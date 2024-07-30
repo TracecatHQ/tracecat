@@ -32,6 +32,9 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
         )
     else:
         uri = config.TRACECAT__DB_URI
+        if driver == "asyncpg":
+            uri = uri.replace("psycopg", "asyncpg")
+    logger.info("Using database URI", uri=uri)
     return uri
 
 
@@ -62,18 +65,10 @@ def _create_db_engine() -> Engine:
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
     engine_kwargs = {
-        "pool_timeout": 30,
-        "pool_recycle": 3600,
+        "pool_size": 20,
+        "max_overflow": 10,
     }
 
-    # Add common async-specific configurations
-    engine_kwargs.update(
-        {
-            "echo": True,  # Set to False in production
-            "future": True,
-            "pool_pre_ping": True,
-        }
-    )
     uri = _get_db_uri(driver="asyncpg")
     return create_async_engine(uri, **engine_kwargs)
 
@@ -156,8 +151,10 @@ def get_session() -> Generator[Session, None, None]:
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None, None]:
-    async with AsyncSession(get_async_engine()) as session:
-        yield session
+    async with AsyncSession(
+        get_async_engine(), expire_on_commit=False
+    ) as async_session:
+        yield async_session
 
 
 def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
