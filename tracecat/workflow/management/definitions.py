@@ -27,7 +27,7 @@ class WorkflowDefinitionsService:
 
     @asynccontextmanager
     @staticmethod
-    async def get_session(
+    async def with_session(
         role: Role,
     ) -> AsyncGenerator[WorkflowDefinitionsService, None, None]:
         async with get_async_session_context_manager() as session:
@@ -134,7 +134,7 @@ async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
 ) -> DSLRunArgs:
     logger.trace("Getting workflow definition", workflow_id=input.workflow_id)
-    async with WorkflowDefinitionsService.get_session(role=input.role) as service:
+    async with WorkflowDefinitionsService.with_session(role=input.role) as service:
         defn = await service.get_definition_by_workflow_id(
             input.workflow_id, version=input.version
         )

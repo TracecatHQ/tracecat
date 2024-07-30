@@ -313,7 +313,7 @@ async def commit_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
+        if val_errors := await validation.validate_dsl(dsl):
             logger.warning("Validation errors", errors=val_errors)
             return CommitWorkflowResponse(
                 workflow_id=workflow_id,
