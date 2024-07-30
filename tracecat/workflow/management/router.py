@@ -14,12 +14,12 @@ from fastapi import (
 )
 from pydantic import ValidationError
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import Session, select
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import identifiers, validation
 from tracecat.auth.credentials import authenticate_user
-from tracecat.db.engine import get_async_session, get_session
+from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
@@ -331,7 +331,7 @@ async def commit_workflow(
         # We should only instantiate action refs at workflow    runtime
         service = WorkflowDefinitionsService(session, role=role)
         # Creating a workflow definition only uses refs
-        defn = service.create_workflow_definition(workflow_id, dsl)
+        defn = await service.create_workflow_definition(workflow_id, dsl)
 
         # Update Workflow
         # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
@@ -340,9 +340,9 @@ async def commit_workflow(
 
         session.add(workflow)
         session.add(defn)
-        session.commit()
-        session.refresh(workflow)
-        session.refresh(defn)
+        await session.commit()
+        await session.refresh(workflow)
+        await session.refresh(defn)
 
         return CommitWorkflowResponse(
             workflow_id=workflow_id,
@@ -356,26 +356,28 @@ async def commit_workflow(
 
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
-def list_workflow_definitions(
+async def list_workflow_definitions(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: identifiers.WorkflowID,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> list[WorkflowDefinition]:
     """List all workflow definitions for a Workflow."""
     service = WorkflowDefinitionsService(session, role=role)
-    return service.list_workflow_definitions(workflow_id)
+    return await service.list_workflow_defitinions(workflow_id=workflow_id)
 
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
-def get_workflow_definition(
+async def get_workflow_definition(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: identifiers.WorkflowID,
     version: int | None = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
     service = WorkflowDefinitionsService(session, role=role)
-    definition = service.get_definition_by_workflow_id(workflow_id, version=version)
+    definition = await service.get_definition_by_workflow_id(
+        workflow_id, version=version
+    )
     if definition is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
@@ -384,14 +386,14 @@ def get_workflow_definition(
 
 
 @router.post("/{workflow_id}/definition", tags=["workflows"])
-def create_workflow_definition(
+async def create_workflow_definition(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: identifiers.WorkflowID,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
     service = WorkflowDefinitionsService(session, role=role)
-    return service.create_workflow_definition(workflow_id)
+    return await service.create_workflow_definition(workflow_id)
 
 
 # ----- Workflow Webhooks ----- #

@@ -1,40 +1,39 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Generator
-from contextlib import contextmanager
-from typing import Any
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
-from pydantic import BaseModel
 from sqlalchemy.exc import MultipleResultsFound
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio import activity
 
 from tracecat import identifiers
-from tracecat.contexts import RunContext, ctx_role, ctx_run
-from tracecat.db.engine import get_engine
+from tracecat.contexts import ctx_role, ctx_run
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import ActionStatement
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 
 class WorkflowDefinitionsService:
-    def __init__(self, session: Session, role: Role | None = None):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         self.role = role or ctx_role.get()
         self._session = session
         self.logger = logger.bind(service="workflow_definitions")
 
-    @contextmanager
+    @asynccontextmanager
     @staticmethod
-    def get_session(role: Role) -> Generator[WorkflowDefinitionsService, None, None]:
-        engine = get_engine()
-        with Session(engine) as session:
+    async def get_session(
+        role: Role,
+    ) -> AsyncGenerator[WorkflowDefinitionsService, None, None]:
+        async with get_async_session_context_manager() as session:
             yield WorkflowDefinitionsService(session, role)
 
-    def get_definition_by_workflow_id(
+    async def get_definition_by_workflow_id(
         self, workflow_id: identifiers.WorkflowID, *, version: int | None = None
     ) -> WorkflowDefinition | None:
         statement = select(WorkflowDefinition).where(
@@ -47,9 +46,10 @@ class WorkflowDefinitionsService:
             # Get the latest version
             statement = statement.order_by(WorkflowDefinition.version.desc())  # type: ignore
 
-        return self._session.exec(statement).first()
+        result = await self._session.exec(statement)
+        return result.first()
 
-    def get_definition_by_workflow_title(
+    async def get_definition_by_workflow_title(
         self, workflow_title: str, *, version: int | None = None
     ) -> WorkflowDefinition | None:
         self.logger.warning(
@@ -63,7 +63,8 @@ class WorkflowDefinitionsService:
         )
 
         try:
-            wf_id = self._session.exec(wf_statement).one_or_none()
+            result = await self._session.exec(wf_statement)
+            wf_id = result.one_or_none()
         except MultipleResultsFound as e:
             self.logger.error(
                 "Multiple workflows found with the same title. Please ensure that the workflow title is unique.",
@@ -90,9 +91,10 @@ class WorkflowDefinitionsService:
                 WorkflowDefinition.version.desc()  # type: ignore
             )
 
-        return self._session.exec(wf_defn_statement).first()
+        result = await self._session.exec(wf_defn_statement)
+        return result.first()
 
-    def list_workflow_defitinions(
+    async def list_workflow_defitinions(
         self, workflow_id: identifiers.WorkflowID | None = None
     ) -> list[WorkflowDefinition]:
         statement = select(WorkflowDefinition).where(
@@ -100,10 +102,10 @@ class WorkflowDefinitionsService:
         )
         if workflow_id:
             statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
-        result = self._session.exec(statement)
+        result = await self._session.exec(statement)
         return list(result.all())
 
-    def create_workflow_definition(
+    async def create_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, dsl: DSLInput
     ) -> WorkflowDefinition:
         statement = (
@@ -114,7 +116,7 @@ class WorkflowDefinitionsService:
             )
             .order_by(WorkflowDefinition.version.desc())  # type: ignore
         )
-        result = self._session.exec(statement)
+        result = await self._session.exec(statement)
         latest_defn = result.first()
 
         version = latest_defn.version + 1 if latest_defn else 1
@@ -127,27 +129,15 @@ class WorkflowDefinitionsService:
         return defn
 
 
-class GetWorkflowDefinitionActivityInputs(BaseModel):
-    role: Role
-    task: ActionStatement
-    workflow_id: identifiers.WorkflowID
-    trigger_inputs: dict[str, Any]
-    version: int | None = None
-    run_context: RunContext
-
-
 @activity.defn
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
 ) -> DSLRunArgs:
-    def _get_definition() -> WorkflowDefinition | None:
-        with WorkflowDefinitionsService.get_session(role=input.role) as service:
-            return service.get_definition_by_workflow_id(
-                input.workflow_id, version=input.version
-            )
-
     logger.trace("Getting workflow definition", workflow_id=input.workflow_id)
-    defn = await asyncio.to_thread(_get_definition)
+    async with WorkflowDefinitionsService.get_session(role=input.role) as service:
+        defn = await service.get_definition_by_workflow_id(
+            input.workflow_id, version=input.version
+        )
     if not defn:
         msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
         logger.error(msg)
