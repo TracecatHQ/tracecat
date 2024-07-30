@@ -1,6 +1,6 @@
 import pytest
 
-from tracecat.expressions.functions import lambda_filter
+from tracecat.expressions.functions import extract_text_from_html, lambda_filter
 
 
 def test_lambda_filter_success():
@@ -58,3 +58,11 @@ def test_lambda_filter_fails():
 
     with pytest.raises(ValueError):
         lambda_filter(items, "import os")
+
+
+def test_extract_text_from_html():
+    assert extract_text_from_html("<a>Test</a><br />Line 2<p>Line 3</p>") == [
+        "Test",
+        "Line 2",
+        "Line 3",
+    ]
