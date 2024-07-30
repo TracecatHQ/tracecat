@@ -17,7 +17,7 @@ COPY ./README.md /app/README.md
 COPY ./LICENSE /app/LICENSE
 
 # Install package
-RUN pip install --upgrade pip && pip install .
+RUN pip install --upgrade pip && pip install -e .
 
 # Command to run the application
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
