@@ -1,5 +1,3 @@
-import asyncio
-
 import orjson
 from fastapi import (
     HTTPException,
@@ -10,7 +8,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_session_context_manager
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
 from tracecat.logging import logger
 from tracecat.parse import parse_child_webhook
@@ -100,19 +98,16 @@ async def handle_service_callback(
     return None
 
 
-def validate_incoming_webhook(
-    webhook_id: str,
-    secret: str,
-    request: Request,
-    *,
-    validate_method: bool = True,
+async def validate_incoming_webhook(
+    path: str, secret: str, request: Request, *, validate_method: bool = True
 ) -> WorkflowDefinition:
     """Validate incoming webhook request.
 
     NOte: The webhook ID here is the workflow ID.
     """
-    with get_session_context_manager() as session:
-        result = session.exec(select(Webhook).where(Webhook.workflow_id == webhook_id))
+    logger.info("Validating incoming webhook", path=path, secret=secret)
+    async with get_async_session_context_manager() as session:
+        result = await session.exec(select(Webhook).where(Webhook.workflow_id == path))
         try:
             # One webhook per workflow
             webhook = result.one()
@@ -149,9 +144,9 @@ def validate_incoming_webhook(
 
         # Match the webhook id with the workflow id and get the latest version
         # of the workflow defitniion.
-        result = session.exec(
+        result = await session.exec(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == webhook_id)
+            .where(WorkflowDefinition.workflow_id == path)
             .order_by(WorkflowDefinition.version.desc())
         )
         try:
@@ -177,23 +172,12 @@ def validate_incoming_webhook(
             )
 
         # If we are here, all checks have passed
-        return WorkflowDefinition.model_validate(defn)
-
-
-async def handle_incoming_webhook(
-    request: Request, path: str, secret: str, validate_method: bool = True
-) -> WorkflowDefinition:
-    """Handle an incoming webhook request and set the Role context."""
-    # TODO(perf): Replace this when we get async sessions
-    with logger.contextualize(webhook_id=path):
-        defn = await asyncio.to_thread(
-            validate_incoming_webhook,
-            webhook_id=path,
-            secret=secret,
-            request=request,
-            validate_method=validate_method,
+        validated_defn = WorkflowDefinition.model_validate(defn)
+        ctx_role.set(
+            Role(
+                type="service",
+                user_id=validated_defn.owner_id,
+                service_id="tracecat-runner",
+            )
         )
-    ctx_role.set(
-        Role(type="service", user_id=defn.owner_id, service_id="tracecat-runner")
-    )
-    return defn
+        return validated_defn
