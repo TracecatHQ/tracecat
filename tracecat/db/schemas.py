@@ -22,6 +22,10 @@ DEFAULT_CASE_ACTIONS = [
     "Sinkholed",
 ]
 
+DEFAULT_SA_RELATIONSHIP_KWARGS = {
+    "lazy": "selectin",
+}
+
 
 class Resource(SQLModel):
     """Base class for all resources in the system."""
@@ -54,13 +58,19 @@ class User(Resource, table=True):
     settings: str | None = None  # JSON-serialized String of settings
     owned_workflows: list["Workflow"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
     case_actions: list["CaseAction"] = Relationship(back_populates="user")
     case_contexts: list["CaseContext"] = Relationship(back_populates="user")
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
 
 
@@ -195,7 +205,10 @@ class WorkflowDefinition(Resource, table=True):
 
     # DSL content
     content: dict[str, Any] = Field(sa_column=Column(JSONB))
-    workflow: "Workflow" = Relationship(back_populates="definitions")
+    workflow: "Workflow" = Relationship(
+        back_populates="definitions",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class Workflow(Resource, table=True):
@@ -251,20 +264,32 @@ class Workflow(Resource, table=True):
     owner: User | None = Relationship(back_populates="owned_workflows")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
     definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
     # Triggers
     webhook: "Webhook" = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
     schedules: list["Schedule"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete", "lazy": "selectin"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
 
 
@@ -280,7 +305,9 @@ class Webhook(Resource, table=True):
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(back_populates="webhook")
+    workflow: Workflow | None = Relationship(
+        back_populates="webhook", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
+    )
 
     @computed_field
     @property
@@ -311,7 +338,10 @@ class Schedule(Resource, table=True):
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(back_populates="schedules")
+    workflow: Workflow | None = Relationship(
+        back_populates="schedules",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
     # Custom validator for the cron field
     @field_validator("cron")
@@ -339,7 +369,9 @@ class Action(Resource, table=True):
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(back_populates="actions")
+    workflow: Workflow | None = Relationship(
+        back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
+    )
 
     @computed_field
     @property
