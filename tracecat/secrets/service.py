@@ -1,24 +1,26 @@
 from __future__ import annotations
 
-import asyncio
 import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Secret
 from tracecat.logging import logger
+from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
+from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.api import UpdateSecretParams
 from tracecat.types.auth import Role
-
-from .encryption import decrypt_keyvalues, encrypt_keyvalues
-from .models import SecretKeyValue
 
 
 class SecretsService:
     """Secrets manager service."""
 
-    def __init__(self, session: Session, role: Role | None = None):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         self.role = role or ctx_role.get()
         self.session = session
         self._encryption_key = os.getenv("TRACECAT__DB_ENCRYPTION_KEY")
@@ -26,33 +28,41 @@ class SecretsService:
             raise ValueError("TRACECAT__DB_ENCRYPTION_KEY is not set")
         self.logger = logger.bind(service="secrets")
 
-    def list_secrets(self) -> list[Secret]:
-        statement = select(Secret).where(Secret.owner_id == self.role.user_id)
-        return self.session.exec(statement).all()
+    @asynccontextmanager
+    @staticmethod
+    async def with_session(
+        role: Role | None = None,
+    ) -> AsyncGenerator[SecretsService, None, None]:
+        async with get_async_session_context_manager() as session:
+            yield SecretsService(session, role=role)
 
-    def get_secret_by_id(self, secret_id: int) -> Secret | None:
+    async def list_secrets(self) -> list[Secret]:
+        statement = select(Secret).where(Secret.owner_id == self.role.user_id)
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def get_secret_by_id(self, secret_id: int) -> Secret | None:
         statement = select(Secret).where(
             Secret.owner_id == self.role.user_id, Secret.id == secret_id
         )
-        return self.session.exec(statement).one_or_none()
+        result = await self.session.exec(statement)
+        return result.one_or_none()
 
-    def get_secret_by_name(self, secret_name: str) -> Secret | None:
+    async def get_secret_by_name(self, secret_name: str) -> Secret | None:
         statement = select(Secret).where(
             Secret.owner_id == self.role.user_id, Secret.name == secret_name
         )
-        return self.session.exec(statement).one_or_none()
+        result = await self.session.exec(statement)
+        return result.one_or_none()
 
-    async def aget_secret_by_name(self, secret_name: str) -> Secret | None:
-        return await asyncio.to_thread(self.get_secret_by_name, secret_name)
-
-    def create_secret(self, secret: Secret) -> Secret:
+    async def create_secret(self, secret: Secret) -> Secret:
         """Create a new secret."""
         self.session.add(secret)
-        self.session.commit()
-        self.session.refresh(secret)
+        await self.session.commit()
+        await self.session.refresh(secret)
         return secret
 
-    def update_secret(self, secret: Secret, params: UpdateSecretParams) -> Secret:
+    async def update_secret(self, secret: Secret, params: UpdateSecretParams) -> Secret:
         """Update a secret."""
         set_fields = params.model_dump(exclude_unset=True)
 
@@ -66,14 +76,14 @@ class SecretsService:
         for field, value in set_fields.items():
             setattr(secret, field, value)
         self.session.add(secret)
-        self.session.commit()
-        self.session.refresh(secret)
+        await self.session.commit()
+        await self.session.refresh(secret)
         return secret
 
-    def delete_secret(self, secret: Secret) -> None:
+    async def delete_secret(self, secret: Secret) -> None:
         """Delete a secret by name."""
-        self.session.delete(secret)
-        self.session.commit()
+        await self.session.delete(secret)
+        await self.session.commit()
 
     def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
         """Decrypt and return the keys for a secret."""

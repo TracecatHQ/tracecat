@@ -5,12 +5,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from tracecat import identifiers
+from tracecat.contexts import RunContext
 from tracecat.db.schemas import Schedule, Workflow
+from tracecat.dsl.models import ActionStatement
 from tracecat.types.api import (
     ActionResponse,
     UDFArgsValidationResponse,
     WebhookResponse,
 )
+from tracecat.types.auth import Role
 
 
 class CreateWorkflowFromDSLResponse(BaseModel):
@@ -61,3 +65,12 @@ class WorkflowMetadataResponse(BaseModel):
 class CreateWorkflowParams(BaseModel):
     title: str | None = None
     description: str | None = None
+
+
+class GetWorkflowDefinitionActivityInputs(BaseModel):
+    role: Role
+    task: ActionStatement
+    workflow_id: identifiers.WorkflowID
+    trigger_inputs: dict[str, Any]
+    version: int | None = None
+    run_context: RunContext

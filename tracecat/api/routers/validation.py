@@ -4,11 +4,9 @@ import orjson
 from fastapi import APIRouter, Depends, File, UploadFile, status
 from fastapi.responses import ORJSONResponse
 from pydantic import ValidationError
-from sqlmodel import Session
 
 from tracecat import validation
 from tracecat.auth.credentials import authenticate_user
-from tracecat.db.engine import get_session
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logging import logger
@@ -24,7 +22,6 @@ async def validate_workflow(
     role: Annotated[Role, Depends(authenticate_user)],
     definition: UploadFile = File(...),
     payload: UploadFile = File(None),
-    session: Session = Depends(get_session),
 ) -> list[UDFArgsValidationResponse]:
     """Validate a workflow.
 
@@ -74,7 +71,8 @@ async def validate_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        if expr_errors := await validation.validate_dsl(session=session, dsl=dsl):
+        expr_errors = await validation.validate_dsl(dsl)
+        if expr_errors:
             msg = f"{len(expr_errors)} validation error(s)"
             logger.error(msg)
             return ORJSONResponse(

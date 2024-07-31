@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 from pydantic import Field
 
 from tracecat.contexts import ctx_role, ctx_run
-from tracecat.db.engine import get_session_context_manager
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Case
 from tracecat.registry import registry
 from tracecat.types.api import CaseContext, Tag
@@ -61,7 +61,7 @@ async def open_case(
     context = context or []
     if isinstance(context, dict):
         context = [CaseContext(key=key, value=value) for key, value in context.items()]
-    with get_session_context_manager() as session:
+    async with get_async_session_context_manager() as session:
         case = Case(
             owner_id=role.user_id,
             workflow_id=run.wf_id,
@@ -75,7 +75,7 @@ async def open_case(
             tags=tags,
         )
         session.add(case)
-        session.commit()
-        session.refresh(case)
+        await session.commit()
+        await session.refresh(case)
 
     return case.model_dump()

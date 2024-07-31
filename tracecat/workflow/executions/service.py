@@ -414,7 +414,7 @@ class WorkflowExecutionsService:
     def cancel_workflow_execution(
         self,
         wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
-    ) -> None:
+    ) -> Awaitable[None]:
         """Cancel a workflow execution."""
         return self.handle(wf_exec_id).cancel()
 
@@ -422,6 +422,6 @@ class WorkflowExecutionsService:
         self,
         wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
         reason: str | None = None,
-    ) -> None:
+    ) -> Awaitable[None]:
         """Terminate a workflow execution."""
         return self.handle(wf_exec_id).terminate(reason=reason)

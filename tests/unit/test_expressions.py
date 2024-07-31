@@ -728,15 +728,13 @@ def assert_validation_result(
         ),
     ],
 )
-async def test_extract_expressions_errors(
-    expr, expected, auth_sandbox, env_sandbox, mock_secrets_service
-):
+async def test_extract_expressions_errors(expr, expected, auth_sandbox, env_sandbox):
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
         action_refs={"my_action"},
         inputs_context={"arg": 2},
     )
-    validators = get_validators(secrets_service=mock_secrets_service)
+    validators = get_validators()
     async with GatheringTaskGroup() as tg:
         visitor = ExprValidator(
             task_group=tg, validation_context=validation_context, validators=validators
