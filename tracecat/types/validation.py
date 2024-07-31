@@ -13,6 +13,9 @@ class ValidationResult(BaseModel):
     msg: str = ""
     detail: Any | None = None
 
+    def __hash__(self) -> int:
+        return hash((self.status, self.msg, self.detail))
+
 
 class RegistryValidationResult(ValidationResult):
     """Result of validating a UDF args."""

@@ -9,11 +9,12 @@ from fastapi import (
     status,
 )
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import identifiers
 from tracecat.auth.credentials import authenticate_user
-from tracecat.db.engine import get_session
+from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.logging import logger
@@ -78,14 +79,14 @@ async def list_workflow_execution_event_history(
 async def create_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateWorkflowExecutionParams,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> CreateWorkflowExecutionResponse:
     """Create and schedule a workflow execution."""
     with logger.contextualize(role=role):
         service = await WorkflowExecutionsService.connect()
         # Get the dslinput from the workflow definition
         try:
-            result = session.exec(
+            result = await session.exec(
                 select(WorkflowDefinition)
                 .where(WorkflowDefinition.workflow_id == params.workflow_id)
                 .order_by(WorkflowDefinition.version.desc())

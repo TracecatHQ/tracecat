@@ -21,7 +21,7 @@ from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLContext, UDFActionInput
 from tracecat.types.auth import Role
-from tracecat.workflow.management.definitions import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 WorkflowExecutionStatusLiteral = Literal[
     "RUNNING",

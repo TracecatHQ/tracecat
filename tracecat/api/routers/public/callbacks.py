@@ -3,8 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from tracecat.api.routers.public.dependencies import (
-    handle_incoming_webhook,
     handle_service_callback,
+    validate_incoming_webhook,
 )
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
@@ -35,8 +35,8 @@ async def webhook_callback(
             metadata={"path": path, "secret": secret},
         ):
             # Don't validate method because callback is always POST
-            defn = await handle_incoming_webhook(
-                request, path, secret, validate_method=False
+            defn = await validate_incoming_webhook(
+                path=path, secret=secret, request=request, validate_method=False
             )
             logger.info(
                 "Received Webhook in callback",

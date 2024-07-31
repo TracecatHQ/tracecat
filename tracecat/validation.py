@@ -42,10 +42,9 @@ from __future__ import annotations
 from itertools import chain
 from typing import TYPE_CHECKING, Any
 
-import sqlmodel
 from pydantic import ValidationError
 
-from tracecat.concurrency import GatheringTaskGroup, apartial
+from tracecat.concurrency import GatheringTaskGroup
 from tracecat.expressions.eval import extract_expressions
 from tracecat.expressions.parser.validator import (
     ExprValidationContext,
@@ -66,10 +65,8 @@ if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
 
 
-def get_validators(*, secrets_service: SecretsService):
-    return {
-        ExprType.SECRET: apartial(secret_validator, service=secrets_service),
-    }
+def get_validators():
+    return {ExprType.SECRET: secret_validator}
 
 
 def validate_dsl_args(dsl: DSLInput) -> list[RegistryValidationResult]:
@@ -113,20 +110,19 @@ def vadliate_udf_args(udf_key: str, args: dict[str, Any]) -> RegistryValidationR
         raise e
 
 
-async def secret_validator(
-    name: str, key: str, *, service: SecretsService
-) -> ExprValidationResult:
+async def secret_validator(name: str, key: str) -> ExprValidationResult:
     # (1) Check if the secret is defined
-    defined_secret = await service.aget_secret_by_name(name)
-    if not defined_secret:
-        logger.error("Missing secret in SECRET context usage", secret_name=name)
-        return ExprValidationResult(
-            status="error",
-            msg=f"Secret {name!r} is not defined in the secrets manager.",
-            expression_type=ExprType.SECRET,
-        )
-    decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
-    defined_keys = {kv.key for kv in decrypted_keys}
+    async with SecretsService.with_session() as service:
+        defined_secret = await service.get_secret_by_name(name)
+        if not defined_secret:
+            logger.error("Missing secret in SECRET context usage", secret_name=name)
+            return ExprValidationResult(
+                status="error",
+                msg=f"Secret {name!r} is not defined in the secrets manager.",
+                expression_type=ExprType.SECRET,
+            )
+        decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
+        defined_keys = {kv.key for kv in decrypted_keys}
 
     # (2) Check if the secret has the correct keys
     if key not in defined_keys:
@@ -143,15 +139,13 @@ async def secret_validator(
     return ExprValidationResult(status="success", expression_type=ExprType.SECRET)
 
 
-async def validate_dsl_expressions(
-    session: sqlmodel.Session, dsl: DSLInput
-) -> list[ExprValidationResult]:
+async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
         action_refs={a.ref for a in dsl.actions}, inputs_context=dsl.inputs
     )
-    secrets_service = SecretsService(session)
-    validators = get_validators(secrets_service=secrets_service)
+
+    validators = {ExprType.SECRET: secret_validator}
     async with GatheringTaskGroup() as tg:
         visitor = ExprValidator(
             task_group=tg, validation_context=validation_context, validators=validators
@@ -165,7 +159,7 @@ async def validate_dsl_expressions(
 
 
 async def validate_actions_have_defined_secrets(
-    session: sqlmodel.Session, dsl: DSLInput
+    dsl: DSLInput,
 ) -> list[SecretValidationResult]:
     # 1. Find all secrets in the DSL
     # 2. Find all UDFs in the DSL
@@ -173,7 +167,6 @@ async def validate_actions_have_defined_secrets(
 
     # In memory cache to prevent duplicate checks
     checked_keys_cache: set[str] = set()
-    secrets_service = SecretsService(session)
 
     async def check_udf_secrets_defined(
         udf: RegisteredUDF,
@@ -187,33 +180,32 @@ async def validate_actions_have_defined_secrets(
         """
         nonlocal checked_keys_cache
         results: list[SecretValidationResult] = []
-        for registry_secret in udf.secrets or []:
-            if registry_secret.name in checked_keys_cache:
-                continue
-            # (1) Check if the secret is defined
-            defined_secret = await secrets_service.aget_secret_by_name(
-                registry_secret.name
-            )
-            checked_keys_cache.add(registry_secret.name)
-            if not defined_secret:
-                msg = (
-                    f"Secret {registry_secret.name!r} is not defined in the secrets manager."
-                    f" Please add it using the CLI or UI. This secret requires keys: {registry_secret.keys}"
-                )
-                results.append(SecretValidationResult(status="error", msg=msg))
-                continue
-            decrypted_keys = secrets_service.decrypt_keys(defined_secret.encrypted_keys)
-            defined_keys = {kv.key for kv in decrypted_keys}
-            required_keys = set(registry_secret.keys)
-
-            # # (2) Check if the secret has the correct keys
-            if not required_keys.issubset(defined_keys):
-                results.append(
-                    SecretValidationResult(
-                        status="error",
-                        msg=f"Secret {registry_secret.name!r} is missing keys: {required_keys - defined_keys}",
+        async with SecretsService.with_session() as service:
+            for registry_secret in udf.secrets or []:
+                if registry_secret.name in checked_keys_cache:
+                    continue
+                # (1) Check if the secret is defined
+                defined_secret = await service.get_secret_by_name(registry_secret.name)
+                checked_keys_cache.add(registry_secret.name)
+                if not defined_secret:
+                    msg = (
+                        f"Secret {registry_secret.name!r} is not defined in the secrets manager."
+                        f" Please add it using the CLI or UI. This secret requires keys: {registry_secret.keys}"
                     )
-                )
+                    results.append(SecretValidationResult(status="error", msg=msg))
+                    continue
+                decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
+                defined_keys = {kv.key for kv in decrypted_keys}
+                required_keys = set(registry_secret.keys)
+
+                # # (2) Check if the secret has the correct keys
+                if not required_keys.issubset(defined_keys):
+                    results.append(
+                        SecretValidationResult(
+                            status="error",
+                            msg=f"Secret {registry_secret.name!r} is missing keys: {required_keys - defined_keys}",
+                        )
+                    )
 
         return results
 
@@ -224,9 +216,7 @@ async def validate_actions_have_defined_secrets(
     return list(chain.from_iterable(tg.results()))
 
 
-async def validate_dsl(
-    *, session: sqlmodel.Session, dsl: DSLInput
-) -> list[ValidationResult]:
+async def validate_dsl(dsl: DSLInput) -> set[ValidationResult]:
     """Validate the DSL at commit time.
 
     This function calls and combines all results from each validation tier.
@@ -243,9 +233,9 @@ async def validate_dsl(
     # 1. Find all expressions in the inputs
     # 2. For each expression context, cross-reference the expressions API and udf registry
 
-    expr_errs = await validate_dsl_expressions(session, dsl)
+    expr_errs = await validate_dsl_expressions(dsl)
     logger.debug("DSL expression validation errors", errs=expr_errs)
 
     # For secrets we also need to check if any used actions have undefined secrets
-    udf_missing_secrets = await validate_actions_have_defined_secrets(session, dsl)
-    return list(chain(dsl_args_errs, expr_errs, udf_missing_secrets))
+    udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
+    return set(chain(dsl_args_errs, expr_errs, udf_missing_secrets))

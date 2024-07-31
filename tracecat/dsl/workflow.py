@@ -27,12 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import identifiers
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import (
-        RunContext,
-        ctx_logger,
-        ctx_role,
-        ctx_run,
-    )
+    from tracecat.contexts import RunContext, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.common import DSLInput, DSLRunArgs
     from tracecat.dsl.io import resolve_success_output
     from tracecat.dsl.models import ActionStatement, ActionTest, DSLNodeResult
@@ -54,9 +49,9 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.workflow.management.definitions import (
-        GetWorkflowDefinitionActivityInputs,
         get_workflow_definition_activity,
     )
+    from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 
 class DSLContext(TypedDict, total=False):

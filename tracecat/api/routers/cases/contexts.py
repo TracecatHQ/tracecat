@@ -2,10 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.credentials import authenticate_user
-from tracecat.db.engine import get_session
+from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import CaseContext
 from tracecat.types.api import CaseContextParams
 from tracecat.types.auth import Role
@@ -14,9 +15,9 @@ router = APIRouter(prefix="/case-contexts")
 
 
 @router.get("", tags=["cases"])
-def list_case_contexts(
+async def list_case_contexts(
     role: Annotated[Role, Depends(authenticate_user)],
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> list[CaseContext]:
     """List all case contexts."""
     statement = select(CaseContext).where(
@@ -25,42 +26,42 @@ def list_case_contexts(
             CaseContext.owner_id == role.user_id,
         )
     )
-    actions = session.exec(statement).all()
-    return actions
+    result = await session.exec(statement)
+    case_contexts = result.all()
+    return case_contexts
 
 
 @router.post("", tags=["cases"])
-def create_case_context(
+async def create_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CaseContextParams,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> CaseContext:
     """Create a new case context."""
     case_context = CaseContext(owner_id=role.user_id, **params.model_dump())
     session.add(case_context)
-    session.commit()
-    session.refresh(case_context)
+    await session.commit()
+    await session.refresh(case_context)
     return params
 
 
 @router.delete("/{case_context_id}", tags=["cases"])
-def delete_case_context(
+async def delete_case_context(
     role: Annotated[Role, Depends(authenticate_user)],
     case_context_id: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ):
     """Delete a case context."""
     statement = select(CaseContext).where(
         CaseContext.owner_id == role.user_id,
         CaseContext.id == case_context_id,
     )
-    result = session.exec(statement)
+    result = await session.exec(statement)
     try:
-        action = result.one()
+        case_context = result.one()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
-    session.delete(action)
-    session.delete(action)
-    session.commit()
+    await session.delete(case_context)
+    await session.commit()

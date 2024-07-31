@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import ValidationError
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import validation
 from tracecat.contexts import ctx_role
@@ -20,7 +20,7 @@ from tracecat.workflow.management.models import CreateWorkflowFromDSLResponse
 class WorkflowsManagementService:
     """Manages CRUD operations for Workflows."""
 
-    def __init__(self, session: Session, role: Role | None = None):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         self.role = role or ctx_role.get()
         self.session = session
         self.logger = logger.bind(service="workflows")
@@ -60,9 +60,7 @@ class WorkflowsManagementService:
             return CreateWorkflowFromDSLResponse(errors=construction_errors)
 
         if not skip_secret_validation:
-            if val_errors := await validation.validate_dsl(
-                session=self.session, dsl=dsl
-            ):
+            if val_errors := await validation.validate_dsl(dsl):
                 logger.warning("Validation errors", errors=val_errors)
                 return CreateWorkflowFromDSLResponse(
                     errors=[
@@ -83,7 +81,6 @@ class WorkflowsManagementService:
 
             # Add the Workflow to the session first to generate an ID
             self.session.add(workflow)
-            self.session.flush()  # Flush to generate workflow.id
 
             # Create and associate Webhook with the Workflow
             webhook = Webhook(
@@ -122,13 +119,13 @@ class WorkflowsManagementService:
             )
 
             # Commit the transaction
-            self.session.commit()
-            self.session.refresh(workflow)
+            await self.session.commit()
+            await self.session.refresh(workflow)
 
             return CreateWorkflowFromDSLResponse(workflow=workflow)
 
         except Exception as e:
             # Rollback the transaction on error
             logger.error(f"Error creating workflow: {e}")
-            self.session.rollback()
+            await self.session.rollback()
             raise e
