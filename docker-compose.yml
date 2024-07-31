@@ -1,7 +1,18 @@
 services:
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: caddy
+    ports:
+      - 80:80
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    environment:
+      - API_DOMAIN=${TRACECAT__API_DOMAIN}
+      - UI_DOMAIN=${TRACECAT__UI_DOMAIN}
+
   api:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
-    container_name: tracecat_api
+    container_name: api
     ports:
       - 8000:8000
     environment:
@@ -23,13 +34,9 @@ services:
     restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
-    networks:
-      - core
-      - temporal
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
-    # container_name: tracecat_worker
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -53,14 +60,11 @@ services:
     restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
-    networks:
-      - core
-      - temporal
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.5.2}
-    container_name: tracecat_ui
+    container_name: ui
     ports:
       - 3000:3000
     environment:
@@ -77,12 +81,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    networks:
-      - core
 
   postgres_db:
     image: postgres:16
-    container_name: tracecat_postgres_db
+    container_name: postgres_db
     ports:
       - 5432:5432
     restart: always
@@ -90,39 +92,33 @@ services:
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
-    networks:
-      - core
     volumes:
       - core-db:/var/lib/postgresql/data
 
   temporal_postgres_db:
     image: postgres:13
-    container_name: tracecat_temporal_postgres_db
+    container_name: temporal_postgres_db
     restart: always
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
-    networks:
-      - temporal
     volumes:
       - temporal-db:/var/lib/postgresql/data
 
   temporal_ui:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
-    container_name: tracecat_temporal_ui
+    container_name: temporal_ui
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     depends_on:
-      - temporal
-    networks:
       - temporal
     ports:
       - 8080:8080
 
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
-    container_name: tracecat_temporal
+    container_name: temporal
     restart: always
     environment:
       - DB=postgres12
@@ -135,14 +131,10 @@ services:
       - 7233:7233
     depends_on:
       - temporal_postgres_db
-    networks:
-      - temporal
-
-networks:
-  core:
-  temporal:
 
 volumes:
   core-app:
   core-db:
   temporal-db:
+  caddy_data:
+  caddy_config:
