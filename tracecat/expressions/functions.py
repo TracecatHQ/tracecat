@@ -8,8 +8,8 @@ import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import wraps
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from html.parser import HTMLParser
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, ParamSpec, TypedDict, TypeVar
 
 import jsonpath_ng
