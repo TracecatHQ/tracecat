@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import time
@@ -7,10 +8,10 @@ import pytest
 from cryptography.fernet import Fernet
 from loguru import logger
 
+from tracecat import config
 from tracecat.db.schemas import Secret
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
-from tracecat.secrets.service import SecretsService
 
 
 def pytest_addoption(parser: pytest.Parser):
@@ -36,6 +37,13 @@ def pytest_addoption(parser: pytest.Parser):
 
 
 @pytest.fixture(autouse=True, scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(autouse=True, scope="session")
 def monkeysession(request):
     mpatch = pytest.MonkeyPatch()
     yield mpatch
@@ -56,9 +64,16 @@ def auth_sandbox():
 
 
 @pytest.fixture(autouse=True, scope="session")
-def env_sandbox(monkeysession, request: pytest.FixtureRequest):
+def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureRequest):
     logger.info("Setting up environment variables")
     temporal_compose_file = request.config.getoption("--temporal-compose-file")
+
+    monkeysession.setattr(
+        config,
+        "TRACECAT__DB_URI",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
+    )
+
     monkeysession.setenv(
         "TRACECAT__DB_URI",
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
@@ -94,19 +109,6 @@ def create_mock_secret(auth_sandbox):
         return new_secret
 
     return _get_secret
-
-
-@pytest.fixture(scope="session")
-def mock_secrets_service(auth_sandbox, env_sandbox):
-    from sqlmodel import Session
-
-    from tracecat.db.engine import get_engine
-
-    engine = get_engine()
-
-    with Session(engine) as session:
-        service = SecretsService(session)
-        yield service
 
 
 @pytest.fixture(scope="session")

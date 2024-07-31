@@ -2,11 +2,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import identifiers
 from tracecat.auth.credentials import TemporaryRole, authenticate_user
-from tracecat.db.engine import get_session
+from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Schedule, WorkflowDefinition
 from tracecat.dsl import schedules
 from tracecat.dsl.common import DSLInput
@@ -25,31 +26,27 @@ router = APIRouter(prefix="/schedules")
 async def list_schedules(
     role: Annotated[Role, Depends(authenticate_user)],
     workflow_id: identifiers.WorkflowID | None = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> list[Schedule]:
     """List all schedules for a workflow."""
     statement = select(Schedule).where(Schedule.owner_id == role.user_id)
     if workflow_id:
         statement = statement.where(Schedule.workflow_id == workflow_id)
-    result = session.exec(statement)
-    try:
-        return result.all()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+    result = await session.exec(statement)
+    schedules = result.all()
+    return schedules
 
 
 @router.post("", tags=["schedules"])
 async def create_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     params: CreateScheduleParams,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> Schedule:
     """Create a schedule for a workflow."""
 
     with logger.contextualize(role=role):
-        result = session.exec(
+        result = await session.exec(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == params.workflow_id)
             .order_by(WorkflowDefinition.version.desc())
@@ -66,7 +63,7 @@ async def create_schedule(
         schedule = Schedule(
             owner_id=role.user_id, **params.model_dump(exclude_unset=True)
         )
-        session.refresh(defn_data)
+        await session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
         dsl = DSLInput(**defn.content)
         if params.inputs:
@@ -97,8 +94,8 @@ async def create_schedule(
                 )
 
             session.add(schedule)
-            session.commit()
-            session.refresh(schedule)
+            await session.commit()
+            await session.refresh(schedule)
             return schedule
         except Exception as e:
             session.rollback()
@@ -110,22 +107,23 @@ async def create_schedule(
 
 
 @router.get("/{schedule_id}", tags=["schedules"])
-def get_schedule(
+async def get_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> Schedule:
     """Get a schedule from a workflow."""
     statement = select(Schedule).where(
         Schedule.owner_id == role.user_id, Schedule.id == schedule_id
     )
-    result = session.exec(statement)
+    result = await session.exec(statement)
     try:
-        return result.one()
+        schedule = result.one()
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
+    return schedule
 
 
 @router.post("/{schedule_id}", tags=["schedules"])
@@ -133,13 +131,13 @@ async def update_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
     params: UpdateScheduleParams,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> Schedule:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
     statement = select(Schedule).where(
         Schedule.owner_id == role.user_id, Schedule.id == schedule_id
     )
-    result = session.exec(statement)
+    result = await session.exec(statement)
     try:
         schedule = result.one()
     except NoResultFound as e:
@@ -157,8 +155,8 @@ async def update_schedule(
             setattr(schedule, key, value)
 
         session.add(schedule)
-        session.commit()
-        session.refresh(schedule)
+        await session.commit()
+        await session.refresh(schedule)
         return schedule
     except Exception as e:
         session.rollback()
@@ -177,13 +175,13 @@ async def update_schedule(
 async def delete_schedule(
     role: Annotated[Role, Depends(authenticate_user)],
     schedule_id: identifiers.ScheduleID,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a schedule from a workflow."""
     statement = select(Schedule).where(
         Schedule.owner_id == role.user_id, Schedule.id == schedule_id
     )
-    result = session.exec(statement)
+    result = await session.exec(statement)
     schedule = result.one_or_none()
     if not schedule:
         logger.warning(
@@ -197,8 +195,8 @@ async def delete_schedule(
 
         # If successful, delete the schedule from the database
         if schedule:
-            session.delete(schedule)
-            session.commit()
+            await session.delete(schedule)
+            await session.commit()
         else:
             logger.warning(
                 "Schedule was already deleted from the database",
@@ -213,13 +211,13 @@ async def delete_schedule(
 
 
 @router.get("/search", tags=["schedules"])
-def search_schedules(
+async def search_schedules(
     role: Annotated[Role, Depends(authenticate_user)],
     params: SearchScheduleParams,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> list[Schedule]:
     """**[WORK IN PROGRESS]** Search for schedules."""
     statement = select(Schedule).where(Schedule.owner_id == role.user_id)
-    results = session.exec(statement)
+    results = await session.exec(statement)
     schedules = results.all()
     return schedules
