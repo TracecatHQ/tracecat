@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import time
@@ -33,6 +34,13 @@ def pytest_addoption(parser: pytest.Parser):
         default=False,
         help="Do not restart the Tracecat stack if it is already running",
     )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(autouse=True, scope="session")
