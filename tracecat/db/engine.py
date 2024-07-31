@@ -65,8 +65,10 @@ def _create_db_engine() -> Engine:
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
     engine_kwargs = {
-        "pool_size": 20,
+        "pool_size": 50,
         "max_overflow": 10,
+        "future": True,
+        "pool_recycle": 3600,
     }
 
     uri = _get_db_uri(driver="asyncpg")
