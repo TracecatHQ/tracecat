@@ -15,7 +15,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: tracecat_api
+    container_name: api
     restart: unless-stopped
     ports:
       - 8000:8000
@@ -44,7 +44,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: tracecat_worker
+    container_name: worker
     restart: unless-stopped
     environment:
       DUMP_TRACECAT_RESULT: 0
@@ -76,7 +76,7 @@ services:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY} # Sensitive
         NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
         NODE_ENV: ${NODE_ENV}
-    container_name: tracecat_ui
+    container_name: ui
     restart: unless-stopped
     ports:
       - 3000:3000
@@ -100,7 +100,7 @@ services:
 
   postgres_db:
     image: postgres:16
-    container_name: tracecat_postgres_db
+    container_name: postgres_db
     restart: always
     ports:
       - 5432:5432
@@ -113,7 +113,7 @@ services:
 
   temporal_postgres_db:
     image: postgres:13
-    container_name: tracecat_temporal_postgres_db
+    container_name: temporal_postgres_db
     restart: always
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
@@ -123,7 +123,7 @@ services:
 
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
-    container_name: tracecat_temporal
+    container_name: temporal
     restart: always
     ports:
       - 7233:7233
@@ -136,8 +136,6 @@ services:
       - LOG_LEVEL=warn
     depends_on:
       - temporal_postgres_db
-    networks:
-      - temporal
 
   temporal_ui:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
@@ -148,8 +146,6 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     depends_on:
-      - temporal
-    networks:
       - temporal
 
 volumes:
