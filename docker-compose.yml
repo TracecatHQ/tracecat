@@ -2,13 +2,14 @@ services:
   caddy:
     image: caddy:2.8.4-alpine
     container_name: caddy
+    restart: unless-stopped
     ports:
       - 80:80
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
     environment:
-      - API_DOMAIN=${TRACECAT__API_DOMAIN}
-      - UI_DOMAIN=${TRACECAT__UI_DOMAIN}
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ADDRESS=${ADDRESS}
 
   api:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
