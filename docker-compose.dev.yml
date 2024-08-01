@@ -1,4 +1,16 @@
 services:
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - 80:80
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ADDRESS=${ADDRESS}
+
   api:
     build:
       context: .
