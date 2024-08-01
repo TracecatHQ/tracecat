@@ -1,25 +1,15 @@
-# {
-#     email {$ACME_EMAIL}
-# }
-
-# Public facing API with automatic HTTP to HTTPS redirection
-{$API_DOMAIN} {
-	redir https://{host}{uri}
-	reverse_proxy api:8000
+{$BASE_DOMAIN} {
+	bind {$ADDRESS} # Binds to all available network interfaces if not specified
+	handle_path /api/* {
+		reverse_proxy http://api:8000
+	}
+	reverse_proxy http://ui:3000
 }
 
-# Public facing UI with automatic HTTP to HTTPS redirection
-{$UI_DOMAIN} {
-	redir https://{host}{uri}
-	reverse_proxy ui:3000
-}
-
-# Internal API for UI server-side calls
 http://api:8000 {
 	reverse_proxy api:8000
 }
 
-# Internal Temporal server for worker gRPC calls
 temporal:7233 {
 	reverse_proxy temporal:7233
 }
