@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from tracecat.auth.clients import AuthenticatedAPIClient
+from tracecat.clients import AuthenticatedAPIClient
 from tracecat.db.schemas import Secret
 from tracecat.types.auth import Role
 

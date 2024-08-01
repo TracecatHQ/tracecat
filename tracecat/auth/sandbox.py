@@ -9,7 +9,7 @@ from typing import Literal, Self
 
 from loguru import logger
 
-from tracecat.auth.clients import AuthenticatedAPIClient
+from tracecat.clients import AuthenticatedAPIClient
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret

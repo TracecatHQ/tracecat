@@ -1,4 +1,4 @@
-"""Tracecat authn clients."""
+"""Tracecat HTTP clients."""
 
 import os
 
