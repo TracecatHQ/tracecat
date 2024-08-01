@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from httpx_oauth.clients.google import GoogleOAuth2
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
@@ -18,6 +19,9 @@ from tracecat.api.routers.secrets import router as secrets_router
 from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
+from tracecat.auth.constants import AuthType
+from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.users import auth_backend, fastapi_users
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import initialize_db
 from tracecat.logging import logger
@@ -134,6 +138,62 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(schedules_router)
     app.include_router(users_router)
     app.include_router(validation_router)
+
+    if config.TRACECAT__AUTH_TYPE == AuthType.DISABLED:
+        # Server logs this during auth setup verification step
+        pass
+
+    elif config.TRACECAT__AUTH_TYPE == AuthType.BASIC:
+        app.include_router(
+            fastapi_users.get_auth_router(auth_backend),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_register_router(UserRead, UserCreate),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_reset_password_router(),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_verify_router(UserRead),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_users_router(UserRead, UserUpdate),
+            prefix="/users",
+            tags=["users"],
+        )
+
+    elif config.TRACECAT__AUTH_TYPE == AuthType.GOOGLE_OAUTH:
+        oauth_client = GoogleOAuth2(
+            client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
+        )
+        app.include_router(
+            fastapi_users.get_oauth_router(
+                oauth_client,
+                auth_backend,
+                config.USER_AUTH_SECRET,
+                # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
+                associate_by_email=True,
+                is_verified_by_default=True,
+                # Points the user back to the login page
+                redirect_url=f"{config.TRACECAT__API_URL}/auth/oauth/callback",
+            ),
+            prefix="/auth/oauth",
+            tags=["auth"],
+        )
+        # Need basic auth router for `logout` endpoint
+        app.include_router(
+            fastapi_users.get_logout_router(auth_backend),
+            prefix="/auth",
+            tags=["auth"],
+        )
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
