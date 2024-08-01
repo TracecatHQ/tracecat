@@ -1,12 +1,22 @@
 services:
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - 80:80
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ADDRESS=${ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+
   api:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    volumes:
-      - ./tracecat:/app/tracecat
-      - core-app:/var/lib/tracecat
-    container_name: tracecat_api
+    container_name: api
+    restart: unless-stopped
     ports:
       - 8000:8000
     environment:
@@ -26,17 +36,15 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-    restart: unless-stopped
-    networks:
-      - core
-      - temporal
+    volumes:
+      - ./tracecat:/app/tracecat
+      - core-app:/var/lib/tracecat
+
   worker:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    volumes:
-      - ./tracecat:/app/tracecat
-      - core-app:/var/lib/tracecat
+    restart: unless-stopped
     environment:
       DUMP_TRACECAT_RESULT: 0
       LOG_LEVEL: ${LOG_LEVEL}
@@ -51,10 +59,9 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-    restart: unless-stopped
-    networks:
-      - core
-      - temporal
+    volumes:
+      - ./tracecat:/app/tracecat
+      - core-app:/var/lib/tracecat
     entrypoint: ["python", "tracecat/dsl/worker.py"]
 
   ui:
@@ -68,11 +75,8 @@ services:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY} # Sensitive
         NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
         NODE_ENV: ${NODE_ENV}
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/.next:/app/.next
-      - ./frontend/node_modules:/app/node_modules
-    container_name: tracecat_ui
+    container_name: ui
+    restart: unless-stopped
     ports:
       - 3000:3000
     environment:
@@ -86,57 +90,42 @@ services:
       NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: ${NODE_ENV}
-    restart: unless-stopped
     depends_on:
       - api
-    networks:
-      - core
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+      - ./frontend/node_modules:/app/node_modules
 
   postgres_db:
     image: postgres:16
-    container_name: tracecat_postgres_db
+    container_name: postgres_db
+    restart: always
     ports:
       - 5432:5432
-    restart: always
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
-    networks:
-      - core
     volumes:
       - core-db:/var/lib/postgresql/data
 
   temporal_postgres_db:
     image: postgres:13
-    container_name: tracecat_temporal_postgres_db
+    container_name: temporal_postgres_db
     restart: always
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
-    networks:
-      - temporal
     volumes:
       - temporal-db:/var/lib/postgresql/data
 
-  temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
-    container_name: tracecat_temporal_ui
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-    depends_on:
-      - temporal
-    networks:
-      - temporal
-    ports:
-      - 8080:8080
-    attach: false
-
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
-    container_name: tracecat_temporal
+    container_name: temporal
     restart: always
+    ports:
+      - 7233:7233
     environment:
       - DB=postgres12
       - DB_PORT=5432
@@ -144,16 +133,19 @@ services:
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
-    ports:
-      - 7233:7233
     depends_on:
       - temporal_postgres_db
-    networks:
-      - temporal
 
-networks:
-  core:
-  temporal:
+  temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    container_name: temporal_ui
+    ports:
+      - 8080:8080
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - temporal
 
 volumes:
   core-app:
