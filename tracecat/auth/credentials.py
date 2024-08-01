@@ -26,8 +26,6 @@ CREDENTIALS_EXCEPTION = HTTPException(
     headers={"WWW-Authenticate": "Bearer"},
 )
 
-IS_AUTH_DISABLED = str(os.environ.get("TRACECAT__DISABLE_AUTH")) in ("true", "1")
-
 
 def _internal_get_role_from_service_key(
     *, user_id: str, service_role_name: str, api_key: str
@@ -73,7 +71,7 @@ HTTP_EXC = partial(
     )
 )
 
-if IS_AUTH_DISABLED:
+if config.TRACECAT__AUTH_DISABLED:
     # Override the authentication functions with a dummy function
     _DEFAULT_TRACECAT_USER_ID = "default-tracecat-user"
     _DEFAULT_TRACECAT_JWT = "super-secret-jwt-token"
