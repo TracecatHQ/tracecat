@@ -5,15 +5,16 @@ services:
     restart: unless-stopped
     ports:
       - 80:80
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
     environment:
       - BASE_DOMAIN=${BASE_DOMAIN}
       - ADDRESS=${ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
     container_name: api
+    restart: unless-stopped
     ports:
       - 8000:8000
     environment:
@@ -32,12 +33,13 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-    restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
+    container_name: worker
+    restart: unless-stopped
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -58,7 +60,6 @@ services:
       SMTP_AUTH: ${SMTP_AUTH}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
-    restart: unless-stopped
     volumes:
       - core-app:/var/lib/tracecat
     command: ["python", "tracecat/dsl/worker.py"]
@@ -66,6 +67,7 @@ services:
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.5.2}
     container_name: ui
+    restart: unless-stopped
     ports:
       - 3000:3000
     environment:
@@ -79,16 +81,15 @@ services:
       NEXT_PUBLIC_DISABLE_AUTH: ${TRACECAT__DISABLE_AUTH}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: ${NODE_ENV}
-    restart: unless-stopped
     depends_on:
       - api
 
   postgres_db:
     image: postgres:16
     container_name: postgres_db
+    restart: always
     ports:
       - 5432:5432
-    restart: always
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
@@ -106,21 +107,12 @@ services:
     volumes:
       - temporal-db:/var/lib/postgresql/data
 
-  temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
-    container_name: temporal_ui
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-    depends_on:
-      - temporal
-    ports:
-      - 8080:8080
-
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
     container_name: temporal
     restart: always
+    ports:
+      - 7233:7233
     environment:
       - DB=postgres12
       - DB_PORT=5432
@@ -128,14 +120,21 @@ services:
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
-    ports:
-      - 7233:7233
     depends_on:
       - temporal_postgres_db
+
+  temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    container_name: temporal_ui
+    ports:
+      - 8080:8080
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - temporal
 
 volumes:
   core-app:
   core-db:
   temporal-db:
-  caddy_data:
-  caddy_config:
