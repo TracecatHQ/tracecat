@@ -6,6 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from httpx_oauth.clients.google import GoogleOAuth2
+from sqlalchemy import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlmodel import Session, SQLModel, delete
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
@@ -21,11 +25,13 @@ from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
-from tracecat.auth.users import auth_backend, fastapi_users
+from tracecat.auth.users import auth_backend, create_user, fastapi_users
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import initialize_db
+from tracecat.db.engine import get_async_engine, get_engine
+from tracecat.db.schemas import UDFSpec
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.registry import registry
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
@@ -33,8 +39,51 @@ from tracecat.workflow.management.router import router as workflow_management_ro
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    registry.init()
     initialize_db()
+    # Create the test user
+    await create_user(
+        params=UserCreate(
+            email="test@domain.com",
+            first_name="Test",
+            last_name="User",
+            password="password",
+            is_superuser=True,
+            is_verified=True,
+        ),
+        exist_ok=True,
+    )
     yield
+
+
+def initialize_db() -> Engine:
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        # Add integrations to integrations table regardless of whether it's empty
+        session.exec(delete(UDFSpec))
+        udfs = [udf.to_udf_spec() for _, udf in registry]
+        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
+        session.add_all(udfs)
+        session.commit()
+
+    return engine
+
+
+async def async_initialize_db() -> AsyncEngine:
+    registry.init()
+    engine = get_async_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    async with AsyncSession(engine) as session:
+        await session.exec(delete(UDFSpec))
+        udfs = [udf.to_udf_spec() for _, udf in registry]
+        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
+        session.add_all(udfs)
+        await session.commit()
+    return engine
 
 
 def custom_generate_unique_id(route: APIRoute):
@@ -210,7 +259,12 @@ def create_app(**kwargs) -> FastAPI:
         allow_headers=["*"],
     )
 
-    logger.info("App started", env=config.TRACECAT__APP_ENV, origins=allow_origins)
+    logger.info(
+        "App started",
+        env=config.TRACECAT__APP_ENV,
+        origins=allow_origins,
+        auth_type=config.TRACECAT__AUTH_TYPE.value,
+    )
     return app
 
 

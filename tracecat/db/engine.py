@@ -6,12 +6,10 @@ from typing import Literal
 from loguru import logger
 from sqlalchemy import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlmodel import Session, SQLModel, create_engine, delete, select
+from sqlmodel import Session, create_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.db.schemas import DEFAULT_CASE_ACTIONS, CaseAction, UDFSpec, User
-from tracecat.registry import registry
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -70,62 +68,6 @@ def _create_async_db_engine() -> AsyncEngine:
 
     uri = _get_db_uri(driver="asyncpg")
     return create_async_engine(uri, **engine_kwargs)
-
-
-def initialize_db() -> Engine:
-    engine = get_engine()
-    SQLModel.metadata.create_all(engine)
-
-    with Session(engine) as session:
-        case_actions_count = session.exec(select(CaseAction)).all()
-        if len(case_actions_count) == 0:
-            default_actions = [
-                CaseAction(owner_id="tracecat", tag="case_action", value=case_action)
-                for case_action in DEFAULT_CASE_ACTIONS
-            ]
-            session.add_all(default_actions)
-            session.commit()
-            logger.info("Added default case actions to case action table.")
-        # We might be ok just overwriting the integrations table?
-        # Add integrations to integrations table regardless of whether it's empty
-        session.exec(delete(UDFSpec))
-        registry.init()
-        udfs = [udf.to_udf_spec() for _, udf in registry]
-        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
-        session.add_all(udfs)
-        session.commit()
-
-        user_id = "default-tracecat-user"
-        result = session.exec(select(User).where(User.id == user_id).limit(1))
-        if not result.one_or_none():
-            # Create a default user if it doesn't exist
-            user = User(owner_id="tracecat", id=user_id)
-            session.add(user)
-            session.commit()
-    return engine
-
-
-async def async_initialize_db() -> AsyncEngine:
-    engine = get_async_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-    registry.init()
-    async with AsyncSession(engine) as session:
-        await session.exec(delete(UDFSpec))
-        udfs = [udf.to_udf_spec() for _, udf in registry]
-        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
-        session.add_all(udfs)
-        await session.commit()
-
-        user_id = "default-tracecat-user"
-        result = await session.exec(select(User).where(User.id == user_id).limit(1))
-        if not result.one_or_none():
-            # Create a default user if it doesn't exist
-            user = User(owner_id="tracecat", id=user_id)
-            session.add(user)
-            await session.commit()
-    return engine
 
 
 def get_engine() -> Engine:

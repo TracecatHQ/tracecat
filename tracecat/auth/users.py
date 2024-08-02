@@ -96,22 +96,16 @@ fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
 current_active_user = fastapi_users.current_user(active=True)
 
 
-async def create_user(
-    *, email: str, password: str, is_superuser: bool = False, exist_ok: bool = False
-) -> User | None:
+async def create_user(params: UserCreate, exist_ok: bool = True) -> User | None:
     try:
         async with get_async_session_context_manager() as session:
             async with get_user_db_context(session) as user_db:
                 async with get_user_manager_context(user_db) as user_manager:
-                    user = await user_manager.create(
-                        UserCreate(
-                            email=email, password=password, is_superuser=is_superuser
-                        )
-                    )
+                    user = await user_manager.create(params)
                     logger.info(f"User created {user}")
                     return user
     except UserAlreadyExists:
-        logger.warning(f"User {email} already exists")
+        logger.warning(f"User {params.email} already exists")
         if not exist_ok:
             raise
         return None
