@@ -5,11 +5,3 @@
 	}
 	reverse_proxy http://ui:3000
 }
-
-http://api:8000 {
-	reverse_proxy api:8000
-}
-
-temporal:7233 {
-	reverse_proxy temporal:7233
-}
