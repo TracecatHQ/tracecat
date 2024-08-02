@@ -32,7 +32,7 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
         uri = config.TRACECAT__DB_URI
         if driver == "asyncpg":
             uri = uri.replace("psycopg", "asyncpg")
-    logger.info("Using database URI", uri=uri)
+    logger.trace("Using database URI", uri=uri)
     return uri
 
 
