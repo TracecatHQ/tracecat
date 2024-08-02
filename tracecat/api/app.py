@@ -115,6 +115,7 @@ def create_app(**kwargs) -> FastAPI:
         generate_unique_id_function=custom_generate_unique_id,
         lifespan=lifespan,
         default_response_class=ORJSONResponse,
+        root_path=config.TRACECAT__API_ROOT_PATH,
         **kwargs,
     )
     app.logger = logger

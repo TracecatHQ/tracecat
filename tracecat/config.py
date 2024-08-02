@@ -24,6 +24,8 @@ TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
 TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 
+TRACECAT__API_ROOT_PATH = os.environ.get("TRACECAT__API_ROOT_PATH", "/api")
+
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-runner",
