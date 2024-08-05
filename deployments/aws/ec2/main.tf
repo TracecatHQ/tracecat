@@ -170,15 +170,9 @@ resource "aws_instance" "this" {
     http_put_response_hop_limit = 2
   }
 
-  user_data = base64encode(<<-EOF
-    #!/bin/bash
-    yum update -y
-    yum install -y amazon-ssm-agent
-    systemctl enable amazon-ssm-agent
-    systemctl start amazon-ssm-agent
-    ${file("${path.module}/user_data.tpl")}
-  EOF
-  )
+  user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
+    tracecat_version = var.tracecat_version
+  }))
 
   provisioner "local-exec" {
     command = <<-EOT

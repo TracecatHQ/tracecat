@@ -3,7 +3,15 @@
 # Redirect all output to a log file
 exec > >(tee /var/log/user-data.log) 2>&1
 
+# Install the SSM agent
+yum update -y
+yum install -y amazon-ssm-agent
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
+
+# Default branch/tag
 echo "Starting user data script execution"
+echo "Using Tracecat version: ${tracecat_version}"
 
 # Install docker
 yum update -y
@@ -16,10 +24,10 @@ chmod +x /usr/local/bin/docker-compose
 
 # Install tracecat
 cd /home/ec2-user
-curl -O https://raw.githubusercontent.com/TracecatHQ/tracecat/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/TracecatHQ/tracecat/main/env.sh
-curl -O https://raw.githubusercontent.com/TracecatHQ/tracecat/main/.env.example
-curl -O https://raw.githubusercontent.com/TracecatHQ/tracecat/main/Caddyfile
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/docker-compose.yml"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/env.sh"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/.env.example"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/Caddyfile"
 
 chmod +x env.sh
 

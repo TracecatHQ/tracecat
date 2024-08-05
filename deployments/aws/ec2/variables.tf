@@ -45,3 +45,9 @@ variable "instance_type" {
   type        = string
   default     = "t3.large"
 }
+
+variable "tracecat_version" {
+  description = "The version of Tracecat to use"
+  type        = string
+  default     = "0.6.1"
+}
