@@ -21,7 +21,6 @@ from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.schedules import router as schedules_router
 from tracecat.api.routers.secrets import router as secrets_router
 from tracecat.api.routers.udfs import router as udfs_router
-from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -185,7 +184,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_contexts_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
-    app.include_router(users_router)
     app.include_router(validation_router)
 
     if config.TRACECAT__AUTH_TYPE == AuthType.DISABLED:
