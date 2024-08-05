@@ -50,7 +50,6 @@ dependencies = [
     "asyncpg==0.29.0",
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
-    "python-jose[cryptography]",
     "python-slugify",
     "shodan==1.31.0",
     "slack-sdk==3.28.0",
