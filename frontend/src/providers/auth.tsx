@@ -12,11 +12,11 @@ import {
   authRegisterRegister,
   AuthRegisterRegisterData,
   UserRead,
-  usersUsersCurrentUser,
 } from "@/client"
 import { MutateFunction, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { authConfig } from "@/config/auth"
+import { getCurrentUser } from "@/lib/auth"
 
 type AuthContextType = {
   user: UserRead | null
@@ -32,28 +32,13 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export async function getCurrentUser(): Promise<UserRead | null> {
-  try {
-    console.log("Fetching current user")
-    return await usersUsersCurrentUser()
-  } catch (error) {
-    if (error instanceof ApiError) {
-      // Backend throws 401 unauthorized if the user is not logged in
-      console.log("User is not logged in")
-      return null
-    } else {
-      console.error("Error fetching current user", error)
-      throw error
-    }
-  }
-}
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const router = useRouter()
   const {
     data: user,
-    isLoading,
-    error,
+    isLoading: userIsLoading,
+    error: userError,
   } = useQuery<UserRead | null, ApiError>({
     queryKey: ["auth"],
     queryFn: getCurrentUser,
@@ -79,10 +64,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    if (!user && !isLoading) {
+    if (userError) {
+      console.error("Error fetching current user", userError)
       router.push("/")
     }
-  }, [user, isLoading])
+    if (!user && !userIsLoading) {
+      router.push("/")
+    }
+  }, [user, userIsLoading, userError])
+
   return (
     <AuthContext.Provider
       value={{
