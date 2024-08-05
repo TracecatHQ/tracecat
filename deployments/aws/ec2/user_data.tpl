@@ -24,10 +24,10 @@ chmod +x /usr/local/bin/docker-compose
 
 # Install tracecat
 cd /home/ec2-user
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/docker-compose.yml"
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/env.sh"
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/.env.example"
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${TRACECAT_TAG}/Caddyfile"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/docker-compose.yml"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/env.sh"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/.env.example"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/Caddyfile"
 
 chmod +x env.sh
 
