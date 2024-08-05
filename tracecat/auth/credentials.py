@@ -13,7 +13,9 @@ from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwk, jwt
 
 from tracecat import config
+from tracecat.auth.users import current_active_user
 from tracecat.contexts import ctx_role
+from tracecat.db.schemas import User
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 
@@ -155,15 +157,13 @@ else:
 
 
 async def authenticate_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    current_user: Annotated[User, Depends(current_active_user)],
 ) -> Role:
-    """Authenticate a user JWT and return the 'sub' claim as the user_id.
+    """Map the current user to a role.
 
     `ctx_role` ContextVar is set here.
     """
-    if not token:
-        raise CREDENTIALS_EXCEPTION
-    role = await _get_role_from_jwt(token)
+    role = Role(type="user", user_id=str(current_user.id), service_id="tracecat-api")
     ctx_role.set(role)
     return role
 

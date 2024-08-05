@@ -4,11 +4,14 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from fastapi import Depends, Request
-from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
+from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
 from fastapi_users.authentication import (
     AuthenticationBackend,
-    BearerTransport,
-    JWTStrategy,
+    CookieTransport,
+)
+from fastapi_users.authentication.strategy.db import (
+    AccessTokenDatabase,
+    DatabaseStrategy,
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
@@ -17,9 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.schemas import UserCreate
-from tracecat.db.adapter import SQLModelUserDatabaseAsync
+from tracecat.db.adapter import (
+    SQLModelAccessTokenDatabaseAsync,
+    SQLModelUserDatabaseAsync,
+)
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
-from tracecat.db.schemas import OAuthAccount, User
+from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logging import logger
 
 google_oauth_client = GoogleOAuth2(
@@ -60,6 +66,12 @@ async def get_user_db(session: AsyncSession = Depends(get_async_session)):
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
 
+async def get_access_token_db(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[SQLModelAccessTokenDatabaseAsync, None]:
+    yield SQLModelAccessTokenDatabaseAsync(session, AccessToken)  # type: ignore
+
+
 def get_user_db_context(
     session: AsyncSession,
 ) -> contextlib.AbstractAsyncContextManager[SQLAlchemyUserDatabase]:
@@ -78,18 +90,29 @@ def get_user_manager_context(
     return contextlib.asynccontextmanager(get_user_manager)(user_db=user_db)
 
 
-bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
+cookie_transport = CookieTransport(
+    cookie_max_age=config.SESSION_EXPIRE_TIME_SECONDS,
+    cookie_secure=config.TRACECAT__API_URL.startswith("https"),
+)
 
 
-def get_jwt_strategy() -> JWTStrategy[models.UP, models.ID]:
-    return JWTStrategy(secret=config.USER_AUTH_SECRET, lifetime_seconds=3600)
+def get_database_strategy(
+    access_token_db: AccessTokenDatabase[AccessToken] = Depends(get_access_token_db),
+) -> DatabaseStrategy:
+    strategy = DatabaseStrategy(
+        access_token_db,
+        lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,  # type: ignore
+    )
+
+    return strategy
 
 
 auth_backend = AuthenticationBackend(
-    name="jwt",
-    transport=bearer_transport,
-    get_strategy=get_jwt_strategy,
+    name="database",
+    transport=cookie_transport,
+    get_strategy=get_database_strategy,
 )
+
 
 fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
 

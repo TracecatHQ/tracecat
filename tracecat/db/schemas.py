@@ -12,7 +12,11 @@ from sqlmodel import UUID, Field, Relationship, SQLModel
 
 from tracecat import config
 from tracecat.auth.schemas import UserRole
-from tracecat.db.adapter import SQLModelBaseOAuthAccount, SQLModelBaseUserDB
+from tracecat.db.adapter import (
+    SQLModelBaseAccessToken,
+    SQLModelBaseOAuthAccount,
+    SQLModelBaseUserDB,
+)
 from tracecat.identifiers import action, id_factory
 
 DEFAULT_CASE_ACTIONS = [
@@ -57,8 +61,8 @@ class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
 
 
 class User(SQLModelBaseUserDB, table=True):
-    first_name: str = Field(nullable=False, max_length=255)
-    last_name: str = Field(nullable=False, max_length=255)
+    first_name: str | None = Field(default=None, max_length=255)
+    last_name: str | None = Field(default=None, max_length=255)
     role: UserRole = Field(nullable=False, default=UserRole.BASIC)
     settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     oauth_accounts: list["OAuthAccount"] = Relationship(
@@ -82,6 +86,10 @@ class User(SQLModelBaseUserDB, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+
+
+class AccessToken(SQLModelBaseAccessToken, table=True):
+    pass
 
 
 class Secret(Resource, table=True):

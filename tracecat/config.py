@@ -55,10 +55,14 @@ TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 TRACECAT__AUTH_TYPE = AuthType(
     os.environ.get("TRACECAT__AUTH_TYPE", AuthType.DISABLED.value).lower()
 )
-TRACECAT__AUTH_DISABLED = os.environ.get("TRACECAT__DISABLE_AUTH", "0").lower() in (
+TRACECAT__AUTH_DISABLED = os.environ.get("TRACECAT__AUTH_DISABLED", "0").lower() in (
     "true",
     "1",
 )
+SESSION_EXPIRE_TIME_SECONDS = int(
+    os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
+)  # 7 days
+
 # OAuth Login Flow
 # Used for both Google OAuth2 and OIDC flows
 OAUTH_CLIENT_ID = (
