@@ -12,7 +12,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.3}
     container_name: api
     restart: unless-stopped
     ports:
@@ -38,7 +38,7 @@ services:
       - core-app:/var/lib/tracecat
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.2}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.5.3}
     restart: unless-stopped
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
@@ -66,7 +66,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.5.2}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.5.3}
     container_name: ui
     restart: unless-stopped
     ports:
