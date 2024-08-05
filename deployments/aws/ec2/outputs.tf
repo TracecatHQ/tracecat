@@ -18,11 +18,6 @@ output "security_group_id" {
   value       = aws_security_group.this.id
 }
 
-output "github_ip_ranges" {
-  description = "The IP ranges for GitHub"
-  value       = local.github_git_ipv4_ranges
-}
-
 output "nat_gateway_id" {
   value = module.vpc.natgw_ids[0]
 }

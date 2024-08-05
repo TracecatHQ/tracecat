@@ -5,6 +5,10 @@
 .terraform.lock.hcl
 .terraform.tfstate.*
 
+# EC2 user data logs
+ssm_command_id.txt
+user_data_log.txt
+
 # Terraform crash logs
 crash.log
 

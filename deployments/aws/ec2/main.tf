@@ -17,17 +17,7 @@ data "aws_ami" "this" {
   }
 }
 
-data "http" "github_meta" {
-  url = "https://api.github.com/meta"
-
-  request_headers = {
-    Accept = "application/json"
-  }
-}
-
 locals {
-  github_git_ip_ranges = jsondecode(data.http.github_meta.response_body).git
-  github_git_ipv4_ranges = [for cidr in local.github_git_ip_ranges : cidr if can(regex("\\.", cidr))]
   project_tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -125,15 +115,12 @@ resource "aws_security_group" "this" {
     description = "Allow all outbound traffic"
   }
 
-  dynamic "egress" {
-    for_each = local.github_git_ipv4_ranges
-    content {
-      from_port   = 443
-      to_port     = 443
-      protocol    = "tcp"
-      cidr_blocks = [egress.value]
-      description = "Outbound access to GitHub IP range"
-    }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "Caddy HTTP server"
   }
 
   tags = merge(local.project_tags, {
@@ -192,6 +179,32 @@ resource "aws_instance" "this" {
     ${file("${path.module}/user_data.tpl")}
   EOF
   )
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws ec2 wait instance-status-ok --instance-ids ${self.id} && \
+      sleep 60 && \
+      aws ssm send-command \
+        --instance-ids ${self.id} \
+        --document-name "AWS-RunShellScript" \
+        --parameters '{"commands":["cat /var/log/user-data.log"]}' \
+        --output text \
+        --query "Command.CommandId" > ssm_command_id.txt && \
+      sleep 10 && \
+      aws ssm get-command-invocation \
+        --command-id $(cat ssm_command_id.txt) \
+        --instance-id ${self.id} \
+        --query "StandardOutputContent" \
+        --output text > user_data_log.txt && \
+      if grep -q "ERROR:" user_data_log.txt; then
+        echo "Error detected in user data log. Log content:"
+        cat user_data_log.txt
+        exit 1
+      else
+        echo "User data script completed successfully"
+      fi
+    EOT
+  }
 
   tags = merge(local.project_tags, {
     Name = "${var.project_name}-instance"
