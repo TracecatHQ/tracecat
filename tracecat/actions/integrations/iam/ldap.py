@@ -3,7 +3,7 @@
 Authentication method: Token
 
 Requires: A secret named `ldap` with the following keys:
-- `LDAP_BIND_USER`
+- `LDAP_BIND_DN`
 - `LDAP_BIND_PASS`
 
 """
@@ -17,13 +17,13 @@ from tracecat.registry import Field, RegistrySecret, registry
 
 ldap_secret = RegistrySecret(
     name="ldap",
-    keys=["LDAP_BIND_USER", "LDAP_BIND_PASS"],
+    keys=["LDAP_BIND_DN", "LDAP_BIND_PASS"],
 )
 """LDAP secret.
 
 - name: `ldap`
 - keys:
-    - `LDAP_BIND_USER`
+    - `LDAP_BIND_DN`
     - `LDAP_BIND_PASS`
 """
 
@@ -36,15 +36,15 @@ class LdapClient:
     def __init__(
         self, host: str, port: int, ssl: bool = False, active_directory: bool = False
     ):
-        self._ldap_server = ldap3.Server(host, port, ssl, get_info=ldap3.ALL)
+        self._ldap_server = ldap3.Server(host, int(port), ssl, get_info=ldap3.ALL)
         self._ldap_active_directory = active_directory
 
-    def bind(self, user: str, password: str) -> bool:
+    def bind(self, bind_dn: str, bind_password: str) -> bool:
         if self._ldap_connection is not None:
             return True
 
         self._ldap_connection = ldap3.Connection(
-            self._ldap_server, user, password, auto_bind=True
+            self._ldap_server, bind_dn, bind_password, auto_bind=True
         )
 
     def _search(self, base_dn: str, ldap_query: str):
@@ -64,19 +64,20 @@ class LdapClient:
 
 
 def create_ldap_client() -> LdapClient:
-    LDAP_BIND_USER = os.getenv("LDAP_BIND_USER")
+    LDAP_BIND_DN = os.getenv("LDAP_BIND_DN")
     LDAP_BIND_PASS = os.getenv("LDAP_BIND_PASS")
 
-    if LDAP_BIND_USER is None:
-        raise ValueError("LDAP_BIND_USER is not set")
+    if LDAP_BIND_DN is None:
+        raise ValueError("LDAP_BIND_DN is not set")
     if LDAP_BIND_PASS is None:
         raise ValueError("LDAP_BIND_PASS is not set")
     client = LdapClient(
-        os.getenv("LDAP_HOST"),
-        os.getenv("LDAP_PORT"),
-        os.getenv("LDAP_SSL") == 1,
+        host=os.getenv("LDAP_HOST"),
+        port=os.getenv("LDAP_PORT"),
+        ssl=os.getenv("LDAP_SSL") == 1,
+        active_directory=True,
     )
-    client.bind(LDAP_BIND_USER, LDAP_BIND_PASS)
+    client.bind(LDAP_BIND_DN, LDAP_BIND_PASS)
     return client
 
 
