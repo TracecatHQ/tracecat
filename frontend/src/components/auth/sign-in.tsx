@@ -28,6 +28,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
 import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
 import { Icons } from "@/components/icons"
 
@@ -98,7 +99,6 @@ export function BasicLoginForm() {
   })
 
   const onSubmit = async (values: BasicLoginForm) => {
-    console.log(values)
     try {
       setIsLoading(true)
       await login({
@@ -106,6 +106,12 @@ export function BasicLoginForm() {
           username: values.email,
           password: values.password,
         },
+      })
+    } catch (error) {
+      console.log("Error signing in", error)
+      toast({
+        title: "Error signing in",
+        description: "Please check your email and password and try again",
       })
     } finally {
       setIsLoading(false)
@@ -154,18 +160,11 @@ export function BasicLoginForm() {
             </div>
           </div>
           <Button className="w-full text-sm" disabled={isLoading} type="submit">
-            {isLoading ? (
-              <span>
-                <Icons.spinner className="mr-2 size-4 animate-spin" />
-                Signing In...
-              </span>
-            ) : (
-              <span>Sign In</span>
+            {isLoading && (
+              <Icons.spinner className="mr-2 size-4 animate-spin" />
             )}
-          </Button>
-          {/* <Button type="submit" className="w-full">
             Sign In
-          </Button> */}
+          </Button>
         </div>
       </form>
     </Form>
