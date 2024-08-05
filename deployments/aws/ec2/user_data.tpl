@@ -33,6 +33,6 @@ chmod +x env.sh
 
 # Run the env.sh script in production mode
 # and replace http://localhost with http://localhost:8080
-printf "y\nlocalhost:8080\n" | ./env.sh
+printf "y\nlocalhost:8080\nn\n" | ./env.sh
 
 docker-compose up -d

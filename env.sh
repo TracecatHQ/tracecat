@@ -76,8 +76,8 @@ dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
 
 # Prompt user for environment mode
 while true; do
-    read -p "Use production mode? (y/n, default: y): " prod_mode
-    prod_mode=${prod_mode:-y}
+    read -p "Use production mode? (y/n, default: n): " prod_mode
+    prod_mode=${prod_mode:-n}
     case $prod_mode in
         [Yy]* )
             env_mode="production"
@@ -95,6 +95,23 @@ done
 read -p "Enter the new IP address or domain (default: localhost): " new_ip
 new_ip=${new_ip:-localhost}
 
+# Prompt user for PostgreSQL SSL mode
+while true; do
+    read -p "Require PostgreSQL SSL mode? (y/n, default: n): " postgres_ssl
+    postgres_ssl=${postgres_ssl:-n}
+    case $postgres_ssl in
+        [Yy]* )
+            ssl_mode="require"
+            break
+            ;;
+        [Nn]* )
+            ssl_mode="disable"
+            break
+            ;;
+        * ) echo -e "${RED}Please answer y or n.${NC}";;
+    esac
+done
+
 # Update environment variables
 dotenv_replace "TRACECAT__APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "NODE_ENV" "$env_mode" "$env_file"
@@ -102,6 +119,7 @@ dotenv_replace "NEXT_PUBLIC_APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "TRACECAT__PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
 dotenv_replace "NEXT_PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
 dotenv_replace "NEXT_PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
+dotenv_replace "TRACECAT__DB_SSLMODE" "$ssl_mode" "$env_file"
 
 # Update ALLOW_ORIGINS
 current_origins=$(grep "^TRACECAT__ALLOW_ORIGINS=" "$env_file" | cut -d '=' -f2)
