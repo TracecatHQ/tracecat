@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useAuth } from "@/providers/auth"
 import {
   BookText,
   ExternalLink,
@@ -11,10 +11,8 @@ import {
   UsersRound,
 } from "lucide-react"
 
-import { authConfig } from "@/config/auth"
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
-import { useClerk, useUser } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -29,33 +27,23 @@ import { Icons } from "@/components/icons"
 import UserAvatar from "@/components/user-avatar"
 
 export default function UserNav() {
-  const { user } = useUser()
-  const { signOut } = useClerk()
-  const router = useRouter()
-  const handleSignOut = () => {
-    if (authConfig.disabled) {
-      return router.push("/")
-    }
-    return signOut(() => router.push("/"))
-  }
+  const { user, logout } = useAuth()
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative size-8 rounded-full">
-          <UserAvatar
-            src={user?.imageUrl}
-            alt={user?.fullName || userDefaults.alt}
-          />
+          <UserAvatar alt={user?.first_name ?? undefined} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 p-2" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">
-              {user?.firstName ?? userDefaults.name}
+              {user?.first_name ?? userDefaults.name}
             </p>
             <p className="text-xs leading-none text-muted-foreground">
-              {user?.primaryEmailAddress?.toString() ?? userDefaults.email}
+              {user?.email.toString() ?? userDefaults.email}
             </p>
           </div>
         </DropdownMenuLabel>
@@ -103,7 +91,7 @@ export default function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-xs hover:cursor-pointer"
-          onClick={handleSignOut}
+          onClick={async () => await logout()}
         >
           <LogOut className="mr-2 size-4" />
           <span>Logout</span>

@@ -1,5 +1,3 @@
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs"
-
 import { authConfig } from "@/config/auth"
 import { Separator } from "@/components/ui/separator"
 
@@ -12,7 +10,7 @@ export default function Page() {
       <Separator />
       <div className="space-y-4">
         <div className="space-y-2 text-sm">
-          <h6 className="font-bold">Clerk Settings</h6>
+          <h6 className="font-bold">Settings</h6>
           {authConfig.disabled ? (
             <div className="text-sm text-muted-foreground">
               Authentication is disabled.
@@ -23,24 +21,10 @@ export default function Page() {
                 Please click on the user icon on the right to access Clerk
                 settings. t{" "}
               </p>
-              <ClerkUserButton />
             </div>
           )}
         </div>
       </div>
     </div>
-  )
-}
-
-function ClerkUserButton() {
-  return (
-    <>
-      <SignedOut>
-        <SignInButton />
-      </SignedOut>
-      <SignedIn>
-        <UserButton />
-      </SignedIn>
-    </>
   )
 }
