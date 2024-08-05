@@ -22,5 +22,9 @@ curl -O https://raw.githubusercontent.com/TracecatHQ/tracecat/main/.env.example
 curl -O https://raw.githubusercontent.com/TracecatHQ/tracecat/main/Caddyfile
 
 chmod +x env.sh
-./env.sh
+
+# Run the env.sh script in production mode
+# and replace http://localhost with http://localhost:8080
+printf "y\nlocalhost:8080\n" | ./env.sh
+
 docker-compose up -d
