@@ -17,6 +17,7 @@ import { MutateFunction, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { authConfig } from "@/config/auth"
 import { getCurrentUser } from "@/lib/auth"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
 type AuthContextType = {
   user: UserRead | null
@@ -65,13 +66,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (userError) {
-      console.error("Error fetching current user", userError)
-      router.push("/")
-    }
-    if (!user && !userIsLoading) {
+      console.error("Error loading user", userError)
+      router.push("/auth/error")
+    } else if (!user && !userIsLoading) {
+      console.log("No user loaded, redirecting to login")
       router.push("/")
     }
   }, [user, userIsLoading, userError])
+
+  if (userIsLoading) {
+    return <CenteredSpinner />
+  }
 
   return (
     <AuthContext.Provider
