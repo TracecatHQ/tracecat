@@ -74,7 +74,7 @@ class LdapClient:
         if results:
             entries = {}
             for entry in self._ldap_connection.entries:
-                entries[entry.entry_dn()] = {"attributes": entry.entry_raw_attributes}
+                entries[entry.entry_dn] = {"attributes": entry.entry_raw_attributes}
             return entries
         else:
             return []
