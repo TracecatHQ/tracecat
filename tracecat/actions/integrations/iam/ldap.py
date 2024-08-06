@@ -39,12 +39,31 @@ class LdapClient:
         self._ldap_server = ldap3.Server(host, int(port), ssl, get_info=ldap3.ALL)
         self._ldap_active_directory = active_directory
 
-    def bind(self, bind_dn: str, bind_password: str) -> bool:
+    def __enter__(self, *args, **kwargs):
+        self.bind()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._ldap_connection:
+            self._ldap_connection.unbind()
+
+    async def __aenter__(self, *args, **kwargs):
+        self.bind()
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if self._ldap_connection:
+            self._ldap_connection.unbind()
+
+    def bind(self) -> bool:
         if self._ldap_connection is not None:
             return True
 
         self._ldap_connection = ldap3.Connection(
-            self._ldap_server, bind_dn, bind_password, auto_bind=True
+            self._ldap_server,
+            os.getenv("LDAP_BIND_DN"),
+            os.getenv("LDAP_BIND_PASS"),
+            auto_bind=True,
         )
 
     def _search(self, base_dn: str, ldap_query: str):
@@ -74,10 +93,10 @@ def create_ldap_client() -> LdapClient:
     client = LdapClient(
         host=os.getenv("LDAP_HOST"),
         port=os.getenv("LDAP_PORT"),
-        ssl=os.getenv("LDAP_SSL") == 1,
-        active_directory=True,
+        ssl=(os.getenv("LDAP_SSL") == 1),
+        active_directory=(os.getenv("LDAP_TYPE") == "AD"),
     )
-    client.bind(LDAP_BIND_DN, LDAP_BIND_PASS)
+    client.bind()
     return client
 
 
