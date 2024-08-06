@@ -72,7 +72,10 @@ class LdapClient:
             base_dn, ldap_query, ldap3.SUBTREE, attributes=ldap3.ALL_ATTRIBUTES
         )
         if results:
-            return self._ldap_connection.entries
+            entries = {}
+            for entry in self._ldap_connection.entries:
+                entries[entry.entry_dn()] = {"attributes": entry.entry_raw_attributes()}
+            return entries
         else:
             return []
 
