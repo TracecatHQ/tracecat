@@ -77,9 +77,9 @@ class LdapClient:
                 entries += [
                     {
                         "dn": entry.entry_dn,
-                        "attributes": json.loads(
-                            entry.entry_to_json()
-                        ).attributes,  # entry is CaseInsensitiveDict containing other types that cannot be serialized
+                        "attributes": json.loads(entry.entry_to_json())[
+                            "attributes"
+                        ],  # entry is CaseInsensitiveDict containing other types that cannot be serialized
                     }
                 ]
             return entries
