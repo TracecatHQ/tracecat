@@ -75,7 +75,9 @@ class LdapClient:
             entries = {}
             for entry in self._ldap_connection.entries:
                 entries[entry.entry_dn] = {
-                    "attributes": dict(entry.entry_raw_attributes)
+                    "data": json.loads(
+                        entry.entry_to_json()
+                    )  # entry is CaseInsensitiveDict containing other types that cannot be serialized
                 }
             return entries
         else:
