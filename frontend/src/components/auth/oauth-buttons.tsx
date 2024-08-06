@@ -1,6 +1,7 @@
 "use client"
 
 import { ComponentPropsWithoutRef, useState } from "react"
+import { authOauthGoogleDatabaseAuthorize } from "@/client"
 
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
@@ -34,6 +35,12 @@ export function GoogleOAuthButton(props: OAuthButtonProps) {
   const handleClick = async () => {
     try {
       setIsLoading(true)
+      const { authorization_url } = await authOauthGoogleDatabaseAuthorize({
+        scopes: ["openid", "email", "profile"],
+      })
+      window.location.href = authorization_url
+    } catch (error) {
+      console.error("Error authorizing with Google", error)
     } finally {
       setIsLoading(false)
     }
