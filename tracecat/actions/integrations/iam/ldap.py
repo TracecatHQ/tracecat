@@ -167,10 +167,13 @@ async def disable_ad_user(
         str,
         Field(..., description="User distinguished name"),
     ],
-) -> bool:
+) -> dict[str, Any]:
     async with create_ldap_client() as client:
         result = client.disable_user(user_dn)
-        return result
+        if result:
+            return {"success": True}
+        else:
+            return {"success": False, "error": client._ldap_connection.last_error}
 
 
 @registry.register(
@@ -185,7 +188,10 @@ async def enable_ad_user(
         str,
         Field(..., description="User distinguished name"),
     ],
-) -> bool:
+) -> dict[str, Any]:
     async with create_ldap_client() as client:
         result = client.enable_user(user_dn)
-        return result
+        if result:
+            return {"success": True}
+        else:
+            return {"success": False, "error": client._ldap_connection.last_error}
