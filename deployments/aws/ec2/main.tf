@@ -176,19 +176,21 @@ resource "aws_instance" "this" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      aws ec2 wait instance-status-ok --instance-ids ${self.id} && \
+      aws ec2 wait instance-status-ok --instance-ids ${self.id} --region ${var.aws_region} && \
       sleep 60 && \
       aws ssm send-command \
         --instance-ids ${self.id} \
         --document-name "AWS-RunShellScript" \
         --parameters '{"commands":["cat /var/log/user-data.log"]}' \
         --output text \
+        --region ${var.aws_region} \
         --query "Command.CommandId" > ssm_command_id.txt && \
       sleep 10 && \
       aws ssm get-command-invocation \
         --command-id $(cat ssm_command_id.txt) \
         --instance-id ${self.id} \
         --query "StandardOutputContent" \
+        --region ${var.aws_region} \
         --output text > user_data_log.txt && \
       if grep -q "ERROR:" user_data_log.txt; then
         echo "Error detected in user data log. Log content:"
