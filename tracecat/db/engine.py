@@ -47,9 +47,6 @@ def _create_db_engine() -> Engine:
             "pool_recycle": 3600,
             "connect_args": {"sslmode": sslmode},
         }
-    elif config.TRACECAT__APP_ENV == "local":
-        # SQLite disk-based database
-        engine_kwargs = {"connect_args": {"check_same_thread": False}}
     else:
         # Postgres as default
         engine_kwargs = {
