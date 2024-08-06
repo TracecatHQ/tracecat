@@ -1,17 +1,47 @@
-# RabbitMQ volume
-.rabbitmq/
+# Terraform-related files
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+.terraform.tfstate.*
 
-# CDK stack
-cdk.out/
+# EC2 user data logs
+ssm_command_id.txt
+user_data_log.txt
 
-# Database
-db.sqlite3
+# Terraform crash logs
+crash.log
 
-# Tracecat
-.tracecat/
+# Terraform variables and overrides
+*.tfvars
+*.tfvars.json
+*.tfvars.local
+override.tf
+override.tf.json
+_private_key.pem
+*_auto.tfvars
 
-# MacOS
-.DS_Store
+# Terraform plan file
+*.tfplan
+
+# Sensitive files
+*.pem
+*.key
+*.crt
+*.env
+*.zip
+*.tar.gz
+
+# Editor and IDE-specific files
+.vscode/
+*.code-workspace
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Logs and backup files
+*.log
+*.bak
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -29,7 +59,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-/lib/
+lib/
 lib64/
 parts/
 sdist/
@@ -71,7 +101,6 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
