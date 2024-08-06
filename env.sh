@@ -116,14 +116,10 @@ done
 dotenv_replace "TRACECAT__APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "NODE_ENV" "$env_mode" "$env_file"
 dotenv_replace "NEXT_PUBLIC_APP_ENV" "$env_mode" "$env_file"
-dotenv_replace "TRACECAT__PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
-dotenv_replace "NEXT_PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
-dotenv_replace "NEXT_PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
+dotenv_replace "PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
+dotenv_replace "PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
 dotenv_replace "TRACECAT__DB_SSLMODE" "$ssl_mode" "$env_file"
 
-# Update ALLOW_ORIGINS
-current_origins=$(grep "^TRACECAT__ALLOW_ORIGINS=" "$env_file" | cut -d '=' -f2)
-new_origins="${current_origins},http://${new_ip}"
 # Remove duplicate entries and leading/trailing commas
 new_origins=$(echo "$new_origins" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/^,//;s/,$//')
 dotenv_replace "TRACECAT__ALLOW_ORIGINS" "$new_origins" "$env_file"
