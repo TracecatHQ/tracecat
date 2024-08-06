@@ -24,7 +24,7 @@ from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
-from tracecat.auth.users import auth_backend, create_user, fastapi_users
+from tracecat.auth.users import auth_backend, create_default_admin_user, fastapi_users
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_engine
 from tracecat.db.schemas import UDFSpec
@@ -40,18 +40,7 @@ from tracecat.workflow.management.router import router as workflow_management_ro
 async def lifespan(app: FastAPI):
     registry.init()
     initialize_db()
-    # Create the test user
-    await create_user(
-        params=UserCreate(
-            email="test@domain.com",
-            first_name="Test",
-            last_name="User",
-            password="password",
-            is_superuser=True,
-            is_verified=True,
-        ),
-        exist_ok=True,
-    )
+    await create_default_admin_user()
     yield
 
 
@@ -187,9 +176,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(validation_router)
 
     if config.TRACECAT__AUTH_TYPE == AuthType.DISABLED:
-        # Server logs this during auth setup verification step
-        pass
-
+        logger.warning("Auth is disabled. This is not recommended for production.")
     elif config.TRACECAT__AUTH_TYPE == AuthType.BASIC:
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),
@@ -217,10 +204,12 @@ def create_app(**kwargs) -> FastAPI:
             tags=["users"],
         )
 
-    elif config.TRACECAT__AUTH_TYPE == AuthType.GOOGLE_OAUTH:
         oauth_client = GoogleOAuth2(
             client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
         )
+        # This is the frontend URL that the user will be redirected to after authenticating
+        redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
+        logger.info("OAuth redirect URL", url=redirect_url)
         app.include_router(
             fastapi_users.get_oauth_router(
                 oauth_client,
@@ -230,17 +219,13 @@ def create_app(**kwargs) -> FastAPI:
                 associate_by_email=True,
                 is_verified_by_default=True,
                 # Points the user back to the login page
-                redirect_url=f"{config.TRACECAT__API_URL}/auth/oauth/callback",
+                redirect_url=redirect_url,
             ),
             prefix="/auth/oauth",
             tags=["auth"],
         )
-        # Need basic auth router for `logout` endpoint
-        app.include_router(
-            fastapi_users.get_logout_router(auth_backend),
-            prefix="/auth",
-            tags=["auth"],
-        )
+    else:
+        raise ValueError(f"Unsupported auth type: {config.TRACECAT__AUTH_TYPE}")
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)

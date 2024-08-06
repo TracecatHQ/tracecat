@@ -1,7 +1,6 @@
 import contextlib
-import os
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable
 
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
@@ -15,7 +14,6 @@ from fastapi_users.authentication.strategy.db import (
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
-from httpx_oauth.clients.google import GoogleOAuth2
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -27,11 +25,6 @@ from tracecat.db.adapter import (
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logging import logger
-
-google_oauth_client = GoogleOAuth2(
-    os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
-    os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),
-)
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -136,3 +129,18 @@ async def create_user(params: UserCreate, exist_ok: bool = True) -> User | None:
 
 async def get_user_db_sqlmodel(session: AsyncSession = Depends(get_async_session)):
     yield SQLModelUserDatabaseAsync(session, User, OAuthAccount)
+
+
+def create_default_admin_user() -> Awaitable[User]:
+    return create_user(default_admin_user(), exist_ok=True)
+
+
+def default_admin_user() -> UserCreate:
+    return UserCreate(
+        email="admin@domain.com",
+        first_name="Admin",
+        last_name="User",
+        password="password",
+        is_superuser=True,
+        is_verified=True,
+    )
