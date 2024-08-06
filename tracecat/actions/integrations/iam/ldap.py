@@ -79,9 +79,9 @@ class LdapClient:
     def find_users(self, base_dn: str, search_value: str):
         filter = ""
         if self._ldap_active_directory:
-            filter = "(|(anr={search_value})(mail={search_value})(proxyAddresses=*:{search_value}))"
+            filter = f"(|(anr={search_value})(mail={search_value})(proxyAddresses=*:{search_value}))"
         else:
-            filter = "(anr={search_value})"
+            filter = f"(anr={search_value})"
         return self._search(base_dn, filter)
 
 
