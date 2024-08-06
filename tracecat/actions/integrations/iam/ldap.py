@@ -152,8 +152,7 @@ async def find_ldap_users(
     ],
 ) -> list[dict[str, Any]]:
     async with create_ldap_client() as client:
-        users = client.find_users(base_dn, username_or_email)
-        return json.dumps(users)
+        return client.find_users(base_dn, username_or_email)
 
 
 @registry.register(
