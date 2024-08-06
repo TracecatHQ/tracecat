@@ -70,7 +70,7 @@ class LdapClient:
         results = self._ldap_connection.search(
             base_dn, ldap_query, ldap3.SUBTREE, attributes=ldap3.ALL_ATTRIBUTES
         )
-        if results[0]:
+        if results:
             return self._ldap_connection.entries
 
     def find_users(self, base_dn: str, search_value: str):
