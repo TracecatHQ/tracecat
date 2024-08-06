@@ -83,6 +83,14 @@ class LdapClient:
         else:
             return []
 
+    def _searchone(self, base_dn: str):
+        results = self._ldap_connection.search(
+            base_dn, "(objectClass=*)", ldap3.BASE, attributes=ldap3.ALL_ATTRIBUTES
+        )
+        if results:
+            for entry in self._ldap_connection.entries:
+                return dict(entry.attributes)
+
     def find_users(self, base_dn: str, search_value: str):
         filter = ""
         if self._ldap_active_directory:
@@ -90,6 +98,19 @@ class LdapClient:
         else:
             filter = f"(anr={search_value})"
         return self._search(base_dn, filter)
+
+    def get_user(self, user_dn: str) -> dict:
+        return self._searchone(user_dn, "(objectClass=*)")
+
+    def disable_user(self, user_dn: str):
+        return self._ldap_connection.modify(
+            user_dn, {"userAccountControl": [(2, [514])]}
+        )
+
+    def enable_user(self, user_dn: str):
+        return self._ldap_connection.modify(
+            user_dn, {"userAccountControl": [(2, [512])]}
+        )
 
 
 def create_ldap_client() -> LdapClient:
@@ -130,3 +151,39 @@ async def find_ldap_users(
     async with create_ldap_client() as client:
         users = client.find_users(base_dn, username_or_email)
         return json.dumps(users)
+
+
+@registry.register(
+    default_title="Disable AD User",
+    description="Disable AD user by distinguished name",
+    display_group="LDAP",
+    namespace="integrations.ldap",
+    secrets=[ldap_secret],
+)
+async def disable_ad_user(
+    user_dn: Annotated[
+        str,
+        Field(..., description="User distinguished name"),
+    ],
+) -> bool:
+    async with create_ldap_client() as client:
+        result = client.disable_user(user_dn)
+        return result
+
+
+@registry.register(
+    default_title="Enable AD User",
+    description="Enable AD user by distinguished name",
+    display_group="LDAP",
+    namespace="integrations.ldap",
+    secrets=[ldap_secret],
+)
+async def enable_ad_user(
+    user_dn: Annotated[
+        str,
+        Field(..., description="User distinguished name"),
+    ],
+) -> bool:
+    async with create_ldap_client() as client:
+        result = client.enable_user(user_dn)
+        return result
