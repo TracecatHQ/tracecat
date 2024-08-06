@@ -8,6 +8,7 @@ Requires: A secret named `ldap` with the following keys:
 
 """
 
+import json
 import os
 from typing import Annotated, Any
 
@@ -119,4 +120,4 @@ async def find_ldap_users(
 ) -> list[dict[str, Any]]:
     async with create_ldap_client() as client:
         users = client.find_users(base_dn, username_or_email)
-        return users.json()
+        return json.dumps(users)
