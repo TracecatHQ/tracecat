@@ -2,11 +2,12 @@ import contextlib
 import uuid
 from collections.abc import AsyncGenerator, Awaitable
 
-from fastapi import Depends, Request
-from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
+from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
 from fastapi_users.authentication import (
     AuthenticationBackend,
     CookieTransport,
+    Strategy,
 )
 from fastapi_users.authentication.strategy.db import (
     AccessTokenDatabase,
@@ -14,6 +15,7 @@ from fastapi_users.authentication.strategy.db import (
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
+from fastapi_users.openapi import OpenAPIResponseType
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -107,7 +109,45 @@ auth_backend = AuthenticationBackend(
 )
 
 
-fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
+class FastAPIUserWithLogoutRouter(FastAPIUsers[models.UP, models.ID]):
+    def get_logout_router(
+        self,
+        backend: AuthenticationBackend,
+        requires_verification: bool = config.TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION,
+    ) -> APIRouter:
+        """
+        Provide a router for logout only for OAuth/OIDC Flows.
+        This way the login router does not need to be included
+        """
+        router = APIRouter()
+        get_current_user_token = self.authenticator.current_user_token(
+            active=True, verified=requires_verification
+        )
+        logout_responses: OpenAPIResponseType = {
+            **{
+                status.HTTP_401_UNAUTHORIZED: {
+                    "description": "Missing token or inactive user."
+                }
+            },
+            **backend.transport.get_openapi_logout_responses_success(),
+        }
+
+        @router.post(
+            "/logout", name=f"auth:{backend.name}.logout", responses=logout_responses
+        )
+        async def logout(
+            user_token: tuple[models.UP, str] = Depends(get_current_user_token),
+            strategy: Strategy[models.UP, models.ID] = Depends(backend.get_strategy),
+        ) -> Response:
+            user, token = user_token
+            return await backend.logout(strategy, user, token)
+
+        return router
+
+
+fastapi_users = FastAPIUserWithLogoutRouter[User, uuid.UUID](
+    get_user_manager, [auth_backend]
+)
 
 current_active_user = fastapi_users.current_user(active=True)
 

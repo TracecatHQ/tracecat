@@ -10,6 +10,7 @@ import TracecatIcon from "public/icon.png"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { authConfig } from "@/config/auth"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -50,32 +51,38 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
           <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
           <CardTitle className="text-2xl">Sign into your account</CardTitle>
           <CardDescription>
-            Enter your email below to sign in to your account
+            Select one of the authentication methods to proceed
           </CardDescription>
         </CardHeader>
         <CardContent className="flex-col space-y-2">
-          <BasicLoginForm />
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
+          {authConfig.authTypes.includes("basic") && <BasicLoginForm />}
+          {authConfig.authTypes.length > 1 && (
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative my-6 flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or continue with
+                </span>
+              </div>
             </div>
-            <div className="relative my-6 flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with
-              </span>
-            </div>
-          </div>
-          <GoogleOAuthButton className="w-full" />
+          )}
+          {authConfig.authTypes.includes("google_oauth") && (
+            <GoogleOAuthButton className="w-full" />
+          )}
           {/* <GithubOAuthButton disabled className="hover:cur" /> */}
         </CardContent>
-        <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
-          <div className="mt-4 text-center">
-            Don&apos;t have an account?{" "}
-            <Link href="/sign-up" className="underline">
-              Sign up
-            </Link>
-          </div>
-        </CardFooter>
+        {authConfig.authTypes.includes("basic") && (
+          <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
+            <div className="mt-4 text-center">
+              Don&apos;t have an account?{" "}
+              <Link href="/sign-up" className="underline">
+                Sign up
+              </Link>
+            </div>
+          </CardFooter>
+        )}
       </div>
     </div>
   )

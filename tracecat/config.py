@@ -58,13 +58,13 @@ TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 
 # === Auth config === #
-TRACECAT__AUTH_TYPE = AuthType(
-    os.environ.get("TRACECAT__AUTH_TYPE", AuthType.DISABLED.value).lower()
-)
-TRACECAT__AUTH_DISABLED = os.environ.get("TRACECAT__AUTH_DISABLED", "0").lower() in (
-    "true",
-    "1",
-)
+TRACECAT__AUTH_TYPES = {
+    AuthType(t.lower())
+    for t in os.environ.get("TRACECAT__AUTH_TYPES", "basic,google_oauth").split(",")
+}
+TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = os.environ.get(
+    "TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION", ""
+).lower() in ("true", "1")  # Default to False
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days

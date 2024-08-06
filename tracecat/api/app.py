@@ -174,10 +174,13 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(validation_router)
+    app.include_router(
+        fastapi_users.get_users_router(UserRead, UserUpdate),
+        prefix="/users",
+        tags=["users"],
+    )
 
-    if config.TRACECAT__AUTH_TYPE == AuthType.DISABLED:
-        logger.warning("Auth is disabled. This is not recommended for production.")
-    elif config.TRACECAT__AUTH_TYPE == AuthType.BASIC:
+    if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),
             prefix="/auth",
@@ -198,12 +201,8 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth",
             tags=["auth"],
         )
-        app.include_router(
-            fastapi_users.get_users_router(UserRead, UserUpdate),
-            prefix="/users",
-            tags=["users"],
-        )
 
+    if AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES:
         oauth_client = GoogleOAuth2(
             client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
         )
@@ -224,8 +223,12 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth/oauth",
             tags=["auth"],
         )
-    else:
-        raise ValueError(f"Unsupported auth type: {config.TRACECAT__AUTH_TYPE}")
+        # Need basic auth router for `logout` endpoint
+        app.include_router(
+            fastapi_users.get_logout_router(auth_backend),
+            prefix="/auth",
+            tags=["auth"],
+        )
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
@@ -246,7 +249,7 @@ def create_app(**kwargs) -> FastAPI:
         "App started",
         env=config.TRACECAT__APP_ENV,
         origins=allow_origins,
-        auth_type=config.TRACECAT__AUTH_TYPE.value,
+        auth_types=config.TRACECAT__AUTH_TYPES,
     )
     return app
 
