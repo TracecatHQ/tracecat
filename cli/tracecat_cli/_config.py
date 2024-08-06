@@ -1,4 +1,5 @@
 import os
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,7 +20,7 @@ class Role:
 class Config:
     role: Role = field(
         default_factory=lambda: Role(
-            type="service", user_id="default-tracecat-user", service_id="tracecat-cli"
+            type="service", user_id=uuid.UUID(int=0), service_id="tracecat-cli"
         )
     )
     jwt_token: str = field(default="super-secret-jwt-token")
