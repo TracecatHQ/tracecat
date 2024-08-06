@@ -72,13 +72,16 @@ class LdapClient:
             base_dn, ldap_query, ldap3.SUBTREE, attributes=ldap3.ALL_ATTRIBUTES
         )
         if results:
-            entries = {}
+            entries = []
             for entry in self._ldap_connection.entries:
-                entries[entry.entry_dn] = {
-                    "data": json.loads(
-                        entry.entry_to_json()
-                    )  # entry is CaseInsensitiveDict containing other types that cannot be serialized
-                }
+                entries += [
+                    {
+                        "dn": entry.dn,
+                        "attributes": json.loads(
+                            entry.entry_to_json()
+                        ).attributes,  # entry is CaseInsensitiveDict containing other types that cannot be serialized
+                    }
+                ]
             return entries
         else:
             return []
