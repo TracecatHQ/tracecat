@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import pytest
 from httpx import AsyncClient
@@ -10,16 +11,16 @@ from tracecat.types.auth import Role
 
 
 @pytest.mark.asyncio
-async def test_authenticated_service_client():
+async def test_authenticated_service_client(mock_user_id):
     service_role = Role(
-        type="service", user_id="mock_user_id", service_id="mock_service_id"
+        type="service", user_id=mock_user_id, service_id="mock_service_id"
     )
     async with AuthenticatedServiceClient(role=service_role) as client:
         assert isinstance(client, AsyncClient)
         assert client.role == service_role
         assert client.headers["Service-Role"] == "mock_service_id"
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert client.headers["Service-User-ID"] == "mock_user_id"
+        assert uuid.UUID(client.headers["Service-User-ID"]) == mock_user_id
 
     service_role = Role(type="service", service_id="mock_service_id")
     async with AuthenticatedServiceClient(role=service_role) as client:
@@ -31,15 +32,15 @@ async def test_authenticated_service_client():
 
 
 @pytest.mark.asyncio
-async def test_authenticated_service_client_init_with_role():
+async def test_authenticated_service_client_init_with_role(mock_user_id):
     # Test initialization of AuthenticatedServiceClient
-    role = Role(type="service", user_id="mock_user_id", service_id="mock_service_id")
+    role = Role(type="service", user_id=mock_user_id, service_id="mock_service_id")
     async with AuthenticatedServiceClient(role=role) as client:
         assert isinstance(client, AsyncClient)
         assert client.role == role
         assert client.headers["Service-Role"] == "mock_service_id"
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert client.headers["Service-User-ID"] == "mock_user_id"
+        assert uuid.UUID(client.headers["Service-User-ID"]) == mock_user_id
 
 
 @pytest.mark.asyncio
@@ -62,11 +63,11 @@ async def test_authenticated_service_client_init_no_role():
 
 
 @pytest.mark.asyncio
-async def test_authenticated_service_client_init_role_from_context():
+async def test_authenticated_service_client_init_role_from_context(mock_user_id):
     # Test initialization of AuthenticatedServiceClient without role
     mock_ctx_role = Role(
         type="service",
-        user_id="mock_ctx_user_id",
+        user_id=mock_user_id,
         service_id="mock_ctx_service_id",
     )
     ctx_role.set(mock_ctx_role)
@@ -75,15 +76,15 @@ async def test_authenticated_service_client_init_role_from_context():
         assert client.role == mock_ctx_role
         assert client.headers["Service-Role"] == "mock_ctx_service_id"
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert client.headers["Service-User-ID"] == "mock_ctx_user_id"
+        assert uuid.UUID(client.headers["Service-User-ID"]) == mock_user_id
 
 
 @pytest.mark.asyncio
-async def test_authenticated_api_client_init_role_from_context():
+async def test_authenticated_api_client_init_role_from_context(mock_user_id):
     # Test initialization of AuthenticatedAPIClient without role
     mock_ctx_role = Role(
         type="service",
-        user_id="mock_ctx_user_id",
+        user_id=mock_user_id,
         service_id="mock_ctx_service_id",
     )
     ctx_role.set(mock_ctx_role)
@@ -92,7 +93,7 @@ async def test_authenticated_api_client_init_role_from_context():
         assert client.role == mock_ctx_role
         assert client.headers["Service-Role"] == "mock_ctx_service_id"
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert client.headers["Service-User-ID"] == "mock_ctx_user_id"
+        assert uuid.UUID(client.headers["Service-User-ID"]) == mock_user_id
         assert client.base_url == TRACECAT__API_URL
 
 
@@ -109,15 +110,15 @@ async def test_authenticated_api_client_init_no_role():
 
 
 @pytest.mark.asyncio
-async def test_authenticated_api_client_init_with_role():
+async def test_authenticated_api_client_init_with_role(mock_user_id):
     # Test initialization of AuthenticatedAPIClient
-    role = Role(type="service", user_id="mock_user_id", service_id="mock_service_id")
+    role = Role(type="service", user_id=mock_user_id, service_id="mock_service_id")
     async with AuthenticatedAPIClient(role=role) as client:
         assert isinstance(client, AsyncClient)
         assert client.role == role
         assert client.headers["Service-Role"] == "mock_service_id"
         assert client.headers["X-API-Key"] == os.environ["TRACECAT__SERVICE_KEY"]
-        assert client.headers["Service-User-ID"] == "mock_user_id"
+        assert uuid.UUID(client.headers["Service-User-ID"]) == mock_user_id
         assert client.base_url == TRACECAT__API_URL
 
     role = Role(type="service", service_id="mock_service_id")
