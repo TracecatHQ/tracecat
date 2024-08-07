@@ -86,7 +86,8 @@ class SmtpMailProvider(AsyncMailProvider):
             "auth": os.environ.get("SMTP_AUTH", "0"),
             "username": os.environ.get("SMTP_USER", ""),
             "password": os.environ.get("SMTP_PASS", ""),
-            "tls": os.environ.get("SMTP_TLS", "0"),
+            "ssl": os.environ.get("SMTP_SSL", "0"),
+            "tls": os.environ.get("SMTP_STARTTLS", "0"),
             "ignore_cert_errors": os.environ.get("SMTP_IGNORE_CERT_ERROR", "0"),
         }
 
@@ -115,7 +116,7 @@ class SmtpMailProvider(AsyncMailProvider):
 
         try:
             config = self.smtp_config
-            if config["tls"] == "1":
+            if config["ssl"] == "1":
                 context = None
                 if config["ignore_cert_errors"] == "1":
                     context = ssl._create_unverified_context()
@@ -124,6 +125,14 @@ class SmtpMailProvider(AsyncMailProvider):
                 )
             else:
                 server = smtplib.SMTP(config["host"], config["port"])
+
+            server.ehlo()
+
+            if config["tls"] == "1":
+                context = None
+                if config["ignore_cert_errors"] == "1":
+                    context = ssl._create_unverified_context()
+                server.starttls(context=context)
 
             if config["auth"] == "1":
                 server.login(config["username"], config["password"])
