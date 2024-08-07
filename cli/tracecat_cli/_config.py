@@ -11,7 +11,7 @@ load_dotenv(find_dotenv())
 @dataclass
 class Role:
     type: str
-    user_id: str | None
+    user_id: uuid.UUID | None
     service_id: str
 
 
@@ -28,8 +28,9 @@ class Config:
     docs_api_group: str = field(default="API Documentation")
     docs_api_pages_group: str = field(default="Reference")
     api_url: str = field(
-        default=os.getenv("TRACECAT__PUBLIC_API_URL", "http://localhost:8000")
+        default=os.getenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     )
+    cookies_path: Path = field(default=Path.home() / ".tracecat_cookies.json")
 
 
 config = Config()
