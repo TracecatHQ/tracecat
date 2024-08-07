@@ -14,6 +14,30 @@ from tracecat.db.schemas import Secret
 from tracecat.types.auth import Role
 
 
+def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
+    """Write cookies to file."""
+    cookies_dict = dict(cookies)
+
+    # Overwrite the cookies file
+    with cookies_path.open(mode="w") as f:
+        json.dump(cookies_dict, f)
+
+
+def read_cookies(cookies_path: Path) -> httpx.Cookies:
+    """Read cookies from file."""
+    try:
+        with cookies_path.open() as f:
+            cookies_dict = json.load(f)
+        return httpx.Cookies(cookies_dict)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return httpx.Cookies()
+
+
+def delete_cookies(cookies_path: Path) -> None:
+    """Delete cookies file."""
+    cookies_path.unlink(missing_ok=True)
+
+
 def user_client() -> httpx.AsyncClient:
     """Returns an asynchronous httpx client with the user's JWT token."""
     return httpx.AsyncClient(
