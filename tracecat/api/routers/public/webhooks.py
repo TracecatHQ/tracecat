@@ -75,4 +75,4 @@ async def incoming_webhook_sync(
         enable_runtime_tests=enable_runtime_tests,
     )
 
-    return response.final_context
+    return response["final_context"]
