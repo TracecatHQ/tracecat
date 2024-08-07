@@ -110,9 +110,12 @@ class SmtpMailProvider(AsyncMailProvider):
         else:
             msg["To"] = recipients
         msg["Subject"] = subject
-        msg["Bcc"] = bcc
-        msg["Cc"] = cc
-        msg["Reply-To"] = reply_to
+        if bcc is not None:
+            msg["Bcc"] = bcc
+        if cc is not None:
+            msg["Cc"] = cc
+        if reply_to is not None:
+            msg["Reply-To"] = reply_to
 
         try:
             config = self.smtp_config
