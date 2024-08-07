@@ -1,6 +1,7 @@
 from typing import Literal
+from uuid import UUID
 
-from pydantic import UUID4, BaseModel
+from pydantic import BaseModel
 
 
 class Role(BaseModel):
@@ -31,5 +32,5 @@ class Role(BaseModel):
     """
 
     type: Literal["user", "service"]
-    user_id: UUID4 | None = None
+    user_id: UUID | None = None
     service_id: str
