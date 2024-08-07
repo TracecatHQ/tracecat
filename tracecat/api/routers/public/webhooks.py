@@ -43,3 +43,36 @@ async def incoming_webhook(
         enable_runtime_tests=enable_runtime_tests,
     )
     return response
+
+
+@router.post("/{path}/{secret}/wait", tags=["public"])
+async def incoming_webhook_sync(
+    defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
+    path: str,
+    payload: dict[str, Any] | None = None,
+    x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """
+    Webhook endpoint to trigger a workflow.
+
+    This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
+    The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
+    """
+    logger.info("Webhook hit", path=path, payload=payload, role=ctx_role.get())
+
+    dsl_input = DSLInput(**defn.content)
+
+    enable_runtime_tests = (x_tracecat_enable_runtime_tests or "false").lower() in (
+        "1",
+        "true",
+    )
+
+    service = await WorkflowExecutionsService.connect()
+    response = await service.create_workflow_execution(
+        dsl=dsl_input,
+        wf_id=path,
+        payload=payload,
+        enable_runtime_tests=enable_runtime_tests,
+    )
+
+    return response.final_context
