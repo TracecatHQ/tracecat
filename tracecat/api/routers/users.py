@@ -5,6 +5,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat import config
 from tracecat.auth.credentials import authenticate_user
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import User
@@ -30,7 +31,7 @@ async def create_user(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="User already exists"
         )
-    user = User(owner_id="tracecat", id=role.user_id)
+    user = User(owner_id=config.TRACECAT__DEFAULT_USER_ID, id=role.user_id)
 
     session.add(user)
     await session.commit()

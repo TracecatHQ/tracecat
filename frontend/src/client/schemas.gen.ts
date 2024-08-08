@@ -210,7 +210,61 @@ export const $ActionTest = {
     title: 'ActionTest'
 } as const;
 
-export const $Body_validate_workflow = {
+export const $Body_auth_reset_forgot_password = {
+    properties: {
+        email: {
+            type: 'string',
+            format: 'email',
+            title: 'Email'
+        }
+    },
+    type: 'object',
+    required: ['email'],
+    title: 'Body_auth-reset:forgot_password'
+} as const;
+
+export const $Body_auth_reset_reset_password = {
+    properties: {
+        token: {
+            type: 'string',
+            title: 'Token'
+        },
+        password: {
+            type: 'string',
+            title: 'Password'
+        }
+    },
+    type: 'object',
+    required: ['token', 'password'],
+    title: 'Body_auth-reset:reset_password'
+} as const;
+
+export const $Body_auth_verify_request_token = {
+    properties: {
+        email: {
+            type: 'string',
+            format: 'email',
+            title: 'Email'
+        }
+    },
+    type: 'object',
+    required: ['email'],
+    title: 'Body_auth-verify:request-token'
+} as const;
+
+export const $Body_auth_verify_verify = {
+    properties: {
+        token: {
+            type: 'string',
+            title: 'Token'
+        }
+    },
+    type: 'object',
+    required: ['token'],
+    title: 'Body_auth-verify:verify'
+} as const;
+
+export const $Body_validation_validate_workflow = {
     properties: {
         definition: {
             type: 'string',
@@ -225,7 +279,7 @@ export const $Body_validate_workflow = {
     },
     type: 'object',
     required: ['definition'],
-    title: 'Body_validate_workflow'
+    title: 'Body_validation-validate_workflow'
 } as const;
 
 export const $Body_workflows_create_workflow = {
@@ -273,6 +327,7 @@ export const $CaseAction = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -300,7 +355,8 @@ export const $CaseAction = {
         user_id: {
             anyOf: [
                 {
-                    type: 'string'
+                    type: 'string',
+                    format: 'uuid4'
                 },
                 {
                     type: 'null'
@@ -388,6 +444,7 @@ export const $CaseEvent = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -488,6 +545,7 @@ export const $CaseParams = {
         },
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -550,6 +608,7 @@ export const $CaseResponse = {
         },
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -650,18 +709,6 @@ export const $CommitWorkflowResponse = {
     type: 'object',
     required: ['workflow_id', 'status', 'message'],
     title: 'CommitWorkflowResponse'
-} as const;
-
-export const $CopyWorkflowParams = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            title: 'Owner Id'
-        }
-    },
-    type: 'object',
-    required: ['owner_id'],
-    title: 'CopyWorkflowParams'
 } as const;
 
 export const $CreateActionParams = {
@@ -824,30 +871,6 @@ Secret types
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)`
-} as const;
-
-export const $CreateUserParams = {
-    properties: {
-        tier: {
-            type: 'string',
-            enum: ['free', 'pro', 'enterprise'],
-            title: 'Tier',
-            default: 'free'
-        },
-        settings: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Settings'
-        }
-    },
-    type: 'object',
-    title: 'CreateUserParams'
 } as const;
 
 export const $CreateWorkflowExecutionParams = {
@@ -1052,6 +1075,28 @@ export const $DSLRunArgs = {
     type: 'object',
     required: ['role', 'dsl', 'wf_id'],
     title: 'DSLRunArgs'
+} as const;
+
+export const $ErrorModel = {
+    properties: {
+        detail: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    additionalProperties: {
+                        type: 'string'
+                    },
+                    type: 'object'
+                }
+            ],
+            title: 'Detail'
+        }
+    },
+    type: 'object',
+    required: ['detail'],
+    title: 'ErrorModel'
 } as const;
 
 export const $EventFailure = {
@@ -1307,6 +1352,18 @@ export const $ListModel_Tag_ = {
     title: 'ListModel[Tag]'
 } as const;
 
+export const $OAuth2AuthorizeResponse = {
+    properties: {
+        authorization_url: {
+            type: 'string',
+            title: 'Authorization Url'
+        }
+    },
+    type: 'object',
+    required: ['authorization_url'],
+    title: 'OAuth2AuthorizeResponse'
+} as const;
+
 export const $Role = {
     properties: {
         type: {
@@ -1317,7 +1374,8 @@ export const $Role = {
         user_id: {
             anyOf: [
                 {
-                    type: 'string'
+                    type: 'string',
+                    format: 'uuid4'
                 },
                 {
                     type: 'null'
@@ -1333,7 +1391,7 @@ export const $Role = {
     type: 'object',
     required: ['type', 'service_id'],
     title: 'Role',
-    description: `The role of the session.
+    description: `The identity of a user or service role.
 
 Params
 ------
@@ -1394,6 +1452,7 @@ export const $Schedule = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -1575,6 +1634,7 @@ export const $Secret = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -1814,6 +1874,7 @@ export const $UDFSpec = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -2262,35 +2323,244 @@ export const $UpsertWebhookParams = {
     title: 'UpsertWebhookParams'
 } as const;
 
-export const $User = {
+export const $UserCreate = {
     properties: {
-        owner_id: {
+        email: {
             type: 'string',
-            title: 'Owner Id'
+            format: 'email',
+            title: 'Email'
         },
-        created_at: {
+        password: {
             type: 'string',
-            format: 'date-time',
-            title: 'Created At'
+            title: 'Password'
         },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
+        is_active: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Is Active',
+            default: true
         },
+        is_superuser: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Is Superuser',
+            default: false
+        },
+        is_verified: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Is Verified',
+            default: false
+        },
+        role: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/UserRole'
+                }
+            ],
+            default: 'basic'
+        },
+        first_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Name'
+        },
+        last_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Name'
+        }
+    },
+    type: 'object',
+    required: ['email', 'password'],
+    title: 'UserCreate'
+} as const;
+
+export const $UserRead = {
+    properties: {
         id: {
             type: 'string',
+            format: 'uuid',
             title: 'Id'
         },
-        tier: {
+        email: {
             type: 'string',
-            title: 'Tier',
-            default: 'free'
+            format: 'email',
+            title: 'Email'
+        },
+        is_active: {
+            type: 'boolean',
+            title: 'Is Active',
+            default: true
+        },
+        is_superuser: {
+            type: 'boolean',
+            title: 'Is Superuser',
+            default: false
+        },
+        is_verified: {
+            type: 'boolean',
+            title: 'Is Verified',
+            default: false
+        },
+        role: {
+            '$ref': '#/components/schemas/UserRole'
+        },
+        first_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Name'
+        },
+        last_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Name'
+        },
+        settings: {
+            type: 'object',
+            title: 'Settings'
+        }
+    },
+    type: 'object',
+    required: ['id', 'email', 'role', 'settings'],
+    title: 'UserRead'
+} as const;
+
+export const $UserRole = {
+    type: 'string',
+    enum: ['basic', 'admin'],
+    title: 'UserRole'
+} as const;
+
+export const $UserUpdate = {
+    properties: {
+        password: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Password'
+        },
+        email: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'email'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Email'
+        },
+        is_active: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Is Active'
+        },
+        is_superuser: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Is Superuser'
+        },
+        is_verified: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Is Verified'
+        },
+        role: {
+            '$ref': '#/components/schemas/UserRole'
+        },
+        first_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Name'
+        },
+        last_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Name'
         },
         settings: {
             anyOf: [
                 {
-                    type: 'string'
+                    type: 'object'
                 },
                 {
                     type: 'null'
@@ -2300,8 +2570,8 @@ export const $User = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at'],
-    title: 'User'
+    required: ['role'],
+    title: 'UserUpdate'
 } as const;
 
 export const $ValidationError = {
@@ -2338,6 +2608,7 @@ export const $WebhookResponse = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -2401,6 +2672,7 @@ export const $WorkflowDefinition = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -2615,6 +2887,7 @@ export const $WorkflowResponse = {
         },
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         version: {
@@ -2673,10 +2946,66 @@ export const $WorkflowResponse = {
     title: 'WorkflowResponse'
 } as const;
 
+export const $login = {
+    properties: {
+        grant_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: 'password'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Grant Type'
+        },
+        username: {
+            type: 'string',
+            title: 'Username'
+        },
+        password: {
+            type: 'string',
+            title: 'Password'
+        },
+        scope: {
+            type: 'string',
+            title: 'Scope',
+            default: ''
+        },
+        client_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Client Id'
+        },
+        client_secret: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Client Secret'
+        }
+    },
+    type: 'object',
+    required: ['username', 'password'],
+    title: 'Body_auth-auth:database.login'
+} as const;
+
 export const $tracecat__db__schemas__CaseContext = {
     properties: {
         owner_id: {
             type: 'string',
+            format: 'uuid4',
             title: 'Owner Id'
         },
         created_at: {
@@ -2704,7 +3033,8 @@ export const $tracecat__db__schemas__CaseContext = {
         user_id: {
             anyOf: [
                 {
-                    type: 'string'
+                    type: 'string',
+                    format: 'uuid4'
                 },
                 {
                     type: 'null'

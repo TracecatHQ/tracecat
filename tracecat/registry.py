@@ -11,10 +11,11 @@ from types import FunctionType, GenericAlias
 from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
+from pydantic import UUID4, BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from pydantic_core import ValidationError
 from typing_extensions import Doc
 
+from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.db.schemas import UDFSpec
 from tracecat.expressions.validation import TemplateValidator
@@ -133,7 +134,9 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
             return await self.fn(**args)
         return await asyncio.to_thread(self.fn, **args)
 
-    def to_udf_spec(self, owner_id: str = "tracecat") -> UDFSpec:
+    def to_udf_spec(
+        self, owner_id: UUID4 = config.TRACECAT__DEFAULT_USER_ID
+    ) -> UDFSpec:
         return UDFSpec(
             owner_id=owner_id,
             key=self.key,

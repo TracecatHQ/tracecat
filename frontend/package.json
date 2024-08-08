@@ -20,8 +20,6 @@
     "generate-client": "openapi-ts --input http://localhost:8000/openapi.json --output ./src/client --client axios"
   },
   "dependencies": {
-    "@clerk/clerk-js": "^5.4.0",
-    "@clerk/nextjs": "^5.0.12",
     "@dagrejs/dagre": "^1.1.2",
     "@hookform/resolvers": "^3.4.0",
     "@monaco-editor/react": "^4.6.0",
