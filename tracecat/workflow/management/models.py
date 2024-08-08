@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import UUID4, BaseModel
 
 from tracecat import identifiers
 from tracecat.contexts import RunContext
@@ -29,7 +29,7 @@ class WorkflowResponse(BaseModel):
     status: str
     actions: dict[str, ActionResponse]
     object: dict[str, Any] | None  # React Flow object
-    owner_id: str
+    owner_id: UUID4
     version: int | None = None
     webhook: WebhookResponse
     schedules: list[Schedule]

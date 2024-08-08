@@ -5,6 +5,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from httpx_oauth.clients.google import GoogleOAuth2
+from sqlalchemy import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlmodel import Session, SQLModel, delete
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
@@ -16,12 +21,16 @@ from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.schedules import router as schedules_router
 from tracecat.api.routers.secrets import router as secrets_router
 from tracecat.api.routers.udfs import router as udfs_router
-from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
+from tracecat.auth.constants import AuthType
+from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.users import auth_backend, create_default_admin_user, fastapi_users
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import initialize_db
+from tracecat.db.engine import get_async_engine, get_engine
+from tracecat.db.schemas import UDFSpec
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.registry import registry
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
@@ -29,8 +38,40 @@ from tracecat.workflow.management.router import router as workflow_management_ro
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    registry.init()
     initialize_db()
+    await create_default_admin_user()
     yield
+
+
+def initialize_db() -> Engine:
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        # Add integrations to integrations table regardless of whether it's empty
+        session.exec(delete(UDFSpec))
+        udfs = [udf.to_udf_spec() for _, udf in registry]
+        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
+        session.add_all(udfs)
+        session.commit()
+
+    return engine
+
+
+async def async_initialize_db() -> AsyncEngine:
+    registry.init()
+    engine = get_async_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    async with AsyncSession(engine) as session:
+        await session.exec(delete(UDFSpec))
+        udfs = [udf.to_udf_spec() for _, udf in registry]
+        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
+        session.add_all(udfs)
+        await session.commit()
+    return engine
 
 
 def custom_generate_unique_id(route: APIRoute):
@@ -132,8 +173,62 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_contexts_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
-    app.include_router(users_router)
     app.include_router(validation_router)
+    app.include_router(
+        fastapi_users.get_users_router(UserRead, UserUpdate),
+        prefix="/users",
+        tags=["users"],
+    )
+
+    if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
+        app.include_router(
+            fastapi_users.get_auth_router(auth_backend),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_register_router(UserRead, UserCreate),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_reset_password_router(),
+            prefix="/auth",
+            tags=["auth"],
+        )
+        app.include_router(
+            fastapi_users.get_verify_router(UserRead),
+            prefix="/auth",
+            tags=["auth"],
+        )
+
+    if AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES:
+        oauth_client = GoogleOAuth2(
+            client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
+        )
+        # This is the frontend URL that the user will be redirected to after authenticating
+        redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
+        logger.info("OAuth redirect URL", url=redirect_url)
+        app.include_router(
+            fastapi_users.get_oauth_router(
+                oauth_client,
+                auth_backend,
+                config.USER_AUTH_SECRET,
+                # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
+                associate_by_email=True,
+                is_verified_by_default=True,
+                # Points the user back to the login page
+                redirect_url=redirect_url,
+            ),
+            prefix="/auth/oauth",
+            tags=["auth"],
+        )
+        # Need basic auth router for `logout` endpoint
+        app.include_router(
+            fastapi_users.get_logout_router(auth_backend),
+            prefix="/auth",
+            tags=["auth"],
+        )
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
@@ -150,7 +245,12 @@ def create_app(**kwargs) -> FastAPI:
         allow_headers=["*"],
     )
 
-    logger.info("App started", env=config.TRACECAT__APP_ENV, origins=allow_origins)
+    logger.info(
+        "App started",
+        env=config.TRACECAT__APP_ENV,
+        origins=allow_origins,
+        auth_types=config.TRACECAT__AUTH_TYPES,
+    )
     return app
 
 

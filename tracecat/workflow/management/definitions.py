@@ -106,7 +106,11 @@ class WorkflowDefinitionsService:
         return list(result.all())
 
     async def create_workflow_definition(
-        self, workflow_id: identifiers.WorkflowID, dsl: DSLInput
+        self,
+        workflow_id: identifiers.WorkflowID,
+        dsl: DSLInput,
+        *,
+        commit: bool = True,
     ) -> WorkflowDefinition:
         statement = (
             select(WorkflowDefinition)
@@ -126,6 +130,10 @@ class WorkflowDefinitionsService:
             content=dsl.model_dump(),
             version=version,
         )
+        if commit:
+            self._session.add(defn)
+            await self._session.commit()
+            await self._session.refresh(defn)
         return defn
 
 

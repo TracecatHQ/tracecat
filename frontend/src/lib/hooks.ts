@@ -20,11 +20,7 @@ import {
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import {
-  CaseEvent,
-  type Case,
-  type WorkflowMetadata,
-} from "@/types/schemas"
+import { CaseEvent, type Case, type WorkflowMetadata } from "@/types/schemas"
 import {
   CaseEventParams,
   createCaseEvent,
@@ -34,10 +30,7 @@ import {
 } from "@/lib/cases"
 import { updateWebhook } from "@/lib/trigger"
 import { isEmptyObject } from "@/lib/utils"
-import {
-  fetchAllPlaybooks,
-  fetchAllWorkflows,
-} from "@/lib/workflow"
+import { fetchAllPlaybooks, fetchAllWorkflows } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
 

@@ -68,7 +68,60 @@ db_fernet_key=$(docker run --rm python:3.12-slim-bookworm /bin/bash -c "\
 
 echo -e "${YELLOW}Creating new .env from .env.example...${NC}"
 cp .env.example .env
+
 # Replace existing values of TRACECAT__SERVICE_KEY and TRACECAT__SIGNING_SECRET
 dotenv_replace "TRACECAT__SERVICE_KEY" "$service_key" "$env_file"
 dotenv_replace "TRACECAT__SIGNING_SECRET" "$signing_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
+
+# Prompt user for environment mode
+while true; do
+    read -p "Use production mode? (y/n, default: n): " prod_mode
+    prod_mode=${prod_mode:-n}
+    case $prod_mode in
+        [Yy]* )
+            env_mode="production"
+            break
+            ;;
+        [Nn]* )
+            env_mode="development"
+            break
+            ;;
+        * ) echo -e "${RED}Please answer y or n.${NC}";;
+    esac
+done
+
+# Prompt user for new IP address
+read -p "Enter the new IP address or domain (default: localhost): " new_ip
+new_ip=${new_ip:-localhost}
+
+# Prompt user for PostgreSQL SSL mode
+while true; do
+    read -p "Require PostgreSQL SSL mode? (y/n, default: n): " postgres_ssl
+    postgres_ssl=${postgres_ssl:-n}
+    case $postgres_ssl in
+        [Yy]* )
+            ssl_mode="require"
+            break
+            ;;
+        [Nn]* )
+            ssl_mode="disable"
+            break
+            ;;
+        * ) echo -e "${RED}Please answer y or n.${NC}";;
+    esac
+done
+
+# Update environment variables
+dotenv_replace "TRACECAT__APP_ENV" "$env_mode" "$env_file"
+dotenv_replace "NODE_ENV" "$env_mode" "$env_file"
+dotenv_replace "NEXT_PUBLIC_APP_ENV" "$env_mode" "$env_file"
+dotenv_replace "PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
+dotenv_replace "PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
+dotenv_replace "TRACECAT__DB_SSLMODE" "$ssl_mode" "$env_file"
+
+# Remove duplicate entries and leading/trailing commas
+new_origins=$(echo "$new_origins" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/^,//;s/,$//')
+dotenv_replace "TRACECAT__ALLOW_ORIGINS" "$new_origins" "$env_file"
+
+echo -e "${GREEN}Environment file created successfully.${NC}"

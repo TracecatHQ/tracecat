@@ -92,7 +92,8 @@ async def list_elastic_alerts(
                         }
                     },
                     {"match": {"signal.status": "open"}},
-                ]
+                ],
+                "must_not": [{"exists": {"field": "kibana.alert.building_block_type"}}],
             }
         },
     }

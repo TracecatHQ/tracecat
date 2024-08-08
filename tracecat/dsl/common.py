@@ -160,10 +160,11 @@ class DSLInput(BaseModel):
         # Check that we're inside an open
         if not workflow.object:
             raise ValueError("Empty workflow graph object. Is `workflow.object` set?")
+        # XXX: Invoking workflow.actions instantiates the actions relationship
+        # If it still falsy, raise a user facing error
         if not workflow.actions:
-            raise ValueError(
-                "Empty actions list. Please hydrate the workflow by "
-                "calling `workflow.actions` inside an open db session."
+            raise TracecatValidationError(
+                "Workflow has no actions. Please add an action to the workflow before committing."
             )
         graph = RFGraph.from_workflow(workflow)
         return DSLInput(
