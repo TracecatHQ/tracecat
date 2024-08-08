@@ -2,14 +2,17 @@ import asyncio
 import os
 import subprocess
 import time
+import uuid
 from uuid import uuid4
 
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 from loguru import logger
 
+from tests import shared
 from tracecat import config
-from tracecat.db.schemas import Secret
+from tracecat.db.schemas import Secret, User
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 
@@ -36,6 +39,13 @@ def pytest_addoption(parser: pytest.Parser):
     )
 
 
+@pytest.fixture(autouse=True)
+def check_disable_fixture(request):
+    marker = request.node.get_closest_marker("disable_fixture")
+    if marker and marker.args[0] == "test_user":
+        pytest.skip("Test user fixture disabled for this test or module")
+
+
 @pytest.fixture(autouse=True, scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()
@@ -53,11 +63,14 @@ def monkeysession(request):
 # NOTE: Don't auto-use this fixture unless necessary
 @pytest.fixture(scope="session")
 def auth_sandbox():
+    from tracecat import config
     from tracecat.contexts import ctx_role
     from tracecat.types.auth import Role
 
     service_role = Role(
-        type="service", user_id="default-tracecat-user", service_id="tracecat-runner"
+        type="service",
+        user_id=config.TRACECAT__DEFAULT_USER_ID,
+        service_id="tracecat-runner",
     )
     ctx_role.set(service_role)
     yield
@@ -80,8 +93,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureReques
     )
     monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
+    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("TEMPORAL__DOCKER_COMPOSE_PATH", temporal_compose_file)
     # When launching the worker directly in a test, use localhost
     # If the worker is running inside a container, use host.docker.internal
@@ -190,3 +205,46 @@ def tracecat_worker(env_sandbox):
             ["docker", "compose", "down", "--remove-orphans", "worker"], check=True
         )
         logger.info("Stopped Tracecat Temporal worker")
+
+
+@pytest.fixture
+def mock_user_id():
+    return uuid.UUID(int=0)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def test_user(env_sandbox, tmp_path_factory):
+    # Login
+    logger.info("Logging into default admin user")
+
+    tmp_path = tmp_path_factory.mktemp("cookies")
+    cookies_path = tmp_path / "cookies.json"
+
+    url = os.getenv("TRACECAT__PUBLIC_API_URL")
+
+    # Login
+    with httpx.Client(base_url=url) as client:
+        response = client.post(
+            "/auth/login",
+            data={"username": "admin@domain.com", "password": "password"},
+        )
+        response.raise_for_status()
+        shared.write_cookies(response.cookies, cookies_path=cookies_path)
+
+    # Current user
+    with httpx.Client(
+        base_url=url, cookies=shared.read_cookies(cookies_path)
+    ) as client:
+        response = client.get("/users/me")
+        response.raise_for_status()
+        user_data = response.json()
+        user = User(**user_data)
+        logger.info("Current user", user=user)
+    yield user
+    # Logout
+    logger.info("Logging out of test session")
+    with httpx.Client(
+        base_url=url, cookies=shared.read_cookies(cookies_path)
+    ) as client:
+        response = client.post("/auth/logout")
+        response.raise_for_status()

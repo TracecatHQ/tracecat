@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from pydantic import ValidationError
@@ -7,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import validation
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Action, Webhook, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
@@ -24,6 +27,14 @@ class WorkflowsManagementService:
         self.role = role or ctx_role.get()
         self.session = session
         self.logger = logger.bind(service="workflows")
+
+    @asynccontextmanager
+    @staticmethod
+    async def with_session(
+        role: Role | None = None,
+    ) -> AsyncGenerator[WorkflowsManagementService, None, None]:
+        async with get_async_session_context_manager() as session:
+            yield WorkflowsManagementService(session, role=role)
 
     async def create_workflow(title: str, description: str) -> Workflow:
         """Create a new workflow."""
