@@ -66,7 +66,7 @@ async def http_request(
 
     # TODO: Better parsing logic
     content_type = response.headers.get("Content-Type")
-    if content_type.startswith("application/json"):
+    if content_type and content_type.startswith("application/json"):
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),
