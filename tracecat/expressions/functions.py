@@ -363,7 +363,7 @@ _FUNCTION_MAPPING = {
     # Time related
     "from_timestamp": lambda x, unit,: from_timestamp(x, unit),
     "now": datetime.now,
-    "minutes": timedelta,
+    "minutes": lambda x: timedelta(minutes=x),
     "to_datetime": to_datetime,
     # Base64
     "to_base64": str_to_b64,
