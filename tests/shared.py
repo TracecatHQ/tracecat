@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from pathlib import Path
 
 import httpx
 
-from tracecat.clients import AuthenticatedAPIClient
 from tracecat.db.schemas import Secret
-from tracecat.types.auth import Role
 
 
 def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
@@ -80,20 +77,6 @@ async def activate_workflow(workflow_id: str, with_webhook: bool = False):
                 f"/workflows/{workflow_id}/webhook", json={"status": "online"}
             )
             res.raise_for_status()
-
-
-async def batch_get_secrets(role: Role, secret_names: list[str]) -> list[Secret]:
-    """Retrieve secrets from the secrets API."""
-
-    async with AuthenticatedAPIClient(role=role) as client:
-        # NOTE(perf): This is not really batched - room for improvement
-        secret_responses = await asyncio.gather(
-            *[client.get(f"/secrets/{secret_name}") for secret_name in secret_names]
-        )
-        return [
-            Secret.model_validate_json(secret_bytes.content)
-            for secret_bytes in secret_responses
-        ]
 
 
 def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:

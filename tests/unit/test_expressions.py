@@ -1,16 +1,15 @@
 import os
+import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
+import httpx
 import pytest
 import respx
-from fastapi.testclient import TestClient
 from httpx import Response
 
-from tests.shared import batch_get_secrets
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
@@ -32,15 +31,6 @@ from tracecat.types.validation import ExprValidationResult
 from tracecat.validation import get_validators
 
 
-@pytest.fixture(scope="session")
-def mock_api(monkeysession, env_sandbox, tracecat_stack):
-    monkeysession.setattr(config, "TRACECAT__DB_URI", os.environ["TRACECAT__DB_URI"])
-    from tracecat.api.app import app
-
-    with TestClient(app) as client:
-        yield client
-
-
 @pytest.mark.parametrize(
     "expression, expected_result",
     [
@@ -57,7 +47,6 @@ def test_full_template(expression, expected_result):
     assert matched == expected_result
 
 
-@pytest.mark.asyncio
 def test_eval_jsonpath():
     operand = {"webhook": {"result": 42, "data": {"name": "John", "age": 30}}}
     assert eval_jsonpath("$.webhook.result", operand) == 42
@@ -181,10 +170,7 @@ def test_find_secrets():
     assert sorted(extract_templated_secrets(mock_templated_kwargs)) == sorted(expected)
 
 
-@pytest.mark.asyncio
-async def test_evaluate_templated_secret(mock_api, auth_sandbox):
-    # Health check
-    mock_api.get("/")
+def test_evaluate_templated_secret(auth_sandbox):
     TEST_SECRETS = {
         "my_secret": [
             SecretKeyValue(key="TEST_API_KEY_1", value="1234567890"),
@@ -255,15 +241,24 @@ async def test_evaluate_templated_secret(mock_api, auth_sandbox):
             }
         return secret_dict
 
+    def get_secret(secret_name: str):
+        with httpx.Client(base_url=config.TRACECAT__API_URL) as client:
+            response = client.get(f"/secrets/{secret_name}")
+            response.raise_for_status()
+        return Secret.model_validate(response.json())
+
     with respx.mock:
         # Mock workflow getter from API side
         for secret_name, secret_keys in TEST_SECRETS.items():
             secret = Secret(
                 name=secret_name,
-                owner_id="test_user_id",
+                owner_id=uuid.uuid4(),
                 encrypted_keys=encrypt_keyvalues(
                     secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
                 ),
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                tags=None,
             )
 
             # Mock hitting get secrets endpoint
@@ -277,7 +272,7 @@ async def test_evaluate_templated_secret(mock_api, auth_sandbox):
         # Start test
         secret_paths = extract_templated_secrets(mock_templated_kwargs)
         secret_names = [path.split(".")[0] for path in secret_paths]
-        secrets = await batch_get_secrets(ctx_role.get(), secret_names)
+        secrets = [get_secret(secret_name) for secret_name in secret_names]
         secret_ctx = {ExprContext.SECRETS: format_secrets_as_json(secrets)}
         actual = eval_templated_object(obj=mock_templated_kwargs, operand=secret_ctx)
     assert actual == exptected
@@ -599,7 +594,6 @@ def assert_validation_result(
         assert contains_detail in res.detail
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "expr,expected",
     [
@@ -728,6 +722,7 @@ def assert_validation_result(
         ),
     ],
 )
+@pytest.mark.asyncio
 async def test_extract_expressions_errors(expr, expected, auth_sandbox, env_sandbox):
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
@@ -735,18 +730,21 @@ async def test_extract_expressions_errors(expr, expected, auth_sandbox, env_sand
         inputs_context={"arg": 2},
     )
     validators = get_validators()
+
     async with GatheringTaskGroup() as tg:
         visitor = ExprValidator(
-            task_group=tg, validation_context=validation_context, validators=validators
+            task_group=tg,
+            validation_context=validation_context,
+            validators=validators,
         )
         exprs = extract_expressions(expr)
-        for expr in exprs:
+        for _expr in exprs:
             # This queues up all the coros in the taskgroup
             # and executes them concurrently on exit
-            expr.validate(visitor)
+            _expr.validate(visitor)
 
     # NOTE: We are using results to get ALL validation results
     errors = list(visitor.errors())
-    print(errors)
+
     for actual, ex in zip(errors, expected, strict=True):
         assert_validation_result(actual, **ex)
