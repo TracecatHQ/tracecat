@@ -39,6 +39,13 @@ def pytest_addoption(parser: pytest.Parser):
     )
 
 
+@pytest.fixture(autouse=True)
+def check_disable_fixture(request):
+    marker = request.node.get_closest_marker("disable_fixture")
+    if marker and marker.args[0] == "test_user":
+        pytest.skip("Test user fixture disabled for this test or module")
+
+
 @pytest.fixture(autouse=True, scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()

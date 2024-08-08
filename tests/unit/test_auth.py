@@ -9,6 +9,8 @@ from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_role
 from tracecat.types.auth import Role
 
+pytest.mark.disable_fixture("test_user")
+
 
 @pytest.mark.asyncio
 async def test_authenticated_service_client(mock_user_id):

@@ -118,4 +118,5 @@ log_cli_level = "INFO"
 markers = [
     "webtest: marks test that require the web",
     "slow: marks tests as slow",
+    "disable_fixture: marks tests that disable fixtures",
 ]
