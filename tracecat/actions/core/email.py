@@ -12,13 +12,13 @@ from typing import Any
 from loguru import logger
 
 from tracecat.config import (
-    SMTP_AUTH,
+    SMTP_AUTH_ENABLED,
     SMTP_HOST,
     SMTP_IGNORE_CERT_ERRORS,
     SMTP_PASS,
     SMTP_PORT,
-    SMTP_SSL,
-    SMTP_STARTTLS,
+    SMTP_SSL_ENABLED,
+    SMTP_STARTTLS_ENABLED,
     SMTP_USER,
 )
 from tracecat.registry import registry
@@ -114,7 +114,7 @@ class SmtpMailProvider(AsyncMailProvider):
             msg["Reply-To"] = reply_to
 
         try:
-            if SMTP_SSL:
+            if SMTP_SSL_ENABLED:
                 context = None
                 if SMTP_IGNORE_CERT_ERRORS:
                     context = ssl._create_unverified_context()
@@ -124,13 +124,13 @@ class SmtpMailProvider(AsyncMailProvider):
 
             server.ehlo()
 
-            if SMTP_STARTTLS:
+            if SMTP_STARTTLS_ENABLED:
                 context = None
                 if SMTP_IGNORE_CERT_ERRORS:
                     context = ssl._create_unverified_context()
                 server.starttls(context=context)
 
-            if SMTP_AUTH:
+            if SMTP_AUTH_ENABLED:
                 server.login(SMTP_USER, SMTP_PASS)
 
             # Send the email
