@@ -59,3 +59,13 @@ RETRY_EXPONENTIAL_MULTIPLIER = 1
 RETRY_MIN_WAIT_TIME = 1
 RETRY_MAX_WAIT_TIME = 60
 RETRY_STOP_AFTER_ATTEMPT = 5
+
+# SMTP Settings
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = os.environ.get("SMTP_PORT", 25)
+SMTP_STARTTLS = os.environ.get("SMTP_STARTTLS", False)
+SMTP_SSL = os.environ.get("SMTP_SSL", False)
+SMTP_IGNORE_CERT_ERRORS = os.environ.get("SMTP_IGNORE_CERT_ERRORS", False)
+SMTP_AUTH = os.environ.get("SMTP_AUTH", False)
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
