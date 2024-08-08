@@ -60,6 +60,25 @@ class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
     user: "User" = Relationship(back_populates="oauth_accounts")
 
 
+class Organization(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    memberships: list["Membership"] = Relationship(back_populates="organization")
+    # workspaces: list["Workspace"] = Relationship(back_populates="organization")
+
+
+class Membership(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    organization_id: int = Field(foreign_key="organization.id")
+    team_id: int | None = Field(foreign_key="team.id", default=None)
+    is_owner: bool = Field(default=False)
+    role: str | None = None
+    user: "User" = Relationship(back_populates="memberships")
+    organization: Organization = Relationship(back_populates="memberships")
+    # workspace: "Workspace" | None = Relationship(back_populates="memberships")
+
+
 class User(SQLModelBaseUserDB, table=True):
     first_name: str | None = Field(default=None, max_length=255)
     last_name: str | None = Field(default=None, max_length=255)
