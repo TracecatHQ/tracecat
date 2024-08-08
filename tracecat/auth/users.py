@@ -150,6 +150,7 @@ fastapi_users = FastAPIUserWithLogoutRouter[User, uuid.UUID](
 )
 
 current_active_user = fastapi_users.current_user(active=True)
+optional_current_active_user = fastapi_users.current_user(active=True, optional=True)
 
 
 async def create_user(params: UserCreate, exist_ok: bool = True) -> User | None:

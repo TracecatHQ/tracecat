@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 
 from tracecat import config
-from tracecat.auth.users import current_active_user
+from tracecat.auth.users import current_active_user, optional_current_active_user
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import User
 from tracecat.logging import logger
@@ -24,6 +24,14 @@ CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
+)
+
+HTTP_EXC = partial(
+    lambda msg: HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=msg or "Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 )
 
 
@@ -51,34 +59,30 @@ def _internal_get_role_from_service_key(
     )
 
 
-HTTP_EXC = partial(
-    lambda msg: HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=msg or "Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-)
-
-
-async def _get_role_from_service_key(request: Request, api_key: str) -> Role:
-    user_id = request.headers.get("Service-User-ID")
-    service_role_name = request.headers.get("Service-Role")
-    role = _internal_get_role_from_service_key(
-        user_id=user_id, service_role_name=service_role_name, api_key=api_key
-    )
-    return role
-
-
 async def authenticate_user(
-    current_user: Annotated[User, Depends(current_active_user)],
+    user: Annotated[User, Depends(current_active_user)],
 ) -> Role:
     """Map the current user to a role.
 
     `ctx_role` ContextVar is set here.
     """
-    role = Role(type="user", user_id=str(current_user.id), service_id="tracecat-api")
+    role = Role(type="user", user_id=str(user.id), service_id="tracecat-api")
     ctx_role.set(role)
     return role
+
+
+async def optional_authenticate_user(
+    user: Annotated[User | None, Depends(optional_current_active_user)],
+) -> Role | None:
+    """Map the current user to a role if available, else return None.
+
+    `ctx_role` ContextVar is set if the user is available.
+    """
+    if user:
+        role = Role(type="user", user_id=str(user.id), service_id="tracecat-api")
+        ctx_role.set(role)
+        return role
+    return None
 
 
 async def authenticate_service(
@@ -89,13 +93,17 @@ async def authenticate_service(
 
     `ctx_role` ContextVar is set here.
     """
-    role = await _get_role_from_service_key(request, api_key)
+    user_id = request.headers.get("Service-User-ID")
+    service_role_name = request.headers.get("Service-Role")
+    role = _internal_get_role_from_service_key(
+        user_id=user_id, service_role_name=service_role_name, api_key=api_key
+    )
     ctx_role.set(role)
     return role
 
 
 async def authenticate_user_or_service(
-    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    role_from_user: Annotated[Role | None, Depends(optional_authenticate_user)] = None,
     api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
     request: Request = None,
 ) -> Role:
@@ -103,8 +111,8 @@ async def authenticate_user_or_service(
 
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
-    if token:
-        return await authenticate_user(token)
+    if role_from_user:
+        return role_from_user
     if api_key:
         return await authenticate_service(request, api_key)
     raise HTTP_EXC("Could not validate credentials")
