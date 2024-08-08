@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server"
-import clerkMiddleware from "@/middleware/clerk"
 
-import { authConfig } from "@/config/auth"
-
-const middleware = authConfig.disabled
-  ? () => NextResponse.next()
-  : clerkMiddleware
+const middleware = () => NextResponse.next()
 
 export default middleware
 export const config = {

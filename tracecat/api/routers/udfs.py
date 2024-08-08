@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import validation
+from tracecat import config, validation
 from tracecat.auth.credentials import authenticate_user
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import UDFSpec
@@ -26,7 +26,7 @@ async def list_udfs(
     """List all user-defined function specifications for a user."""
     statement = select(UDFSpec).where(
         or_(
-            UDFSpec.owner_id == "tracecat",
+            UDFSpec.owner_id == config.TRACECAT__DEFAULT_USER_ID,
             UDFSpec.owner_id == role.user_id,
         )
     )
@@ -50,7 +50,7 @@ async def get_udf(
     """Get a user-defined function specification."""
     statement = select(UDFSpec).where(
         or_(
-            UDFSpec.owner_id == "tracecat",
+            UDFSpec.owner_id == config.TRACECAT__DEFAULT_USER_ID,
             UDFSpec.owner_id == role.user_id,
         ),
         UDFSpec.key == udf_key,

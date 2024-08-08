@@ -3,17 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { CheckHealthResponse, PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCopyWorkflowData, WorkflowsCopyWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, UsersGetUserResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserResponse, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, ValidateWorkflowData, ValidateWorkflowResponse } from './types.gen';
-
-/**
- * Check Health
- * @returns string Successful Response
- * @throws ApiError
- */
-export const checkHealth = (): CancelablePromise<CheckHealthResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/health'
-}); };
+import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, PublicCheckHealthResponse } from './types.gen';
 
 /**
  * Incoming Webhook
@@ -174,28 +164,6 @@ export const workflowsDeleteWorkflow = (data: WorkflowsDeleteWorkflowData): Canc
 }); };
 
 /**
- * Copy Workflow
- * Copy a workflow. Not intended for users.
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const workflowsCopyWorkflow = (data: WorkflowsCopyWorkflowData): CancelablePromise<WorkflowsCopyWorkflowResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/workflows/{workflow_id}/copy',
-    path: {
-        workflow_id: data.workflowId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
  * Commit Workflow
  * Commit a workflow.
  *
@@ -253,6 +221,69 @@ export const workflowsCreateWorkflowDefinition = (data: WorkflowsCreateWorkflowD
     path: {
         workflow_id: data.workflowId
     },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Create Webhook
+ * Create a webhook for a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateWebhook = (data: TriggersCreateWebhookData): CancelablePromise<TriggersCreateWebhookResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/workflows/{workflow_id}/webhook',
+    path: {
+        workflow_id: data.workflowId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Webhook
+ * Get the webhook from a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @returns WebhookResponse Successful Response
+ * @throws ApiError
+ */
+export const triggersGetWebhook = (data: TriggersGetWebhookData): CancelablePromise<TriggersGetWebhookResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/workflows/{workflow_id}/webhook',
+    path: {
+        workflow_id: data.workflowId
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Update Webhook
+ * Update the webhook for a workflow. We currently supprt only one webhook per workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateWebhook = (data: TriggersUpdateWebhookData): CancelablePromise<TriggersUpdateWebhookResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/workflows/{workflow_id}/webhook',
+    path: {
+        workflow_id: data.workflowId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
     errors: {
         422: 'Validation Error'
     }
@@ -375,184 +406,6 @@ export const workflowExecutionsTerminateWorkflowExecution = (data: WorkflowExecu
 }); };
 
 /**
- * Create Webhook
- * Create a webhook for a workflow.
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.requestBody
- * @returns unknown Successful Response
- * @throws ApiError
- */
-export const triggersCreateWebhook = (data: TriggersCreateWebhookData): CancelablePromise<TriggersCreateWebhookResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/workflows/{workflow_id}/webhook',
-    path: {
-        workflow_id: data.workflowId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Get Webhook
- * Get the webhook from a workflow.
- * @param data The data for the request.
- * @param data.workflowId
- * @returns WebhookResponse Successful Response
- * @throws ApiError
- */
-export const triggersGetWebhook = (data: TriggersGetWebhookData): CancelablePromise<TriggersGetWebhookResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/workflows/{workflow_id}/webhook',
-    path: {
-        workflow_id: data.workflowId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Update Webhook
- * Update the webhook for a workflow. We currently supprt only one webhook per workflow.
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const triggersUpdateWebhook = (data: TriggersUpdateWebhookData): CancelablePromise<TriggersUpdateWebhookResponse> => { return __request(OpenAPI, {
-    method: 'PATCH',
-    url: '/workflows/{workflow_id}/webhook',
-    path: {
-        workflow_id: data.workflowId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * List Schedules
- * List all schedules for a workflow.
- * @param data The data for the request.
- * @param data.workflowId
- * @returns Schedule Successful Response
- * @throws ApiError
- */
-export const schedulesListSchedules = (data: SchedulesListSchedulesData = {}): CancelablePromise<SchedulesListSchedulesResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/schedules',
-    query: {
-        workflow_id: data.workflowId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Create Schedule
- * Create a schedule for a workflow.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns Schedule Successful Response
- * @throws ApiError
- */
-export const schedulesCreateSchedule = (data: SchedulesCreateScheduleData): CancelablePromise<SchedulesCreateScheduleResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/schedules',
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Get Schedule
- * Get a schedule from a workflow.
- * @param data The data for the request.
- * @param data.scheduleId
- * @returns Schedule Successful Response
- * @throws ApiError
- */
-export const schedulesGetSchedule = (data: SchedulesGetScheduleData): CancelablePromise<SchedulesGetScheduleResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/schedules/{schedule_id}',
-    path: {
-        schedule_id: data.scheduleId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Update Schedule
- * Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields.
- * @param data The data for the request.
- * @param data.scheduleId
- * @param data.requestBody
- * @returns Schedule Successful Response
- * @throws ApiError
- */
-export const schedulesUpdateSchedule = (data: SchedulesUpdateScheduleData): CancelablePromise<SchedulesUpdateScheduleResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/schedules/{schedule_id}',
-    path: {
-        schedule_id: data.scheduleId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Delete Schedule
- * Delete a schedule from a workflow.
- * @param data The data for the request.
- * @param data.scheduleId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const schedulesDeleteSchedule = (data: SchedulesDeleteScheduleData): CancelablePromise<SchedulesDeleteScheduleResponse> => { return __request(OpenAPI, {
-    method: 'DELETE',
-    url: '/schedules/{schedule_id}',
-    path: {
-        schedule_id: data.scheduleId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Search Schedules
- * **[WORK IN PROGRESS]** Search for schedules.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns Schedule Successful Response
- * @throws ApiError
- */
-export const schedulesSearchSchedules = (data: SchedulesSearchSchedulesData): CancelablePromise<SchedulesSearchSchedulesResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/schedules/search',
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
  * List Actions
  * List all actions for a workflow.
  * @param data The data for the request.
@@ -648,6 +501,91 @@ export const actionsDeleteAction = (data: ActionsDeleteActionData): CancelablePr
     path: {
         action_id: data.actionId
     },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * List Udfs
+ * List all user-defined function specifications for a user.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.ns
+ * @returns UDFSpec Successful Response
+ * @throws ApiError
+ */
+export const udfsListUdfs = (data: UdfsListUdfsData = {}): CancelablePromise<UdfsListUdfsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/udfs',
+    query: {
+        limit: data.limit,
+        ns: data.ns
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Udf
+ * Get a user-defined function specification.
+ * @param data The data for the request.
+ * @param data.udfKey
+ * @param data.namespace
+ * @returns UDFSpec Successful Response
+ * @throws ApiError
+ */
+export const udfsGetUdf = (data: UdfsGetUdfData): CancelablePromise<UdfsGetUdfResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/udfs/{udf_key}',
+    path: {
+        udf_key: data.udfKey
+    },
+    query: {
+        namespace: data.namespace
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Create Udf
+ * Create a user-defined function specification.
+ * @param data The data for the request.
+ * @param data.udfKey
+ * @returns UDFSpec Successful Response
+ * @throws ApiError
+ */
+export const udfsCreateUdf = (data: UdfsCreateUdfData): CancelablePromise<UdfsCreateUdfResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/udfs/{udf_key}',
+    path: {
+        udf_key: data.udfKey
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Validate Udf Args
+ * Validate user-defined function's arguments.
+ * @param data The data for the request.
+ * @param data.udfKey
+ * @param data.requestBody
+ * @returns UDFArgsValidationResponse Successful Response
+ * @throws ApiError
+ */
+export const udfsValidateUdfArgs = (data: UdfsValidateUdfArgsData): CancelablePromise<UdfsValidateUdfArgsResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/udfs/{udf_key}/validate',
+    path: {
+        udf_key: data.udfKey
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
     errors: {
         422: 'Validation Error'
     }
@@ -908,46 +846,6 @@ export const casesDeleteCaseContext = (data: CasesDeleteCaseContextData): Cancel
 }); };
 
 /**
- * Get User
- * Get a user.
- * @returns User Successful Response
- * @throws ApiError
- */
-export const usersGetUser = (): CancelablePromise<UsersGetUserResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/users'
-}); };
-
-/**
- * Update User
- * Update a user.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const usersUpdateUser = (data: UsersUpdateUserData): CancelablePromise<UsersUpdateUserResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/users',
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Delete User
- * Delete a user.
- * @returns void Successful Response
- * @throws ApiError
- */
-export const usersDeleteUser = (): CancelablePromise<UsersDeleteUserResponse> => { return __request(OpenAPI, {
-    method: 'DELETE',
-    url: '/users'
-}); };
-
-/**
  * List Secrets
  * List user secrets.
  * @returns SecretResponse Successful Response
@@ -1055,20 +953,18 @@ export const secretsSearchSecrets = (data: SecretsSearchSecretsData): Cancelable
 }); };
 
 /**
- * List Udfs
- * List all user-defined function specifications for a user.
+ * List Schedules
+ * List all schedules for a workflow.
  * @param data The data for the request.
- * @param data.limit
- * @param data.ns
- * @returns UDFSpec Successful Response
+ * @param data.workflowId
+ * @returns Schedule Successful Response
  * @throws ApiError
  */
-export const udfsListUdfs = (data: UdfsListUdfsData = {}): CancelablePromise<UdfsListUdfsResponse> => { return __request(OpenAPI, {
+export const schedulesListSchedules = (data: SchedulesListSchedulesData = {}): CancelablePromise<SchedulesListSchedulesResponse> => { return __request(OpenAPI, {
     method: 'GET',
-    url: '/udfs',
+    url: '/schedules',
     query: {
-        limit: data.limit,
-        ns: data.ns
+        workflow_id: data.workflowId
     },
     errors: {
         422: 'Validation Error'
@@ -1076,62 +972,94 @@ export const udfsListUdfs = (data: UdfsListUdfsData = {}): CancelablePromise<Udf
 }); };
 
 /**
- * Get Udf
- * Get a user-defined function specification.
+ * Create Schedule
+ * Create a schedule for a workflow.
  * @param data The data for the request.
- * @param data.udfKey
- * @param data.namespace
- * @returns UDFSpec Successful Response
- * @throws ApiError
- */
-export const udfsGetUdf = (data: UdfsGetUdfData): CancelablePromise<UdfsGetUdfResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/udfs/{udf_key}',
-    path: {
-        udf_key: data.udfKey
-    },
-    query: {
-        namespace: data.namespace
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Create Udf
- * Create a user-defined function specification.
- * @param data The data for the request.
- * @param data.udfKey
- * @returns UDFSpec Successful Response
- * @throws ApiError
- */
-export const udfsCreateUdf = (data: UdfsCreateUdfData): CancelablePromise<UdfsCreateUdfResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/udfs/{udf_key}',
-    path: {
-        udf_key: data.udfKey
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Validate Udf Args
- * Validate user-defined function's arguments.
- * @param data The data for the request.
- * @param data.udfKey
  * @param data.requestBody
- * @returns UDFArgsValidationResponse Successful Response
+ * @returns Schedule Successful Response
  * @throws ApiError
  */
-export const udfsValidateUdfArgs = (data: UdfsValidateUdfArgsData): CancelablePromise<UdfsValidateUdfArgsResponse> => { return __request(OpenAPI, {
+export const schedulesCreateSchedule = (data: SchedulesCreateScheduleData): CancelablePromise<SchedulesCreateScheduleResponse> => { return __request(OpenAPI, {
     method: 'POST',
-    url: '/udfs/{udf_key}/validate',
+    url: '/schedules',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Schedule
+ * Get a schedule from a workflow.
+ * @param data The data for the request.
+ * @param data.scheduleId
+ * @returns Schedule Successful Response
+ * @throws ApiError
+ */
+export const schedulesGetSchedule = (data: SchedulesGetScheduleData): CancelablePromise<SchedulesGetScheduleResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/schedules/{schedule_id}',
     path: {
-        udf_key: data.udfKey
+        schedule_id: data.scheduleId
     },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Update Schedule
+ * Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields.
+ * @param data The data for the request.
+ * @param data.scheduleId
+ * @param data.requestBody
+ * @returns Schedule Successful Response
+ * @throws ApiError
+ */
+export const schedulesUpdateSchedule = (data: SchedulesUpdateScheduleData): CancelablePromise<SchedulesUpdateScheduleResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/schedules/{schedule_id}',
+    path: {
+        schedule_id: data.scheduleId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Delete Schedule
+ * Delete a schedule from a workflow.
+ * @param data The data for the request.
+ * @param data.scheduleId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const schedulesDeleteSchedule = (data: SchedulesDeleteScheduleData): CancelablePromise<SchedulesDeleteScheduleResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/schedules/{schedule_id}',
+    path: {
+        schedule_id: data.scheduleId
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Search Schedules
+ * **[WORK IN PROGRESS]** Search for schedules.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns Schedule Successful Response
+ * @throws ApiError
+ */
+export const schedulesSearchSchedules = (data: SchedulesSearchSchedulesData): CancelablePromise<SchedulesSearchSchedulesResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/schedules/search',
     body: data.requestBody,
     mediaType: 'application/json',
     errors: {
@@ -1149,7 +1077,7 @@ export const udfsValidateUdfArgs = (data: UdfsValidateUdfArgsData): CancelablePr
  * @returns UDFArgsValidationResponse Successful Response
  * @throws ApiError
  */
-export const validateWorkflow = (data: ValidateWorkflowData): CancelablePromise<ValidateWorkflowResponse> => { return __request(OpenAPI, {
+export const validationValidateWorkflow = (data: ValidationValidateWorkflowData): CancelablePromise<ValidationValidateWorkflowResponse> => { return __request(OpenAPI, {
     method: 'POST',
     url: '/validate-workflow',
     formData: data.formData,
@@ -1157,4 +1085,278 @@ export const validateWorkflow = (data: ValidateWorkflowData): CancelablePromise<
     errors: {
         422: 'Validation Error'
     }
+}); };
+
+/**
+ * Auth:Database.Login
+ * @param data The data for the request.
+ * @param data.formData
+ * @returns unknown Successful Response
+ * @returns void No Content
+ * @throws ApiError
+ */
+export const authAuthDatabaseLogin = (data: AuthAuthDatabaseLoginData): CancelablePromise<AuthAuthDatabaseLoginResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/login',
+    formData: data.formData,
+    mediaType: 'application/x-www-form-urlencoded',
+    errors: {
+        400: 'Bad Request',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Auth:Database.Logout
+ * @returns unknown Successful Response
+ * @returns void No Content
+ * @throws ApiError
+ */
+export const authAuthDatabaseLogout = (): CancelablePromise<AuthAuthDatabaseLogoutResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/logout',
+    errors: {
+        401: 'Missing token or inactive user.'
+    }
+}); };
+
+/**
+ * Register:Register
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const authRegisterRegister = (data: AuthRegisterRegisterData): CancelablePromise<AuthRegisterRegisterResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/register',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        400: 'Bad Request',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Reset:Forgot Password
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const authResetForgotPassword = (data: AuthResetForgotPasswordData): CancelablePromise<AuthResetForgotPasswordResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/forgot-password',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Reset:Reset Password
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const authResetResetPassword = (data: AuthResetResetPasswordData): CancelablePromise<AuthResetResetPasswordResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/reset-password',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        400: 'Bad Request',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Verify:Request-Token
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const authVerifyRequestToken = (data: AuthVerifyRequestTokenData): CancelablePromise<AuthVerifyRequestTokenResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/request-verify-token',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Verify:Verify
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const authVerifyVerify = (data: AuthVerifyVerifyData): CancelablePromise<AuthVerifyVerifyResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/auth/verify',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        400: 'Bad Request',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Users:Current User
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersCurrentUser = (): CancelablePromise<UsersUsersCurrentUserResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/users/me',
+    errors: {
+        401: 'Missing token or inactive user.'
+    }
+}); };
+
+/**
+ * Users:Patch Current User
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersPatchCurrentUser = (data: UsersUsersPatchCurrentUserData): CancelablePromise<UsersUsersPatchCurrentUserResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/users/me',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        400: 'Bad Request',
+        401: 'Missing token or inactive user.',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Users:User
+ * @param data The data for the request.
+ * @param data.id
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersUser = (data: UsersUsersUserData): CancelablePromise<UsersUsersUserResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/users/{id}',
+    path: {
+        id: data.id
+    },
+    errors: {
+        401: 'Missing token or inactive user.',
+        403: 'Not a superuser.',
+        404: 'The user does not exist.',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Users:Patch User
+ * @param data The data for the request.
+ * @param data.id
+ * @param data.requestBody
+ * @returns UserRead Successful Response
+ * @throws ApiError
+ */
+export const usersUsersPatchUser = (data: UsersUsersPatchUserData): CancelablePromise<UsersUsersPatchUserResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/users/{id}',
+    path: {
+        id: data.id
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        400: 'Bad Request',
+        401: 'Missing token or inactive user.',
+        403: 'Not a superuser.',
+        404: 'The user does not exist.',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Users:Delete User
+ * @param data The data for the request.
+ * @param data.id
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const usersUsersDeleteUser = (data: UsersUsersDeleteUserData): CancelablePromise<UsersUsersDeleteUserResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/users/{id}',
+    path: {
+        id: data.id
+    },
+    errors: {
+        401: 'Missing token or inactive user.',
+        403: 'Not a superuser.',
+        404: 'The user does not exist.',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Oauth:Google.Database.Authorize
+ * @param data The data for the request.
+ * @param data.scopes
+ * @returns OAuth2AuthorizeResponse Successful Response
+ * @throws ApiError
+ */
+export const authOauthGoogleDatabaseAuthorize = (data: AuthOauthGoogleDatabaseAuthorizeData = {}): CancelablePromise<AuthOauthGoogleDatabaseAuthorizeResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/auth/oauth/authorize',
+    query: {
+        scopes: data.scopes
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Oauth:Google.Database.Callback
+ * The response varies based on the authentication backend used.
+ * @param data The data for the request.
+ * @param data.code
+ * @param data.codeVerifier
+ * @param data.state
+ * @param data.error
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const authOauthGoogleDatabaseCallback = (data: AuthOauthGoogleDatabaseCallbackData = {}): CancelablePromise<AuthOauthGoogleDatabaseCallbackResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/auth/oauth/callback',
+    query: {
+        code: data.code,
+        code_verifier: data.codeVerifier,
+        state: data.state,
+        error: data.error
+    },
+    errors: {
+        400: 'Bad Request',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Check Health
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const publicCheckHealth = (): CancelablePromise<PublicCheckHealthResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/health'
 }); };

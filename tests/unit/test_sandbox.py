@@ -53,15 +53,15 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
 
 
 @pytest.mark.asyncio
-async def test_auth_sandbox_without_secrets(auth_sandbox):
+async def test_auth_sandbox_without_secrets(auth_sandbox, mock_user_id):
     # Auth sandbox has a different role.
     with TemporaryRole(
-        type="service", user_id="test-tracecat-user", service_id="tracecat-testing"
+        type="service", user_id=mock_user_id, service_id="tracecat-testing"
     ):
         async with AuthSandbox() as sandbox:
             assert sandbox.secrets == {}
             assert sandbox._role == Role(
                 type="service",
-                user_id="test-tracecat-user",
+                user_id=mock_user_id,
                 service_id="tracecat-testing",
             )
