@@ -5,6 +5,7 @@ from sqlalchemy import or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat import config
 from tracecat.auth.credentials import authenticate_user
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import CaseAction
@@ -22,7 +23,7 @@ async def list_case_actions(
     """List all case actions."""
     statement = select(CaseAction).where(
         or_(
-            CaseAction.owner_id == "tracecat",
+            CaseAction.owner_id == config.TRACECAT__DEFAULT_USER_ID,
             CaseAction.owner_id == role.user_id,
         )
     )

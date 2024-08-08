@@ -1,81 +1,20 @@
-import { redirect } from "next/navigation"
-import { Clerk } from "@clerk/clerk-js"
-import {
-  useClerk as __useClerk,
-  useUser as __useClerkUser,
-} from "@clerk/nextjs"
-import {
-  auth as __auth,
-  currentUser as __currentUser,
-} from "@clerk/nextjs/server"
+import { UserRead } from "@/client"
+import { AxiosError } from "axios"
 
-import { authConfig } from "@/config/auth"
-import { isServer } from "@/lib/utils"
+import { client } from "@/lib/api"
 
-export const auth = !authConfig.disabled
-  ? __auth
-  : () => {
-      console.warn("Auth is disabled, using test token.")
-      return {
-        userId: null,
-      } as ReturnType<typeof __auth>
-    }
-
-export const currentUser = !authConfig.disabled
-  ? __currentUser
-  : async () => {
-      console.warn("Auth is disabled, using test user.")
+export async function getCurrentUser(): Promise<UserRead | null> {
+  try {
+    const response = await client.get("/users/me")
+    return response.data as UserRead
+  } catch (error) {
+    if (error instanceof AxiosError) {
+      // Backend throws 401 unauthorized if the user is not logged in
+      console.log("User is not logged in")
       return null
+    } else {
+      console.error("Error fetching current user", error)
+      throw error
     }
-// Auth hooks
-/**
- * If auth is enabled, returns the user object from Clerk.
- * If auth is disabled, returns a mock user object.
- * @returns useUser hook
- */
-export function useUser() {
-  if (authConfig.disabled) {
-    return {
-      user: null,
-    } as ReturnType<typeof __useClerkUser>
   }
-  return __useClerkUser()
-}
-
-export function useClerk() {
-  if (authConfig.disabled) {
-    return {
-      signOut: () => {},
-    } as ReturnType<typeof __useClerk>
-  }
-  return __useClerk()
-}
-
-const __clerk = authConfig.disabled
-  ? undefined
-  : new Clerk(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!)
-
-/**
- * Gets the auth token, or redirects to the login page
- *
- * @returns The authentication token
- *
- */
-export async function getAuthToken() {
-  if (authConfig.disabled) {
-    console.warn("Auth is disabled, using test token `super-secret-jwt-token`")
-    return "super-secret-jwt-token"
-  }
-  let token: string | null | undefined
-  if (isServer()) {
-    token = await auth().getToken()
-  } else {
-    await __clerk?.load()
-    token = await __clerk?.session?.getToken()
-  }
-  if (!token) {
-    console.error("Failed to get authenticated client, redirecting to login")
-    return redirect("/")
-  }
-  return token
 }

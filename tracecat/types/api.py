@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import UUID4, BaseModel, Field, ValidationError, field_validator
 
 from tracecat import identifiers
 from tracecat.db.schemas import Resource
@@ -153,7 +153,7 @@ class CaseContext(BaseModel):
 class CaseParams(BaseModel):
     # SQLModel defaults
     id: str
-    owner_id: str
+    owner_id: UUID4
     created_at: str  # ISO 8601
     updated_at: str  # ISO 8601
     # Case related fields
@@ -172,7 +172,7 @@ class CaseParams(BaseModel):
 
 class CaseResponse(BaseModel):
     id: str
-    owner_id: str
+    owner_id: UUID4
     created_at: datetime
     updated_at: datetime
     workflow_id: str

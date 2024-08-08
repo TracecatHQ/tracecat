@@ -6,24 +6,25 @@ import rich
 import typer
 
 from ._config import config
-
-_headers = {"Authorization": f"Bearer {config.jwt_token}"}
+from ._utils import read_cookies
 
 
 def _aclient():
-    return httpx.AsyncClient(headers=_headers, base_url=config.api_url)
+    return httpx.AsyncClient(
+        base_url=config.api_url, cookies=read_cookies(config.cookies_path)
+    )
 
 
 def _client():
-    return httpx.Client(headers=_headers, base_url=config.api_url)
+    return httpx.Client(
+        base_url=config.api_url, cookies=read_cookies(config.cookies_path)
+    )
 
 
 class Client:
     """Tracecat API client."""
 
     def __init__(self):
-        self.headers = ({"Authorization": f"Bearer {config.jwt_token}"},)
-        self.base_url = config.api_url
         self.client = None
         self.aclient = None
 

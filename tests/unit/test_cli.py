@@ -3,14 +3,33 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def mock_login():
+    cmd = [
+        "tracecat",
+        "auth",
+        "login",
+        "--username",
+        "admin@domain.com",
+        "--password",
+        "password",
+    ]
+    subprocess.run(cmd, capture_output=True, text=True)
+    yield
+    subprocess.run(["tracecat", "auth", "logout"], capture_output=True, text=True)
+
+
 def test_whoami():
-    cmd = ["tracecat", "dev", "whoami"]
+    cmd = ["tracecat", "auth", "whoami"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
-    assert "user_id='default-tracecat-user'" in result.stdout
+    data = result.stdout.replace("\n", " ")
+    assert "admin@domain.com" in data
 
 
 def test_create_secret():

@@ -39,6 +39,9 @@ _private_key.pem
 *.sublime-workspace
 *.sublime-project
 
+# MacOS
+.DS_Store
+
 # Logs and backup files
 *.log
 *.bak

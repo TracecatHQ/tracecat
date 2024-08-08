@@ -5,12 +5,18 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import computed_field, field_validator
+from pydantic import UUID4, computed_field, field_validator
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import UUID, Field, Relationship, SQLModel
 
 from tracecat import config
+from tracecat.auth.schemas import UserRole
+from tracecat.db.adapter import (
+    SQLModelBaseAccessToken,
+    SQLModelBaseOAuthAccount,
+    SQLModelBaseUserDB,
+)
 from tracecat.identifiers import action, id_factory
 
 DEFAULT_CASE_ACTIONS = [
@@ -31,7 +37,7 @@ class Resource(SQLModel):
     """Base class for all resources in the system."""
 
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
-    owner_id: str
+    owner_id: UUID4
     created_at: datetime = Field(
         sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
@@ -49,22 +55,30 @@ class Resource(SQLModel):
     )
 
 
-class User(Resource, table=True):
-    # The id is also the JWT 'sub' claim
-    id: str = Field(
-        default_factory=id_factory("user"), nullable=False, unique=True, index=True
+class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
+    user_id: UUID4 = Field(foreign_key="user.id")
+    user: "User" = Relationship(back_populates="oauth_accounts")
+
+
+class User(SQLModelBaseUserDB, table=True):
+    first_name: str | None = Field(default=None, max_length=255)
+    last_name: str | None = Field(default=None, max_length=255)
+    role: UserRole = Field(nullable=False, default=UserRole.BASIC)
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    oauth_accounts: list["OAuthAccount"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
-    tier: str = "free"  # "free" or "premium"
-    settings: str | None = None  # JSON-serialized String of settings
-    owned_workflows: list["Workflow"] = Relationship(
+    workflows: list["Workflow"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
             "cascade": "all, delete",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
-    case_actions: list["CaseAction"] = Relationship(back_populates="user")
-    case_contexts: list["CaseContext"] = Relationship(back_populates="user")
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
@@ -72,6 +86,10 @@ class User(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+
+
+class AccessToken(SQLModelBaseAccessToken, table=True):
+    pass
 
 
 class Secret(Resource, table=True):
@@ -90,8 +108,8 @@ class Secret(Resource, table=True):
     # We store this object as encrypted bytes, but first validate that it's the correct type
     encrypted_keys: bytes
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
-    owner_id: str = Field(
-        sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
+    owner_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("user.id", ondelete="CASCADE"))
     )
     owner: User | None = Relationship(back_populates="secrets")
 
@@ -119,8 +137,7 @@ class CaseAction(Resource, table=True):
     )
     tag: str
     value: str
-    user_id: str | None = Field(foreign_key="user.id")
-    user: User | None = Relationship(back_populates="case_actions")
+    user_id: UUID4 | None = Field(sa_column=Column(UUID, ForeignKey("user.id")))
 
 
 class CaseContext(Resource, table=True):
@@ -129,8 +146,7 @@ class CaseContext(Resource, table=True):
     )
     tag: str
     value: str
-    user_id: str | None = Field(foreign_key="user.id")
-    user: User | None = Relationship(back_populates="case_contexts")
+    user_id: UUID4 | None = Field(sa_column=Column(UUID, ForeignKey("user.id")))
 
 
 class CaseEvent(Resource, table=True):
@@ -257,11 +273,11 @@ class Workflow(Resource, table=True):
     )
     icon_url: str | None = None
     # Owner
-    owner_id: str = Field(
-        sa_column=Column(String, ForeignKey("user.id", ondelete="CASCADE"))
+    owner_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("user.id", ondelete="CASCADE"))
     )
     # Relationships
-    owner: User | None = Relationship(back_populates="owned_workflows")
+    owner: User | None = Relationship(back_populates="workflows")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={
