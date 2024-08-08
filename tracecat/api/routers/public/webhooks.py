@@ -46,7 +46,7 @@ async def incoming_webhook(
 
 
 @router.post("/{path}/{secret}/wait", tags=["public"])
-async def incoming_webhook_sync(
+async def incoming_webhook_wait(
     defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
