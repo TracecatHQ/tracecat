@@ -93,15 +93,9 @@ async def list_elastic_alerts(
                     },
                     {"match": {"signal.status": "open"}},
                 ],
-                "must_not": [
-                    {
-                        "exists": {
-                            "field": "kibana.alert.building_block_type"
-                        }
-                    }
-                ]
+                "must_not": [{"exists": {"field": "kibana.alert.building_block_type"}}],
             }
-        }
+        },
     }
 
     async with httpx.AsyncClient() as client:
