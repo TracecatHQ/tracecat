@@ -68,6 +68,25 @@ class Membership(SQLModel, table=True):
     workspace_id: int | None = Field(foreign_key="workspace.id", primary_key=True)
 
 
+class Ownership(SQLModel, table=True):
+    """Table to store ownership of resources.
+
+    - Organization owns all workspaces
+    - One specific user owns the organization
+    - Workspaces own all resources (e.g. workflows, secrets) except itself
+
+    Three types of owners:
+    - User
+    - Workspace
+    - Organization (given by a  UUID4 sentinel value created on database creation)
+    """
+
+    owner_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
+    owner_type: str = Field(primary_key=True)
+    resource_id: str | None = Field(primary_key=True)
+    resource_type: str = Field(primary_key=True)
+
+
 class Workspace(Resource, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, primary_key=True)
     name: str
