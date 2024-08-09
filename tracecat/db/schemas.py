@@ -61,18 +61,18 @@ class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
 
 
 class Membership(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
-    workspace_id: int | None = Field(foreign_key="workspace.id", default=None)
-    user: "User" = Relationship(back_populates="memberships")
-    workspace: "Workspace" | None = Relationship(back_populates="memberships")
+    """Link table for users and workspaces (many to many)."""
+
+    user_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
+    workspace_id: int | None = Field(foreign_key="workspace.id", primary_key=True)
 
 
 class Workspace(Resource, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
-    memberships: list["Membership"] = Relationship(back_populates="workspace")
-    workflows: list["Workflow"] = Relationship(back_populates="workspace")
+    users: list["User"] = Relationship(
+        back_populates="workspaces", link_model=Membership
+    )
 
 
 class User(SQLModelBaseUserDB, table=True):
