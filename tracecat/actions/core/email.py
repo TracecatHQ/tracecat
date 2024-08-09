@@ -2,7 +2,6 @@
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
-import os
 import re
 import smtplib
 import ssl
@@ -12,6 +11,16 @@ from typing import Any
 
 from loguru import logger
 
+from tracecat.config import (
+    SMTP_AUTH_ENABLED,
+    SMTP_HOST,
+    SMTP_IGNORE_CERT_ERRORS,
+    SMTP_PASS,
+    SMTP_PORT,
+    SMTP_SSL_ENABLED,
+    SMTP_STARTTLS_ENABLED,
+    SMTP_USER,
+)
 from tracecat.registry import registry
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
@@ -78,18 +87,6 @@ class AsyncMailProvider:
 
 
 class SmtpMailProvider(AsyncMailProvider):
-    @property
-    def smtp_config(self):
-        return {
-            "host": os.environ.get("SMTP_HOST", ""),
-            "port": os.environ.get("SMTP_PORT", 25),
-            "auth": os.environ.get("SMTP_AUTH", "0"),
-            "username": os.environ.get("SMTP_USER", ""),
-            "password": os.environ.get("SMTP_PASS", ""),
-            "tls": os.environ.get("SMTP_TLS", "0"),
-            "ignore_cert_errors": os.environ.get("SMTP_IGNORE_CERT_ERROR", "0"),
-        }
-
     async def _send(
         self,
         sender: str,
@@ -109,24 +106,32 @@ class SmtpMailProvider(AsyncMailProvider):
         else:
             msg["To"] = recipients
         msg["Subject"] = subject
-        msg["Bcc"] = bcc
-        msg["Cc"] = cc
-        msg["Reply-To"] = reply_to
+        if bcc is not None:
+            msg["Bcc"] = bcc
+        if cc is not None:
+            msg["Cc"] = cc
+        if reply_to is not None:
+            msg["Reply-To"] = reply_to
 
         try:
-            config = self.smtp_config
-            if config["tls"] == "1":
+            if SMTP_SSL_ENABLED:
                 context = None
-                if config["ignore_cert_errors"] == "1":
+                if SMTP_IGNORE_CERT_ERRORS:
                     context = ssl._create_unverified_context()
-                server = smtplib.SMTP_SSL(
-                    config["host"], config["port"], context=context
-                )
+                server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context)
             else:
-                server = smtplib.SMTP(config["host"], config["port"])
+                server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
 
-            if config["auth"] == "1":
-                server.login(config["username"], config["password"])
+            server.ehlo()
+
+            if SMTP_STARTTLS_ENABLED:
+                context = None
+                if SMTP_IGNORE_CERT_ERRORS:
+                    context = ssl._create_unverified_context()
+                server.starttls(context=context)
+
+            if SMTP_AUTH_ENABLED:
+                server.login(SMTP_USER, SMTP_PASS)
 
             # Send the email
             server.send_message(msg)
