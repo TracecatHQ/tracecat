@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -60,17 +61,37 @@ class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
     user: "User" = Relationship(back_populates="oauth_accounts")
 
 
-class User(SQLModelBaseUserDB, table=True):
-    first_name: str | None = Field(default=None, max_length=255)
-    last_name: str | None = Field(default=None, max_length=255)
-    role: UserRole = Field(nullable=False, default=UserRole.BASIC)
-    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    oauth_accounts: list["OAuthAccount"] = Relationship(
-        back_populates="user",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+class Membership(SQLModel, table=True):
+    """Link table for users and workspaces (many to many)."""
+
+    user_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
+    workspace_id: int | None = Field(foreign_key="workspace.id", primary_key=True)
+
+
+class Ownership(SQLModel, table=True):
+    """Table to map resources to owners.
+
+    - Organization owns all workspaces
+    - One specific user owns the organization
+    - Workspaces own all resources (e.g. workflows, secrets) except itself
+
+    Three types of owners:
+    - User
+    - Workspace
+    - Organization (given by a  UUID4 sentinel value created on database creation)
+    """
+
+    resource_id: str = Field(nullable=False, primary_key=True)
+    resource_type: str
+    owner_id: UUID4
+    owner_type: str
+
+
+class Workspace(Resource, table=True):
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, primary_key=True)
+    name: str
+    users: list["User"] = Relationship(
+        back_populates="workspaces", link_model=Membership
     )
     workflows: list["Workflow"] = Relationship(
         back_populates="owner",
@@ -81,6 +102,20 @@ class User(SQLModelBaseUserDB, table=True):
     )
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class User(SQLModelBaseUserDB, table=True):
+    first_name: str | None = Field(default=None, max_length=255)
+    last_name: str | None = Field(default=None, max_length=255)
+    role: UserRole = Field(nullable=False, default=UserRole.BASIC)
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    oauth_accounts: list["OAuthAccount"] = Relationship(
+        back_populates="user",
         sa_relationship_kwargs={
             "cascade": "all, delete",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
@@ -109,9 +144,9 @@ class Secret(Resource, table=True):
     encrypted_keys: bytes
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
     owner_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("user.id", ondelete="CASCADE"))
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
-    owner: User | None = Relationship(back_populates="secrets")
+    owner: Workspace | None = Relationship(back_populates="secrets")
 
 
 class Case(Resource, table=True):
@@ -274,10 +309,10 @@ class Workflow(Resource, table=True):
     icon_url: str | None = None
     # Owner
     owner_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("user.id", ondelete="CASCADE"))
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
+    owner: Workspace | None = Relationship(back_populates="workflows")
     # Relationships
-    owner: User | None = Relationship(back_populates="workflows")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={
