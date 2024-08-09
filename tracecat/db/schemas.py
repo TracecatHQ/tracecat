@@ -73,20 +73,6 @@ class Workspace(Resource, table=True):
     users: list["User"] = Relationship(
         back_populates="workspaces", link_model=Membership
     )
-
-
-class User(SQLModelBaseUserDB, table=True):
-    first_name: str | None = Field(default=None, max_length=255)
-    last_name: str | None = Field(default=None, max_length=255)
-    role: UserRole = Field(nullable=False, default=UserRole.BASIC)
-    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    oauth_accounts: list["OAuthAccount"] = Relationship(
-        back_populates="user",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
-    )
     workflows: list["Workflow"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
@@ -96,6 +82,20 @@ class User(SQLModelBaseUserDB, table=True):
     )
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class User(SQLModelBaseUserDB, table=True):
+    first_name: str | None = Field(default=None, max_length=255)
+    last_name: str | None = Field(default=None, max_length=255)
+    role: UserRole = Field(nullable=False, default=UserRole.BASIC)
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    oauth_accounts: list["OAuthAccount"] = Relationship(
+        back_populates="user",
         sa_relationship_kwargs={
             "cascade": "all, delete",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
@@ -124,9 +124,9 @@ class Secret(Resource, table=True):
     encrypted_keys: bytes
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
     owner_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("user.id", ondelete="CASCADE"))
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
-    owner: User | None = Relationship(back_populates="secrets")
+    owner: Workspace | None = Relationship(back_populates="secrets")
 
 
 class Case(Resource, table=True):
@@ -289,10 +289,10 @@ class Workflow(Resource, table=True):
     icon_url: str | None = None
     # Owner
     owner_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("user.id", ondelete="CASCADE"))
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
+    owner: Workspace | None = Relationship(back_populates="workflows")
     # Relationships
-    owner: User | None = Relationship(back_populates="workflows")
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
         sa_relationship_kwargs={
