@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -68,7 +69,7 @@ class Membership(SQLModel, table=True):
 
 
 class Workspace(Resource, table=True):
-    id: int | None = Field(default=None, primary_key=True)
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, primary_key=True)
     name: str
     users: list["User"] = Relationship(
         back_populates="workspaces", link_model=Membership
