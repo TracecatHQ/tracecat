@@ -69,7 +69,7 @@ class Membership(SQLModel, table=True):
 
 
 class Ownership(SQLModel, table=True):
-    """Table to store ownership of resources.
+    """Mapping table to store ownership of resources.
 
     - Organization owns all workspaces
     - One specific user owns the organization
@@ -81,7 +81,7 @@ class Ownership(SQLModel, table=True):
     - Organization (given by a  UUID4 sentinel value created on database creation)
     """
 
-    owner_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
+    owner_id: UUID4 = Field(primary_key=True)
     owner_type: str = Field(primary_key=True)
     resource_id: str | None = Field(primary_key=True)
     resource_type: str = Field(primary_key=True)
