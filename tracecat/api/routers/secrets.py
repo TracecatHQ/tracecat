@@ -51,7 +51,7 @@ async def get_secret(
     # Check if secret exists
     statement = (
         select(Secret)
-        .where(Secret.owner_id == role.user_id, Secret.name == secret_name)
+        .where(Secret.owner_id == role.workspace_id, Secret.name == secret_name)
         .limit(1)
     )
     result = await session.exec(statement)
@@ -80,7 +80,7 @@ async def create_secret(
         )
 
     new_secret = Secret(
-        owner_id=role.user_id,
+        owner_id=role.workspace_id,
         name=params.name,
         type=params.type,
         description=params.description,
@@ -141,7 +141,7 @@ async def search_secrets(
     """**[WORK IN PROGRESS]**   Get a secret by ID."""
     statement = (
         select(Secret)
-        .where(Secret.owner_id == role.user_id)
+        .where(Secret.owner_id == role.workspace_id)
         .filter(*[Secret.name == name for name in params.names])
     )
     result = await session.exec(statement)

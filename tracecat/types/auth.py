@@ -32,5 +32,6 @@ class Role(BaseModel):
     """
 
     type: Literal["user", "service"]
+    workspace_id: UUID | None = None
     user_id: UUID | None = None
     service_id: str

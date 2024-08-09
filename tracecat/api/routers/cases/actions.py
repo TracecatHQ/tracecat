@@ -24,7 +24,7 @@ async def list_case_actions(
     statement = select(CaseAction).where(
         or_(
             CaseAction.owner_id == config.TRACECAT__DEFAULT_USER_ID,
-            CaseAction.owner_id == role.user_id,
+            CaseAction.owner_id == role.workspace_id,
         )
     )
     result = await session.exec(statement)
@@ -39,7 +39,7 @@ async def create_case_action(
     session: AsyncSession = Depends(get_async_session),
 ) -> CaseAction:
     """Create a new case action."""
-    case_action = CaseAction(owner_id=role.user_id, **params.model_dump())
+    case_action = CaseAction(owner_id=role.workspace_id, **params.model_dump())
     session.add(case_action)
     await session.commit()
     await session.refresh(case_action)
@@ -54,7 +54,7 @@ async def delete_case_action(
 ):
     """Delete a case action."""
     statement = select(CaseAction).where(
-        CaseAction.owner_id == role.user_id,
+        CaseAction.owner_id == role.workspace_id,
         CaseAction.id == case_action_id,
     )
     result = await session.exec(statement)

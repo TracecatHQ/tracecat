@@ -85,7 +85,7 @@ class WorkflowsManagementService:
             workflow = Workflow(
                 title=dsl.title,
                 description=dsl.description,
-                owner_id=self.role.user_id,
+                owner_id=self.role.workspace_id,
                 static_inputs=dsl.inputs,
                 returns=dsl.returns,
             )
@@ -95,7 +95,7 @@ class WorkflowsManagementService:
 
             # Create and associate Webhook with the Workflow
             webhook = Webhook(
-                owner_id=self.role.user_id,
+                owner_id=self.role.workspace_id,
                 workflow_id=workflow.id,
             )
             self.session.add(webhook)
@@ -105,7 +105,7 @@ class WorkflowsManagementService:
             actions: list[Action] = []
             for act_stmt in dsl.actions:
                 new_action = Action(
-                    owner_id=self.role.user_id,
+                    owner_id=self.role.workspace_id,
                     workflow_id=workflow.id,
                     type=act_stmt.action,
                     inputs=act_stmt.args,

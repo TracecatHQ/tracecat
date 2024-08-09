@@ -37,20 +37,20 @@ class SecretsService:
             yield SecretsService(session, role=role)
 
     async def list_secrets(self) -> list[Secret]:
-        statement = select(Secret).where(Secret.owner_id == self.role.user_id)
+        statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
         result = await self.session.exec(statement)
         return result.all()
 
     async def get_secret_by_id(self, secret_id: int) -> Secret | None:
         statement = select(Secret).where(
-            Secret.owner_id == self.role.user_id, Secret.id == secret_id
+            Secret.owner_id == self.role.workspace_id, Secret.id == secret_id
         )
         result = await self.session.exec(statement)
         return result.one_or_none()
 
     async def get_secret_by_name(self, secret_name: str) -> Secret | None:
         statement = select(Secret).where(
-            Secret.owner_id == self.role.user_id, Secret.name == secret_name
+            Secret.owner_id == self.role.workspace_id, Secret.name == secret_name
         )
         result = await self.session.exec(statement)
         return result.one_or_none()

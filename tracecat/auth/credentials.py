@@ -7,12 +7,16 @@ from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Literal
 
-from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Query, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
+from pydantic import UUID4
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.auth.users import current_active_user, optional_current_active_user
+from tracecat.authz.service import AuthorizationService
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import User
 from tracecat.logging import logger
 from tracecat.types.auth import Role
@@ -54,19 +58,33 @@ def _internal_get_role_from_service_key(
         raise CREDENTIALS_EXCEPTION
     return Role(
         type="service",
-        user_id=user_id,
+        workspace_id=user_id,
         service_id=service_role_name,
     )
 
 
 async def authenticate_user(
     user: Annotated[User, Depends(current_active_user)],
+    workspace_id: Annotated[UUID4, Query()],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> Role:
     """Map the current user to a role.
 
     `ctx_role` ContextVar is set here.
     """
-    role = Role(type="user", user_id=str(user.id), service_id="tracecat-api")
+    # Roles now match user to the current wo
+    # AuthorizationService.
+    authz_service = AuthorizationService(session)
+    if not await authz_service.user_is_workspace_member(
+        user_id=user.id, workspace_id=workspace_id
+    ):
+        raise HTTP_EXC("User not authorized for workspace")
+    role = Role(
+        type="user",
+        workspace_id=workspace_id,
+        user_id=user.id,
+        service_id="tracecat-api",
+    )
     ctx_role.set(role)
     return role
 
@@ -79,7 +97,7 @@ async def optional_authenticate_user(
     `ctx_role` ContextVar is set if the user is available.
     """
     if user:
-        role = Role(type="user", user_id=str(user.id), service_id="tracecat-api")
+        role = Role(type="user", workspace_id=str(user.id), service_id="tracecat-api")
         ctx_role.set(role)
         return role
     return None
@@ -126,7 +144,7 @@ def TemporaryRole(
 ):
     """An async context manager to authenticate a user or service."""
     prev_role = ctx_role.get()
-    temp_role = Role(type=type, user_id=user_id, service_id=service_id)
+    temp_role = Role(type=type, workspace_id=user_id, service_id=service_id)
     ctx_role.set(temp_role)
     try:
         yield temp_role

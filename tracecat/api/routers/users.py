@@ -23,7 +23,7 @@ async def create_user(
     """Create new user."""
 
     # Check if user exists
-    statement = select(User).where(User.id == role.user_id).limit(1)
+    statement = select(User).where(User.id == role.workspace_id).limit(1)
     result = await session.exec(statement)
 
     user = result.one_or_none()
@@ -31,7 +31,7 @@ async def create_user(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="User already exists"
         )
-    user = User(owner_id=config.TRACECAT__DEFAULT_USER_ID, id=role.user_id)
+    user = User(owner_id=config.TRACECAT__DEFAULT_USER_ID, id=role.workspace_id)
 
     session.add(user)
     await session.commit()
@@ -47,7 +47,7 @@ async def get_user(
     """Get a user."""
 
     # Get user given user_id
-    statement = select(User).where(User.id == role.user_id)
+    statement = select(User).where(User.id == role.workspace_id)
     result = await session.exec(statement)
     try:
         user = result.one()
@@ -66,7 +66,7 @@ async def update_user(
 ) -> None:
     """Update a user."""
 
-    statement = select(User).where(User.id == role.user_id)
+    statement = select(User).where(User.id == role.workspace_id)
     result = await session.exec(statement)
     try:
         user = result.one()
@@ -91,7 +91,7 @@ async def delete_user(
 ) -> None:
     """Delete a user."""
 
-    statement = select(User).where(User.id == role.user_id)
+    statement = select(User).where(User.id == role.workspace_id)
     result = await session.exec(statement)
     try:
         user = result.one()

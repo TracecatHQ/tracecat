@@ -15,7 +15,7 @@ pytest.mark.disable_fixture("test_user")
 @pytest.mark.asyncio
 async def test_authenticated_service_client(mock_user_id):
     service_role = Role(
-        type="service", user_id=mock_user_id, service_id="mock_service_id"
+        type="service", workspace_id=mock_user_id, service_id="mock_service_id"
     )
     async with AuthenticatedServiceClient(role=service_role) as client:
         assert isinstance(client, AsyncClient)
@@ -36,7 +36,7 @@ async def test_authenticated_service_client(mock_user_id):
 @pytest.mark.asyncio
 async def test_authenticated_service_client_init_with_role(mock_user_id):
     # Test initialization of AuthenticatedServiceClient
-    role = Role(type="service", user_id=mock_user_id, service_id="mock_service_id")
+    role = Role(type="service", workspace_id=mock_user_id, service_id="mock_service_id")
     async with AuthenticatedServiceClient(role=role) as client:
         assert isinstance(client, AsyncClient)
         assert client.role == role
@@ -69,7 +69,7 @@ async def test_authenticated_service_client_init_role_from_context(mock_user_id)
     # Test initialization of AuthenticatedServiceClient without role
     mock_ctx_role = Role(
         type="service",
-        user_id=mock_user_id,
+        workspace_id=mock_user_id,
         service_id="mock_ctx_service_id",
     )
     ctx_role.set(mock_ctx_role)
@@ -86,7 +86,7 @@ async def test_authenticated_api_client_init_role_from_context(mock_user_id):
     # Test initialization of AuthenticatedAPIClient without role
     mock_ctx_role = Role(
         type="service",
-        user_id=mock_user_id,
+        workspace_id=mock_user_id,
         service_id="mock_ctx_service_id",
     )
     ctx_role.set(mock_ctx_role)
@@ -114,7 +114,7 @@ async def test_authenticated_api_client_init_no_role():
 @pytest.mark.asyncio
 async def test_authenticated_api_client_init_with_role(mock_user_id):
     # Test initialization of AuthenticatedAPIClient
-    role = Role(type="service", user_id=mock_user_id, service_id="mock_service_id")
+    role = Role(type="service", workspace_id=mock_user_id, service_id="mock_service_id")
     async with AuthenticatedAPIClient(role=role) as client:
         assert isinstance(client, AsyncClient)
         assert client.role == role

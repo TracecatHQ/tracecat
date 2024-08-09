@@ -55,7 +55,9 @@ async def list_workflows(
 
     If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
     """
-    query_user_id = role.user_id if not library else config.TRACECAT__DEFAULT_USER_ID
+    query_user_id = (
+        role.workspace_id if not library else config.TRACECAT__DEFAULT_USER_ID
+    )
     statement = select(Workflow).where(Workflow.owner_id == query_user_id)
     results = await session.exec(statement)
     workflows = results.all()
@@ -125,7 +127,9 @@ async def create_workflow(
         title = title or now
         description = description or f"New workflow created {now}"
 
-        workflow = Workflow(title=title, description=description, owner_id=role.user_id)
+        workflow = Workflow(
+            title=title, description=description, owner_id=role.workspace_id
+        )
         # When we create a workflow, we automatically create a webhook
         # Add the Workflow to the session first to generate an ID
         session.add(workflow)
@@ -134,7 +138,7 @@ async def create_workflow(
 
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
-            owner_id=role.user_id,
+            owner_id=role.workspace_id,
             workflow_id=workflow.id,
         )
         session.add(webhook)
@@ -168,7 +172,7 @@ async def get_workflow(
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     # Get Workflow given workflow_id
     statement = select(Workflow).where(
-        Workflow.owner_id == role.user_id, Workflow.id == workflow_id
+        Workflow.owner_id == role.workspace_id, Workflow.id == workflow_id
     )
     result = await session.exec(statement)
     try:
@@ -204,7 +208,7 @@ async def update_workflow(
 ) -> None:
     """Update a workflow."""
     statement = select(Workflow).where(
-        Workflow.owner_id == role.user_id,
+        Workflow.owner_id == role.workspace_id,
         Workflow.id == workflow_id,
     )
     result = await session.exec(statement)
@@ -236,7 +240,7 @@ async def delete_workflow(
     """Delete a workflow."""
 
     statement = select(Workflow).where(
-        Workflow.owner_id == role.user_id,
+        Workflow.owner_id == role.workspace_id,
         Workflow.id == workflow_id,
     )
     result = await session.exec(statement)
@@ -267,7 +271,7 @@ async def commit_workflow(
         # Validate that our target workflow exists
         # Grab workflow and actions from tables
         statement = select(Workflow).where(
-            Workflow.owner_id == role.user_id, Workflow.id == workflow_id
+            Workflow.owner_id == role.workspace_id, Workflow.id == workflow_id
         )
         result = await session.exec(statement)
         try:
@@ -413,7 +417,7 @@ async def create_webhook(
     """Create a webhook for a workflow."""
 
     webhook = Webhook(
-        owner_id=role.user_id,
+        owner_id=role.workspace_id,
         entrypoint_ref=params.entrypoint_ref,
         method=params.method or "POST",
         workflow_id=workflow_id,
@@ -431,7 +435,7 @@ async def get_webhook(
 ) -> WebhookResponse:
     """Get the webhook from a workflow."""
     statement = select(Webhook).where(
-        Webhook.owner_id == role.user_id,
+        Webhook.owner_id == role.workspace_id,
         Webhook.workflow_id == workflow_id,
     )
     result = await session.exec(statement)
@@ -458,7 +462,7 @@ async def update_webhook(
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     result = await session.exec(
         select(Workflow).where(
-            Workflow.owner_id == role.user_id, Workflow.id == workflow_id
+            Workflow.owner_id == role.workspace_id, Workflow.id == workflow_id
         )
     )
     try:

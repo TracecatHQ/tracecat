@@ -417,7 +417,7 @@ async def test_child_workflow_success(
 
     role = Role(
         type="service",
-        user_id=test_user.id,
+        workspace_id=test_user.id,
         service_id="tracecat-runner",
     )
     ctx_role.set(role)

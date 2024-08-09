@@ -24,7 +24,11 @@ from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
-from tracecat.auth.users import auth_backend, create_default_admin_user, fastapi_users
+from tracecat.auth.users import (
+    auth_backend,
+    fastapi_users,
+    get_or_create_default_admin_user,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_engine
 from tracecat.db.schemas import UDFSpec
@@ -34,14 +38,37 @@ from tracecat.registry import registry
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
+from tracecat.workspaces.service import WorkspaceService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     registry.init()
     initialize_db()
-    await create_default_admin_user()
+    await setup_defaults()
     yield
+
+
+async def setup_defaults():
+    # Create default admin user
+    admin_user = await get_or_create_default_admin_user()
+    logger.info("Default admin user created", user=admin_user)
+
+    # Create default workspace
+    async with WorkspaceService.with_session() as service:
+        if await service.get_workspace(config.TRACECAT__DEFAULT_WORKSPACE_ID):
+            logger.info("Default workspace already exists, skipping creation")
+        else:
+            default_workspace = await service.create_workspace(
+                "default",
+                override_id=config.TRACECAT__DEFAULT_WORKSPACE_ID,
+                users=[admin_user],
+            )
+            logger.info(
+                "Default admin user and workspace created",
+                user=admin_user,
+                workspace=default_workspace,
+            )
 
 
 def initialize_db() -> Engine:

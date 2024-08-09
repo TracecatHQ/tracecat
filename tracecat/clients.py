@@ -32,8 +32,8 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         )
         self.headers["Service-Role"] = self.role.service_id
         self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
-        if self.role.user_id:
-            self.headers["Service-User-ID"] = str(self.role.user_id)
+        if self.role.workspace_id:
+            self.headers["Service-User-ID"] = str(self.role.workspace_id)
 
 
 class AuthenticatedAPIClient(AuthenticatedServiceClient):

@@ -27,7 +27,7 @@ async def list_actions(
 ) -> list[ActionMetadataResponse]:
     """List all actions for a workflow."""
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.workflow_id == workflow_id,
     )
     results = await session.exec(statement)
@@ -55,7 +55,7 @@ async def create_action(
 ) -> ActionMetadataResponse:
     """Create a new action for a workflow."""
     action = Action(
-        owner_id=role.user_id,
+        owner_id=role.workspace_id,
         workflow_id=params.workflow_id,
         type=params.type,
         title=params.title,
@@ -63,7 +63,7 @@ async def create_action(
     )
     # Check if a clashing action ref exists
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.workflow_id == action.workflow_id,
         Action.ref == action.ref,
     )
@@ -99,7 +99,7 @@ async def get_action(
 ) -> ActionResponse:
     """Get an action."""
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.id == action_id,
         Action.workflow_id == workflow_id,
     )
@@ -133,7 +133,7 @@ async def update_action(
     """Update an action."""
     # Fetch the action by id
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.id == action_id,
     )
     result = await session.exec(statement)
@@ -178,7 +178,7 @@ async def delete_action(
 ) -> None:
     """Delete an action."""
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.id == action_id,
     )
     result = await session.exec(statement)

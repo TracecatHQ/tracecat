@@ -24,7 +24,7 @@ async def list_case_contexts(
     statement = select(CaseContext).where(
         or_(
             CaseContext.owner_id == config.TRACECAT__DEFAULT_USER_ID,
-            CaseContext.owner_id == role.user_id,
+            CaseContext.owner_id == role.workspace_id,
         )
     )
     result = await session.exec(statement)
@@ -39,7 +39,7 @@ async def create_case_context(
     session: AsyncSession = Depends(get_async_session),
 ) -> CaseContext:
     """Create a new case context."""
-    case_context = CaseContext(owner_id=role.user_id, **params.model_dump())
+    case_context = CaseContext(owner_id=role.workspace_id, **params.model_dump())
     session.add(case_context)
     await session.commit()
     await session.refresh(case_context)
@@ -54,7 +54,7 @@ async def delete_case_context(
 ):
     """Delete a case context."""
     statement = select(CaseContext).where(
-        CaseContext.owner_id == role.user_id,
+        CaseContext.owner_id == role.workspace_id,
         CaseContext.id == case_context_id,
     )
     result = await session.exec(statement)

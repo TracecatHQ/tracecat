@@ -21,7 +21,7 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
     mock_secret_keys = [SecretKeyValue(key="SECRET_KEY", value="my_secret_key")]
     mock_secret = Secret(
         name="my_secret",
-        owner_id=role.user_id,
+        owner_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             mock_secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
         ),
@@ -62,6 +62,6 @@ async def test_auth_sandbox_without_secrets(auth_sandbox, mock_user_id):
             assert sandbox.secrets == {}
             assert sandbox._role == Role(
                 type="service",
-                user_id=mock_user_id,
+                workspace_id=mock_user_id,
                 service_id="tracecat-testing",
             )

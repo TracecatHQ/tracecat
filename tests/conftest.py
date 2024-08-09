@@ -69,7 +69,7 @@ def auth_sandbox():
 
     service_role = Role(
         type="service",
-        user_id=config.TRACECAT__DEFAULT_USER_ID,
+        workspace_id=config.TRACECAT__DEFAULT_USER_ID,
         service_id="tracecat-runner",
     )
     ctx_role.set(service_role)

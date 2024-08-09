@@ -29,7 +29,7 @@ async def list_schedules(
     session: AsyncSession = Depends(get_async_session),
 ) -> list[Schedule]:
     """List all schedules for a workflow."""
-    statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+    statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
     if workflow_id:
         statement = statement.where(Schedule.workflow_id == workflow_id)
     result = await session.exec(statement)
@@ -61,7 +61,7 @@ async def create_schedule(
             ) from e
 
         schedule = Schedule(
-            owner_id=role.user_id, **params.model_dump(exclude_unset=True)
+            owner_id=role.workspace_id, **params.model_dump(exclude_unset=True)
         )
         await session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
@@ -114,7 +114,7 @@ async def get_schedule(
 ) -> Schedule:
     """Get a schedule from a workflow."""
     statement = select(Schedule).where(
-        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
     )
     result = await session.exec(statement)
     try:
@@ -135,7 +135,7 @@ async def update_schedule(
 ) -> Schedule:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
     statement = select(Schedule).where(
-        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
     )
     result = await session.exec(statement)
     try:
@@ -179,7 +179,7 @@ async def delete_schedule(
 ) -> None:
     """Delete a schedule from a workflow."""
     statement = select(Schedule).where(
-        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
     )
     result = await session.exec(statement)
     schedule = result.one_or_none()
@@ -217,7 +217,7 @@ async def search_schedules(
     session: AsyncSession = Depends(get_async_session),
 ) -> list[Schedule]:
     """**[WORK IN PROGRESS]** Search for schedules."""
-    statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+    statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
     results = await session.exec(statement)
     schedules = results.all()
     return schedules

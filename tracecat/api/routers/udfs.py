@@ -27,7 +27,7 @@ async def list_udfs(
     statement = select(UDFSpec).where(
         or_(
             UDFSpec.owner_id == config.TRACECAT__DEFAULT_USER_ID,
-            UDFSpec.owner_id == role.user_id,
+            UDFSpec.owner_id == role.workspace_id,
         )
     )
     if ns:
@@ -51,7 +51,7 @@ async def get_udf(
     statement = select(UDFSpec).where(
         or_(
             UDFSpec.owner_id == config.TRACECAT__DEFAULT_USER_ID,
-            UDFSpec.owner_id == role.user_id,
+            UDFSpec.owner_id == role.workspace_id,
         ),
         UDFSpec.key == udf_key,
     )
@@ -75,7 +75,7 @@ async def create_udf(
     """Create a user-defined function specification."""
     _, platform, name = udf_key.split(".")
     statement = select(UDFSpec).where(
-        UDFSpec.owner_id == role.user_id,
+        UDFSpec.owner_id == role.workspace_id,
         UDFSpec.platform == platform,
         UDFSpec.name == name,
     )
