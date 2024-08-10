@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from pathlib import Path
 
 import httpx
 
-from tracecat.auth.clients import AuthenticatedAPIClient
 from tracecat.db.schemas import Secret
-from tracecat.types.auth import Role
+
+
+def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
+    """Write cookies to file."""
+    cookies_dict = dict(cookies)
+
+    # Overwrite the cookies file
+    with cookies_path.open(mode="w") as f:
+        json.dump(cookies_dict, f)
+
+
+def read_cookies(cookies_path: Path) -> httpx.Cookies:
+    """Read cookies from file."""
+    try:
+        with cookies_path.open() as f:
+            cookies_dict = json.load(f)
+        return httpx.Cookies(cookies_dict)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return httpx.Cookies()
+
+
+def delete_cookies(cookies_path: Path) -> None:
+    """Delete cookies file."""
+    cookies_path.unlink(missing_ok=True)
 
 
 def user_client() -> httpx.AsyncClient:
@@ -56,20 +77,6 @@ async def activate_workflow(workflow_id: str, with_webhook: bool = False):
                 f"/workflows/{workflow_id}/webhook", json={"status": "online"}
             )
             res.raise_for_status()
-
-
-async def batch_get_secrets(role: Role, secret_names: list[str]) -> list[Secret]:
-    """Retrieve secrets from the secrets API."""
-
-    async with AuthenticatedAPIClient(role=role) as client:
-        # NOTE(perf): This is not really batched - room for improvement
-        secret_responses = await asyncio.gather(
-            *[client.get(f"/secrets/{secret_name}") for secret_name in secret_names]
-        )
-        return [
-            Secret.model_validate_json(secret_bytes.content)
-            for secret_bytes in secret_responses
-        ]
 
 
 def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:

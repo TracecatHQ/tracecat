@@ -1,11 +1,12 @@
 import pytest
 
 from tracecat.expressions.functions import (
-    _ipv4_in_subnet,
-    _ipv4_is_public,
-    _ipv6_in_subnet,
-    _ipv6_is_public,
+    deserialize_ndjson,
     extract_text_from_html,
+    ipv4_in_subnet,
+    ipv4_is_public,
+    ipv6_in_subnet,
+    ipv6_is_public,
     lambda_filter,
 )
 
@@ -68,21 +69,21 @@ def test_lambda_filter_fails():
 
 
 def test_ip_functions():
-    assert _ipv4_in_subnet("192.168.0.1", "192.168.0.0/24")
-    assert _ipv4_in_subnet("10.120.100.5", "10.120.0.0/16")
-    assert not _ipv4_in_subnet("18.140.9.10", "18.140.9.0/30")
-    assert not _ipv4_is_public("192.168.0.1")
-    assert not _ipv4_is_public("172.16.0.1")
-    assert not _ipv4_is_public("127.0.0.1")
-    assert _ipv4_is_public("172.15.255.255")
-    assert not _ipv6_in_subnet(
+    assert ipv4_in_subnet("192.168.0.1", "192.168.0.0/24")
+    assert ipv4_in_subnet("10.120.100.5", "10.120.0.0/16")
+    assert not ipv4_in_subnet("18.140.9.10", "18.140.9.0/30")
+    assert not ipv4_is_public("192.168.0.1")
+    assert not ipv4_is_public("172.16.0.1")
+    assert not ipv4_is_public("127.0.0.1")
+    assert ipv4_is_public("172.15.255.255")
+    assert not ipv6_in_subnet(
         "2001:db8:85a4:0000:0000:8a2e:0370:7334", "2001:0db8:85a3::/64"
     )
-    assert _ipv6_in_subnet(
+    assert ipv6_in_subnet(
         "2001:db8:85a3:0000:0000:8a2e:0370:7334", "2001:0db8:85a3::/64"
     )
-    assert not _ipv6_is_public("fd12:3456:789a:1::1")
-    assert _ipv6_is_public("2607:f8b0:4002:c00::64")
+    assert not ipv6_is_public("fd12:3456:789a:1::1")
+    assert ipv6_is_public("2607:f8b0:4002:c00::64")
 
 
 def test_extract_text_from_html():
@@ -91,3 +92,16 @@ def test_extract_text_from_html():
         "Line 2",
         "Line 3",
     ]
+
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ('{"key": "value"}\n{"key": "value"}\n', [{"key": "value"}, {"key": "value"}]),
+        ('{"key": "value"}\n', [{"key": "value"}]),
+        ('{"key": "value"}', [{"key": "value"}]),
+        ('{"key": "value"}\n{"key": "value"}', [{"key": "value"}, {"key": "value"}]),
+    ],
+)
+def test_deserialize_ndjson(input, expected):
+    assert deserialize_ndjson(input) == expected
