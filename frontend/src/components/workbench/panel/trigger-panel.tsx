@@ -101,7 +101,7 @@ import { AlertNotification } from "@/components/notifications"
 import {
   TriggerNodeData,
   TriggerTypename,
-} from "@/components/workspace/canvas/trigger-node"
+} from "@/components/workbench/canvas/trigger-node"
 
 export function TriggerPanel({
   workflow,

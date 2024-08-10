@@ -15,21 +15,21 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { WorkflowCanvas } from "@/components/workspace/canvas/canvas"
-import { WorkflowCatalog } from "@/components/workspace/catalog/catalog"
-import { WorkspacePanel } from "@/components/workspace/panel/workspace-panel"
+import { WorkflowCanvas } from "@/components/workbench/canvas/canvas"
+import { WorkflowCatalog } from "@/components/workbench/catalog/catalog"
+import { WorkspacePanel } from "@/components/workbench/panel/workbench-panel"
 
-interface WorkspaceProps {
+interface WorkbenchProps {
   defaultLayout: number[] | undefined
   defaultCollapsed?: boolean
   navCollapsedSize: number
 }
 
-export function Workspace({
+export function Workbench({
   defaultLayout = [1, 60, 20],
   defaultCollapsed = false,
   navCollapsedSize,
-}: WorkspaceProps) {
+}: WorkbenchProps) {
   const sidePanelRef = React.useRef<ImperativePanelHandle>(null)
   const [isCollapsed, setIsCollapsed] = React.useState(defaultCollapsed)
 

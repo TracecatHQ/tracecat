@@ -1,5 +1,5 @@
-import { TriggerCatalog } from "@/components/workspace/catalog/trigger-catalog"
-import { UDFCatalog } from "@/components/workspace/catalog/udf-catalog"
+import { TriggerCatalog } from "@/components/workbench/catalog/trigger-catalog"
+import { UDFCatalog } from "@/components/workbench/catalog/udf-catalog"
 
 export function WorkflowCatalog({ isCollapsed }: { isCollapsed: boolean }) {
   return (

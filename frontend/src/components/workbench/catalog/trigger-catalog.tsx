@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { getIcon } from "@/components/icons"
-import { TriggerTypename } from "@/components/workspace/canvas/trigger-node"
+import { TriggerTypename } from "@/components/workbench/canvas/trigger-node"
 
 const onDragStart = (event: DragEvent<HTMLDivElement>) => {
   event.dataTransfer.setData("application/reactflow", TriggerTypename)

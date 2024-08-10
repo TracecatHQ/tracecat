@@ -45,16 +45,16 @@ import { useToast } from "@/components/ui/use-toast"
 import selectorNode, {
   SelectorNodeType,
   SelectorTypename,
-} from "@/components/workspace/canvas/selector-node"
+} from "@/components/workbench/canvas/selector-node"
 import triggerNode, {
   TriggerNodeData,
   TriggerNodeType,
   TriggerTypename,
-} from "@/components/workspace/canvas/trigger-node"
+} from "@/components/workbench/canvas/trigger-node"
 import udfNode, {
   UDFNodeData,
   UDFNodeType,
-} from "@/components/workspace/canvas/udf-node"
+} from "@/components/workbench/canvas/udf-node"
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172

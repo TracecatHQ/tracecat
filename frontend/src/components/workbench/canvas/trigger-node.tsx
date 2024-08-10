@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { CustomHandle } from "@/components/workspace/canvas/custom-handle"
+import { CustomHandle } from "@/components/workbench/canvas/custom-handle"
 
 export interface TriggerNodeData {
   type: "trigger"

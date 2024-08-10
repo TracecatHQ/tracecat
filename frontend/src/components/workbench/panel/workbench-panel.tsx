@@ -6,12 +6,12 @@ import { Node } from "reactflow"
 import { Workflow } from "@/types/schemas"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
-import { NodeType } from "@/components/workspace/canvas/canvas"
-import { TriggerNodeData } from "@/components/workspace/canvas/trigger-node"
-import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
-import { TriggerPanel } from "@/components/workspace/panel/trigger-panel"
-import { UDFActionPanel } from "@/components/workspace/panel/udf-panel"
-import { WorkflowForm } from "@/components/workspace/panel/workflow/form"
+import { NodeType } from "@/components/workbench/canvas/canvas"
+import { TriggerNodeData } from "@/components/workbench/canvas/trigger-node"
+import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
+import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
+import { UDFActionPanel } from "@/components/workbench/panel/udf-panel"
+import { WorkflowForm } from "@/components/workbench/panel/workflow/form"
 
 export function WorkspacePanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()

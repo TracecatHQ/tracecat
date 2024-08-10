@@ -32,12 +32,12 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   createNewNode,
   isEphemeral,
-} from "@/components/workspace/canvas/canvas"
-import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
+} from "@/components/workbench/canvas/canvas"
+import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
 import {
   groupByDisplayGroup,
   TOP_LEVEL_GROUP,
-} from "@/components/workspace/catalog/udf-catalog"
+} from "@/components/workbench/catalog/udf-catalog"
 
 export const SelectorTypename = "selector" as const
 

@@ -52,7 +52,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { CustomEditor } from "@/components/editor"
-import { WorkflowSettings } from "@/components/workspace/panel/workflow/settings"
+import { WorkflowSettings } from "@/components/workbench/panel/workflow/settings"
 
 const workflowConfigFormSchema = z.object({
   title: z.string(),

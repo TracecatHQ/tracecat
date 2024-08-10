@@ -68,7 +68,7 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { UDFNodeData } from "@/components/workspace/canvas/udf-node"
+import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
 
 type UDFFormSchema = {
   title?: string

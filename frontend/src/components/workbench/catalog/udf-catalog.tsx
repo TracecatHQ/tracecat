@@ -20,7 +20,7 @@ import {
   RFGraphUDFNodeType,
   UDFNodeData,
   UDFNodeType,
-} from "@/components/workspace/canvas/udf-node"
+} from "@/components/workbench/canvas/udf-node"
 
 export const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
 
