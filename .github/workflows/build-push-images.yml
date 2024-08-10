@@ -86,14 +86,11 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push Docker image
-        # NOTE: this image is used for local deployment (no Clerk)
         uses: docker/build-push-action@v6
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
           NEXT_PUBLIC_APP_ENV: production
           NEXT_PUBLIC_APP_URL: http://localhost:3000
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "secret-clerk-publishable-key"
-          NEXT_PUBLIC_DISABLE_AUTH: "true" # Disable Clerk
           NEXT_SERVER_API_URL: http://localhost:8000
           NODE_ENV: production
         with:
@@ -103,8 +100,6 @@ jobs:
             NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_APP_ENV=${{ env.NEXT_PUBLIC_APP_ENV }}
             NEXT_PUBLIC_APP_URL=${{ env.NEXT_PUBLIC_APP_URL }}
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-            NEXT_PUBLIC_DISABLE_AUTH=${{ env.NEXT_PUBLIC_DISABLE_AUTH }}
             NEXT_SERVER_API_URL=${{ env.NEXT_SERVER_API_URL }}
             NODE_ENV=${{ env.NODE_ENV }}
           push: true
