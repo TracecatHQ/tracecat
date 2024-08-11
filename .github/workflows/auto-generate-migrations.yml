@@ -40,21 +40,32 @@ jobs:
       - name: Autogenerate migrations
         run: alembic revision --autogenerate -m "Auto-generated migration"
 
-      - name: Check for changes
-        id: git-check
-        run: git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+      - name: Check for potential database changes
+        id: db-check
+        env:
+          TRACECAT__POSTGRES_USER: postgres
+          TRACECAT__POSTGRES_PASSWORD: postgres
+        run: |
+          export TRACECAT__DB_URL=postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres
+          output=$(alembic check)
+          echo "$output" > alembic_check_output.txt
+          if grep -q "No new upgrade operations detected" alembic_check_output.txt; then
+            echo "changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "changes=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Comment PR
+        if: steps.db-check.outputs.changes == 'true'
         uses: actions/github-script@v6
-        if: steps.git-check.outputs.changes == 'true'
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const fs = require('fs')
-            const diff = fs.readFileSync('migration_changes.diff', 'utf8')
+            const checkOutput = fs.readFileSync('alembic_check_output.txt', 'utf8')
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Alembic has auto-generated the following migration:\n\n```diff\n' + diff + '\n```\nPlease review these changes and manually commit them if they look correct.'
+              body: 'Alembic has detected potential database changes:\n\n```\n' + checkOutput + '\n```\nPlease review these changes and create a migration if necessary.'
             })
