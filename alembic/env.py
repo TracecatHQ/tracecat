@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 import alembic_postgresql_enum  # noqa: F401
@@ -30,7 +31,7 @@ target_metadata = SQLModel.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = os.environ.get("TRACECAT__DB_URI")
     context.configure(
         url=url,
         target_metadata=target_metadata,
