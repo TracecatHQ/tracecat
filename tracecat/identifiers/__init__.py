@@ -38,6 +38,11 @@ e.g. wf-77932a0b140a4465a1a25a5c95edcfb8:run-b140a425a577932a0c95edcfb8465a1a
 
 """
 
+import uuid
+from typing import Literal
+
+from pydantic import UUID4
+
 from tracecat.identifiers import action, resource, schedules, workflow
 from tracecat.identifiers.action import ActionID, ActionKey, ActionRef
 from tracecat.identifiers.resource import id_factory
@@ -49,6 +54,21 @@ from tracecat.identifiers.workflow import (
     WorkflowScheduleID,
 )
 
+UserID = UUID4
+WorkspaceID = UUID4
+OwnerID = uuid.UUID
+"""Owner identifier type. This is UUID because we use UUID(0) for the organization.
+
+Owners can be Workspaces or the Organization.
+"""
+
+InternalServiceID = Literal[
+    "tracecat-runner",
+    "tracecat-api",
+    "tracecat-cli",
+    "tracecat-schedule-runner",
+]
+
 __all__ = [
     "ActionID",
     "ActionKey",
@@ -58,6 +78,8 @@ __all__ = [
     "WorkflowScheduleID",
     "WorkflowRunID",
     "ScheduleID",
+    "UserID",
+    "WorkspaceID",
     "id_factory",
     "action",
     "workflow",

@@ -113,7 +113,7 @@ def create_mock_secret(auth_sandbox):
     def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
         keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]
         new_secret = Secret(
-            owner_id=uuid4().hex,  # Assuming owner_id should be unique per secret
+            owner_id=uuid4(),  # Assuming owner_id should be unique per secret
             id=uuid4().hex,  # Generate a unique ID for each secret
             name=secret_name,
             type="custom",  # Assuming a fixed type; adjust as necessary

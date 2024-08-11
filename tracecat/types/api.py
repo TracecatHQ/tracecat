@@ -4,10 +4,10 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
-from pydantic import UUID4, BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from tracecat import identifiers
 from tracecat.db.schemas import Resource
+from tracecat.identifiers import OwnerID, WorkflowID
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.generics import ListModel
@@ -153,7 +153,7 @@ class CaseContext(BaseModel):
 class CaseParams(BaseModel):
     # SQLModel defaults
     id: str
-    owner_id: UUID4
+    owner_id: OwnerID
     created_at: str  # ISO 8601
     updated_at: str  # ISO 8601
     # Case related fields
@@ -172,7 +172,7 @@ class CaseParams(BaseModel):
 
 class CaseResponse(BaseModel):
     id: str
-    owner_id: UUID4
+    owner_id: OwnerID
     created_at: datetime
     updated_at: datetime
     workflow_id: str
@@ -288,7 +288,7 @@ class ServiceCallbackAction(BaseModel):
 
 
 class CreateScheduleParams(BaseModel):
-    workflow_id: identifiers.WorkflowID
+    workflow_id: WorkflowID
     inputs: dict[str, Any] | None = None
     cron: str | None = None
     every: timedelta = Field(..., description="ISO 8601 duration string")
