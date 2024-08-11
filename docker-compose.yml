@@ -136,17 +136,6 @@ services:
     depends_on:
       - temporal_postgres_db
 
-  temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
-    container_name: temporal_ui
-    ports:
-      - 8080:8080
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-    depends_on:
-      - temporal
-
 volumes:
   core-app:
   core-db:
