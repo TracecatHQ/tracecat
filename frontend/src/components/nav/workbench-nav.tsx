@@ -64,7 +64,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { CustomEditor } from "@/components/editor"
 
-export function WorkflowNav() {
+export function WorkbenchNav() {
   const { workflow, isLoading, isOnline, setIsOnline, commitWorkflow } =
     useWorkflow()
 
@@ -257,20 +257,20 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
     leafRoute = "executions"
   }
 
-  const baseUrl = `/workspaces/${workspaceId}/workflows/${workflowId}`
+  const workbenchPath = `/workspaces/${workspaceId}/workflows/${workflowId}`
 
   return (
     <Tabs value={leafRoute}>
       <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger className="w-full px-4 py-0" value="workflow" asChild>
-          <Link href={baseUrl} className="size-full text-sm" passHref>
+          <Link href={workbenchPath} className="size-full text-sm" passHref>
             <WorkflowIcon className="mr-2 size-4" />
             <span>Workflow</span>
           </Link>
         </TabsTrigger>
         <TabsTrigger className="w-full px-4 py-0" value="cases" asChild>
           <Link
-            href={baseUrl + "/cases"}
+            href={workbenchPath + "/cases"}
             className="size-full text-sm"
             passHref
           >
@@ -280,7 +280,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
         </TabsTrigger>
         <TabsTrigger className="w-full px-4 py-0" value="executions" asChild>
           <Link
-            href={baseUrl + "/executions"}
+            href={`${workbenchPath}/executions`}
             className="size-full text-sm"
             passHref
           >

@@ -6,7 +6,7 @@ import { useParams, usePathname } from "next/navigation"
 
 import { DashboardNav } from "@/components/nav/dashboard-nav"
 import { Navbar } from "@/components/nav/navbar"
-import { WorkflowNav } from "@/components/nav/workflow-nav"
+import { WorkbenchNav } from "@/components/nav/workbench-nav"
 
 export function DynamicNavbar() {
   const pathname = usePathname()
@@ -17,7 +17,7 @@ export function DynamicNavbar() {
 function getNavBar(pathname: string, params: Params) {
   const { workspaceId, workflowId } = params
   if (pathname.includes("/workflows") && workspaceId && workflowId) {
-    return <WorkflowNav />
+    return <WorkbenchNav />
   }
   return <DashboardNav />
 }
