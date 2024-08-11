@@ -19,7 +19,7 @@ from fastapi_users.openapi import OpenAPIResponseType
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.auth.schemas import UserCreate
+from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -184,4 +184,5 @@ def default_admin_user() -> UserCreate:
         password="password",
         is_superuser=True,
         is_verified=True,
+        role=UserRole.ADMIN,
     )

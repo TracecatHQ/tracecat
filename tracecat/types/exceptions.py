@@ -30,3 +30,7 @@ class TracecatExpressionError(TracecatException):
 
 class TracecatCredentialsError(TracecatException):
     """Tracecat user-facing credentials error"""
+
+
+class TracecatAuthorizationError(TracecatException):
+    """Tracecat user-facing authorization error"""

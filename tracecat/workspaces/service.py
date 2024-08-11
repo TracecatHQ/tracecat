@@ -4,36 +4,75 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from pydantic import UUID4
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.authz.controls import require_access_level
 from tracecat.authz.models import OwnerType
-from tracecat.authz.service import AuthorizationService
+from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Membership, Ownership, User, Workspace
+from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.logging import logger
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.workspaces.models import UpdateWorkspaceParams
 
 
 class WorkspaceService:
     """Manage workspaces."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         self.session = session
+        self.role = role or ctx_role.get()
         self.logger = logger.bind(service="workspace")
 
     @asynccontextmanager
     @staticmethod
-    async def with_session() -> AsyncGenerator[WorkspaceService, None]:
+    async def with_session(
+        role: Role | None = None,
+    ) -> AsyncGenerator[WorkspaceService, None]:
         async with get_async_session_context_manager() as session:
-            yield WorkspaceService(session)
+            yield WorkspaceService(session, role=role)
 
+    """Management"""
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def admin_list_workspaces(self) -> list[Workspace]:
+        """List all workspaces in the organization."""
+        statement = select(Workspace)
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def list_workspaces(self, user_id: UserID) -> list[Workspace]:
+        """List all workspaces that a user is a member of.
+
+        If user_id is provided, list only workspaces where user is a member.
+        if user_id is None, list all workspaces.
+        """
+        # List workspaces where user is a member
+        statement = select(Workspace).where(
+            Workspace.id == Membership.workspace_id,
+            Membership.user_id == user_id,
+        )
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def n_workspaces(self, user_id: UserID) -> int:
+        statement = select(func.count(Workspace.id)).where(
+            Workspace.id == Membership.workspace_id,
+            Membership.user_id == user_id,
+        )
+        result = await self.session.exec(statement)
+        return result.one()
+
+    @require_access_level(AccessLevel.ADMIN)
     async def create_workspace(
         self,
         name: str,
         *,
-        owner_id: UUID4 = config.TRACECAT__DEFAULT_ORG_ID,
+        owner_id: OwnerID = config.TRACECAT__DEFAULT_ORG_ID,
         override_id: UUID4 | None = None,
         users: list[User] | None = None,
     ) -> Workspace:
@@ -57,22 +96,18 @@ class WorkspaceService:
         )
         self.session.add(ownership)
 
-        # # Add owner as a member
-        # membership = Membership(user_id=owner_id, workspace_id=workspace_id)
-        # self.session.add(membership)
-
         await self.session.commit()
         await self.session.refresh(workspace)
         return workspace
 
-    async def get_workspace(self, workspace_id: UUID4) -> Workspace | None:
+    async def get_workspace(self, workspace_id: WorkspaceID) -> Workspace | None:
         """Retrieve a workspace by ID."""
         statement = select(Workspace).where(Workspace.id == workspace_id)
         result = await self.session.exec(statement)
         return result.one_or_none()
 
     async def update_workspace(
-        self, workspace_id: UUID4, params: UpdateWorkspaceParams
+        self, workspace_id: WorkspaceID, params: UpdateWorkspaceParams
     ) -> Workspace:
         """Update a workspace."""
         workspace = await self.get_workspace(workspace_id)
@@ -86,51 +121,9 @@ class WorkspaceService:
         await self.session.refresh(workspace)
         return workspace
 
-    async def delete_workspace(self, workspace_id: UUID4) -> bool:
+    async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         workspace = await self.get_workspace(workspace_id)
         if workspace:
             await self.session.delete(workspace)
             await self.session.commit()
-            self.logger.info(f"Deleted workspace {workspace_id}")
-            return True
-        self.logger.info(f"Workspace {workspace_id} not found for deletion")
-        return False
-
-    async def add_user_to_workspace(self, workspace_id: UUID4, user_id: UUID4) -> None:
-        """Add a user to a workspace."""
-        authz_service = AuthorizationService(self.session)
-        is_member = await authz_service.user_is_workspace_member(
-            user_id=user_id, workspace_id=workspace_id
-        )
-        if not is_member:
-            new_membership = Membership(user_id=user_id, workspace_id=workspace_id)
-            self.session.add(new_membership)
-            await self.session.commit()
-
-    async def remove_user_from_workspace(
-        self, workspace_id: UUID4, user_id: UUID4
-    ) -> None:
-        """Remove a user from a workspace."""
-        if membership := await self.get_membership(user_id, workspace_id):
-            await self.session.delete(membership)
-            await self.session.commit()
-
-    async def get_workspace_members(self, workspace_id: UUID4) -> list[UUID4]:
-        """Get all members of a workspace."""
-        statement = select(Membership.user_id).where(
-            Membership.workspace_id == workspace_id
-        )
-        result = await self.session.exec(statement)
-        members = result.all()
-        return members
-
-    async def get_membership(
-        self, workspace_id: UUID4, user_id: UUID4
-    ) -> Membership | None:
-        """Get a user's membership in  workspace."""
-        statement = select(Membership).where(
-            Membership.user_id == user_id, Membership.workspace_id == workspace_id
-        )
-        result = await self.session.exec(statement)
-        return result.one_or_none()

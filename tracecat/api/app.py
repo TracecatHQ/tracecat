@@ -23,6 +23,7 @@ from tracecat.api.routers.secrets import router as secrets_router
 from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
+from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
     auth_backend,
@@ -38,6 +39,7 @@ from tracecat.registry import registry
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
+from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -53,16 +55,13 @@ async def setup_defaults():
     # Create default admin user
     admin_user = await get_or_create_default_admin_user()
     logger.info("Default admin user created", user=admin_user)
+    role = get_role_from_user(admin_user)
 
-    # Create default workspace
-    async with WorkspaceService.with_session() as service:
-        if await service.get_workspace(config.TRACECAT__DEFAULT_WORKSPACE_ID):
-            logger.info("Default workspace already exists, skipping creation")
-        else:
+    # Create default workspace if there are no workspaces
+    async with WorkspaceService.with_session(role=role) as service:
+        if (await service.n_workspaces(user_id=role.user_id)) == 0:
             default_workspace = await service.create_workspace(
-                "default",
-                override_id=config.TRACECAT__DEFAULT_WORKSPACE_ID,
-                users=[admin_user],
+                "Default Workspace", users=[admin_user]
             )
             logger.info(
                 "Default admin user and workspace created",
@@ -191,6 +190,7 @@ def create_app(**kwargs) -> FastAPI:
     # Routers
     app.include_router(webhook_router)
     app.include_router(callback_router)
+    app.include_router(workspaces_router)
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
     app.include_router(actions_router)
