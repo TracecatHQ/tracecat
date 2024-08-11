@@ -126,7 +126,6 @@ def create_ldap_client() -> LdapClient:
         ssl=(os.getenv("LDAP_SSL") == 1),
         active_directory=(os.getenv("LDAP_TYPE") == "AD"),
     )
-    client.bind()
     return client
 
 
@@ -147,7 +146,7 @@ async def find_ldap_users(
         Field(..., description="Search base DN for querying LDAP"),
     ],
 ) -> list[dict[str, Any]]:
-    async with create_ldap_client() as client:
+    with create_ldap_client() as client:
         return client.find_users(base_dn, username_or_email)
 
 
@@ -164,7 +163,7 @@ async def disable_ad_user(
         Field(..., description="User distinguished name"),
     ],
 ) -> dict[str, Any]:
-    async with create_ldap_client() as client:
+    with create_ldap_client() as client:
         result = client.disable_user(user_dn)
         if result:
             return {"success": True}
@@ -185,7 +184,7 @@ async def enable_ad_user(
         Field(..., description="User distinguished name"),
     ],
 ) -> dict[str, Any]:
-    async with create_ldap_client() as client:
+    with create_ldap_client() as client:
         result = client.enable_user(user_dn)
         if result:
             return {"success": True}
