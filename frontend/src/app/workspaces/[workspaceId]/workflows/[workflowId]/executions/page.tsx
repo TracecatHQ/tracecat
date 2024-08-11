@@ -20,9 +20,9 @@ import { AlertNotification } from "@/components/notifications"
 
 import "react18-json-view/src/style.css"
 
-import { WorkflowExecutionEventDetailView } from "./event-details"
-import { WorkflowExecutionEventHistory } from "./event-history"
-import { WorkflowExecutionNav } from "./nav"
+import { WorkflowExecutionEventDetailView } from "@/components/executions/event-details"
+import { WorkflowExecutionEventHistory } from "@/components/executions/event-history"
+import { WorkflowExecutionNav } from "@/components/executions/nav"
 
 export default function WorkflowExecutionsPage() {
   const { workflowId } = useWorkflow()

@@ -34,6 +34,7 @@ import "react18-json-view/src/style.css"
 import { useRouter } from "next/navigation"
 import { TriangleRightIcon } from "@radix-ui/react-icons"
 
+import { useWorkspace } from "@/lib/hooks"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 
@@ -55,6 +56,7 @@ export function WorkflowExecutionNav({
   setSelectedEvent: (event?: EventHistoryResponse) => void
 }) {
   const router = useRouter()
+  const { workspaceId } = useWorkspace()
   if (!workflowExecutions) {
     return <NoContent message="No workflow executions found." />
   }
@@ -63,6 +65,7 @@ export function WorkflowExecutionNav({
     console.log("Terminate execution")
     try {
       await workflowExecutionsTerminateWorkflowExecution({
+        workspaceId,
         executionId,
         requestBody: {
           reason: "User terminated execution",
