@@ -3,6 +3,8 @@ services:
     image: caddy:2.8.4-alpine
     container_name: caddy
     restart: unless-stopped
+    networks:
+      - core
     ports:
       - 80:80
     environment:
@@ -15,8 +17,10 @@ services:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.6.4}
     container_name: api
     restart: unless-stopped
-    ports:
-      - 8000:8000
+    networks:
+      - core
+      - core-db
+      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -43,6 +47,10 @@ services:
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.6.4}
     restart: unless-stopped
+    networks:
+      - core
+      - core-db
+      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -74,8 +82,8 @@ services:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.6.4}
     container_name: ui
     restart: unless-stopped
-    ports:
-      - 3000:3000
+    networks:
+      - core
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
@@ -90,8 +98,8 @@ services:
     image: postgres:16
     container_name: postgres_db
     restart: always
-    ports:
-      - 5432:5432
+    networks:
+      - core-db
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
@@ -103,6 +111,8 @@ services:
     image: postgres:13
     container_name: temporal_postgres_db
     restart: always
+    networks:
+      - temporal-db
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
@@ -113,8 +123,9 @@ services:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
     container_name: temporal
     restart: always
-    ports:
-      - 7233:7233
+    networks:
+      - temporal
+      - temporal-db
     environment:
       - DB=postgres12
       - DB_PORT=5432
@@ -140,3 +151,11 @@ volumes:
   core-app:
   core-db:
   temporal-db:
+
+networks:
+  core:
+  core-db:
+    internal: true
+  temporal:
+  temporal-db:
+    internal: true
