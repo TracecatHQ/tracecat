@@ -5,9 +5,10 @@ on:
     branches: ["main"]
     paths:
       - tracecat/db/**
+      - .github/workflows/auto-generate-migrations.yml
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 jobs:
@@ -25,7 +26,10 @@ jobs:
           cache: "pip"
           cache-dependency-path: pyproject.toml
 
-      - name: Start Docker services
+      - name: Run environment setup script
+        run: bash env.sh
+
+      - name: Spin up latest version database
         run: docker compose -f docker-compose.yml up --build --no-deps -d api postgres_db
 
       - name: pip install Tracecat
@@ -33,20 +37,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install .
 
-          - name: Autogenerate migrations
-          run: |
-            alembic revision --autogenerate -m "Auto-generated migration"
+      - name: Autogenerate migrations
+        run: alembic revision --autogenerate -m "Auto-generated migration"
 
       - name: Check for changes
         id: git-check
-        run: |
-          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+        run: git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
 
-      - name: Commit changes
+      - name: Comment PR
+        uses: actions/github-script@v6
         if: steps.git-check.outputs.changes == 'true'
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add .
-          git commit -m "Auto-generate Alembic migrations"
-          git push
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const fs = require('fs')
+            const diff = fs.readFileSync('migration_changes.diff', 'utf8')
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Alembic has auto-generated the following migration:\n\n```diff\n' + diff + '\n```\nPlease review these changes and manually commit them if they look correct.'
+            })
