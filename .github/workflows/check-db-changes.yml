@@ -31,8 +31,13 @@ jobs:
       - name: Spin up latest version database
         run: docker compose -f docker-compose.yml up --build --no-deps -d api postgres_db
 
-      - name: Install alembic
-        run: pip install alembic==1.13.2 alembic_utils==0.8.4 alembic-postgresql-enum==1.3.0
+      - name: Install dependencies
+        run: >
+          pip install alembic==1.13.2 alembic_utils==0.8.4 alembic-postgresql-enum==1.3.0
+            sqlmodel==0.0.18
+            fastapi-users[sqlalchemy,oauth]==13.0.0
+            fastapi==0.111.0
+            python-slugify==8.0.4
 
       - name: Check for potential database changes
         id: db-check
