@@ -6,7 +6,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.auth.credentials import authenticate_user
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import CaseAction
 from tracecat.types.api import CaseActionParams
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/case-actions")
 
 @router.get("", tags=["cases"])
 async def list_case_actions(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     session: AsyncSession = Depends(get_async_session),
 ) -> list[CaseAction]:
     """List all case actions."""
@@ -34,7 +34,7 @@ async def list_case_actions(
 
 @router.post("", tags=["cases"])
 async def create_case_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: CaseActionParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> CaseAction:
@@ -48,7 +48,7 @@ async def create_case_action(
 
 @router.delete("/{case_action_id}", tags=["cases"])
 async def delete_case_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     case_action_id: str,
     session: AsyncSession = Depends(get_async_session),
 ):

@@ -13,7 +13,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import identifiers
-from tracecat.auth.credentials import authenticate_user
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/workflow-executions")
 
 @router.get("", tags=["workflow-executions"])
 async def list_workflow_executions(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     # Filters
     workflow_id: identifiers.WorkflowID | None = Query(None),
 ) -> list[WorkflowExecutionResponse]:
@@ -53,7 +53,7 @@ async def list_workflow_executions(
 
 @router.get("/{execution_id}", tags=["workflow-executions"])
 async def get_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
 ) -> WorkflowExecutionResponse:
     """Get a workflow execution."""
@@ -65,7 +65,7 @@ async def get_workflow_execution(
 
 @router.get("/{execution_id}/history", tags=["workflow-executions"])
 async def list_workflow_execution_event_history(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
 ) -> list[EventHistoryResponse]:
     """Get a workflow execution."""
@@ -77,7 +77,7 @@ async def list_workflow_execution_event_history(
 
 @router.post("", tags=["workflow-executions"])
 async def create_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: CreateWorkflowExecutionParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> CreateWorkflowExecutionResponse:
@@ -126,7 +126,7 @@ async def create_workflow_execution(
     tags=["workflow-executions"],
 )
 async def cancel_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
 ) -> None:
     """Get a workflow execution."""
@@ -150,7 +150,7 @@ async def cancel_workflow_execution(
     tags=["workflow-executions"],
 )
 async def terminate_workflow_execution(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
     params: TerminateWorkflowExecutionParams,
 ) -> None:

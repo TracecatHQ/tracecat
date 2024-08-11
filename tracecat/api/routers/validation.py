@@ -6,7 +6,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import ValidationError
 
 from tracecat import validation
-from tracecat.auth.credentials import authenticate_user
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logging import logger
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/validate-workflow")
 
 @router.post("", tags=["validation"])
 async def validate_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     definition: UploadFile = File(...),
     payload: UploadFile = File(None),
 ) -> list[UDFArgsValidationResponse]:

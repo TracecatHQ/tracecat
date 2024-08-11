@@ -17,12 +17,13 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import config, identifiers, validation
-from tracecat.auth.credentials import authenticate_user
+from tracecat import validation
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
+from tracecat.identifiers import WorkflowID
 from tracecat.logging import logger
 from tracecat.types.api import (
     ActionResponse,
@@ -46,22 +47,13 @@ router = APIRouter(prefix="/workflows")
 
 @router.get("", tags=["workflows"])
 async def list_workflows(
-    role: Annotated[Role, Depends(authenticate_user)],
-    library: bool = False,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     session: AsyncSession = Depends(get_async_session),
 ) -> list[WorkflowMetadataResponse]:
-    """
-    List workflows.
-
-    If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
-    """
-    query_user_id = (
-        role.workspace_id if not library else config.TRACECAT__DEFAULT_USER_ID
-    )
-    statement = select(Workflow).where(Workflow.owner_id == query_user_id)
-    results = await session.exec(statement)
-    workflows = results.all()
-    workflow_metadata = [
+    """List workflows."""
+    service = WorkflowsManagementService(session, role=role)
+    workflows = await service.list_workflows()
+    return [
         WorkflowMetadataResponse(
             id=workflow.id,
             title=workflow.title,
@@ -74,12 +66,11 @@ async def list_workflows(
         )
         for workflow in workflows
     ]
-    return workflow_metadata
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 async def create_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     title: str | None = Form(None),
     description: str | None = Form(None),
     file: UploadFile | None = File(None),
@@ -108,7 +99,7 @@ async def create_workflow(
                 detail=f"Error parsing file: {str(e)}",
             ) from e
 
-        service = WorkflowsManagementService(session, role)
+        service = WorkflowsManagementService(session, role=role)
         result = await service.create_workflow_from_dsl(
             dsl_data, skip_secret_validation=True
         )
@@ -165,22 +156,18 @@ async def create_workflow(
 
 @router.get("/{workflow_id}", tags=["workflows"])
 async def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     # Get Workflow given workflow_id
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.workspace_id, Workflow.id == workflow_id
-    )
-    result = await session.exec(statement)
-    try:
-        workflow = result.one()
-    except NoResultFound as e:
+    service = WorkflowsManagementService(session, role=role)
+    workflow = await service.get_workflow(workflow_id)
+    if not workflow:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+        )
 
     actions = workflow.actions or []
     actions_responses = {
@@ -201,30 +188,19 @@ async def get_workflow(
     tags=["workflows"],
 )
 async def update_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     params: UpdateWorkflowParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Update a workflow."""
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.workspace_id,
-        Workflow.id == workflow_id,
-    )
-    result = await session.exec(statement)
+    service = WorkflowsManagementService(session, role=role)
     try:
-        workflow = result.one()
+        await service.update_wrkflow(workflow_id, params=params)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
-
-    for key, value in params.model_dump(exclude_unset=True).items():
-        # Safe because params has been validated
-        setattr(workflow, key, value)
-
-    session.add(workflow)
-    await session.commit()
 
 
 @router.delete(
@@ -233,31 +209,25 @@ async def update_workflow(
     tags=["workflows"],
 )
 async def delete_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a workflow."""
 
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.workspace_id,
-        Workflow.id == workflow_id,
-    )
-    result = await session.exec(statement)
+    service = WorkflowsManagementService(session, role=role)
     try:
-        workflow = result.one()
+        service.delete_workflow(workflow_id)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
-    await session.delete(workflow)
-    await session.commit()
 
 
 @router.post("/{workflow_id}/commit", tags=["workflows"])
 async def commit_workflow(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     session: AsyncSession = Depends(get_async_session),
 ) -> CommitWorkflowResponse:
     """Commit a workflow.
@@ -268,19 +238,12 @@ async def commit_workflow(
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
 
     with logger.contextualize(role=role):
-        # Validate that our target workflow exists
-        # Grab workflow and actions from tables
-        statement = select(Workflow).where(
-            Workflow.owner_id == role.workspace_id, Workflow.id == workflow_id
-        )
-        result = await session.exec(statement)
-        try:
-            workflow = result.one()
-        except NoResultFound as e:
+        mgmt_service = WorkflowsManagementService(session, role=role)
+        workflow = await mgmt_service.get_workflow(workflow_id)
+        if not workflow:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Could not find workflow",
-            ) from e
+                status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
+            )
         # Hydrate actions
         _ = workflow.actions
 
@@ -290,7 +253,6 @@ async def commit_workflow(
         construction_errors = []
         try:
             # Convert the workflow into a WorkflowDefinition
-            _ = workflow.actions
             # XXX: When we commit from the workflow, we have action IDs
             dsl = DSLInput.from_workflow(workflow)
         except* TracecatValidationError as eg:
@@ -361,8 +323,8 @@ async def commit_workflow(
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 async def list_workflow_definitions(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[WorkflowDefinition]:
     """List all workflow definitions for a Workflow."""
@@ -372,8 +334,8 @@ async def list_workflow_definitions(
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 async def get_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     version: int | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowDefinition:
@@ -391,8 +353,8 @@ async def get_workflow_definition(
 
 @router.post("/{workflow_id}/definition", tags=["workflows"])
 async def create_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: identifiers.WorkflowID,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
@@ -409,8 +371,8 @@ async def create_workflow_definition(
     tags=["triggers"],
 )
 async def create_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     params: UpsertWebhookParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
@@ -429,8 +391,8 @@ async def create_webhook(
 
 @router.get("/{workflow_id}/webhook", tags=["triggers"])
 async def get_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     session: AsyncSession = Depends(get_async_session),
 ) -> WebhookResponse:
     """Get the webhook from a workflow."""
@@ -454,8 +416,8 @@ async def get_webhook(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def update_webhook(
-    role: Annotated[Role, Depends(authenticate_user)],
-    workflow_id: str,
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
     params: UpsertWebhookParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:

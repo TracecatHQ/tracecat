@@ -6,7 +6,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.auth.credentials import authenticate_user
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import User
 from tracecat.types.api import UpdateUserParams
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/users")
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["users"])
 async def create_user(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     session: AsyncSession = Depends(get_async_session),
 ) -> User:
     """Create new user."""
@@ -41,7 +41,7 @@ async def create_user(
 
 @router.get("", tags=["users"])
 async def get_user(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     session: AsyncSession = Depends(get_async_session),
 ) -> User:
     """Get a user."""
@@ -60,7 +60,7 @@ async def get_user(
 
 @router.post("", status_code=status.HTTP_204_NO_CONTENT, tags=["users"])
 async def update_user(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: UpdateUserParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
@@ -86,7 +86,7 @@ async def update_user(
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT, tags=["users"])
 async def delete_user(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a user."""

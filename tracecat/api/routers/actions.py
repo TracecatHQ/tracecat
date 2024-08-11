@@ -5,7 +5,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Action
 from tracecat.types.api import (
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/actions")
 
 @router.get("", tags=["actions"])
 async def list_actions(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     workflow_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[ActionMetadataResponse]:
@@ -49,7 +49,7 @@ async def list_actions(
 
 @router.post("", tags=["actions"])
 async def create_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: CreateActionParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> ActionMetadataResponse:
@@ -92,7 +92,7 @@ async def create_action(
 
 @router.get("/{action_id}", tags=["actions"])
 async def get_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     action_id: str,
     workflow_id: str,
     session: AsyncSession = Depends(get_async_session),
@@ -125,7 +125,7 @@ async def get_action(
 
 @router.post("/{action_id}", tags=["actions"])
 async def update_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     action_id: str,
     params: UpdateActionParams,
     session: AsyncSession = Depends(get_async_session),
@@ -172,7 +172,7 @@ async def update_action(
 
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"])
 async def delete_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     action_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:

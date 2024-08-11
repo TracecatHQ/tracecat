@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user, authenticate_user_or_service
+from tracecat.auth.credentials import (
+    authenticate_user_for_workspace,
+    authenticate_user_or_service,
+)
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Secret
 from tracecat.secrets.service import SecretsService
@@ -21,7 +24,7 @@ router = APIRouter(prefix="/secrets")
 
 @router.get("", tags=["secrets"])
 async def list_secrets(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     session: AsyncSession = Depends(get_async_session),
 ) -> list[SecretResponse]:
     """List user secrets."""
@@ -67,7 +70,7 @@ async def get_secret(
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["secrets"])
 async def create_secret(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: CreateSecretParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
@@ -92,7 +95,7 @@ async def create_secret(
 
 @router.post("/{secret_name}", status_code=status.HTTP_201_CREATED, tags=["secrets"])
 async def update_secret(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     secret_name: str,
     params: UpdateSecretParams,
     session: AsyncSession = Depends(get_async_session),
@@ -118,7 +121,7 @@ async def update_secret(
     "/{secret_name}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"]
 )
 async def delete_secret(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     secret_name: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
@@ -134,7 +137,7 @@ async def delete_secret(
 
 @router.post("/search", tags=["secrets"])
 async def search_secrets(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: SearchSecretsParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[Secret]:
