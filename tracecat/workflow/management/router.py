@@ -217,7 +217,7 @@ async def delete_workflow(
 
     service = WorkflowsManagementService(session, role=role)
     try:
-        service.delete_workflow(workflow_id)
+        await service.delete_workflow(workflow_id)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
