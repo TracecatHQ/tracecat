@@ -179,10 +179,12 @@ export function WorkflowNav() {
                   </ul>
                 </div>
               ) : (
-                <span className="m-2">
-                  Create workflow definition v{(workflow.version || 0) + 1} with
-                  your changes.
-                </span>
+                <div className="p-2">
+                  <span>
+                    Create workflow definition v{(workflow.version || 0) + 1}{" "}
+                    with your changes.
+                  </span>
+                </div>
               )}
             </TooltipContent>
           </Tooltip>
@@ -247,6 +249,7 @@ export function WorkflowNav() {
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
+  const { workspaceId } = useWorkspace()
   let leafRoute: string = "workflow"
   if (pathname.endsWith("cases")) {
     leafRoute = "cases"
@@ -254,22 +257,20 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
     leafRoute = "executions"
   }
 
+  const baseUrl = `/workspaces/${workspaceId}/workflows/${workflowId}`
+
   return (
     <Tabs value={leafRoute}>
       <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger className="w-full px-4 py-0" value="workflow" asChild>
-          <Link
-            href={`/workflows/${workflowId}`}
-            className="size-full text-sm"
-            passHref
-          >
+          <Link href={baseUrl} className="size-full text-sm" passHref>
             <WorkflowIcon className="mr-2 size-4" />
             <span>Workflow</span>
           </Link>
         </TabsTrigger>
         <TabsTrigger className="w-full px-4 py-0" value="cases" asChild>
           <Link
-            href={`/workflows/${workflowId}/cases`}
+            href={baseUrl + "/cases"}
             className="size-full text-sm"
             passHref
           >
@@ -279,7 +280,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
         </TabsTrigger>
         <TabsTrigger className="w-full px-4 py-0" value="executions" asChild>
           <Link
-            href={`/workflows/${workflowId}/executions`}
+            href={baseUrl + "/executions"}
             className="size-full text-sm"
             passHref
           >
