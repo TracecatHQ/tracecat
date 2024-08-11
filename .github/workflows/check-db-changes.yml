@@ -1,11 +1,11 @@
-name: Auto generate migrations
+name: Check Database Changes
 
 on:
   pull_request:
     branches: ["main"]
     paths:
       - tracecat/db/**
-      - .github/workflows/auto-generate-migrations.yml
+      - .github/workflows/check-db-changes.yml
 
 permissions:
   pull-requests: write
