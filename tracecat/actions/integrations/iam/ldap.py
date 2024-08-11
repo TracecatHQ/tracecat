@@ -31,45 +31,49 @@ ldap_secret = RegistrySecret(
 
 class LdapClient:
     def __init__(
-        self, host: str, port: int, ssl: bool = False, active_directory: bool = False
+        self,
+        host: str,
+        port: int,
+        use_ssl: bool = False,
+        is_active_directory: bool = False,
     ):
-        self._ldap_server = ldap3.Server(host, int(port), ssl, get_info=ldap3.ALL)
-        self._ldap_active_directory = active_directory
+        self._server = ldap3.Server(host, int(port), use_ssl, get_info=ldap3.ALL)
+        self._ldap_active_directory = is_active_directory
 
     def __enter__(self, *args, **kwargs):
         self.bind()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._ldap_connection:
-            self._ldap_connection.unbind()
+        if self._connection:
+            self._connection.unbind()
 
     async def __aenter__(self, *args, **kwargs):
         self.bind()
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        if self._ldap_connection:
-            self._ldap_connection.unbind()
+        if self._connection:
+            self._connection.unbind()
 
     def bind(self) -> bool:
-        if self._ldap_connection is not None:
+        if self._connection is not None:
             return True
 
-        self._ldap_connection = ldap3.Connection(
-            self._ldap_server,
+        self._connection = ldap3.Connection(
+            self._server,
             os.getenv("LDAP_BIND_DN"),
             os.getenv("LDAP_BIND_PASS"),
             auto_bind=True,
         )
 
     def _search(self, base_dn: str, ldap_query: str):
-        results = self._ldap_connection.search(
+        results = self._connection.search(
             base_dn, ldap_query, ldap3.SUBTREE, attributes=ldap3.ALL_ATTRIBUTES
         )
         if results:
             entries = []
-            for entry in self._ldap_connection.entries:
+            for entry in self._connection.entries:
                 entries += [
                     {
                         "dn": entry.entry_dn,
@@ -83,11 +87,11 @@ class LdapClient:
             return []
 
     def _search_one(self, base_dn: str):
-        results = self._ldap_connection.search(
+        results = self._connection.search(
             base_dn, "(objectClass=*)", ldap3.BASE, attributes=ldap3.ALL_ATTRIBUTES
         )
         if results:
-            for entry in self._ldap_connection.entries:
+            for entry in self._connection.entries:
                 return dict(entry.attributes)
 
     def find_users(self, base_dn: str, search_value: str):
@@ -102,14 +106,10 @@ class LdapClient:
         return self._searchone(user_dn, "(objectClass=*)")
 
     def disable_user(self, user_dn: str):
-        return self._ldap_connection.modify(
-            user_dn, {"userAccountControl": [(2, [514])]}
-        )
+        return self._connection.modify(user_dn, {"userAccountControl": [(2, [514])]})
 
     def enable_user(self, user_dn: str):
-        return self._ldap_connection.modify(
-            user_dn, {"userAccountControl": [(2, [512])]}
-        )
+        return self._connection.modify(user_dn, {"userAccountControl": [(2, [512])]})
 
 
 def create_ldap_client() -> LdapClient:
@@ -123,8 +123,8 @@ def create_ldap_client() -> LdapClient:
     client = LdapClient(
         host=os.getenv("LDAP_HOST"),
         port=os.getenv("LDAP_PORT"),
-        ssl=(os.getenv("LDAP_SSL") == 1),
-        active_directory=(os.getenv("LDAP_TYPE") == "AD"),
+        use_ssl=(os.getenv("LDAP_SSL") == 1),
+        is_active_directory=(os.getenv("LDAP_TYPE") == "AD"),
     )
     return client
 
@@ -168,7 +168,7 @@ async def disable_ad_user(
         if result:
             return {"success": True}
         else:
-            return {"success": False, "error": client._ldap_connection.last_error}
+            return {"success": False, "error": client._connection.last_error}
 
 
 @registry.register(
@@ -189,4 +189,4 @@ async def enable_ad_user(
         if result:
             return {"success": True}
         else:
-            return {"success": False, "error": client._ldap_connection.last_error}
+            return {"success": False, "error": client._connection.last_error}
