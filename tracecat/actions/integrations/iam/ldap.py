@@ -30,10 +30,6 @@ ldap_secret = RegistrySecret(
 
 
 class LdapClient:
-    _ldap_server = None
-    _ldap_connection = None
-    _ldap_active_directory = False
-
     def __init__(
         self, host: str, port: int, ssl: bool = False, active_directory: bool = False
     ):
@@ -86,7 +82,7 @@ class LdapClient:
         else:
             return []
 
-    def _searchone(self, base_dn: str):
+    def _search_one(self, base_dn: str):
         results = self._ldap_connection.search(
             base_dn, "(objectClass=*)", ldap3.BASE, attributes=ldap3.ALL_ATTRIBUTES
         )
