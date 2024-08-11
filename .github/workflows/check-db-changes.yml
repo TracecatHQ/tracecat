@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  build-migrations:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,9 +33,6 @@ jobs:
 
       - name: Install alembic
         run: pip install alembic==1.13.2 alembic_utils==0.8.4 alembic-postgresql-enum==1.3.0
-
-      - name: Autogenerate migrations
-        run: alembic revision --autogenerate -m "Auto-generated migration"
 
       - name: Check for potential database changes
         id: db-check
