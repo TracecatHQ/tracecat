@@ -1,0 +1,50 @@
+name: Auto generate migrations
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - tracecat/db/**
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Start Docker services
+        run: docker compose -f docker-compose.yml up --build --no-deps -d api postgres_db
+
+      - name: pip install Tracecat
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+          - name: Autogenerate migrations
+          run: |
+            alembic revision --autogenerate -m "Auto-generated migration"
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+
+      - name: Commit changes
+        if: steps.git-check.outputs.changes == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Auto-generate Alembic migrations"
+          git push origin HEAD:${{ github.head_ref }}
