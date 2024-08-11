@@ -17,7 +17,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import identifiers, validation
+from tracecat import config, identifiers, validation
 from tracecat.auth.credentials import authenticate_user
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
@@ -55,7 +55,7 @@ async def list_workflows(
 
     If `library` is True, it will list workflows from the library. If `library` is False, it will list workflows owned by the user.
     """
-    query_user_id = role.user_id if not library else "tracecat"
+    query_user_id = role.user_id if not library else config.TRACECAT__DEFAULT_USER_ID
     statement = select(Workflow).where(Workflow.owner_id == query_user_id)
     results = await session.exec(statement)
     workflows = results.all()
@@ -331,7 +331,7 @@ async def commit_workflow(
         # We should only instantiate action refs at workflow    runtime
         service = WorkflowDefinitionsService(session, role=role)
         # Creating a workflow definition only uses refs
-        defn = await service.create_workflow_definition(workflow_id, dsl)
+        defn = await service.create_workflow_definition(workflow_id, dsl, commit=False)
 
         # Update Workflow
         # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth

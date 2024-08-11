@@ -1,10 +1,11 @@
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel
 
 
 class Role(BaseModel):
-    """The role of the session.
+    """The identity of a user or service role.
 
     Params
     ------
@@ -31,5 +32,5 @@ class Role(BaseModel):
     """
 
     type: Literal["user", "service"]
-    user_id: str | None = None
+    user_id: UUID | None = None
     service_id: str

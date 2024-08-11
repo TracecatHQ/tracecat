@@ -1,4 +1,6 @@
 import React from "react"
+import { type UserRead } from "@/client"
+import { useAuth } from "@/providers/auth"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ChatBubbleIcon } from "@radix-ui/react-icons"
 import { useForm } from "react-hook-form"
@@ -6,7 +8,6 @@ import { z } from "zod"
 
 import { CaseEvent, CasePriorityType, CaseStatusType } from "@/types/schemas"
 import { userDefaults } from "@/config/user"
-import { useUser } from "@/lib/auth"
 import { useCaseEvents } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -46,7 +47,7 @@ export function Timeline({
   workflowId: string
   caseId: string
 }) {
-  const { user } = useUser()
+  const { user } = useAuth()
   const {
     caseEvents,
     caseEventsIsLoading,
@@ -131,11 +132,9 @@ export type CaseEventType =
   | "case_opened"
   | "case_closed"
 
-type TUser = ReturnType<typeof useUser>["user"]
-
 export type TimelineItemProps = CaseEvent & {
   className?: string
-  user?: TUser
+  user: UserRead | null
 }
 
 export function TimelineItem({
@@ -147,7 +146,6 @@ export function TimelineItem({
     <li className={cn("ms-6 rounded-lg text-xs shadow-sm", className)}>
       <UserAvatar
         className="absolute -start-4 flex size-8 items-center justify-center border ring-8 ring-white"
-        src={user?.imageUrl}
         alt={userDefaults.alt}
       />
       <TimelineItemActivity {...activityProps} user={user} />
@@ -171,7 +169,7 @@ const getActivityDescription = ({
   type,
   data,
 }: TimelineItemProps): React.ReactNode => {
-  const name = <b>{user?.fullName || userDefaults.name}</b>
+  const name = <b>{user?.first_name || userDefaults.name}</b>
   switch (type) {
     case "comment_created":
       return <span>{name} added a comment to the case.</span>

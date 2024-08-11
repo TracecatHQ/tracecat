@@ -49,20 +49,3 @@ Coming soon!
 ## GCP
 
 Coming soon!
-
-## Authentication
-
-Tracecat supports Enterprise SSO via Clerk.
-This requires you to have a Clerk account with the following environment variables set:
-
-```bash
-# --- Authentication + Clerk ---
-TRACECAT__DISABLE_AUTH=false
-# Fill these in!
-CLERK_FRONTEND_API_URL=<your-clerk-frontend-api-url>
-CLERK_SECRET_KEY=<your-clerk-secret-key>
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<your-clerk-publishable-key>
-```
-
-Finally, you will need to add custom claims to your sessions.
-[This Clerk blog post explains how.](https://clerk.com/blog/add-onboarding-flow-for-your-application-with-clerk#add-custom-claims-to-your-session-token).

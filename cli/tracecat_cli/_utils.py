@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 
+import httpx
 import orjson
 import typer
 from rich.table import Table
@@ -36,3 +38,27 @@ def read_input(data: str) -> dict[str, str]:
         return orjson.loads(data)
     except orjson.JSONDecodeError as e:
         raise typer.BadParameter(f"Invalid JSON: {e}") from e
+
+
+def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
+    """Write cookies to file."""
+    cookies_dict = dict(cookies)
+
+    # Overwrite the cookies file
+    with cookies_path.open(mode="w") as f:
+        json.dump(cookies_dict, f)
+
+
+def read_cookies(cookies_path: Path) -> httpx.Cookies:
+    """Read cookies from file."""
+    try:
+        with cookies_path.open() as f:
+            cookies_dict = json.load(f)
+        return httpx.Cookies(cookies_dict)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return httpx.Cookies()
+
+
+def delete_cookies(cookies_path: Path) -> None:
+    """Delete cookies file."""
+    cookies_path.unlink(missing_ok=True)

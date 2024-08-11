@@ -76,8 +76,8 @@ export default React.memo(function SelectorNode({
         <div className="w-full bg-muted-foreground/5 px-3 py-[2px]">
           <Label className="flex items-center text-xs text-muted-foreground">
             <span className="font-medium">Add a node</span>
-            <span className="my-[1px] ml-auto flex items-center space-x-2">
-              <p className="my-0 inline-block rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-[1px] py-0 font-mono text-xs">
+            <span className="my-px ml-auto flex items-center space-x-2">
+              <p className="my-0 inline-block rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-px py-0 font-mono text-xs">
                 Esc
               </p>
               <XIcon

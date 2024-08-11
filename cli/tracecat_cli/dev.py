@@ -102,11 +102,6 @@ def api(
     rich.print(result, len(result))
 
 
-@app.command(help="Print the current role")
-def whoami():
-    rich.print(config.role)
-
-
 @app.command(name="generate-spec", help="Generate OpenAPI specification. Requires npx.")
 def generate_spec(
     outfile: str = typer.Option(

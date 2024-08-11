@@ -48,7 +48,7 @@ def _bool(x: Any) -> bool:
     return bool(x)
 
 
-def _from_timestamp(x: int, unit: str) -> datetime:
+def from_timestamp(x: int, unit: str) -> datetime:
     if unit == "ms":
         dt = datetime.fromtimestamp(x / 1000)
     else:
@@ -56,36 +56,36 @@ def _from_timestamp(x: int, unit: str) -> datetime:
     return dt
 
 
-def _format_string(template: str, *values: Any) -> str:
+def format_string(template: str, *values: Any) -> str:
     """Format a string with the given arguments."""
     return template.format(*values)
 
 
-def _str_to_b64(x: str) -> str:
+def str_to_b64(x: str) -> str:
     return base64.b64encode(x.encode()).decode()
 
 
-def _b64_to_str(x: str) -> str:
+def b64_to_str(x: str) -> str:
     return base64.b64decode(x).decode()
 
 
-def _ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
+def ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
     if IPv4Address(ipv4) in IPv4Network(subnet):
         return True
     return False
 
 
-def _ipv6_in_subnet(ipv6: str, subnet: str) -> bool:
+def ipv6_in_subnet(ipv6: str, subnet: str) -> bool:
     if IPv6Address(ipv6) in IPv6Network(subnet):
         return True
     return False
 
 
-def _ipv4_is_public(ipv4: str) -> bool:
+def ipv4_is_public(ipv4: str) -> bool:
     return IPv4Address(ipv4).is_global
 
 
-def _ipv6_is_public(ipv6: str) -> bool:
+def ipv6_is_public(ipv6: str) -> bool:
     return IPv6Address(ipv6).is_global
 
 
@@ -264,7 +264,7 @@ def eval_jsonpath(
         )
 
 
-def _to_datetime(x: Any) -> datetime:
+def to_datetime(x: Any) -> datetime:
     if isinstance(x, datetime):
         return x
     if isinstance(x, int):
@@ -297,6 +297,10 @@ def custom_chain(*args):
             yield from custom_chain(*arg)
         else:
             yield arg
+
+
+def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
+    return [orjson.loads(line) for line in x.splitlines()]
 
 
 BUILTIN_TYPE_MAPPING = {
@@ -341,7 +345,7 @@ _FUNCTION_MAPPING = {
     # Transform
     "join": lambda items, sep: sep.join(items),
     "concat": lambda *items: "".join(items),
-    "format": _format_string,
+    "format": format_string,
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
     # Logical
@@ -351,23 +355,26 @@ _FUNCTION_MAPPING = {
     # Type conversion
     # Convert JSON to string
     "serialize_json": lambda x: orjson.dumps(x).decode(),
-    "deserialize_json": lambda x: orjson.loads(x),
+    # Convert JSON string to dictionary
+    "deserialize_json": orjson.loads,
+    # Convert NDJSON to list of dictionaries
+    "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
     # Time related
-    "from_timestamp": lambda x, unit,: _from_timestamp(x, unit),
-    "now": lambda: datetime.now(),
-    "minutes": lambda minutes: timedelta(minutes=minutes),
-    "to_datetime": lambda x: _to_datetime(x),
+    "from_timestamp": lambda x, unit,: from_timestamp(x, unit),
+    "now": datetime.now,
+    "minutes": lambda x: timedelta(minutes=x),
+    "to_datetime": to_datetime,
     # Base64
-    "to_base64": _str_to_b64,
-    "from_base64": _b64_to_str,
+    "to_base64": str_to_b64,
+    "from_base64": b64_to_str,
     # Utils
     "lookup": lambda d, k: d.get(k),
     # IP addresses
-    "ipv4_in_subnet": lambda i, s: _ipv4_in_subnet(i, s),
-    "ipv6_in_subnet": lambda i, s: _ipv6_in_subnet(i, s),
-    "ipv4_is_public": lambda i: _ipv4_is_public(i),
-    "ipv6_is_public": lambda i: _ipv6_is_public(i),
+    "ipv4_in_subnet": lambda ip, subnet: ipv4_in_subnet(ip, subnet),
+    "ipv6_in_subnet": lambda ip, subnet: ipv4_in_subnet(ip, subnet),
+    "ipv4_is_public": ipv4_is_public,
+    "ipv6_is_public": ipv6_is_public,
 }
 
 

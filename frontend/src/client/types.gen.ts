@@ -75,7 +75,24 @@ export type ActionTest = {
     failure?: unknown;
 };
 
-export type Body_validate_workflow = {
+export type Body_auth_reset_forgot_password = {
+    email: string;
+};
+
+export type Body_auth_reset_reset_password = {
+    token: string;
+    password: string;
+};
+
+export type Body_auth_verify_request_token = {
+    email: string;
+};
+
+export type Body_auth_verify_verify = {
+    token: string;
+};
+
+export type Body_validation_validate_workflow = {
     definition: (Blob | File);
     payload?: (Blob | File);
 };
@@ -190,10 +207,6 @@ export type CommitWorkflowResponse = {
 
 export type status2 = 'success' | 'failure';
 
-export type CopyWorkflowParams = {
-    owner_id: string;
-};
-
 export type CreateActionParams = {
     workflow_id: string;
     type: string;
@@ -245,13 +258,6 @@ export type CreateSecretParams = {
     [key: string]: (string);
 } | null;
 };
-
-export type CreateUserParams = {
-    tier?: 'free' | 'pro' | 'enterprise';
-    settings?: string | null;
-};
-
-export type tier = 'free' | 'pro' | 'enterprise';
 
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
@@ -334,6 +340,12 @@ export type DSLRunArgs = {
     };
 };
 
+export type ErrorModel = {
+    detail: string | {
+    [key: string]: (string);
+};
+};
+
 export type EventFailure = {
     message: string;
     stack_trace: string;
@@ -400,8 +412,12 @@ export type ListModel_CaseContext__Output = Array<tracecat__types__api__CaseCont
 
 export type ListModel_Tag_ = Array<Tag>;
 
+export type OAuth2AuthorizeResponse = {
+    authorization_url: string;
+};
+
 /**
- * The role of the session.
+ * The identity of a user or service role.
  *
  * Params
  * ------
@@ -648,13 +664,45 @@ export type UpsertWebhookParams = {
     method?: 'GET' | 'POST' | null;
 };
 
-export type User = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    tier?: string;
-    settings?: string | null;
+export type UserCreate = {
+    email: string;
+    password: string;
+    is_active?: boolean | null;
+    is_superuser?: boolean | null;
+    is_verified?: boolean | null;
+    role?: UserRole;
+    first_name?: string | null;
+    last_name?: string | null;
+};
+
+export type UserRead = {
+    id: string;
+    email: string;
+    is_active?: boolean;
+    is_superuser?: boolean;
+    is_verified?: boolean;
+    role: UserRole;
+    first_name?: string | null;
+    last_name?: string | null;
+    settings: {
+        [key: string]: unknown;
+    };
+};
+
+export type UserRole = 'basic' | 'admin';
+
+export type UserUpdate = {
+    password?: string | null;
+    email?: string | null;
+    is_active?: boolean | null;
+    is_superuser?: boolean | null;
+    is_verified?: boolean | null;
+    role: UserRole;
+    first_name?: string | null;
+    last_name?: string | null;
+    settings?: {
+    [key: string]: unknown;
+} | null;
 };
 
 export type ValidationError = {
@@ -784,6 +832,15 @@ export type WorkflowResponse = {
 } | null;
 };
 
+export type login = {
+    grant_type?: string | null;
+    username: string;
+    password: string;
+    scope?: string;
+    client_id?: string | null;
+    client_secret?: string | null;
+};
+
 export type tracecat__db__schemas__CaseContext = {
     owner_id: string;
     created_at: string;
@@ -797,10 +854,6 @@ export type tracecat__db__schemas__CaseContext = {
 export type tracecat__types__api__CaseContext = {
     key: string;
     value: string;
-};
-
-export type CheckHealthResponse = {
-    [key: string]: (string);
 };
 
 export type PublicIncomingWebhookData = {
@@ -854,13 +907,6 @@ export type WorkflowsDeleteWorkflowData = {
 
 export type WorkflowsDeleteWorkflowResponse = void;
 
-export type WorkflowsCopyWorkflowData = {
-    requestBody?: CopyWorkflowParams | null;
-    workflowId: string;
-};
-
-export type WorkflowsCopyWorkflowResponse = void;
-
 export type WorkflowsCommitWorkflowData = {
     workflowId: string;
 };
@@ -879,6 +925,26 @@ export type WorkflowsCreateWorkflowDefinitionData = {
 };
 
 export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition;
+
+export type TriggersCreateWebhookData = {
+    requestBody: UpsertWebhookParams;
+    workflowId: string;
+};
+
+export type TriggersCreateWebhookResponse = unknown;
+
+export type TriggersGetWebhookData = {
+    workflowId: string;
+};
+
+export type TriggersGetWebhookResponse = WebhookResponse;
+
+export type TriggersUpdateWebhookData = {
+    requestBody: UpsertWebhookParams;
+    workflowId: string;
+};
+
+export type TriggersUpdateWebhookResponse = void;
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
     workflowId?: string | null;
@@ -917,63 +983,6 @@ export type WorkflowExecutionsTerminateWorkflowExecutionData = {
 
 export type WorkflowExecutionsTerminateWorkflowExecutionResponse = void;
 
-export type TriggersCreateWebhookData = {
-    requestBody: UpsertWebhookParams;
-    workflowId: string;
-};
-
-export type TriggersCreateWebhookResponse = unknown;
-
-export type TriggersGetWebhookData = {
-    workflowId: string;
-};
-
-export type TriggersGetWebhookResponse = WebhookResponse;
-
-export type TriggersUpdateWebhookData = {
-    requestBody: UpsertWebhookParams;
-    workflowId: string;
-};
-
-export type TriggersUpdateWebhookResponse = void;
-
-export type SchedulesListSchedulesData = {
-    workflowId?: string | null;
-};
-
-export type SchedulesListSchedulesResponse = Array<Schedule>;
-
-export type SchedulesCreateScheduleData = {
-    requestBody: CreateScheduleParams;
-};
-
-export type SchedulesCreateScheduleResponse = Schedule;
-
-export type SchedulesGetScheduleData = {
-    scheduleId: string;
-};
-
-export type SchedulesGetScheduleResponse = Schedule;
-
-export type SchedulesUpdateScheduleData = {
-    requestBody: UpdateScheduleParams;
-    scheduleId: string;
-};
-
-export type SchedulesUpdateScheduleResponse = Schedule;
-
-export type SchedulesDeleteScheduleData = {
-    scheduleId: string;
-};
-
-export type SchedulesDeleteScheduleResponse = void;
-
-export type SchedulesSearchSchedulesData = {
-    requestBody: SearchScheduleParams;
-};
-
-export type SchedulesSearchSchedulesResponse = Array<Schedule>;
-
 export type ActionsListActionsData = {
     workflowId: string;
 };
@@ -1005,6 +1014,35 @@ export type ActionsDeleteActionData = {
 };
 
 export type ActionsDeleteActionResponse = void;
+
+export type UdfsListUdfsData = {
+    limit?: number | null;
+    ns?: Array<(string)> | null;
+};
+
+export type UdfsListUdfsResponse = Array<UDFSpec>;
+
+export type UdfsGetUdfData = {
+    namespace?: string;
+    udfKey: string;
+};
+
+export type UdfsGetUdfResponse = UDFSpec;
+
+export type UdfsCreateUdfData = {
+    udfKey: string;
+};
+
+export type UdfsCreateUdfResponse = UDFSpec;
+
+export type UdfsValidateUdfArgsData = {
+    requestBody: {
+        [key: string]: unknown;
+    };
+    udfKey: string;
+};
+
+export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse;
 
 export type CasesCreateCaseData = {
     requestBody: Array<CaseParams>;
@@ -1086,16 +1124,6 @@ export type CasesDeleteCaseContextData = {
 
 export type CasesDeleteCaseContextResponse = unknown;
 
-export type UsersGetUserResponse = User;
-
-export type UsersUpdateUserData = {
-    requestBody: CreateUserParams;
-};
-
-export type UsersUpdateUserResponse = void;
-
-export type UsersDeleteUserResponse = void;
-
 export type SecretsListSecretsResponse = Array<SecretResponse>;
 
 export type SecretsCreateSecretData = {
@@ -1129,54 +1157,134 @@ export type SecretsSearchSecretsData = {
 
 export type SecretsSearchSecretsResponse = Array<Secret>;
 
-export type UdfsListUdfsData = {
-    limit?: number | null;
-    ns?: Array<(string)> | null;
+export type SchedulesListSchedulesData = {
+    workflowId?: string | null;
 };
 
-export type UdfsListUdfsResponse = Array<UDFSpec>;
+export type SchedulesListSchedulesResponse = Array<Schedule>;
 
-export type UdfsGetUdfData = {
-    namespace?: string;
-    udfKey: string;
+export type SchedulesCreateScheduleData = {
+    requestBody: CreateScheduleParams;
 };
 
-export type UdfsGetUdfResponse = UDFSpec;
+export type SchedulesCreateScheduleResponse = Schedule;
 
-export type UdfsCreateUdfData = {
-    udfKey: string;
+export type SchedulesGetScheduleData = {
+    scheduleId: string;
 };
 
-export type UdfsCreateUdfResponse = UDFSpec;
+export type SchedulesGetScheduleResponse = Schedule;
 
-export type UdfsValidateUdfArgsData = {
-    requestBody: {
-        [key: string]: unknown;
-    };
-    udfKey: string;
+export type SchedulesUpdateScheduleData = {
+    requestBody: UpdateScheduleParams;
+    scheduleId: string;
 };
 
-export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse;
+export type SchedulesUpdateScheduleResponse = Schedule;
 
-export type ValidateWorkflowData = {
-    formData: Body_validate_workflow;
+export type SchedulesDeleteScheduleData = {
+    scheduleId: string;
 };
 
-export type ValidateWorkflowResponse = Array<UDFArgsValidationResponse>;
+export type SchedulesDeleteScheduleResponse = void;
+
+export type SchedulesSearchSchedulesData = {
+    requestBody: SearchScheduleParams;
+};
+
+export type SchedulesSearchSchedulesResponse = Array<Schedule>;
+
+export type ValidationValidateWorkflowData = {
+    formData: Body_validation_validate_workflow;
+};
+
+export type ValidationValidateWorkflowResponse = Array<UDFArgsValidationResponse>;
+
+export type AuthAuthDatabaseLoginData = {
+    formData: login;
+};
+
+export type AuthAuthDatabaseLoginResponse = unknown | void;
+
+export type AuthAuthDatabaseLogoutResponse = unknown | void;
+
+export type AuthRegisterRegisterData = {
+    requestBody: UserCreate;
+};
+
+export type AuthRegisterRegisterResponse = UserRead;
+
+export type AuthResetForgotPasswordData = {
+    requestBody: Body_auth_reset_forgot_password;
+};
+
+export type AuthResetForgotPasswordResponse = unknown;
+
+export type AuthResetResetPasswordData = {
+    requestBody: Body_auth_reset_reset_password;
+};
+
+export type AuthResetResetPasswordResponse = unknown;
+
+export type AuthVerifyRequestTokenData = {
+    requestBody: Body_auth_verify_request_token;
+};
+
+export type AuthVerifyRequestTokenResponse = unknown;
+
+export type AuthVerifyVerifyData = {
+    requestBody: Body_auth_verify_verify;
+};
+
+export type AuthVerifyVerifyResponse = UserRead;
+
+export type UsersUsersCurrentUserResponse = UserRead;
+
+export type UsersUsersPatchCurrentUserData = {
+    requestBody: UserUpdate;
+};
+
+export type UsersUsersPatchCurrentUserResponse = UserRead;
+
+export type UsersUsersUserData = {
+    id: string;
+};
+
+export type UsersUsersUserResponse = UserRead;
+
+export type UsersUsersPatchUserData = {
+    id: string;
+    requestBody: UserUpdate;
+};
+
+export type UsersUsersPatchUserResponse = UserRead;
+
+export type UsersUsersDeleteUserData = {
+    id: string;
+};
+
+export type UsersUsersDeleteUserResponse = void;
+
+export type AuthOauthGoogleDatabaseAuthorizeData = {
+    scopes?: Array<(string)>;
+};
+
+export type AuthOauthGoogleDatabaseAuthorizeResponse = OAuth2AuthorizeResponse;
+
+export type AuthOauthGoogleDatabaseCallbackData = {
+    code?: string | null;
+    codeVerifier?: string | null;
+    error?: string | null;
+    state?: string | null;
+};
+
+export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
+
+export type PublicCheckHealthResponse = {
+    [key: string]: (string);
+};
 
 export type $OpenApiTs = {
-    '/health': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: (string);
-                };
-            };
-        };
-    };
     '/webhooks/{path}/{secret}': {
         post: {
             req: PublicIncomingWebhookData;
@@ -1278,21 +1386,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/copy': {
-        post: {
-            req: WorkflowsCopyWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
     '/workflows/{workflow_id}/commit': {
         post: {
             req: WorkflowsCommitWorkflowData;
@@ -1329,6 +1422,47 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: WorkflowDefinition;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/workflows/{workflow_id}/webhook': {
+        post: {
+            req: TriggersCreateWebhookData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        get: {
+            req: TriggersGetWebhookData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: WebhookResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: TriggersUpdateWebhookData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
                 /**
                  * Validation Error
                  */
@@ -1424,131 +1558,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/webhook': {
-        post: {
-            req: TriggersCreateWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: TriggersGetWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WebhookResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        patch: {
-            req: TriggersUpdateWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/schedules': {
-        get: {
-            req: SchedulesListSchedulesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Schedule>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: SchedulesCreateScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Schedule;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/schedules/{schedule_id}': {
-        get: {
-            req: SchedulesGetScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Schedule;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: SchedulesUpdateScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Schedule;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: SchedulesDeleteScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/schedules/search': {
-        get: {
-            req: SchedulesSearchSchedulesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Schedule>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
     '/actions': {
         get: {
             req: ActionsListActionsData;
@@ -1611,6 +1620,64 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/udfs': {
+        get: {
+            req: UdfsListUdfsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<UDFSpec>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/udfs/{udf_key}': {
+        get: {
+            req: UdfsGetUdfData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UDFSpec;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: UdfsCreateUdfData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UDFSpec;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/udfs/{udf_key}/validate': {
+        post: {
+            req: UdfsValidateUdfArgsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UDFArgsValidationResponse;
                 /**
                  * Validation Error
                  */
@@ -1793,37 +1860,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/users': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: User;
-            };
-        };
-        post: {
-            req: UsersUpdateUserData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-            };
-        };
-    };
     '/secrets': {
         get: {
             res: {
@@ -1903,29 +1939,14 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/udfs': {
+    '/schedules': {
         get: {
-            req: UdfsListUdfsData;
+            req: SchedulesListSchedulesData;
             res: {
                 /**
                  * Successful Response
                  */
-                200: Array<UDFSpec>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}': {
-        get: {
-            req: UdfsGetUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
+                200: Array<Schedule>;
                 /**
                  * Validation Error
                  */
@@ -1933,12 +1954,12 @@ export type $OpenApiTs = {
             };
         };
         post: {
-            req: UdfsCreateUdfData;
+            req: SchedulesCreateScheduleData;
             res: {
                 /**
                  * Successful Response
                  */
-                200: UDFSpec;
+                200: Schedule;
                 /**
                  * Validation Error
                  */
@@ -1946,14 +1967,55 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/udfs/{udf_key}/validate': {
-        post: {
-            req: UdfsValidateUdfArgsData;
+    '/schedules/{schedule_id}': {
+        get: {
+            req: SchedulesGetScheduleData;
             res: {
                 /**
                  * Successful Response
                  */
-                200: UDFArgsValidationResponse;
+                200: Schedule;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: SchedulesUpdateScheduleData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Schedule;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: SchedulesDeleteScheduleData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/schedules/search': {
+        get: {
+            req: SchedulesSearchSchedulesData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<Schedule>;
                 /**
                  * Validation Error
                  */
@@ -1963,7 +2025,7 @@ export type $OpenApiTs = {
     };
     '/validate-workflow': {
         post: {
-            req: ValidateWorkflowData;
+            req: ValidationValidateWorkflowData;
             res: {
                 /**
                  * Successful Response
@@ -1973,6 +2035,296 @@ export type $OpenApiTs = {
                  * Validation Error
                  */
                 422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/login': {
+        post: {
+            req: AuthAuthDatabaseLoginData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
+                /**
+                 * No Content
+                 */
+                204: void;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/logout': {
+        post: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
+                /**
+                 * No Content
+                 */
+                204: void;
+                /**
+                 * Missing token or inactive user.
+                 */
+                401: unknown;
+            };
+        };
+    };
+    '/auth/register': {
+        post: {
+            req: AuthRegisterRegisterData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: UserRead;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/forgot-password': {
+        post: {
+            req: AuthResetForgotPasswordData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                202: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/reset-password': {
+        post: {
+            req: AuthResetResetPasswordData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/request-verify-token': {
+        post: {
+            req: AuthVerifyRequestTokenData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                202: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/verify': {
+        post: {
+            req: AuthVerifyVerifyData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UserRead;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/users/me': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UserRead;
+                /**
+                 * Missing token or inactive user.
+                 */
+                401: unknown;
+            };
+        };
+        patch: {
+            req: UsersUsersPatchCurrentUserData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UserRead;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Missing token or inactive user.
+                 */
+                401: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/users/{id}': {
+        get: {
+            req: UsersUsersUserData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UserRead;
+                /**
+                 * Missing token or inactive user.
+                 */
+                401: unknown;
+                /**
+                 * Not a superuser.
+                 */
+                403: unknown;
+                /**
+                 * The user does not exist.
+                 */
+                404: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: UsersUsersPatchUserData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UserRead;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Missing token or inactive user.
+                 */
+                401: unknown;
+                /**
+                 * Not a superuser.
+                 */
+                403: unknown;
+                /**
+                 * The user does not exist.
+                 */
+                404: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: UsersUsersDeleteUserData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Missing token or inactive user.
+                 */
+                401: unknown;
+                /**
+                 * Not a superuser.
+                 */
+                403: unknown;
+                /**
+                 * The user does not exist.
+                 */
+                404: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/oauth/authorize': {
+        get: {
+            req: AuthOauthGoogleDatabaseAuthorizeData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: OAuth2AuthorizeResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/oauth/callback': {
+        get: {
+            req: AuthOauthGoogleDatabaseCallbackData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
+                /**
+                 * Bad Request
+                 */
+                400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/health': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: {
+                    [key: string]: (string);
+                };
             };
         };
     };

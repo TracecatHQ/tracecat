@@ -34,7 +34,9 @@ dependencies = [
     "crowdstrike-falconpy==1.4.4",
     "cryptography==42.0.7",
     "fastapi==0.111.0",
+    "fastapi-users[sqlalchemy,oauth]==13.0.0",
     "fsspec==2024.6.0",
+    "greenlet==3.0.3",
     "httpx==0.27.0",
     "jsonpath_ng==1.6.1",
     "lark==1.1.9",
@@ -48,7 +50,6 @@ dependencies = [
     "asyncpg==0.29.0",
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
-    "python-jose[cryptography]",
     "python-slugify",
     "shodan==1.31.0",
     "slack-sdk==3.28.0",
@@ -71,9 +72,9 @@ dev = [
     "minio",
     "mypy",
     "pre-commit",
-    "pytest-asyncio",
+    "pytest-asyncio==0.23.8",
     "pytest-mock",
-    "pytest",
+    "pytest==8.3.2",
     "python-dotenv",
     "respx",
 ]
@@ -118,4 +119,5 @@ log_cli_level = "INFO"
 markers = [
     "webtest: marks test that require the web",
     "slow: marks tests as slow",
+    "disable_fixture: marks tests that disable fixtures",
 ]
