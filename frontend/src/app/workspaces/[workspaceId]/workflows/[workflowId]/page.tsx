@@ -1,13 +1,13 @@
 import { type Metadata } from "next"
 import { cookies } from "next/headers"
 
-import { Workspace } from "@/components/workspace/workspace"
+import { Workbench } from "@/components/workbench/workbench"
 
 export const metadata: Metadata = {
-  title: "Workflows | Tracecat",
+  title: "Workbench | Tracecat",
 }
 
-export default function WorkflowBuilderPage() {
+export default function WorkbenchPage() {
   const layout = cookies().get("react-resizable-panels:layout")
   const defaultLayout = layout ? JSON.parse(layout.value) : undefined
   const collapsed = cookies().get("react-resizable-panels:collapsed")
@@ -26,7 +26,7 @@ export default function WorkflowBuilderPage() {
   }
 
   return (
-    <Workspace
+    <Workbench
       defaultLayout={defaultLayout}
       defaultCollapsed={defaultCollapsed}
       navCollapsedSize={2}

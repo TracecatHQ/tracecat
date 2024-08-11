@@ -2,7 +2,7 @@
 
 import "react18-json-view/src/style.css"
 
-import React, { useState } from "react"
+import React, { useCallback, useState } from "react"
 import {
   ApiError,
   UDFArgsValidationResponse,
@@ -22,7 +22,7 @@ import { Controller, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { usePanelAction } from "@/lib/hooks"
+import { usePanelAction, useWorkspace } from "@/lib/hooks"
 import { useUDFSchema } from "@/lib/udf"
 import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {
@@ -90,13 +90,14 @@ export function UDFActionPanel({
   node: Node<UDFNodeData>
   workflowId: string
 }) {
+  const { workspaceId } = useWorkspace()
   const {
     action,
     isLoading: actionLoading,
     mutateAsync: updateAction,
-  } = usePanelAction(node.id, workflowId)
+  } = usePanelAction(node.id, workspaceId, workflowId)
   const udfKey = node.data.type
-  const { udf, isLoading: schemaLoading } = useUDFSchema(udfKey)
+  const { udf, isLoading: schemaLoading } = useUDFSchema(udfKey, workspaceId)
   const methods = useForm<UDFFormSchema>({
     values: {
       title: action?.title,
@@ -140,47 +141,53 @@ export function UDFActionPanel({
     )
   }
 
-  const onSubmit = async (values: UDFFormSchema) => {
-    const { inputs, title, description, control_flow } = values
-    const actionInputs = inputs ? YAML.parse(inputs) : {}
-    const actionControlFlow = {
-      for_each: control_flow.for_each
-        ? YAML.parse(control_flow.for_each)
-        : undefined,
-      run_if: control_flow.run_if ? YAML.parse(control_flow.run_if) : undefined,
-    }
-    try {
-      const validateResponse = await udfsValidateUdfArgs({
-        udfKey: udf.key,
-        requestBody: actionInputs,
-      })
-      console.log("Validation passed", validateResponse)
-      if (!validateResponse.ok) {
-        console.error("Validation failed", validateResponse)
-        setValidationErrors(validateResponse)
-        toast({
-          title: "Validation Error",
-          description: "Failed to validate action inputs",
+  const onSubmit = useCallback(
+    async (values: UDFFormSchema) => {
+      const { inputs, title, description, control_flow } = values
+      const actionInputs = inputs ? YAML.parse(inputs) : {}
+      const actionControlFlow = {
+        for_each: control_flow.for_each
+          ? YAML.parse(control_flow.for_each)
+          : undefined,
+        run_if: control_flow.run_if
+          ? YAML.parse(control_flow.run_if)
+          : undefined,
+      }
+      try {
+        const validateResponse = await udfsValidateUdfArgs({
+          udfKey: udf.key,
+          requestBody: actionInputs,
+          workspaceId,
         })
-      } else {
-        setValidationErrors(null)
-        const params = {
-          title: title as string,
-          description: description as string,
-          inputs: actionInputs,
-          control_flow: actionControlFlow,
-        } as UpdateActionParams
-        console.log("Submitting action form", params)
-        await updateAction(params)
+        console.log("Validation passed", validateResponse)
+        if (!validateResponse.ok) {
+          console.error("Validation failed", validateResponse)
+          setValidationErrors(validateResponse)
+          toast({
+            title: "Validation Error",
+            description: "Failed to validate action inputs",
+          })
+        } else {
+          setValidationErrors(null)
+          const params = {
+            title: title as string,
+            description: description as string,
+            inputs: actionInputs,
+            control_flow: actionControlFlow,
+          } as UpdateActionParams
+          console.log("Submitting action form", params)
+          await updateAction(params)
+        }
+      } catch (error) {
+        if (error instanceof ApiError) {
+          console.error("Application failed to validate UDF", error.body)
+        } else {
+          console.error("Validation failed, unknown error", error)
+        }
       }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        console.error("Application failed to validate UDF", error.body)
-      } else {
-        console.error("Validation failed, unknown error", error)
-      }
-    }
-  }
+    },
+    [workspaceId]
+  )
 
   return (
     <div className="size-full overflow-auto">

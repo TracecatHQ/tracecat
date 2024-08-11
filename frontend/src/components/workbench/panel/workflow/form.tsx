@@ -89,7 +89,7 @@ export function WorkflowForm({
   workflow: Workflow
 }): React.JSX.Element {
   const router = useRouter()
-  const { update } = useWorkflow()
+  const { updateWorkflow: update } = useWorkflow()
   const form = useForm<WorkflowConfigForm>({
     resolver: zodResolver(workflowConfigFormSchema),
     defaultValues: {

@@ -21,6 +21,7 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { useWorkspace } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -63,8 +64,11 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { CustomEditor } from "@/components/editor"
 
-export default function WorkflowNav() {
-  const { workflow, isLoading, isOnline, setIsOnline, commit } = useWorkflow()
+export function WorkflowNav() {
+  const { workflow, isLoading, isOnline, setIsOnline, commitWorkflow } =
+    useWorkflow()
+
+  const { workspaceId } = useWorkspace()
 
   const [commitErrors, setCommitErrors] = React.useState<
     UDFArgsValidationResponse[] | null
@@ -72,7 +76,7 @@ export default function WorkflowNav() {
 
   const handleCommit = async () => {
     console.log("Committing changes...")
-    const response = await commit()
+    const response = await commitWorkflow()
     const { status, errors } = response
     if (status === "failure") {
       setCommitErrors(errors || null)
@@ -86,12 +90,13 @@ export default function WorkflowNav() {
   }
 
   const manualTriggerDisabled = workflow.version === null
+  const workflowsPath = `/workspaces/${workspaceId}/workflows`
   return (
     <div className="flex w-full items-center space-x-8">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/workflows">Workflows</BreadcrumbLink>
+            <BreadcrumbLink href={workflowsPath}>Workflows</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="font-semibold">
             {"/"}
@@ -300,6 +305,7 @@ const workflowControlsFormSchema = z.object({
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
 function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
+  const { workspaceId } = useWorkspace()
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: { payload: '{"example": "value"}' },
@@ -310,6 +316,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
     const { payload } = form.getValues()
     try {
       const response = await workflowExecutionsCreateWorkflowExecution({
+        workspaceId,
         requestBody: {
           workflow_id: workflowId,
           inputs: payload ? JSON.parse(payload) : undefined,

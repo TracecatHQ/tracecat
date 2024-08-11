@@ -19,7 +19,7 @@ import {
 
 import { slugify } from "@/lib/utils"
 import { updateWorkflowGraphObject } from "@/lib/workflow"
-import { NodeType } from "@/components/workspace/canvas/canvas"
+import { NodeType } from "@/components/workbench/canvas/canvas"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance

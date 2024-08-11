@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
+import { useParams } from "next/navigation"
 import {
   ActionResponse,
   actionsGetAction,
   actionsUpdateAction,
+  ApiError,
   EventHistoryResponse,
   Schedule,
   schedulesCreateSchedule,
@@ -16,6 +18,10 @@ import {
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
+  WorkflowMetadataResponse,
+  workflowsListWorkflows,
+  WorkspaceMetadataResponse,
+  workspacesListWorkspaces,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -30,9 +36,9 @@ import {
 } from "@/lib/cases"
 import { updateWebhook } from "@/lib/trigger"
 import { isEmptyObject } from "@/lib/utils"
-import { fetchAllPlaybooks, fetchAllWorkflows } from "@/lib/workflow"
+import { fetchAllPlaybooks } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
-import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
+import { UDFNodeType } from "@/components/workbench/canvas/udf-node"
 
 export function useLocalStorage<T>(
   key: string,
@@ -144,6 +150,7 @@ export type PanelAction = {
 }
 export function usePanelAction(
   actionId: string,
+  workspaceId: string,
   workflowId: string
 ): PanelAction {
   const queryClient = useQueryClient()
@@ -156,12 +163,12 @@ export function usePanelAction(
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
-      return await actionsGetAction({ actionId, workflowId })
+      return await actionsGetAction({ workspaceId, actionId, workflowId })
     },
   })
   const { mutateAsync } = useMutation({
     mutationFn: async (values: UpdateActionParams) =>
-      await actionsUpdateAction({ actionId, requestBody: values }),
+      await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
     onSuccess: (updatedAction: ActionResponse) => {
       setNodes((nds: UDFNodeType[]) =>
         nds.map((node: UDFNodeType) => {
@@ -236,9 +243,10 @@ export function useUpdateWebhook(workflowId: string) {
 }
 
 export function useWorkflows() {
-  const query = useQuery<WorkflowMetadata[], Error>({
+  const { workspaceId } = useWorkspace()
+  const query = useQuery<WorkflowMetadataResponse[], ApiError>({
     queryKey: ["workflows"],
-    queryFn: fetchAllWorkflows,
+    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
   })
   return query
 }
@@ -250,8 +258,23 @@ export function usePlaybooks() {
   })
   return query
 }
+export function useWorkspace() {
+  const { workspaceId } = useParams<{ workspaceId: string }>()
+  return {
+    workspaceId,
+  }
+}
+
+export function useWorkspaces() {
+  const query = useQuery<WorkspaceMetadataResponse[], Error>({
+    queryKey: ["workspaces"],
+    queryFn: workspacesListWorkspaces,
+  })
+  return query
+}
 
 export function useWorkflowExecutions(workflowId: string) {
+  const { workspaceId } = useWorkspace()
   const {
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
@@ -260,6 +283,7 @@ export function useWorkflowExecutions(workflowId: string) {
     queryKey: ["workflow-executions", workflowId],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutions({
+        workspaceId,
         workflowId,
       }),
   })
@@ -271,6 +295,7 @@ export function useWorkflowExecutions(workflowId: string) {
 }
 
 export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
+  const { workspaceId } = useWorkspace()
   const {
     data: eventHistory,
     isLoading: eventHistoryLoading,
@@ -279,6 +304,7 @@ export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
     queryKey: ["workflow-executions", workflowExecutionId, "event-history"],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutionEventHistory({
+        workspaceId,
         executionId: workflowExecutionId,
       }),
   })
@@ -291,7 +317,7 @@ export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
 
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
-
+  const { workspaceId } = useWorkspace()
   // Fetch schedules
   const {
     data: schedules,
@@ -302,6 +328,7 @@ export function useSchedules(workflowId: string) {
     queryFn: async ({ queryKey }) => {
       const [workflowId] = queryKey as [string, string]
       return await schedulesListSchedules({
+        workspaceId,
         workflowId,
       })
     },

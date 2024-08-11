@@ -3,7 +3,12 @@
 import { useRouter } from "next/navigation"
 import { workflowsCreateWorkflow } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { BracesIcon, ChevronDownIcon, PlusCircleIcon } from "lucide-react"
+import {
+  BracesIcon,
+  ChevronDownIcon,
+  PlusCircleIcon,
+  UserCircle2Icon,
+} from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -43,7 +48,7 @@ const formSchema = z.object({
 })
 
 type FormValues = z.infer<typeof formSchema>
-export function CreateWorkflowButton() {
+export function WorkspaceManagementButton() {
   const router = useRouter()
   const { workspaceId } = useWorkspace()
   const form = useForm<FormValues>({
@@ -80,7 +85,7 @@ export function CreateWorkflowButton() {
             role="combobox"
             className="items-center space-x-2 bg-emerald-500 tracking-wide text-white shadow-sm hover:bg-emerald-500"
           >
-            <span>Create new</span>
+            <span>Manage Workspace</span>
             <ChevronDownIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -89,9 +94,9 @@ export function CreateWorkflowButton() {
             <DropdownMenuItem
               onClick={async () => await handleCreateWorkflow()}
             >
-              Workflow
+              Add Member
               <DropdownMenuShortcut>
-                <PlusCircleIcon className="size-4" />
+                <UserCircle2Icon className="size-4" />
               </DropdownMenuShortcut>
             </DropdownMenuItem>
             <DialogTrigger asChild>

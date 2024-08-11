@@ -1,12 +1,12 @@
 import React, { Suspense } from "react"
 
-import { WorkflowsDashboard } from "@/components/dashboard/workflows-dashboard"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { WorkspacesDashboard } from "@/components/workspaces/workspaces-dashboard"
 
-export default async function Page() {
+export default async function WorkspacesPage() {
   return (
     <Suspense fallback={<CenteredSpinner />}>
-      <WorkflowsDashboard />
+      <WorkspacesDashboard />
     </Suspense>
   )
 }

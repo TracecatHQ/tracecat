@@ -188,7 +188,7 @@ export function WorkflowCanvas() {
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
   const { toast } = useToast()
-  const { workflowId, workflow, update: updateWorkflow } = useWorkflow()
+  const { workspaceId, workflowId, workflow, updateWorkflow } = useWorkflow()
   const [silhouettePosition, setSilhouettePosition] =
     useState<XYPosition | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -395,7 +395,11 @@ export function WorkflowCanvas() {
       setNodes((nds) =>
         nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
       )
-      await updateWorkflowGraphObject(workflowId, reactFlowInstance)
+      await updateWorkflowGraphObject(
+        workspaceId,
+        workflowId,
+        reactFlowInstance
+      )
       console.log("Nodes deleted successfully")
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
@@ -476,13 +480,13 @@ export function WorkflowCanvas() {
   // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflowGraphObject(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workspaceId, workflowId, reactFlowInstance)
     }
   }, [edges])
 
   const onNodesDragStop = () => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflowGraphObject(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workspaceId, workflowId, reactFlowInstance)
     }
   }
 

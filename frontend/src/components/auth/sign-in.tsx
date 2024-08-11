@@ -36,7 +36,7 @@ import { Icons } from "@/components/icons"
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   if (user) {
-    return redirect("/workflows")
+    return redirect("/workspaces")
   }
 
   return (

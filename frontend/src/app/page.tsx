@@ -16,7 +16,7 @@ import PrivacyPolicy from "@/components/privacy-policy"
 export default function HomePage() {
   const { user } = useAuth()
   if (user) {
-    return redirect("/workflows")
+    return redirect("/workspaces")
   }
   return (
     <>

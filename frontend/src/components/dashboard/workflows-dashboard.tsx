@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { ConeIcon } from "lucide-react"
 
-import { useWorkflows } from "@/lib/hooks"
+import { useWorkflows, useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"
@@ -38,6 +38,7 @@ export function WorkflowsDashboard() {
 }
 
 export function WorkflowList() {
+  const { workspaceId } = useWorkspace()
   const { data: workflows, error, isLoading } = useWorkflows()
   if (isLoading) {
     return (
@@ -48,7 +49,10 @@ export function WorkflowList() {
   }
   if (error || workflows === undefined) {
     return (
-      <AlertNotification level="error" message="Error fetching workflows" />
+      <AlertNotification
+        level="error"
+        message={`Error fetching workflows: ${error?.message} ${JSON.stringify(error?.body)}`}
+      />
     )
   }
 
@@ -64,7 +68,7 @@ export function WorkflowList() {
       ) : (
         <>
           {workflows.map((wf, idx) => (
-            <WorkflowItem key={idx} workflow={wf} />
+            <WorkflowItem key={idx} workspaceId={workspaceId} workflow={wf} />
           ))}
         </>
       )}
