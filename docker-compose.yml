@@ -41,8 +41,6 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-    volumes:
-      - core-app:/var/lib/tracecat
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.6.4}
@@ -74,8 +72,6 @@ services:
       SMTP_AUTH_ENABLED: ${SMTP_AUTH}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
-    volumes:
-      - core-app:/var/lib/tracecat
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
@@ -137,7 +133,6 @@ services:
       - temporal_postgres_db
 
 volumes:
-  core-app:
   core-db:
   temporal-db:
 
