@@ -49,7 +49,6 @@ services:
       SMTP_PASS: ${SMTP_PASS}
     volumes:
       - ./tracecat:/app/tracecat
-      - core-app:/var/lib/tracecat
 
   worker:
     build:
@@ -80,7 +79,6 @@ services:
       SMTP_PASS: ${SMTP_PASS}
     volumes:
       - ./tracecat:/app/tracecat
-      - core-app:/var/lib/tracecat
     entrypoint: ["python", "tracecat/dsl/worker.py"]
 
   ui:
@@ -161,8 +159,3 @@ services:
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     depends_on:
       - temporal
-
-volumes:
-  core-app:
-  core-db:
-  temporal-db:
