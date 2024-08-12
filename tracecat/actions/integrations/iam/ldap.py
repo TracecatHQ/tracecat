@@ -37,7 +37,9 @@ class LdapClient:
         use_ssl: bool = False,
         is_active_directory: bool = False,
     ):
-        self._server = ldap3.Server(host, port=int(port), use_ssl=use_ssl, get_info=ldap3.ALL)
+        self._server = ldap3.Server(
+            host, port=int(port), use_ssl=use_ssl, get_info=ldap3.ALL
+        )
         self._ldap_active_directory = is_active_directory
 
     def __enter__(self, *args, **kwargs):
