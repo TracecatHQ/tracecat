@@ -36,18 +36,20 @@ jobs:
         run: bash env.sh
 
       - name: Spin up latest version database
-        run: docker compose -f docker-compose.yml up --build --no-deps -d api postgres_db
+        run: docker compose -f docker-compose.yml up --build --no-deps -d api postgres_db temporal
 
-      - name: Install dependencies
+      - name: pip install Tracecat
         run: |
-          pip install alembic==1.13.2 alembic_utils==0.8.4 alembic-postgresql-enum==1.3.0
-          pip install sqlmodel==0.0.18
-          pip install fastapi==0.111.0 "fastapi-users[sqlalchemy,oauth]==13.0.0"
-          pip install python-slugify==8.0.4
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+          pip install ./cli
 
       - name: Test migrations
         run: |
           export TRACECAT__POSTGRES_USER=postgres
           export TRACECAT__POSTGRES_PASSWORD=postgres
-          export TRACECAT__DB_URL=postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres
+          export TRACECAT__DB_URI=postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres
           alembic upgrade head
+
+      - name: Run tests with database calls
+        run: pytest -v -m dbtest
