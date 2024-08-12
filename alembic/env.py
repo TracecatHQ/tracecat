@@ -31,7 +31,7 @@ target_metadata = SQLModel.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = os.environ.get("TRACECAT__DB_URI")
+    url = os.environ["TRACECAT__DB_URI"]
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -49,7 +49,7 @@ def run_migrations_online() -> None:
         configuration=config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        url=os.environ.get("TRACECAT__DB_URI"),
+        url=os.environ["TRACECAT__DB_URI"],
     )
 
     with connectable.connect() as connection:

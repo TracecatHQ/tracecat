@@ -44,7 +44,7 @@ jobs:
           TRACECAT__POSTGRES_USER: postgres
           TRACECAT__POSTGRES_PASSWORD: postgres
         run: |
-          export TRACECAT__DB_URL=postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres
+          export TRACECAT__DB_URI=postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres
           output=$(alembic check)
           echo "$output" > alembic_check_output.txt
           if grep -q "No new upgrade operations detected" alembic_check_output.txt; then
