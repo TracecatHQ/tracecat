@@ -46,7 +46,6 @@ dependencies = [
     "orjson==3.10.3",
     "polars-lts-cpu==1.2.0",
     "psycopg[binary]==3.1.19",
-    "psycopg2-binary==2.9.9",
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
     "python-slugify==8.0.4",
