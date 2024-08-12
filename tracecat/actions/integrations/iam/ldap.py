@@ -37,7 +37,7 @@ class LdapClient:
         use_ssl: bool = False,
         is_active_directory: bool = False,
     ):
-        self._server = ldap3.Server(host, int(port), use_ssl, get_info=ldap3.ALL)
+        self._server = ldap3.Server(host, port=int(port), use_ssl=use_ssl, get_info=ldap3.ALL)
         self._ldap_active_directory = is_active_directory
 
     def __enter__(self, *args, **kwargs):
@@ -45,14 +45,6 @@ class LdapClient:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._connection:
-            self._connection.unbind()
-
-    async def __aenter__(self, *args, **kwargs):
-        self.bind()
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
         if self._connection:
             self._connection.unbind()
 
