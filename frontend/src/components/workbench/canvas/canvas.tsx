@@ -150,6 +150,7 @@ export function isEphemeral<T>(node: Node<T>): boolean {
 export async function createNewNode(
   type: NodeTypename,
   workflowId: string,
+  workspaceId: string,
   nodeData: NodeData,
   newPosition: XYPosition
 ): Promise<NodeType> {
@@ -164,7 +165,8 @@ export async function createNewNode(
       const actionId = await createAction(
         nodeData.type,
         nodeData.title,
-        workflowId
+        workflowId,
+        workspaceId
       )
       // Then create Action node in React Flow
       newNode = {
@@ -360,6 +362,7 @@ export function WorkflowCanvas() {
       const newNode = await createNewNode(
         nodeTypename,
         workflowId,
+        workspaceId,
         nodeData,
         reactFlowNodePosition
       )
@@ -373,7 +376,8 @@ export function WorkflowCanvas() {
       console.error("An error occurred while creating a new node:", error)
       toast({
         title: "Failed to create new node",
-        description: "Could not create new node.",
+        description:
+          "Could not create new node. Please check the console logs for more information.",
       })
     }
   }

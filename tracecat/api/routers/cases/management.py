@@ -11,6 +11,7 @@ from tracecat.auth.credentials import (
 )
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Case, CaseEvent
+from tracecat.identifiers import WorkflowID
 from tracecat.types.api import CaseEventParams, CaseParams, CaseResponse
 from tracecat.types.auth import Role
 
@@ -24,7 +25,7 @@ router = APIRouter()
 )
 async def create_case(
     role: Annotated[Role, Depends(authenticate_service)],  # M2M
-    workflow_id: str,
+    workflow_id: WorkflowID,
     cases: list[CaseParams],
     session: AsyncSession = Depends(get_async_session),
 ) -> CaseResponse:
@@ -58,7 +59,7 @@ async def create_case(
 @router.get("/workflows/{workflow_id}/cases", tags=["cases"])
 async def list_cases(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    workflow_id: str,
+    workflow_id: WorkflowID,
     limit: int = 100,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[CaseResponse]:
@@ -97,7 +98,7 @@ async def list_cases(
 @router.get("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
 async def get_case(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    workflow_id: str,
+    workflow_id: WorkflowID,
     case_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> CaseResponse:
@@ -133,7 +134,7 @@ async def get_case(
 @router.post("/workflows/{workflow_id}/cases/{case_id}", tags=["cases"])
 async def update_case(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    workflow_id: str,
+    workflow_id: WorkflowID,
     case_id: str,
     params: CaseParams,
     session: AsyncSession = Depends(get_async_session),
@@ -182,7 +183,7 @@ async def update_case(
 )
 async def create_case_event(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    workflow_id: str,
+    workflow_id: WorkflowID,
     case_id: str,
     params: CaseEventParams,
     session: AsyncSession = Depends(get_async_session),
@@ -204,7 +205,7 @@ async def create_case_event(
 @router.get("/workflows/{workflow_id}/cases/{case_id}/events", tags=["cases"])
 async def list_case_events(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    workflow_id: str,
+    workflow_id: WorkflowID,
     case_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[CaseEvent]:
@@ -224,7 +225,7 @@ async def list_case_events(
 )
 async def get_case_event(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    workflow_id: str,
+    workflow_id: WorkflowID,
     case_id: str,
     event_id: str,
     session: AsyncSession = Depends(get_async_session),

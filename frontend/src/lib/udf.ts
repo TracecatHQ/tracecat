@@ -89,7 +89,9 @@ export function useUDFs(namespaces: string[]): {
   })
 
   try {
-    const udfSchemas = udfs?.map((u) => UDFSchema.parse(u.json_schema)) || []
+    const udfSchemas = udfs
+      ?.filter((u) => Boolean(u.json_schema))
+      .map((u) => UDFSchema.parse(u.json_schema))
     return { udfs: udfSchemas, isLoading, error }
   } catch (e) {
     console.error("Error parsing UDFs", e)
@@ -116,7 +118,9 @@ export function useUDFSchema(
     },
   })
 
-  const udfSchema = UDFSchema.parse(udf?.json_schema) || undefined
+  const udfSchema = udf?.json_schema
+    ? UDFSchema.parse(udf.json_schema)
+    : undefined
   return { udf: udfSchema, isLoading }
 }
 

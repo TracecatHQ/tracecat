@@ -1,4 +1,4 @@
-import { workflowsUpdateWorkflow } from "@/client"
+import { actionsCreateAction, workflowsUpdateWorkflow } from "@/client"
 import { ReactFlowInstance } from "reactflow"
 
 import {
@@ -108,27 +108,19 @@ export async function deleteAction(actionId: string): Promise<void> {
 export async function createAction(
   type: string,
   title: string,
-  workflowId: string
+  workflowId: string,
+  workspaceId: string
 ): Promise<string> {
   try {
-    const createActionMetadata = JSON.stringify({
-      workflow_id: workflowId,
-      type: type,
-      title: title,
+    const actionMetadata = await actionsCreateAction({
+      workspaceId,
+      requestBody: {
+        workflow_id: workflowId,
+        type: type,
+        title: title,
+      },
     })
-
-    const response = await client.post<ActionMetadata>(
-      "/actions",
-      createActionMetadata,
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )
-    console.log("Action created successfully:", response.data)
-    const validatedResponse = actionMetadataSchema.parse(response.data)
-    return validatedResponse.id
+    return actionMetadata.id
   } catch (error) {
     console.error("Error creating action:", error)
     throw error

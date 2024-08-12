@@ -515,6 +515,7 @@ export const $CaseEventParams = {
     properties: {
         type: {
             type: 'string',
+            enum: ['status_changed', 'priority_changed', 'comment_created', 'case_opened', 'case_closed'],
             title: 'Type'
         },
         data: {
@@ -557,10 +558,12 @@ export const $CaseParams = {
         },
         created_at: {
             type: 'string',
+            format: 'date-time',
             title: 'Created At'
         },
         updated_at: {
             type: 'string',
+            format: 'date-time',
             title: 'Updated At'
         },
         workflow_id: {
@@ -596,10 +599,18 @@ export const $CaseParams = {
             title: 'Action'
         },
         context: {
-            '$ref': '#/components/schemas/ListModel_CaseContext_-Input'
+            items: {
+                '$ref': '#/components/schemas/CaseContext-Input'
+            },
+            type: 'array',
+            title: 'Context'
         },
         tags: {
-            '$ref': '#/components/schemas/ListModel_Tag_'
+            items: {
+                '$ref': '#/components/schemas/Tag'
+            },
+            type: 'array',
+            title: 'Tags'
         }
     },
     type: 'object',
@@ -661,10 +672,18 @@ export const $CaseResponse = {
             title: 'Action'
         },
         context: {
-            '$ref': '#/components/schemas/ListModel_CaseContext_-Output'
+            items: {
+                '$ref': '#/components/schemas/tracecat__types__api__CaseContext'
+            },
+            type: 'array',
+            title: 'Context'
         },
         tags: {
-            '$ref': '#/components/schemas/ListModel_Tag_'
+            items: {
+                '$ref': '#/components/schemas/Tag'
+            },
+            type: 'array',
+            title: 'Tags'
         }
     },
     type: 'object',
@@ -1378,30 +1397,6 @@ export const $HTTPValidationError = {
     },
     type: 'object',
     title: 'HTTPValidationError'
-} as const;
-
-export const $ListModel_CaseContext__Input = {
-    items: {
-        '$ref': '#/components/schemas/CaseContext-Input'
-    },
-    type: 'array',
-    title: 'ListModel[CaseContext]'
-} as const;
-
-export const $ListModel_CaseContext__Output = {
-    items: {
-        '$ref': '#/components/schemas/tracecat__types__api__CaseContext'
-    },
-    type: 'array',
-    title: 'ListModel[CaseContext]'
-} as const;
-
-export const $ListModel_Tag_ = {
-    items: {
-        '$ref': '#/components/schemas/Tag'
-    },
-    type: 'array',
-    title: 'ListModel[Tag]'
 } as const;
 
 export const $OAuth2AuthorizeResponse = {

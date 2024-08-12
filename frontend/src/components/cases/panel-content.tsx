@@ -7,7 +7,7 @@ import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { CasePriorityType, CaseStatusType } from "@/types/schemas"
-import { useCaseEvents, usePanelCase } from "@/lib/hooks"
+import { useCaseEvents, usePanelCase, useWorkspace } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import {
@@ -43,13 +43,16 @@ interface CasePanelContentProps {
 }
 
 export function CasePanelContent({ caseId }: CasePanelContentProps) {
+  const { workspaceId } = useWorkspace()
   const { workflowId } = useParams<{
     workflowId: string
   }>()
-  const { caseData, caseIsLoading, caseError, mutateCaseAsync } = usePanelCase(
-    workflowId,
-    caseId
-  )
+  const {
+    caseData,
+    caseIsLoading,
+    caseError,
+    updateCaseAsync: mutateCaseAsync,
+  } = usePanelCase(workspaceId, workflowId, caseId)
   const { mutateCaseEventsAsync } = useCaseEvents(workflowId, caseId)
 
   if (caseIsLoading) {
@@ -59,7 +62,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     return (
       <AlertNotification
         level="error"
-        message={caseError?.message ?? "Error occurred"}
+        message={caseError?.message ?? "Error occurred loading case data"}
       />
     )
   }
@@ -180,7 +183,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                 {tags.length > 0 ? (
                   tags.map((tag, idx) => (
                     <StatusBadge key={idx}>
-                      <AIGeneratedFlair isAIGenerated={tag.is_ai_generated}>
+                      <AIGeneratedFlair>
                         {tag.tag}: {tag.value}
                       </AIGeneratedFlair>
                     </StatusBadge>
@@ -197,7 +200,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
               <div className="col-span-2 flex min-h-[20vh] flex-1 flex-col space-y-2">
                 <h5 className="text-xs font-semibold">Payload</h5>
                 <div className="flex-1 space-y-2">
-                  <CodeContent data={payload} />
+                  <CodeContent data={payload as Record<string, unknown>} />
                 </div>
               </div>
               <div id="body" className="col-span-2 grid grid-cols-2 gap-4">
@@ -297,7 +300,7 @@ function PrioritySelect({
   )
 }
 
-function CodeContent({ data }: { data: Record<string, string> }) {
+function CodeContent({ data }: { data: Record<string, unknown> }) {
   return (
     <SyntaxHighlighter
       language="json"

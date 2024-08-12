@@ -117,32 +117,14 @@ export function UDFActionPanel({
   const [validationErrors, setValidationErrors] =
     useState<UDFArgsValidationResponse | null>(null)
 
-  if (schemaLoading || actionLoading) {
-    return <CenteredSpinner />
-  }
-  if (!udf) {
-    return (
-      <div className="flex h-full items-center justify-center space-x-2 p-4">
-        <AlertNotification
-          level="error"
-          message={`Could not load UDF schema '${udfKey}'.`}
-        />
-      </div>
-    )
-  }
-  if (!action) {
-    return (
-      <div className="flex h-full items-center justify-center space-x-2 p-4">
-        <AlertNotification
-          level="error"
-          message={`Error orccurred loading action.`}
-        />
-      </div>
-    )
-  }
-
   const onSubmit = useCallback(
     async (values: UDFFormSchema) => {
+      console.log("udf", udf)
+      console.log("action", action)
+      if (!udf || !action) {
+        console.error("UDF or action not found")
+        return
+      }
       const { inputs, title, description, control_flow } = values
       const actionInputs = inputs ? YAML.parse(inputs) : {}
       const actionControlFlow = {
@@ -186,8 +168,32 @@ export function UDFActionPanel({
         }
       }
     },
-    [workspaceId]
+    [workspaceId, udf, action]
   )
+
+  if (schemaLoading || actionLoading) {
+    return <CenteredSpinner />
+  }
+  if (!udf) {
+    return (
+      <div className="flex h-full items-center justify-center space-x-2 p-4">
+        <AlertNotification
+          level="error"
+          message={`Could not load UDF schema '${udfKey}'.`}
+        />
+      </div>
+    )
+  }
+  if (!action) {
+    return (
+      <div className="flex h-full items-center justify-center space-x-2 p-4">
+        <AlertNotification
+          level="error"
+          message={`Error orccurred loading action.`}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="size-full overflow-auto">

@@ -150,11 +150,13 @@ export type CaseEvent = {
 };
 
 export type CaseEventParams = {
-    type: string;
+    type: 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
     data: {
     [key: string]: (string | null);
 } | null;
 };
+
+export type type = 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
 
 export type CaseParams = {
     id: string;
@@ -170,8 +172,8 @@ export type CaseParams = {
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: ListModel_CaseContext__Input;
-    tags: ListModel_Tag_;
+    context: Array<CaseContext_Input>;
+    tags: Array<Tag>;
 };
 
 export type malice = 'malicious' | 'benign';
@@ -196,8 +198,8 @@ export type CaseResponse = {
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: ListModel_CaseContext__Output;
-    tags: ListModel_Tag_;
+    context: Array<tracecat__types__api__CaseContext>;
+    tags: Array<Tag>;
 };
 
 export type CommitWorkflowResponse = {
@@ -423,12 +425,6 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
-export type ListModel_CaseContext__Input = Array<CaseContext_Input>;
-
-export type ListModel_CaseContext__Output = Array<tracecat__types__api__CaseContext>;
-
-export type ListModel_Tag_ = Array<Tag>;
-
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;
 };
@@ -467,7 +463,7 @@ export type Role = {
     service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner';
 };
 
-export type type = 'user' | 'service';
+export type type2 = 'user' | 'service';
 
 export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner';
 
@@ -566,7 +562,7 @@ export type Trigger = {
     };
 };
 
-export type type2 = 'schedule' | 'webhook';
+export type type3 = 'schedule' | 'webhook';
 
 export type UDFActionInput = {
     task: ActionStatement;

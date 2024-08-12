@@ -261,27 +261,27 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
 
   return (
     <Tabs value={leafRoute}>
-      <TabsList className="grid w-full grid-cols-3">
-        <TabsTrigger className="w-full px-4 py-0" value="workflow" asChild>
-          <Link href={workbenchPath} className="size-full text-sm" passHref>
+      <TabsList className="grid h-8 w-full grid-cols-3">
+        <TabsTrigger className="w-full px-2 py-0" value="workflow" asChild>
+          <Link href={workbenchPath} className="size-full text-xs" passHref>
             <WorkflowIcon className="mr-2 size-4" />
             <span>Workflow</span>
           </Link>
         </TabsTrigger>
-        <TabsTrigger className="w-full px-4 py-0" value="cases" asChild>
+        <TabsTrigger className="w-full px-2 py-0" value="cases" asChild>
           <Link
             href={workbenchPath + "/cases"}
-            className="size-full text-sm"
+            className="size-full text-xs"
             passHref
           >
             <ShieldAlertIcon className="mr-2 size-4" />
             <span>Cases</span>
           </Link>
         </TabsTrigger>
-        <TabsTrigger className="w-full px-4 py-0" value="executions" asChild>
+        <TabsTrigger className="w-full px-2 py-0" value="executions" asChild>
           <Link
             href={`${workbenchPath}/executions`}
-            className="size-full text-sm"
+            className="size-full text-xs"
             passHref
           >
             <SquarePlay className="mr-2 size-4" />

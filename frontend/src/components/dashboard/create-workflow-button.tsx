@@ -49,10 +49,11 @@ export function CreateWorkflowButton() {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
   })
+  const workspaceUrl = `/workspaces/${workspaceId}/workflows`
   const handleCreateWorkflow = async () => {
     try {
       const response = await workflowsCreateWorkflow({ workspaceId })
-      router.push(`/workflows/${response.id}`)
+      router.push(`${workspaceUrl}/${response.id}`)
     } catch (error) {
       console.error("Error creating workflow:", error)
     }

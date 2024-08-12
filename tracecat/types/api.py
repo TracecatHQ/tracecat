@@ -10,7 +10,6 @@ from tracecat.db.schemas import Resource
 from tracecat.identifiers import OwnerID, WorkflowID
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.types.generics import ListModel
 from tracecat.types.validation import ValidationResult
 
 # TODO: Consistent API design
@@ -154,8 +153,8 @@ class CaseParams(BaseModel):
     # SQLModel defaults
     id: str
     owner_id: OwnerID
-    created_at: str  # ISO 8601
-    updated_at: str  # ISO 8601
+    created_at: datetime
+    updated_at: datetime
     # Case related fields
     workflow_id: str
     case_title: str
@@ -166,8 +165,8 @@ class CaseParams(BaseModel):
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
-    context: ListModel[CaseContext]
-    tags: ListModel[Tag]
+    context: list[CaseContext]
+    tags: list[Tag]
 
 
 class CaseResponse(BaseModel):
@@ -184,8 +183,8 @@ class CaseResponse(BaseModel):
     action: Literal[
         "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
     ]
-    context: ListModel[CaseContext]
-    tags: ListModel[Tag]
+    context: list[CaseContext]
+    tags: list[Tag]
 
 
 class CaseActionParams(BaseModel):
@@ -234,8 +233,17 @@ class SecretResponse(BaseModel):
     keys: list[str]
 
 
+CaseEventType = Literal[
+    "status_changed",
+    "priority_changed",
+    "comment_created",
+    "case_opened",
+    "case_closed",
+]
+
+
 class CaseEventParams(BaseModel):
-    type: str
+    type: CaseEventType
     data: dict[str, str | None] | None
 
 

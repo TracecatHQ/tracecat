@@ -5,6 +5,14 @@ import {
   actionsGetAction,
   actionsUpdateAction,
   ApiError,
+  CaseEvent,
+  CaseEventParams,
+  CaseParams,
+  CaseResponse,
+  casesCreateCaseEvent,
+  casesGetCase,
+  casesListCaseEvents,
+  casesUpdateCase,
   EventHistoryResponse,
   Schedule,
   schedulesCreateSchedule,
@@ -26,14 +34,7 @@ import {
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { CaseEvent, type Case, type WorkflowMetadata } from "@/types/schemas"
-import {
-  CaseEventParams,
-  createCaseEvent,
-  fetchCase,
-  fetchCaseEvents,
-  updateCase,
-} from "@/lib/cases"
+import { type WorkflowMetadata } from "@/types/schemas"
 import { updateWebhook } from "@/lib/trigger"
 import { isEmptyObject } from "@/lib/utils"
 import { fetchAllPlaybooks } from "@/lib/workflow"
@@ -57,14 +58,29 @@ export function useLocalStorage<T>(
   return [value, setValue]
 }
 
-export function usePanelCase(workflowId: string, caseId: string) {
+export function usePanelCase(
+  workspaceId: string,
+  workflowId: string,
+  caseId: string
+) {
   const queryClient = useQueryClient()
-  const { data, isLoading, error } = useQuery<Case, Error>({
+  const { data, isLoading, error } = useQuery<CaseResponse, ApiError>({
     queryKey: ["case", caseId],
-    queryFn: async () => await fetchCase(workflowId, caseId),
+    queryFn: async () =>
+      await casesGetCase({
+        workspaceId,
+        caseId,
+        workflowId,
+      }),
   })
   const { mutateAsync } = useMutation({
-    mutationFn: (newCase: Case) => updateCase(workflowId, caseId, newCase),
+    mutationFn: async (newCase: CaseParams) =>
+      await casesUpdateCase({
+        workspaceId,
+        caseId,
+        workflowId,
+        requestBody: newCase,
+      }),
     onSuccess: () => {
       toast({
         title: "Updated case",
@@ -90,22 +106,31 @@ export function usePanelCase(workflowId: string, caseId: string) {
     caseData: data,
     caseIsLoading: isLoading,
     caseError: error,
-    mutateCaseAsync: mutateAsync,
+    updateCaseAsync: mutateAsync,
   }
 }
 
 export function useCaseEvents(workflowId: string, caseId: string) {
   const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
   const { data, isLoading, error } = useQuery<CaseEvent[], Error>({
     queryKey: ["caseEvents", caseId],
-    queryFn: async () => {
-      return await fetchCaseEvents(workflowId, caseId)
-    },
+    queryFn: async () =>
+      await casesListCaseEvents({
+        workspaceId,
+        workflowId,
+        caseId,
+      }),
   })
 
   const { mutateAsync } = useMutation({
     mutationFn: async (newEvent: CaseEventParams) => {
-      await createCaseEvent(workflowId, caseId, newEvent)
+      await casesCreateCaseEvent({
+        workspaceId,
+        workflowId,
+        caseId,
+        requestBody: newEvent,
+      })
     },
     onSuccess: () => {
       console.log("Case event created")

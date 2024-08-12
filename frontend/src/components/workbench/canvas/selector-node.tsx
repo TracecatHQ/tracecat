@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
 import { CloudOffIcon, XIcon } from "lucide-react"
 import {
   Handle,
@@ -9,7 +8,6 @@ import {
   Position,
   useKeyPress,
   useNodeId,
-  useReactFlow,
 } from "reactflow"
 
 import { udfConfig } from "@/config/udfs"
@@ -50,8 +48,8 @@ export default React.memo(function SelectorNode({
   targetPosition,
 }: NodeProps<SelectorNodeData>) {
   const id = useNodeId()
-  const { workflow } = useWorkflow()
-  const { setNodes, setEdges } = useReactFlow()
+  const { workflowId, reactFlow } = useWorkflowBuilder()
+  const { setNodes, setEdges } = reactFlow
   const escapePressed = useKeyPress("Escape")
 
   const removeSelectorNode = () => {
@@ -65,7 +63,7 @@ export default React.memo(function SelectorNode({
     }
   }, [escapePressed])
 
-  if (!workflow || !id) {
+  if (!workflowId || !id) {
     console.error("Workflow or node ID not found")
     return null
   }
@@ -172,8 +170,8 @@ function UDFCommandGroup({
   udfs: UDF[]
   nodeId: string
 }) {
-  const { workflowId } = useWorkflowBuilder()
-  const { getNode, setNodes, setEdges } = useReactFlow()
+  const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
+  const { getNode, setNodes, setEdges } = reactFlow
 
   const handleSelect = useCallback(
     async (udf: UDF) => {
@@ -196,6 +194,7 @@ function UDFCommandGroup({
         const newNode = await createNewNode(
           "udf",
           workflowId,
+          workspaceId,
           nodeData,
           currPosition
         )
