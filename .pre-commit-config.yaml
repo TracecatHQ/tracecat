@@ -19,7 +19,9 @@ repos:
       - id: ruff
         args:
           - --fix
+        exclude: ^alembic/versions/
       - id: ruff-format
+        exclude: ^alembic/versions/
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.18.2 # Specify the desired version of Gitleaks
     hooks:
