@@ -72,6 +72,12 @@ services:
       SMTP_AUTH_ENABLED: ${SMTP_AUTH_ENABLED}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
+      # LDAP
+      LDAP_HOST: ${LDAP_HOST}
+      LDAP_PORT: ${LDAP_PORT}
+      LDAP_SSL: ${LDAP_SSL}
+      LDAP_TYPE: ${LDAP_TYPE}
+
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
