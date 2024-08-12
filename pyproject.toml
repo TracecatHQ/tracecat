@@ -120,7 +120,8 @@ log_level = "INFO"
 log_cli = true
 log_cli_level = "INFO"
 markers = [
-    "webtest: marks test that require the web",
+    "webtest: marks tests that require the web",
     "slow: marks tests as slow",
+    "dbtest: marks tests that make database calls",
     "disable_fixture: marks tests that disable fixtures",
 ]
