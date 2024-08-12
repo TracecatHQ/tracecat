@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install alembic==1.13.2 alembic_utils==0.8.4 alembic-postgresql-enum==1.3.0
-          pip install sqlmodel==0.0.18
+          pip install sqlmodel==0.0.18 psycopg[binary]==3.1.19
           pip install fastapi==0.111.0 "fastapi-users[sqlalchemy,oauth]==13.0.0"
           pip install python-slugify==8.0.4
 
