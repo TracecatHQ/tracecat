@@ -59,7 +59,7 @@ jobs:
         run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker postgres_db caddy
 
       - name: Verify Tracecat API is running
-        run: curl -s http://localhost:8000/health | jq -e '.status == "ok"'
+        run: curl -s http://localhost/api/health | jq -e '.status == "ok"'
 
       - name: pip install Tracecat
         run: |
