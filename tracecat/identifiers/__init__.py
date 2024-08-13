@@ -39,9 +39,9 @@ e.g. wf-77932a0b140a4465a1a25a5c95edcfb8:run-b140a425a577932a0c95edcfb8465a1a
 """
 
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import UUID4
+from pydantic import UUID4, StringConstraints
 
 from tracecat.identifiers import action, resource, schedules, workflow
 from tracecat.identifiers.action import ActionID, ActionKey, ActionRef
@@ -61,6 +61,8 @@ OwnerID = uuid.UUID
 
 Owners can be Workspaces or the Organization.
 """
+
+SecretID = Annotated[str, StringConstraints(pattern=r"secret-[0-9a-f]{32}")]
 
 InternalServiceID = Literal[
     "tracecat-runner",

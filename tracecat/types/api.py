@@ -4,11 +4,10 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError
 
 from tracecat.db.schemas import Resource
 from tracecat.identifiers import OwnerID, WorkflowID
-from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.validation import ValidationResult
 
@@ -74,69 +73,6 @@ class WebhookResponse(Resource):
     method: Literal["GET", "POST"]
     workflow_id: str
     url: str
-
-
-class GetWebhookParams(BaseModel):
-    webhook_id: str | None = None
-    path: str | None = None
-
-
-class CreateUserParams(BaseModel):
-    tier: Literal["free", "pro", "enterprise"] = "free"  # "free" or "premium"
-    settings: str | None = None  # JSON-serialized String of settings
-
-
-UpdateUserParams = CreateUserParams
-
-
-class CreateSecretParams(BaseModel):
-    """Create a new secret.
-
-    Secret types
-    ------------
-    - `custom`: Arbitrary user-defined types
-    - `token`: A token, e.g. API Key, JWT Token (TBC)
-    - `oauth2`: OAuth2 Client Credentials (TBC)"""
-
-    type: Literal["custom"] = "custom"  # Support other types later
-    name: str
-    description: str | None = None
-    keys: list[SecretKeyValue]
-    tags: dict[str, str] | None = None
-
-    @staticmethod
-    def from_strings(name: str, keyvalues: list[str]) -> CreateSecretParams:
-        keys = [SecretKeyValue.from_str(kv) for kv in keyvalues]
-        return CreateSecretParams(name=name, keys=keys)
-
-    @field_validator("keys")
-    def validate_keys(cls, v, values):
-        if not v:
-            raise ValueError("Keys cannot be empty")
-        # Ensure keys are unique
-        if len({kv.key for kv in v}) != len(v):
-            raise ValueError("Keys must be unique")
-        return v
-
-
-class UpdateSecretParams(BaseModel):
-    """Create a new secret.
-
-    Secret types
-    ------------
-    - `custom`: Arbitrary user-defined types
-    - `token`: A token, e.g. API Key, JWT Token (TBC)
-    - `oauth2`: OAuth2 Client Credentials (TBC)"""
-
-    type: Literal["custom"] | None = None
-    name: str | None = None
-    description: str | None = None
-    keys: list[SecretKeyValue] | None = None
-    tags: dict[str, str] | None = None
-
-
-class SearchSecretsParams(BaseModel):
-    names: list[str]
 
 
 class Tag(BaseModel):
@@ -223,14 +159,6 @@ class StartWorkflowResponse(BaseModel):
     status: str
     message: str
     id: str
-
-
-class SecretResponse(BaseModel):
-    id: str
-    type: Literal["custom"]  # Support other types later
-    name: str
-    description: str | None = None
-    keys: list[str]
 
 
 CaseEventType = Literal[

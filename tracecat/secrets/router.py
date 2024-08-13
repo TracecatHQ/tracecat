@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -10,13 +11,15 @@ from tracecat.auth.credentials import (
 )
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Secret
-from tracecat.secrets.service import SecretsService
-from tracecat.types.api import (
+from tracecat.identifiers import SecretID
+from tracecat.logging import logger
+from tracecat.secrets.models import (
     CreateSecretParams,
     SearchSecretsParams,
     SecretResponse,
     UpdateSecretParams,
 )
+from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/secrets")
@@ -70,63 +73,93 @@ async def create_secret(
 ) -> None:
     """Create a secret."""
     service = SecretsService(session, role)
-    secret = await service.get_secret_by_name(params.name)
-    if secret:
+    try:
+        await service.create_secret(params)
+    except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
-        )
-
-    new_secret = Secret(
-        owner_id=role.workspace_id,
-        name=params.name,
-        type=params.type,
-        description=params.description,
-        tags=params.tags,
-        encrypted_keys=service.encrypt_keys(params.keys),
-    )
-    await service.create_secret(new_secret)
+        ) from e
 
 
-@router.post("/{secret_name}", status_code=status.HTTP_201_CREATED, tags=["secrets"])
-async def update_secret(
+# @router.post("/{secret_name}", status_code=status.HTTP_201_CREATED, tags=["secrets"])
+# async def update_secret(
+#     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+#     secret_name: str,
+#     params: UpdateSecretParams,
+#     session: AsyncSession = Depends(get_async_session),
+# ) -> Secret:
+#     """Update a secret by name."""
+#     service = SecretsService(session, role)
+#     try:
+#         await service.update_secret_by_name(secret_name=secret_name, params=params)
+#     except NoResultFound as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
+#         ) from e
+#     except IntegrityError as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
+#         ) from e
+
+
+@router.post("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"])
+async def update_secret_by_id(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    secret_name: str,
+    secret_id: SecretID,
     params: UpdateSecretParams,
     session: AsyncSession = Depends(get_async_session),
-) -> Secret:
-    """Update a secret"""
+) -> None:
+    """Update a secret by ID."""
     service = SecretsService(session, role)
-    secret = await service.get_secret_by_name(secret_name)
-    if secret is None:
+    try:
+        await service.update_secret_by_name(secret_id=secret_id, params=params)
+    except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
-        )
-    maybe_clashing_secret = await service.get_secret_by_name(params.name)
-    if maybe_clashing_secret is not None and maybe_clashing_secret.id != secret.id:
-        name = maybe_clashing_secret.name
+        ) from e
+    except IntegrityError as e:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Secret with name {name} already exists",
-        )
-    return await service.update_secret(secret, params)
+            status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
+        ) from e
 
 
-@router.delete(
-    "/{secret_name}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"]
-)
-async def delete_secret(
+# XXX: If we are to support this, it could have the following behavior:
+# - If tags passed, match tags
+# - If no tags passed, tries to delete all secrets with this name
+# @router.delete(
+#     "/{secret_name}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"]
+# )
+# async def delete_secret_by_name(
+#     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+#     secret_name: str,
+#     session: AsyncSession = Depends(get_async_session),
+# ) -> None:
+#     """Delete a secret."""
+#     service = SecretsService(session, role=role)
+#     try:
+#         await service.delete_secret_by_name(secret_name)
+#     except NoResultFound as e:
+#         logger.error(f"Secret {secret_name=} not found")
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
+#         ) from e
+
+
+@router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"])
+async def delete_secret_by_id(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    secret_name: str,
+    secret_id: SecretID,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
-    """Delete a secret."""
-    service = SecretsService(session, role)
-    secret = await service.get_secret_by_name(secret_name)
-    if secret is None:
+    """Delete a secret by ID."""
+    service = SecretsService(session, role=role)
+    try:
+        await service.delete_secret_by_id(secret_id)
+    except NoResultFound as e:
+        logger.info(f"Secret {secret_id=} not found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
-        )
-    await service.delete_secret(secret)
+        ) from e
 
 
 @router.post("/search", tags=["secrets"])
