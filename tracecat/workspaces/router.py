@@ -7,7 +7,6 @@ from fastapi import (
     status,
 )
 from sqlalchemy.exc import IntegrityError, NoResultFound
-from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.credentials import (
@@ -16,7 +15,6 @@ from tracecat.auth.credentials import (
 )
 from tracecat.authz.service import MembershipService
 from tracecat.db.engine import get_async_session
-from tracecat.db.schemas import Workflow
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.logging import logger
 from tracecat.types.auth import AccessLevel, Role
@@ -25,6 +23,7 @@ from tracecat.workspaces.models import (
     CreateWorkspaceMembershipParams,
     CreateWorkspaceParams,
     UpdateWorkspaceParams,
+    WorkspaceMember,
     WorkspaceMembershipResponse,
     WorkspaceMetadataResponse,
     WorkspaceResponse,
@@ -109,7 +108,16 @@ async def get_workspace(
         settings=workspace.settings,
         owner_id=workspace.owner_id,
         n_members=workspace.n_members,
-        members=[m.id for m in workspace.members],
+        members=[
+            WorkspaceMember(
+                user_id=member.id,
+                first_name=member.first_name,
+                last_name=member.last_name,
+                email=member.email,
+                role=member.role,
+            )
+            for member in workspace.members
+        ],
     )
 
 
@@ -125,7 +133,13 @@ async def update_workspace(
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Update a workspace."""
-    raise NotImplementedError
+    service = WorkspaceService(session, role=role)
+    try:
+        await service.update_workspace(workspace_id, params=params)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
 
 
 @router.delete(
@@ -140,19 +154,13 @@ async def delete_workspace(
 ) -> None:
     """Delete a workspace."""
 
-    statement = select(Workflow).where(
-        Workflow.owner_id == role.workspace_id,
-        Workflow.id == workspace_id,
-    )
-    result = await session.exec(statement)
+    service = WorkspaceService(session, role=role)
     try:
-        workspace = result.one()
+        await service.delete_workspace(workspace_id)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
-    await session.delete(workspace)
-    await session.commit()
 
 
 # === Memberships === #
@@ -183,7 +191,7 @@ async def list_workspace_memberships(
 async def create_workspace_membership(
     role: Annotated[
         Role,
-        Depends(authenticate_user),
+        Depends(authenticate_user_access_level(AccessLevel.ADMIN)),
     ],
     workspace_id: WorkspaceID,
     params: CreateWorkspaceMembershipParams,
@@ -200,6 +208,12 @@ async def create_workspace_membership(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User does not have the appropriate access level",
+        ) from e
+    except IntegrityError as e:
+        logger.error("INTEGRITY ERROR")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a member of workspace.",
         ) from e
 
 

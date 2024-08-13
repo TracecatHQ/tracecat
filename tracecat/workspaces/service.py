@@ -106,24 +106,26 @@ class WorkspaceService:
         result = await self.session.exec(statement)
         return result.one_or_none()
 
+    @require_access_level(AccessLevel.ADMIN)
     async def update_workspace(
         self, workspace_id: WorkspaceID, params: UpdateWorkspaceParams
-    ) -> Workspace:
+    ) -> None:
         """Update a workspace."""
-        workspace = await self.get_workspace(workspace_id)
-        if not workspace:
-            raise ValueError(f"Workspace {workspace_id} not found for update")
+        statement = select(Workspace).where(Workspace.id == workspace_id)
+        result = await self.session.exec(statement)
+        workspace = result.one()
         set_fields = params.model_dump(exclude_unset=True)
         for field, value in set_fields.items():
             setattr(workspace, field, value)
         self.session.add(workspace)
         await self.session.commit()
         await self.session.refresh(workspace)
-        return workspace
 
+    @require_access_level(AccessLevel.ADMIN)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
-        workspace = await self.get_workspace(workspace_id)
-        if workspace:
-            await self.session.delete(workspace)
-            await self.session.commit()
+        statement = select(Workspace).where(Workspace.id == workspace_id)
+        result = await self.session.exec(statement)
+        workspace = result.one()
+        await self.session.delete(workspace)
+        await self.session.commit()

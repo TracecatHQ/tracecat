@@ -132,10 +132,9 @@ class MembershipService:
         self, workspace_id: WorkspaceID, user_id: UserID
     ) -> None:
         """Create a workspace membership."""
-        if not await self.get_membership(workspace_id, user_id):
-            membership = Membership(user_id=user_id, workspace_id=workspace_id)
-            self.session.add(membership)
-            await self.session.commit()
+        membership = Membership(user_id=user_id, workspace_id=workspace_id)
+        self.session.add(membership)
+        await self.session.commit()
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_membership(

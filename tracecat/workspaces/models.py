@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from tracecat import config
+from tracecat.auth.schemas import UserRole
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
 # === Workspace === #
@@ -25,13 +26,21 @@ class WorkspaceMetadataResponse(BaseModel):
     n_members: int
 
 
+class WorkspaceMember(BaseModel):
+    user_id: UserID
+    first_name: str | None
+    last_name: str | None
+    email: EmailStr
+    role: UserRole
+
+
 class WorkspaceResponse(BaseModel):
     id: WorkspaceID
     name: str
     settings: dict[str, str] | None = None
     owner_id: OwnerID
     n_members: int
-    members: list[UserID]
+    members: list[WorkspaceMember]
 
 
 # === Membership === #
