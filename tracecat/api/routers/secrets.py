@@ -51,14 +51,8 @@ async def get_secret(
 ) -> Secret:
     """Get a secret."""
 
-    # Check if secret exists
-    statement = (
-        select(Secret)
-        .where(Secret.owner_id == role.workspace_id, Secret.name == secret_name)
-        .limit(1)
-    )
-    result = await session.exec(statement)
-    secret = result.one_or_none()
+    service = SecretsService(session, role=role)
+    secret = await service.get_secret_by_name(secret_name)
     if secret is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found"
@@ -77,7 +71,7 @@ async def create_secret(
     """Create a secret."""
     service = SecretsService(session, role)
     secret = await service.get_secret_by_name(params.name)
-    if secret is not None:
+    if secret:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         )
