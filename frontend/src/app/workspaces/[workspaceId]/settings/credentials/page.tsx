@@ -1,11 +1,9 @@
 "use client"
 
-import { Label } from "@radix-ui/react-label"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { SecretResponse } from "@/client"
 import { PlusCircle, Trash2Icon } from "lucide-react"
 
-import { Secret } from "@/types/schemas"
-import { deleteSecret, fetchAllSecrets } from "@/lib/secrets"
+import { useSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -14,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import {
   Table,
@@ -23,7 +22,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { toast } from "@/components/ui/use-toast"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
@@ -34,40 +32,12 @@ import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
 
 export default function CredentialsPage() {
-  const queryClient = useQueryClient()
-  const {
-    data: secrets,
-    isLoading,
-    error,
-  } = useQuery<Secret[], Error>({
-    queryKey: ["secrets"],
-    queryFn: async () => await fetchAllSecrets(),
-  })
-  const { mutate } = useMutation({
-    mutationFn: async (secret: Secret) => {
-      await deleteSecret(secret.name)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["secrets"] })
-      toast({
-        title: "Deleted secret",
-        description: "Secret deleted successfully.",
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to delete credentials", error)
-      toast({
-        title: "Failed to delete secret",
-        description: "An error occurred while deleting the secret.",
-      })
-    },
-  })
-
-  if (isLoading) {
+  const { secrets, secretsIsLoading, secretsError } = useSecrets()
+  if (secretsIsLoading) {
     return <CenteredSpinner />
   }
-  if (error) {
-    return <AlertNotification level="error" message={error.message} />
+  if (secretsError) {
+    return <AlertNotification level="error" message={secretsError.message} />
   }
 
   return (
@@ -90,9 +60,9 @@ export default function CredentialsPage() {
       <Separator />
 
       <div className="space-y-4">
-        {secrets?.length ? (
-          secrets?.map((secret, idx) => (
-            <SecretsTable key={idx} secret={secret} deleteFn={mutate} />
+        {secrets ? (
+          secrets.map((secret, idx) => (
+            <SecretsTable key={idx} secret={secret} />
           ))
         ) : (
           <NoContent
@@ -105,13 +75,8 @@ export default function CredentialsPage() {
   )
 }
 
-function SecretsTable({
-  secret,
-  deleteFn,
-}: {
-  secret: Secret
-  deleteFn: (secret: Secret) => void
-}) {
+function SecretsTable({ secret }: { secret: SecretResponse }) {
+  const { deleteSecret } = useSecrets()
   return (
     <Card className="w-full border">
       <CardHeader>
@@ -125,7 +90,7 @@ function SecretsTable({
           <ConfirmationDialog
             title={`Delete ${secret.name}?`}
             description="Are you sure you want to delete this secret? This action cannot be undone."
-            onConfirm={() => deleteFn(secret)}
+            onConfirm={async () => await deleteSecret(secret)}
           >
             <Button size="sm" variant="ghost">
               <Trash2Icon className="size-3.5" />

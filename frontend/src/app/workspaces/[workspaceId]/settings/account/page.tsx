@@ -4,7 +4,7 @@ import { useAuth } from "@/providers/auth"
 
 import { Separator } from "@/components/ui/separator"
 
-export default function Page() {
+export default function AccountSettingsPage() {
   const { user } = useAuth()
   return (
     <div className="h-full space-y-6">
