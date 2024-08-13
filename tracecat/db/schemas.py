@@ -89,7 +89,7 @@ class Ownership(SQLModel, table=True):
 
 class Workspace(Resource, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
-    name: str
+    name: str = Field(..., unique=True, index=True, nullable=False)
     settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     members: list["User"] = Relationship(
         back_populates="workspaces",
