@@ -2,10 +2,8 @@ import { actionsCreateAction, workflowsUpdateWorkflow } from "@/client"
 import { ReactFlowInstance } from "reactflow"
 
 import {
-  actionMetadataSchema,
   actionSchema,
   type Action,
-  type ActionMetadata,
   type WorkflowMetadata,
 } from "@/types/schemas"
 import { client } from "@/lib/api"

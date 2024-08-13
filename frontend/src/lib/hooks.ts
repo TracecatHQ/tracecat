@@ -22,14 +22,30 @@ import {
   schedulesListSchedules,
   schedulesUpdateSchedule,
   SchedulesUpdateScheduleData,
+  SecretResponse,
+  secretsDeleteSecret,
+  secretsListSecrets,
   UpdateActionParams,
+  UpdateWorkspaceParams,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
   WorkflowMetadataResponse,
   workflowsListWorkflows,
   WorkspaceMetadataResponse,
+  WorkspaceResponse,
+  workspacesCreateWorkspace,
+  WorkspacesCreateWorkspaceData,
+  workspacesCreateWorkspaceMembership,
+  WorkspacesCreateWorkspaceMembershipData,
+  WorkspacesCreateWorkspaceMembershipResponse,
+  workspacesDeleteWorkspace,
+  WorkspacesDeleteWorkspaceData,
+  workspacesDeleteWorkspaceMembership,
+  workspacesGetWorkspace,
   workspacesListWorkspaces,
+  workspacesUpdateWorkspace,
+  WorkspacesUpdateWorkspaceData,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -284,18 +300,185 @@ export function usePlaybooks() {
   return query
 }
 export function useWorkspace() {
+  const queryClient = useQueryClient()
   const { workspaceId } = useParams<{ workspaceId: string }>()
+  // Get members
+  const {
+    data: workspace,
+    isLoading: workspaceIsLoading,
+    error: workspaceError,
+  } = useQuery<WorkspaceResponse | undefined, ApiError>({
+    queryKey: ["workspace", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) {
+        return undefined
+      }
+      return await workspacesGetWorkspace({ workspaceId })
+    },
+  })
+
+  // Update workspace
+  const { mutateAsync: updateWorkspace } = useMutation({
+    mutationFn: async (params: UpdateWorkspaceParams) =>
+      await workspacesUpdateWorkspace({
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Updated workspace",
+        description: "Your workspace has been updated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update workspace:", error)
+      toast({
+        title: "Error update workspace",
+        description: "Could not update workspace. Please try again.",
+      })
+    },
+  })
+
+  const { mutateAsync: addWorkspaceMember } = useMutation<
+    unknown,
+    ApiError,
+    string
+  >({
+    mutationFn: async (userId: string) =>
+      await workspacesCreateWorkspaceMembership({
+        workspaceId,
+        requestBody: {
+          user_id: userId,
+        },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      toast({
+        title: "Successfully added member to workspace",
+        description: "Added new member to workspace",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to add member to workspace:", error)
+      switch (error.status) {
+        case 409:
+          toast({
+            title: "User already belongs to this workspace",
+            description:
+              "The user you're trying to add is already in this workspace.",
+          })
+          break
+        case 403:
+          toast({
+            title: "Unauthorized",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to add member to workspace",
+            description: `${error.status}. Could not add member to workspace. Please try again.`,
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  const { mutateAsync: removeWorkspaceMember } = useMutation<
+    unknown,
+    ApiError,
+    string
+  >({
+    mutationFn: async (userId: string) =>
+      await workspacesDeleteWorkspaceMembership({
+        workspaceId,
+        userId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      toast({
+        title: "Successfully removed member to workspace",
+        description: "Removed user from workspace",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to remove user from workspace:", error)
+      toast({
+        title: "Failed to remove user from workspace:",
+        description: "Could not remove user from workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
   return {
     workspaceId,
+    workspace,
+    workspaceIsLoading,
+    workspaceError,
+    addWorkspaceMember,
+    removeWorkspaceMember,
+    updateWorkspace,
   }
 }
 
-export function useWorkspaces() {
-  const query = useQuery<WorkspaceMetadataResponse[], Error>({
+export function useWorkspaceManager() {
+  const queryClient = useQueryClient()
+
+  // List workspaces
+  const {
+    data: workspaces,
+    error,
+    isLoading,
+  } = useQuery<WorkspaceMetadataResponse[], Error>({
     queryKey: ["workspaces"],
     queryFn: workspacesListWorkspaces,
   })
-  return query
+
+  // Create workspace
+  const { mutateAsync: createWorkspace } = useMutation({
+    mutationFn: async (values: WorkspacesCreateWorkspaceData) =>
+      await workspacesCreateWorkspace(values),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Created workspace",
+        description: "Your workspace has been created successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to create workspace:", error)
+      toast({
+        title: "Error creating workspace",
+        description: "Could not create workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Delete workspace
+  const { mutateAsync: deleteWorkspace } = useMutation({
+    mutationFn: async (values: WorkspacesDeleteWorkspaceData) =>
+      await workspacesDeleteWorkspace(values),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Deleted workspace",
+        description: "Your workspace has been deleted successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete workspace:", error)
+      toast({
+        title: "Error deleting workspace",
+        description: "Could not delete workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+  return { workspaces, error, isLoading, createWorkspace, deleteWorkspace }
 }
 
 export function useWorkflowExecutions(workflowId: string) {
@@ -428,5 +611,42 @@ export function useSchedules(workflowId: string) {
     createSchedule,
     updateSchedule,
     deleteSchedule,
+  }
+}
+
+export function useSecrets() {
+  const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
+  const {
+    data: secrets,
+    isLoading,
+    error,
+  } = useQuery<SecretResponse[], ApiError>({
+    queryKey: ["secrets"],
+    queryFn: async () => await secretsListSecrets({ workspaceId }),
+  })
+  const { mutateAsync: deleteSecret } = useMutation({
+    mutationFn: async (secret: SecretResponse) =>
+      await secretsDeleteSecret({ workspaceId, secretName: secret.name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+      toast({
+        title: "Deleted secret",
+        description: "Secret deleted successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete credentials", error)
+      toast({
+        title: "Failed to delete secret",
+        description: "An error occurred while deleting the secret.",
+      })
+    },
+  })
+  return {
+    secrets,
+    secretsIsLoading: isLoading,
+    secretsError: error,
+    deleteSecret,
   }
 }

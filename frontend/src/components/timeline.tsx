@@ -1,12 +1,12 @@
 import React from "react"
-import { type UserRead } from "@/client"
+import { CaseEvent, type UserRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ChatBubbleIcon } from "@radix-ui/react-icons"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { CaseEvent, CasePriorityType, CaseStatusType } from "@/types/schemas"
+import { CasePriorityType, CaseStatusType } from "@/types/schemas"
 import { userDefaults } from "@/config/user"
 import { useCaseEvents } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -86,7 +86,7 @@ export function Timeline({
         {caseEvents.length > 0 ? (
           <ol className="relative mb-2 space-y-8 border-s border-gray-200 pb-8 pl-4 dark:border-gray-700">
             {caseEvents.map((caseEvent, index) => (
-              <TimelineItem key={index} {...caseEvent} user={user} />
+              <TimelineItem key={index} event={caseEvent} user={user} />
             ))}
           </ol>
         ) : (
@@ -125,16 +125,11 @@ export function Timeline({
     </div>
   )
 }
-export type CaseEventType =
-  | "status_changed"
-  | "priority_changed"
-  | "comment_created"
-  | "case_opened"
-  | "case_closed"
 
-export type TimelineItemProps = CaseEvent & {
+export type TimelineItemProps = {
   className?: string
   user: UserRead | null
+  event: CaseEvent
 }
 
 export function TimelineItem({
@@ -153,7 +148,7 @@ export function TimelineItem({
   )
 }
 function TimelineItemActivity(props: TimelineItemProps) {
-  const comment = props.data?.comment
+  const comment = props.event.data?.comment
   return (
     <div className="space-y-2 rounded-lg border border-gray-200 p-4 shadow-sm">
       <TimelineItemActivityHeader {...props} />
@@ -166,8 +161,7 @@ function TimelineItemActivity(props: TimelineItemProps) {
 
 const getActivityDescription = ({
   user,
-  type,
-  data,
+  event: { type, data },
 }: TimelineItemProps): React.ReactNode => {
   const name = <b>{user?.first_name || userDefaults.name}</b>
   switch (type) {
@@ -216,7 +210,10 @@ const getActivityDescription = ({
 
 function TimelineItemActivityHeader(props: TimelineItemProps) {
   const activityDescription = getActivityDescription(props)
-  const { created_at, className } = props
+  const {
+    event: { created_at },
+    className,
+  } = props
   return (
     <div className={cn("items-center justify-between sm:flex", className)}>
       <time className="mb-1 text-xs font-normal text-muted-foreground sm:order-last sm:mb-0">

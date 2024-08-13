@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   BracesIcon,
   ChevronDownIcon,
-  PlusCircleIcon,
   UserCircle2Icon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"

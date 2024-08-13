@@ -1,6 +1,7 @@
 "use client"
 
 import React, { PropsWithChildren } from "react"
+import { CreateSecretParams, secretsCreateSecret } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -9,8 +10,8 @@ import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
-import { CreateSecretParams, createSecretSchema } from "@/types/schemas"
-import { createSecret } from "@/lib/secrets"
+import { createSecretSchema } from "@/types/schemas"
+import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -44,11 +45,14 @@ export function NewCredentialsDialog({
 }: NewCredentialsDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
   const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
 
   const { mutate } = useMutation({
-    mutationFn: async (secret: CreateSecretParams) => {
-      return await createSecret(secret)
-    },
+    mutationFn: async (secret: CreateSecretParams) =>
+      await secretsCreateSecret({
+        workspaceId,
+        requestBody: secret,
+      }),
     onSuccess: () => {
       toast({
         title: "Added new secret",

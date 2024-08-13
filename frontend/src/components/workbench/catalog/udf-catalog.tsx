@@ -56,8 +56,14 @@ const onDragStart = (event: DragEvent<HTMLDivElement>, udf: UDF) => {
 
 export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
   const { udfs, isLoading: udfsLoading, error } = useUDFs(udfConfig.namespaces)
-  const { workflowId, selectedNodeId, setNodes, setEdges, getNode } =
-    useWorkflowBuilder()
+  const {
+    workspaceId,
+    workflowId,
+    selectedNodeId,
+    setNodes,
+    setEdges,
+    getNode,
+  } = useWorkflowBuilder()
 
   /**
    * Enables the user to create an action node by clicking on a tile
@@ -80,6 +86,7 @@ export function UDFCatalog({ isCollapsed }: { isCollapsed: boolean }) {
       } as UDFNodeData
 
       const actionId = await createAction(
+        workspaceId,
         newNodeData.type,
         newNodeData.title,
         workflowId

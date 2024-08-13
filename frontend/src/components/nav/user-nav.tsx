@@ -13,6 +13,7 @@ import {
 
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
+import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -28,6 +29,8 @@ import UserAvatar from "@/components/user-avatar"
 
 export default function UserNav() {
   const { user, logout } = useAuth()
+  const { workspaceId } = useWorkspace()
+  const workspaceUrl = `/workspaces/${workspaceId}`
 
   return (
     <DropdownMenu>
@@ -71,13 +74,16 @@ export default function UserNav() {
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>
-          <Link href="/settings" className="my-2 w-full">
+          <Link href={`${workspaceUrl}/settings`} className="my-2 w-full">
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <Settings className="mr-2 size-4" />
               Settings
             </DropdownMenuItem>
           </Link>
-          <Link href="/settings/credentials" className="my-2 w-full">
+          <Link
+            href={`${workspaceUrl}/settings/credentials`}
+            className="my-2 w-full"
+          >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <KeyRound className="mr-2 size-4" />
               <span>Credentials</span>

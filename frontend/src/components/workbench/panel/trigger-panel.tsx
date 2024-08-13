@@ -19,7 +19,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Webhook, Workflow } from "@/types/schemas"
-import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
+import { useSchedules, useUpdateWebhook, useWorkspace } from "@/lib/hooks"
 import {
   durationSchema,
   durationToHumanReadable,
@@ -287,6 +287,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
     updateSchedule,
     deleteSchedule,
   } = useSchedules(workflowId)
+  const { workspaceId } = useWorkspace()
 
   if (schedulesIsLoading) {
     return <CenteredSpinner />
@@ -367,6 +368,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                                 )}
                                 onClick={async () =>
                                   await updateSchedule({
+                                    workspaceId,
                                     scheduleId: id!,
                                     requestBody: {
                                       status:
@@ -400,6 +402,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                                 variant="destructive"
                                 onClick={async () =>
                                   await deleteSchedule({
+                                    workspaceId,
                                     scheduleId: id!,
                                   })
                                 }
@@ -476,6 +479,7 @@ type ScheduleInputs = z.infer<typeof scheduleInputsSchema>
 
 export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const { createSchedule } = useSchedules(workflowId)
+  const { workspaceId } = useWorkspace()
   const form = useForm<ScheduleInputs>({
     resolver: zodResolver(scheduleInputsSchema),
     defaultValues: {
@@ -487,6 +491,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
     const { duration, inputs } = values
     try {
       const response = await createSchedule({
+        workspaceId,
         requestBody: {
           workflow_id: workflowId,
           every: durationToISOString(duration),
