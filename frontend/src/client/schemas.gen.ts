@@ -3046,6 +3046,49 @@ export const $WorkflowResponse = {
     title: 'WorkflowResponse'
 } as const;
 
+export const $WorkspaceMember = {
+    properties: {
+        user_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'User Id'
+        },
+        first_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Name'
+        },
+        last_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Name'
+        },
+        email: {
+            type: 'string',
+            format: 'email',
+            title: 'Email'
+        },
+        role: {
+            '$ref': '#/components/schemas/UserRole'
+        }
+    },
+    type: 'object',
+    required: ['user_id', 'first_name', 'last_name', 'email', 'role'],
+    title: 'WorkspaceMember'
+} as const;
+
 export const $WorkspaceMembershipResponse = {
     properties: {
         user_id: {
@@ -3121,8 +3164,7 @@ export const $WorkspaceResponse = {
         },
         members: {
             items: {
-                type: 'string',
-                format: 'uuid4'
+                '$ref': '#/components/schemas/WorkspaceMember'
             },
             type: 'array',
             title: 'Members'

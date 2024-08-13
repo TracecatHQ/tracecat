@@ -856,6 +856,14 @@ export type WorkflowResponse = {
 } | null;
 };
 
+export type WorkspaceMember = {
+    user_id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+    role: UserRole;
+};
+
 export type WorkspaceMembershipResponse = {
     user_id: string;
     workspace_id: string;
@@ -875,7 +883,7 @@ export type WorkspaceResponse = {
 } | null;
     owner_id: string;
     n_members: number;
-    members: Array<(string)>;
+    members: Array<WorkspaceMember>;
 };
 
 export type login = {
@@ -1371,6 +1379,12 @@ export type ValidationValidateWorkflowData = {
 };
 
 export type ValidationValidateWorkflowResponse = Array<UDFArgsValidationResponse>;
+
+export type UsersSearchUserData = {
+    email?: string | null;
+};
+
+export type UsersSearchUserResponse = UserRead;
 
 export type UsersUsersCurrentUserResponse = UserRead;
 
@@ -2355,6 +2369,21 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: Array<UDFArgsValidationResponse>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/users/search': {
+        get: {
+            req: UsersSearchUserData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: UserRead;
                 /**
                  * Validation Error
                  */
