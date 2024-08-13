@@ -3,17 +3,14 @@ import {
   UserRead,
   usersSearchUser,
   WorkspaceResponse,
-  workspacesCreateWorkspaceMembership,
 } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQueryClient } from "@tanstack/react-query"
 import { CirclePlusIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { useWorkspace } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

@@ -34,10 +34,14 @@ export default function WorkspaceMembersPage() {
       </p>
       <Separator className="my-6" />
       <div className="space-y-4">
-        <div className="space-y-2">
+        <>
+          <h6 className="text-sm">Invite Members</h6>
           <AddWorkspaceMember workspace={workspace} />
+        </>
+        <>
+          <h6 className="text-sm">Manage</h6>
           <WorkspaceMembersTable workspace={workspace} />
-        </div>
+        </>
       </div>
     </div>
   )

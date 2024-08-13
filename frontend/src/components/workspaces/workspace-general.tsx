@@ -56,16 +56,16 @@ export function WprkspaceGeneralSettings({
           onSubmit={methods.handleSubmit(onSubmit)}
           className="flex flex-col overflow-auto"
         >
-          <div className="my-4 w-1/2 space-y-4 px-4">
+          <h2 className="font-medium">General</h2>
+          <div className="my-4 w-1/2 flex-col space-y-4 px-4">
             <FormField
               control={methods.control}
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Workspace Name</FormLabel>
+                  <FormLabel>Workspace Name</FormLabel>
                   <FormControl>
                     <Input
-                      className="text-xs"
                       placeholder="Workspace Name"
                       {...field}
                       disabled={!hasPermissions}
@@ -75,6 +75,8 @@ export function WprkspaceGeneralSettings({
                 </FormItem>
               )}
             />
+          </div>
+          <div className="pt-2">
             <Button type="submit" variant="default">
               Update Workspace
             </Button>
