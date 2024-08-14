@@ -92,7 +92,7 @@ async def list_crowdstrike_alerts(
     falcon = Alerts(**get_crowdstrike_credentials())
     response = falcon.query_alerts_v2(
         limit=limit,
-        filter=f"last_updated_timestamp:>='{start_time.isoformat()}' last_updated_timestamp:<='{end_time.isoformat()}'",
+        filter=f"created_timestamp:>='{start_time.isoformat()}' created_timestamp:<='{end_time.isoformat()}'",
     )
     return response
 
@@ -120,7 +120,7 @@ async def list_crowdstrike_detects(
     falcon = Detects(**get_crowdstrike_credentials())
     response = falcon.query_detects(
         limit=limit,
-        filter=f"date_updated:>='{start_time.isoformat()}' date_updated:<='{end_time.isoformat()}'",
+        filter=f"updated_timestamp:>='{start_time.isoformat()}' updated_timestamp:<='{end_time.isoformat()}'",
     )
     return response
 
