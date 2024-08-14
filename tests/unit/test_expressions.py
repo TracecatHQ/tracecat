@@ -434,6 +434,17 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("TRIGGER.data.name", "John"),
         ("TRIGGER.data.age", 30),
         ("TRIGGER.value -> int", 100),
+        ## Try more uncommon trigger expressions
+        ("TRIGGER.hits._test", "_test_ok"),
+        ("TRIGGER.hits.________test", "________test_ok"),
+        ("TRIGGER.hits._source['kibana.alert.rule.name']", "TEST"),
+        ("TRIGGER.hits._source.['kibana.alert.rule.name']", "TEST"),
+        ('TRIGGER.hits._source.["kibana.alert.rule.name"]', "TEST"),
+        ('TRIGGER.hits._source."kibana.alert.rule.name"', "TEST"),
+        ("TRIGGER.hits._source.'kibana.alert.rule.name'", "TEST"),
+        ("TRIGGER.hits.'_source'.['kibana.alert.rule.name']", "TEST"),
+        ("TRIGGER.hits.'_source'.['kibana.alert.rule.name']", "TEST"),
+        ("TRIGGER.hits.['_source']['kibana.alert.rule.name']", "TEST"),
         # Local variables
         ("var.x", 5),
         ("var.y", "100"),
@@ -514,6 +525,14 @@ def test_expression_parser(expr, expected):
                 "age": 30,
             },
             "value": "100",
+            "hits": {
+                # Leading underscore + flattened key
+                "_source": {
+                    "kibana.alert.rule.name": "TEST",
+                },
+                "_test": "_test_ok",
+                "________test": "________test_ok",
+            },
         },
         ExprContext.LOCAL_VARS: {
             "x": 5,
@@ -678,7 +697,7 @@ def assert_validation_result(
                     "url": "${{ int(100) }}",
                 },
                 "test2": "fail 1 ${{ ACTIONS.my_action.invalid }} ",
-                "test3": "fail 2 ${{ int(ACTIONS.my_action.invalid_inner) }} ",
+                "test3": "fail 2 ${{ int(INPUTS.my_action.invalid_inner) }} ",
             },
             [
                 {
@@ -692,7 +711,7 @@ def assert_validation_result(
                     "contains_msg": "invalid",
                 },
                 {
-                    "type": ExprType.ACTION,
+                    "type": ExprType.INPUT,
                     "status": "error",
                     "contains_msg": "invalid_inner",
                 },
