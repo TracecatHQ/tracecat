@@ -7,6 +7,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from httpx_oauth.clients.google import GoogleOAuth2
 from sqlalchemy import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import Session, SQLModel, delete
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -60,15 +61,14 @@ async def setup_defaults():
 
     # Create default workspace if there are no workspaces
     async with WorkspaceService.with_session(role=role) as service:
-        if (await service.n_workspaces(user_id=role.user_id)) == 0:
-            default_workspace = await service.create_workspace(
-                "Default Workspace", users=[admin_user]
-            )
-            logger.info(
-                "Default admin user and workspace created",
-                user=admin_user,
-                workspace=default_workspace,
-            )
+        if await service.n_workspaces(user_id=role.user_id) == 0:
+            try:
+                default_workspace = await service.create_workspace(
+                    "Default Workspace", users=[admin_user]
+                )
+                logger.info("Default workspace created", workspace=default_workspace)
+            except IntegrityError:
+                logger.info("Default workspace already exists, skipping")
 
 
 def initialize_db() -> Engine:
