@@ -29,12 +29,12 @@ binary_op: expression OPERATOR expression
 arg_list: (expression ("," expression)*)?
 
 
-actions: "ACTIONS" JSONPATH
+actions: "ACTIONS" jsonpath_expression
 secrets: "SECRETS" ATTRIBUTE_PATH
-inputs: "INPUTS" JSONPATH
-env: "ENV" JSONPATH
-local_vars: "var" JSONPATH
-trigger: "TRIGGER" JSONPATH
+inputs: "INPUTS" jsonpath_expression
+env: "ENV" jsonpath_expression
+local_vars: "var" jsonpath_expression
+trigger: "TRIGGER" jsonpath_expression
 function: "FN." FN_NAME_WITH_TRANSFORM "(" [arg_list] ")"
 local_vars_assignment: "var" ATTRIBUTE_PATH
 
@@ -53,14 +53,21 @@ kvpair : STRING_LITERAL ":" expression
 ATTRIBUTE_PATH: ("." CNAME)+
 FN_NAME_WITH_TRANSFORM: CNAME FN_TRANSFORM?
 FN_TRANSFORM: "." CNAME
-JSONPATH: ( "." CNAME ("[" JSONPATH_INDEX "]")?  )+
+
+jsonpath_expression: jsonpath_segment+
+?jsonpath_segment: ATTRIBUTE_ACCESS | BRACKET_ACCESS
 JSONPATH_INDEX: /\d+/ | "*"
+ATTRIBUTE_ACCESS: "." ( CNAME | STRING_LITERAL | BRACKET_ACCESS )
+BRACKET_ACCESS: "[" (STRING_LITERAL | JSONPATH_INDEX) "]"
+
 OPERATOR: "+" | "-" | "*" | "/" | "%" | "==" | "!=" | ">" | "<" | ">=" | "<=" | "&&" | "||" | "in"
 TYPE_SPECIFIER: "int" | "float" | "str" | "bool"
 STRING_LITERAL: /'(?:[^'\\]|\\.)*'/ | /"(?:[^"\\]|\\.)*"/
 BOOL_LITERAL: "True" | "False"
 NUMERIC_LITERAL: /\d+(\.\d+)?/
 NONE_LITERAL: "None"
+
+
 
 %import common.CNAME
 %import common.WS
