@@ -154,8 +154,8 @@ class CaseParams(BaseModel):
     # SQLModel defaults
     id: str
     owner_id: str
-    created_at: str  # ISO 8601
-    updated_at: str  # ISO 8601
+    created_at: datetime  # ISO 8601
+    updated_at: datetime  # ISO 8601
     # Case related fields
     workflow_id: str
     case_title: str
