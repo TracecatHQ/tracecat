@@ -13,7 +13,7 @@ import {
 
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
-import { useWorkspace } from "@/lib/hooks"
+import { useWorkspace, useWorkspaceManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -29,9 +29,14 @@ import UserAvatar from "@/components/user-avatar"
 
 export default function UserNav() {
   const { user, logout } = useAuth()
+  const { setLastWorkspaceId } = useWorkspaceManager()
   const { workspaceId } = useWorkspace()
   const workspaceUrl = `/workspaces/${workspaceId}`
 
+  const handleLogout = async () => {
+    setLastWorkspaceId()
+    await logout()
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -74,7 +79,10 @@ export default function UserNav() {
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>
-          <Link href={`${workspaceUrl}/settings`} className="my-2 w-full">
+          <Link
+            href={`${workspaceUrl}/settings/general`}
+            className="my-2 w-full"
+          >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <Settings className="mr-2 size-4" />
               Settings
@@ -97,7 +105,7 @@ export default function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-xs hover:cursor-pointer"
-          onClick={async () => await logout()}
+          onClick={handleLogout}
         >
           <LogOut className="mr-2 size-4" />
           <span>Logout</span>

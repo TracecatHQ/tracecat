@@ -7,8 +7,8 @@ import { AlertNotification } from "@/components/notifications"
 import { WprkspaceGeneralSettings } from "@/components/workspaces/workspace-general"
 
 export default function WorkspaceGeneralSettingsPage() {
-  const { workspace, workspaceError, workspaceIsLoading } = useWorkspace()
-  if (workspaceIsLoading) {
+  const { workspace, workspaceError, workspaceLoading } = useWorkspace()
+  if (workspaceLoading) {
     return <CenteredSpinner />
   }
   if (!workspace || workspaceError) {

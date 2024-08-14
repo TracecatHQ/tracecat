@@ -39,19 +39,24 @@ export function WorkflowsDashboard() {
 
 export function WorkflowList() {
   const { workspaceId } = useWorkspace()
-  const { data: workflows, error, isLoading } = useWorkflows()
-  if (isLoading) {
+  const { workflows, workflowsLoading, workflowsError } = useWorkflows()
+  if (workflowsLoading) {
     return (
       <div className="flex w-full flex-col items-center space-y-12">
         <ListItemSkeletion n={2} />
       </div>
     )
   }
-  if (error || workflows === undefined) {
+
+  if (workflowsError) {
+    throw workflowsError
+  }
+
+  if (!workflows) {
     return (
       <AlertNotification
         level="error"
-        message={`Error fetching workflows: ${error?.message} ${JSON.stringify(error?.body)}`}
+        message="Couldn't fetch workflows. Please try again."
       />
     )
   }

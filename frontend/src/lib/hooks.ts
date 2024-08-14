@@ -13,6 +13,7 @@ import {
   casesGetCase,
   casesListCaseEvents,
   casesUpdateCase,
+  CreateSecretParams,
   EventHistoryResponse,
   Schedule,
   schedulesCreateSchedule,
@@ -23,9 +24,12 @@ import {
   schedulesUpdateSchedule,
   SchedulesUpdateScheduleData,
   SecretResponse,
-  secretsDeleteSecret,
+  secretsCreateSecret,
+  secretsDeleteSecretById,
   secretsListSecrets,
+  secretsUpdateSecretById,
   UpdateActionParams,
+  UpdateSecretParams,
   UpdateWorkspaceParams,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
@@ -37,20 +41,21 @@ import {
   workspacesCreateWorkspace,
   WorkspacesCreateWorkspaceData,
   workspacesCreateWorkspaceMembership,
-  WorkspacesCreateWorkspaceMembershipData,
-  WorkspacesCreateWorkspaceMembershipResponse,
   workspacesDeleteWorkspace,
   WorkspacesDeleteWorkspaceData,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
+  workspacesGetWorkspaceMembership,
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
-  WorkspacesUpdateWorkspaceData,
 } from "@/client"
+import { useAuth } from "@/providers/auth"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Cookies from "js-cookie"
 
 import { type WorkflowMetadata } from "@/types/schemas"
+import { retryHandler } from "@/lib/errors"
 import { updateWebhook } from "@/lib/trigger"
 import { isEmptyObject } from "@/lib/utils"
 import { fetchAllPlaybooks } from "@/lib/workflow"
@@ -285,11 +290,20 @@ export function useUpdateWebhook(workflowId: string) {
 
 export function useWorkflows() {
   const { workspaceId } = useWorkspace()
-  const query = useQuery<WorkflowMetadataResponse[], ApiError>({
+  const {
+    data: workflows,
+    isLoading: workflowsLoading,
+    error: workflowsError,
+  } = useQuery<WorkflowMetadataResponse[], ApiError>({
     queryKey: ["workflows"],
     queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    retry: retryHandler,
   })
-  return query
+  return {
+    workflows,
+    workflowsLoading,
+    workflowsError,
+  }
 }
 
 export function usePlaybooks() {
@@ -302,10 +316,11 @@ export function usePlaybooks() {
 export function useWorkspace() {
   const queryClient = useQueryClient()
   const { workspaceId } = useParams<{ workspaceId: string }>()
-  // Get members
+
+  // Get workspace
   const {
     data: workspace,
-    isLoading: workspaceIsLoading,
+    isLoading: workspaceLoading,
     error: workspaceError,
   } = useQuery<WorkspaceResponse | undefined, ApiError>({
     queryKey: ["workspace", workspaceId],
@@ -315,6 +330,7 @@ export function useWorkspace() {
       }
       return await workspacesGetWorkspace({ workspaceId })
     },
+    retry: retryHandler,
   })
 
   // Update workspace
@@ -341,6 +357,7 @@ export function useWorkspace() {
     },
   })
 
+  // Add meber to workspace
   const { mutateAsync: addWorkspaceMember } = useMutation<
     unknown,
     ApiError,
@@ -386,6 +403,7 @@ export function useWorkspace() {
     },
   })
 
+  // Remove member from workspace
   const { mutateAsync: removeWorkspaceMember } = useMutation<
     unknown,
     ApiError,
@@ -416,7 +434,7 @@ export function useWorkspace() {
   return {
     workspaceId,
     workspace,
-    workspaceIsLoading,
+    workspaceLoading,
     workspaceError,
     addWorkspaceMember,
     removeWorkspaceMember,
@@ -430,8 +448,8 @@ export function useWorkspaceManager() {
   // List workspaces
   const {
     data: workspaces,
-    error,
-    isLoading,
+    error: workspacesError,
+    isLoading: workspacesIsLoading,
   } = useQuery<WorkspaceMetadataResponse[], Error>({
     queryKey: ["workspaces"],
     queryFn: workspacesListWorkspaces,
@@ -478,7 +496,21 @@ export function useWorkspaceManager() {
       })
     },
   })
-  return { workspaces, error, isLoading, createWorkspace, deleteWorkspace }
+
+  // Cookies
+  const getLastWorkspaceId = () =>
+    Cookies.get("__tracecat:workspaces:last-viewed")
+  const setLastWorkspaceId = (id?: string) =>
+    Cookies.set("__tracecat:workspaces:last-viewed", id ?? "")
+  return {
+    workspaces,
+    workspacesError,
+    workspacesIsLoading,
+    createWorkspace,
+    deleteWorkspace,
+    getLastWorkspaceId,
+    setLastWorkspaceId,
+  }
 }
 
 export function useWorkflowExecutions(workflowId: string) {
@@ -625,9 +657,64 @@ export function useSecrets() {
     queryKey: ["secrets"],
     queryFn: async () => await secretsListSecrets({ workspaceId }),
   })
-  const { mutateAsync: deleteSecret } = useMutation({
+
+  // Create secret
+  const { mutateAsync: createSecret } = useMutation({
+    mutationFn: async (secret: CreateSecretParams) =>
+      await secretsCreateSecret({
+        workspaceId,
+        requestBody: secret,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Added new secret",
+        description: "New secret added successfully.",
+      })
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+    },
+    onError: (error) => {
+      console.error("Failed to add new credentials", error)
+      toast({
+        title: "Failed to add new secret",
+        description: "An error occurred while adding the new secret.",
+      })
+    },
+  })
+
+  // Update secret
+  const { mutateAsync: updateSecretById } = useMutation({
+    mutationFn: async ({
+      secretId,
+      params,
+    }: {
+      secretId: string
+      params: UpdateSecretParams
+    }) =>
+      await secretsUpdateSecretById({
+        workspaceId,
+        secretId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Updated secret",
+        description: "Secret updated successfully.",
+      })
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+    },
+    onError: (error) => {
+      console.error("Failed to update secret", error)
+      toast({
+        title: "Failed to update secret",
+        description: "An error occurred while the secret.",
+      })
+    },
+  })
+
+  // Delete secret
+  const { mutateAsync: deleteSecretById } = useMutation({
     mutationFn: async (secret: SecretResponse) =>
-      await secretsDeleteSecret({ workspaceId, secretName: secret.name }),
+      await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["secrets"] })
       toast({
@@ -647,6 +734,8 @@ export function useSecrets() {
     secrets,
     secretsIsLoading: isLoading,
     secretsError: error,
-    deleteSecret,
+    createSecret,
+    updateSecretById,
+    deleteSecretById,
   }
 }

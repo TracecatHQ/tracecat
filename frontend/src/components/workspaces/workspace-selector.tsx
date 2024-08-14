@@ -3,8 +3,9 @@
 import React, { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { WorkspaceMetadataResponse } from "@/client"
+import { useAuth } from "@/providers/auth"
 import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons"
-import Cookies from "js-cookie"
+import { PlusCircleIcon } from "lucide-react"
 
 import { useWorkspace, useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -16,6 +17,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command"
 import {
   Popover,
@@ -24,9 +26,16 @@ import {
 } from "@/components/ui/popover"
 
 export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
-  const { workspaces, error, isLoading } = useWorkspaceManager()
-  const [open, setOpen] = useState(false)
+  const { user } = useAuth()
+  const isAdmin = user?.is_superuser || user?.role === "admin"
   const { workspaceId } = useWorkspace()
+  const {
+    workspaces,
+    workspacesError,
+    workspacesIsLoading,
+    setLastWorkspaceId,
+  } = useWorkspaceManager()
+  const [open, setOpen] = useState(false)
   const [currWorkspace, setCurrWorkspace] = useState<
     WorkspaceMetadataResponse | undefined
   >()
@@ -36,14 +45,14 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
   useEffect(() => {
     if (workspaceId) {
       setCurrWorkspace(workspaces?.find((ws) => ws.id === workspaceId))
-      Cookies.set("__tracecat:workspaces:last-viewed", workspaceId)
+      setLastWorkspaceId(workspaceId)
     }
   }, [workspaceId, workspaces])
 
-  if (isLoading) {
+  if (workspacesIsLoading) {
     return null
   }
-  if (error) {
+  if (workspacesError) {
     return <div>Error loading workspaces</div>
   }
 
@@ -66,7 +75,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
           <CommandInput placeholder="Search workspaces..." />
           <CommandList>
             <CommandEmpty>No workspaces found.</CommandEmpty>
-            <CommandGroup>
+            <CommandGroup heading="My Workspaces">
               {workspaces?.map((ws) => (
                 <CommandItem
                   key={ws.id}
@@ -91,6 +100,23 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
                 </CommandItem>
               ))}
             </CommandGroup>
+            {isAdmin && (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Management">
+                  <CommandItem
+                    className="flex items-center"
+                    key="add-workspace"
+                    onSelect={() => {
+                      setOpen(false)
+                    }}
+                  >
+                    <PlusCircleIcon className="mr-2 size-4" />
+                    Add Workspace
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

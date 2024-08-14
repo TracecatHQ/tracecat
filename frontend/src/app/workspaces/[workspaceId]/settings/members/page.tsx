@@ -8,8 +8,8 @@ import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member
 import { WorkspaceMembersTable } from "@/components/workspaces/workspace-members-table"
 
 export default function WorkspaceMembersPage() {
-  const { workspace, workspaceError, workspaceIsLoading } = useWorkspace()
-  if (workspaceIsLoading) {
+  const { workspace, workspaceError, workspaceLoading } = useWorkspace()
+  if (workspaceLoading) {
     return <CenteredSpinner />
   }
   if (workspaceError) {
