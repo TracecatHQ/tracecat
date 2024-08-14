@@ -1308,20 +1308,20 @@ export type SecretsGetSecretData = {
 
 export type SecretsGetSecretResponse = Secret;
 
-export type SecretsUpdateSecretData = {
+export type SecretsUpdateSecretByIdData = {
     requestBody: UpdateSecretParams;
-    secretName: string;
+    secretId: string;
     workspaceId: string;
 };
 
-export type SecretsUpdateSecretResponse = Secret;
+export type SecretsUpdateSecretByIdResponse = void;
 
-export type SecretsDeleteSecretData = {
-    secretName: string;
+export type SecretsDeleteSecretByIdData = {
+    secretId: string;
     workspaceId: string;
 };
 
-export type SecretsDeleteSecretResponse = void;
+export type SecretsDeleteSecretByIdResponse = void;
 
 export type SecretsSearchSecretsData = {
     requestBody: SearchSecretsParams;
@@ -2235,13 +2235,15 @@ export type $OpenApiTs = {
                 422: HTTPValidationError;
             };
         };
+    };
+    '/secrets/{secret_id}': {
         post: {
-            req: SecretsUpdateSecretData;
+            req: SecretsUpdateSecretByIdData;
             res: {
                 /**
                  * Successful Response
                  */
-                201: Secret;
+                204: void;
                 /**
                  * Validation Error
                  */
@@ -2249,7 +2251,7 @@ export type $OpenApiTs = {
             };
         };
         delete: {
-            req: SecretsDeleteSecretData;
+            req: SecretsDeleteSecretByIdData;
             res: {
                 /**
                  * Successful Response

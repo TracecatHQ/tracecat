@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.auth.credentials import (
     authenticate_user,
     authenticate_user_access_level,
+    authenticate_user_for_workspace,
 )
 from tracecat.authz.service import MembershipService
 from tracecat.db.engine import get_async_session
@@ -91,7 +92,7 @@ async def create_workspace(
 
 @router.get("/{workspace_id}", tags=["workspaces"])
 async def get_workspace(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     workspace_id: WorkspaceID,
     session: AsyncSession = Depends(get_async_session),
 ) -> WorkspaceResponse:
@@ -168,7 +169,7 @@ async def delete_workspace(
 
 @router.get("/{workspace_id}/memberships", tags=["workspaces"])
 async def list_workspace_memberships(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     workspace_id: WorkspaceID,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[WorkspaceMembershipResponse]:
@@ -219,7 +220,7 @@ async def create_workspace_membership(
 
 @router.get("/{workspace_id}/memberships/{user_id}", tags=["workspaces"])
 async def get_workspace_membership(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncSession = Depends(get_async_session),
@@ -227,6 +228,11 @@ async def get_workspace_membership(
     """Get a workspace membership for a user."""
     service = MembershipService(session, role=role)
     membership = await service.get_membership(workspace_id, user_id=user_id)
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Membership not found",
+        )
     return WorkspaceMembershipResponse(
         user_id=membership.user_id, workspace_id=membership.workspace_id
     )

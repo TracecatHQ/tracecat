@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesListCaseActionsData, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsData, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretData, SecretsUpdateSecretResponse, SecretsDeleteSecretData, SecretsDeleteSecretResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, PublicCheckHealthResponse } from './types.gen';
+import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, CasesListCaseActionsData, CasesListCaseActionsResponse, CasesCreateCaseActionData, CasesCreateCaseActionResponse, CasesDeleteCaseActionData, CasesDeleteCaseActionResponse, CasesListCaseContextsData, CasesListCaseContextsResponse, CasesCreateCaseContextData, CasesCreateCaseContextResponse, CasesDeleteCaseContextData, CasesDeleteCaseContextResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretData, SecretsGetSecretResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, PublicCheckHealthResponse } from './types.gen';
 
 /**
  * Incoming Webhook
@@ -1262,20 +1262,20 @@ export const secretsGetSecret = (data: SecretsGetSecretData): CancelablePromise<
 }); };
 
 /**
- * Update Secret
- * Update a secret
+ * Update Secret By Id
+ * Update a secret by ID.
  * @param data The data for the request.
- * @param data.secretName
+ * @param data.secretId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns Secret Successful Response
+ * @returns void Successful Response
  * @throws ApiError
  */
-export const secretsUpdateSecret = (data: SecretsUpdateSecretData): CancelablePromise<SecretsUpdateSecretResponse> => { return __request(OpenAPI, {
+export const secretsUpdateSecretById = (data: SecretsUpdateSecretByIdData): CancelablePromise<SecretsUpdateSecretByIdResponse> => { return __request(OpenAPI, {
     method: 'POST',
-    url: '/secrets/{secret_name}',
+    url: '/secrets/{secret_id}',
     path: {
-        secret_name: data.secretName
+        secret_id: data.secretId
     },
     query: {
         workspace_id: data.workspaceId
@@ -1288,19 +1288,19 @@ export const secretsUpdateSecret = (data: SecretsUpdateSecretData): CancelablePr
 }); };
 
 /**
- * Delete Secret
- * Delete a secret.
+ * Delete Secret By Id
+ * Delete a secret by ID.
  * @param data The data for the request.
- * @param data.secretName
+ * @param data.secretId
  * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const secretsDeleteSecret = (data: SecretsDeleteSecretData): CancelablePromise<SecretsDeleteSecretResponse> => { return __request(OpenAPI, {
+export const secretsDeleteSecretById = (data: SecretsDeleteSecretByIdData): CancelablePromise<SecretsDeleteSecretByIdResponse> => { return __request(OpenAPI, {
     method: 'DELETE',
-    url: '/secrets/{secret_name}',
+    url: '/secrets/{secret_id}',
     path: {
-        secret_name: data.secretName
+        secret_id: data.secretId
     },
     query: {
         workspace_id: data.workspaceId

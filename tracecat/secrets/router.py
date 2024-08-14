@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.credentials import (
     authenticate_user_for_workspace,
-    authenticate_user_or_service,
+    authenticate_user_or_service_for_workspace,
 )
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Secret
@@ -48,7 +48,7 @@ async def list_secrets(
 @router.get("/{secret_name}", tags=["secrets"])
 async def get_secret(
     # NOTE(auth): Worker service can also access secrets
-    role: Annotated[Role, Depends(authenticate_user_or_service)],
+    role: Annotated[Role, Depends(authenticate_user_or_service_for_workspace)],
     secret_name: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> Secret:

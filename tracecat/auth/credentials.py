@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Literal
 
-from fastapi import Depends, HTTPException, Query, Request, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from pydantic import UUID4
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -85,8 +85,8 @@ def get_role_from_user(
 
 async def authenticate_user(
     user: Annotated[User, Depends(current_active_user)],
-) -> User:
-    """Authenticate a user and return a `User` object."""
+) -> Role:
+    """Return a Role object for the user."""
     role = get_role_from_user(user)
     ctx_role.set(role)
     return role
@@ -114,9 +114,23 @@ def authenticate_user_access_level(access_level: AccessLevel) -> Awaitable[Role]
     return dependency
 
 
+async def get_workspace_id(request: Request) -> UUID4:
+    """Get the workspace ID from the path or query parameters."""
+    # Check for the workspace ID in the path
+    if workspace_id_path := request.path_params.get("workspace_id"):
+        return workspace_id_path
+    # Check for the workspace ID in the query
+    if workspace_id_query := request.query_params.get("workspace_id"):
+        return workspace_id_query
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Workspace ID must be provided either as a path or query parameter.",
+    )
+
+
 async def authenticate_user_for_workspace(
     user: Annotated[User, Depends(current_active_user)],
-    workspace_id: Annotated[UUID4, Query()],
+    workspace_id: Annotated[UUID4, Depends(get_workspace_id)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> Role:
     """Authenticate a user for a workspace.
@@ -138,18 +152,31 @@ async def authenticate_user_for_workspace(
     return role
 
 
-async def optional_authenticate_user(
+async def optional_authenticate_user_for_workspace(
     user: Annotated[User | None, Depends(optional_current_active_user)],
+    workspace_id: Annotated[UUID4, Depends(get_workspace_id)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> Role | None:
-    """Map the current user to a role if available, else return None.
+    """Authenticate a user for a workspace.
 
-    `ctx_role` ContextVar is set if the user is available.
+    If no user available, return None.
+    If a user is available, `ctx_role` ContextVar is set here.
     """
-    if user:
-        role = Role(type="user", workspace_id=str(user.id), service_id="tracecat-api")
-        ctx_role.set(role)
-        return role
-    return None
+    if not user:
+        return None
+    if not user.is_superuser or not user.role == UserRole.ADMIN:
+        # Check if non-admin user is a member of the workspace
+        authz_service = AuthorizationService(session)
+        if not await authz_service.user_is_workspace_member(
+            user_id=user.id, workspace_id=workspace_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. User not a member of this workspace",
+            )
+    role = get_role_from_user(user, workspace_id=workspace_id)
+    ctx_role.set(role)
+    return role
 
 
 async def authenticate_service(
@@ -169,8 +196,10 @@ async def authenticate_service(
     return role
 
 
-async def authenticate_user_or_service(
-    role_from_user: Annotated[Role | None, Depends(optional_authenticate_user)] = None,
+async def authenticate_user_or_service_for_workspace(
+    role_from_user: Annotated[
+        Role | None, Depends(optional_authenticate_user_for_workspace)
+    ] = None,
     api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
     request: Request = None,
 ) -> Role:
