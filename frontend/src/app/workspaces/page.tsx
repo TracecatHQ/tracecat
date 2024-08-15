@@ -20,6 +20,9 @@ export default function WorkspacesPage() {
   if (workspaces) {
     console.log("Redirecting to first workspace")
     if (workspaces.length === 0) {
+      // XXX: This is defensive code. We should never reach this point.
+      // On server side we prevent deletion of the last workspace.
+      // We create a default workspace on first login.
       console.log("Creating a new workspace")
       createWorkspace({ name: "New Workspace" })
         .then((workspace) =>
