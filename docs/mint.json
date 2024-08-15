@@ -33,8 +33,8 @@
     }
   ],
   "topbarCtaButton": {
-    "name": "Get Started",
-    "url": "https://cal.com/team/tracecat/onboarding"
+    "type": "github",
+    "url": "https://github.com/TracecatHQ/tracecat"
   },
   "tabs": [
     {
@@ -53,9 +53,9 @@
       "url": "https://tracecat.com"
     },
     {
-      "name": "GitHub",
-      "icon": "github",
-      "url": "https://github.com/TracecatHQ/tracecat"
+      "name": "Get Live Help",
+      "icon": "headphones",
+      "url": "https://cal.com/team/tracecat/onboarding"
     },
     {
       "name": "Community",
@@ -68,31 +68,42 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "quickstart",
-        "using-tracecat",
-        "using-the-cli"
+        "quickstart"
       ]
     },
     {
-      "group": "Concepts",
+      "group": "Self-Hosting",
+      "pages": [
+        "self-hosting/introduction",
+        {
+          "group": "Options",
+          "pages": [
+            "self-hosting/installation/docker",
+            "self-hosting/installation/kubernetes"
+          ]
+        },
+        "self-hosting/configuration",
+        "self-hosting/updating"
+      ]
+    },
+    {
+      "group": "Core Features",
       "pages": [
         "concepts/workflows",
         "concepts/actions",
-        "concepts/workflow-definitions",
-        "concepts/user-defined-functions",
-        "concepts/expressions",
+        "concepts/secrets",
         "concepts/webhooks",
         "concepts/schedules",
-        "concepts/case-management",
-        "concepts/secrets"
+        "concepts/expressions",
+        "concepts/case-management"
       ]
     },
     {
-      "group": "Self-hosted",
+      "group": "Developer Features",
       "pages": [
-        "installation",
-        "deployment",
-        "updating"
+        "concepts/user-defined-functions",
+        "concepts/workflow-definitions",
+        "concepts/command-line-interface"
       ]
     },
     {
