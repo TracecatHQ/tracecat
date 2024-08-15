@@ -3,12 +3,14 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useWorkspace } from "@/providers/workspace"
 import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
 
 export function DashboardNav() {
+  const { workspaceId } = useWorkspace()
   const pathname = usePathname()
   return (
     <nav className="flex space-x-4 lg:space-x-6">
@@ -16,7 +18,7 @@ export function DashboardNav() {
         <WorkspaceSelector />
       </div>
       <Link
-        href="/"
+        href={`/workspaces/${workspaceId}/workflows`}
         className={cn(
           "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
           pathname.endsWith("/workflows") && "text-primary"
