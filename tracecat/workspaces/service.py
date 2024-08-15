@@ -18,7 +18,7 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.logging import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException, TracecatManagementError
-from tracecat.workspaces.models import UpdateWorkspaceParams
+from tracecat.workspaces.models import SearchWorkspacesParams, UpdateWorkspaceParams
 
 
 class WorkspaceService:
@@ -145,3 +145,19 @@ class WorkspaceService:
         workspace = result.one()
         await self.session.delete(workspace)
         await self.session.commit()
+
+    async def search_workspaces(
+        self, params: SearchWorkspacesParams
+    ) -> list[Workspace]:
+        """Retrieve a workspace by ID."""
+        statement = select(Workspace)
+        if self.role.access_level < AccessLevel.ADMIN:
+            # Only list workspaces where user is a member
+            statement = statement.where(
+                Workspace.id == Membership.workspace_id,
+                Membership.user_id == self.role.user_id,
+            )
+        if params.name:
+            statement = statement.where(Workspace.name == params.name)
+        result = await self.session.exec(statement)
+        return result.all()

@@ -26,6 +26,7 @@ from tracecat.types.exceptions import (
 from tracecat.workspaces.models import (
     CreateWorkspaceMembershipParams,
     CreateWorkspaceParams,
+    SearchWorkspacesParams,
     UpdateWorkspaceParams,
     WorkspaceMember,
     WorkspaceMembershipResponse,
@@ -91,6 +92,22 @@ async def create_workspace(
     return WorkspaceMetadataResponse(
         id=workspace.id, name=workspace.name, n_members=workspace.n_members
     )
+
+
+# NOTE: This route must be defined before the route for getting a single workspace for both to work
+@router.get("/search", tags=["workspaces"])
+async def search_workspaces(
+    role: Annotated[Role, Depends(authenticate_user)],
+    session: AsyncSession = Depends(get_async_session),
+    params: SearchWorkspacesParams = Depends(),
+) -> list[WorkspaceMetadataResponse]:
+    """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
+    service = WorkspaceService(session, role=role)
+    workspaces = await service.search_workspaces(params)
+    return [
+        WorkspaceMetadataResponse(id=ws.id, name=ws.name, n_members=ws.n_members)
+        for ws in workspaces
+    ]
 
 
 @router.get("/{workspace_id}", tags=["workspaces"])

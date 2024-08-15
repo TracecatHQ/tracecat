@@ -19,6 +19,10 @@ class UpdateWorkspaceParams(BaseModel):
     settings: dict[str, str] | None = None
 
 
+class SearchWorkspacesParams(BaseModel):
+    name: str | None = None
+
+
 # Responses
 class WorkspaceMetadataResponse(BaseModel):
     id: WorkspaceID
