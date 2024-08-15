@@ -1247,6 +1247,7 @@ export const secretsCreateSecret = (data: SecretsCreateSecretData): CancelablePr
  * Get a secret.
  * @param data The data for the request.
  * @param data.secretName
+ * @param data.workspaceId
  * @returns Secret Successful Response
  * @throws ApiError
  */
@@ -1255,6 +1256,9 @@ export const secretsGetSecret = (data: SecretsGetSecretData): CancelablePromise<
     url: '/secrets/{secret_name}',
     path: {
         secret_name: data.secretName
+    },
+    query: {
+        workspace_id: data.workspaceId
     },
     errors: {
         422: 'Validation Error'

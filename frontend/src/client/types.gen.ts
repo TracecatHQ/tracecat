@@ -1304,6 +1304,7 @@ export type SecretsCreateSecretResponse = unknown;
 
 export type SecretsGetSecretData = {
     secretName: string;
+    workspaceId: string;
 };
 
 export type SecretsGetSecretResponse = Secret;
