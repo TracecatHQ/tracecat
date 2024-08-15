@@ -37,7 +37,7 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const router = useRouter()
   if (user) {
-    return router.push("/workspaces")
+    router.push("/workspaces")
   }
 
   return (
