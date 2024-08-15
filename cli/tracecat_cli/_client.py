@@ -5,19 +5,24 @@ import httpx
 import rich
 import typer
 
-from ._config import config
-from ._utils import read_cookies
+from ._config import config, manager
 
 
 def _aclient():
+    workspace = manager.get_workspace()
     return httpx.AsyncClient(
-        base_url=config.api_url, cookies=read_cookies(config.cookies_path)
+        base_url=config.api_url,
+        cookies=manager.read_cookies(),
+        params={"workspace_id": workspace.id} if workspace else None,
     )
 
 
 def _client():
+    workspace = manager.get_workspace()
     return httpx.Client(
-        base_url=config.api_url, cookies=read_cookies(config.cookies_path)
+        base_url=config.api_url,
+        cookies=manager.read_cookies(),
+        params={"workspace_id": workspace.id} if workspace else None,
     )
 
 

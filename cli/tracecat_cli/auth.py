@@ -5,8 +5,7 @@ import rich
 import typer
 
 from ._client import Client
-from ._config import config
-from ._utils import delete_cookies, write_cookies
+from ._config import config, manager
 
 app = typer.Typer(no_args_is_help=True, help="Authentication")
 
@@ -33,10 +32,10 @@ def login(
         )
         response.raise_for_status()
     # Convert cookies to a dictionary
-    write_cookies(response.cookies, config.cookies_path)
+    manager.write_cookies(response.cookies)
 
     rich.print(
-        f"[green]Login successful. Cookies saved to {config.cookies_path}[/green]"
+        f"[green]Login successful. Cookies saved to {config.config_path}[/green]"
     )
 
 
@@ -58,5 +57,5 @@ def logout():
         response = client.post("/auth/logout")
         response.raise_for_status()
     # Convert cookies to a dictionary
-    delete_cookies(config.cookies_path)
+    manager.delete_cookies()
     rich.print("[green]Logout successful[/green]")
