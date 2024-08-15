@@ -13,7 +13,6 @@ import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons"
 import { KeyRoundIcon, PlusCircleIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 
-import { TracecatApiError } from "@/lib/errors"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -28,7 +27,6 @@ import {
 } from "@/components/ui/command"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -158,19 +156,13 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
           </Command>
         </PopoverContent>
       </Popover>
-      <CreateWorkspaceForm
-        open={createWorkspaceDialogOpen}
-        setOpen={setCreateWorkspaceDialogOpen}
-      />
+      <CreateWorkspaceForm setOpen={setCreateWorkspaceDialogOpen} />
     </Dialog>
   )
 }
-// Define a schema for your form
 function CreateWorkspaceForm({
-  open,
   setOpen,
 }: {
-  open: boolean
   setOpen: (open: boolean) => void
 }) {
   const { createWorkspace } = useWorkspaceManager()
@@ -188,14 +180,19 @@ function CreateWorkspaceForm({
       setOpen(false)
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.status === 409) {
-          methods.setError("name", {
-            type: "manual",
-            message: "A workspace with this name already exists.",
-          })
-        }
+        methods.setError("name", {
+          type: "manual",
+          message:
+            error.status === 409
+              ? "A workspace with this name already exists."
+              : error.message,
+        })
       } else {
         console.error("Error creating workspace", error)
+        methods.setError("name", {
+          type: "manual",
+          message: (error as Error).message || "Could not create workspace.",
+        })
       }
     }
   }
