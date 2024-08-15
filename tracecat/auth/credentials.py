@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Literal
 
-from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Path, Query, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from pydantic import UUID4
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -128,10 +128,32 @@ async def get_workspace_id(request: Request) -> UUID4:
     )
 
 
+async def authenticate_user_for_workspace_by_path(
+    user: Annotated[User, Depends(current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    workspace_id: UUID4 = Path(...),
+) -> Role:
+    """Authenticate a user for a workspace passed in as a path parameter.
+
+    `ctx_role` ContextVar is set here.
+    """
+    return await _authenticate_user_for_workspace(user, session, workspace_id)
+
+
 async def authenticate_user_for_workspace(
     user: Annotated[User, Depends(current_active_user)],
-    workspace_id: Annotated[UUID4, Depends(get_workspace_id)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    workspace_id: UUID4 = Query(...),
+) -> Role:
+    """Authenticate a user for a workspace passed in as a query parameter.
+
+    `ctx_role` ContextVar is set here.
+    """
+    return await _authenticate_user_for_workspace(user, session, workspace_id)
+
+
+async def _authenticate_user_for_workspace(
+    user: User, session: AsyncSession, workspace_id: UUID4
 ) -> Role:
     """Authenticate a user for a workspace.
 
@@ -154,7 +176,7 @@ async def authenticate_user_for_workspace(
 
 async def optional_authenticate_user_for_workspace(
     user: Annotated[User | None, Depends(optional_current_active_user)],
-    workspace_id: Annotated[UUID4, Depends(get_workspace_id)],
+    workspace_id: Annotated[UUID4, Depends(authenticate_user_for_workspace)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> Role | None:
     """Authenticate a user for a workspace.

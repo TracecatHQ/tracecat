@@ -17,6 +17,7 @@ from tracecat.db.schemas import Membership, Ownership, User, Workspace
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.logging import logger
 from tracecat.types.auth import AccessLevel, Role
+from tracecat.types.exceptions import TracecatException, TracecatManagementError
 from tracecat.workspaces.models import UpdateWorkspaceParams
 
 
@@ -39,13 +40,19 @@ class WorkspaceService:
     """Management"""
 
     @require_access_level(AccessLevel.ADMIN)
-    async def admin_list_workspaces(self) -> list[Workspace]:
+    async def admin_list_workspaces(self, limit: int | None = None) -> list[Workspace]:
         """List all workspaces in the organization."""
         statement = select(Workspace)
+        if limit is not None:
+            if limit <= 0:
+                raise TracecatException("List workspace limit must be greater than 0")
+            statement = statement.limit(limit)
         result = await self.session.exec(statement)
         return result.all()
 
-    async def list_workspaces(self, user_id: UserID) -> list[Workspace]:
+    async def list_workspaces(
+        self, user_id: UserID, limit: int | None = None
+    ) -> list[Workspace]:
         """List all workspaces that a user is a member of.
 
         If user_id is provided, list only workspaces where user is a member.
@@ -56,6 +63,10 @@ class WorkspaceService:
             Workspace.id == Membership.workspace_id,
             Membership.user_id == user_id,
         )
+        if limit is not None:
+            if limit <= 0:
+                raise TracecatException("List workspace limit must be greater than 0")
+            statement = statement.limit(limit)
         result = await self.session.exec(statement)
         return result.all()
 
@@ -124,6 +135,11 @@ class WorkspaceService:
     @require_access_level(AccessLevel.ADMIN)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
+        all_workspaces = await self.admin_list_workspaces()
+        if len(all_workspaces) == 1:
+            raise TracecatManagementError(
+                "There must be at least one workspace in the organization."
+            )
         statement = select(Workspace).where(Workspace.id == workspace_id)
         result = await self.session.exec(statement)
         workspace = result.one()

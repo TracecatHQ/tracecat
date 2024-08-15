@@ -34,3 +34,7 @@ class TracecatCredentialsError(TracecatException):
 
 class TracecatAuthorizationError(TracecatException):
     """Tracecat user-facing authorization error"""
+
+
+class TracecatManagementError(TracecatException):
+    """Tracecat user-facing management error"""

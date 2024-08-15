@@ -12,14 +12,17 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.auth.credentials import (
     authenticate_user,
     authenticate_user_access_level,
-    authenticate_user_for_workspace,
+    authenticate_user_for_workspace_by_path,
 )
 from tracecat.authz.service import MembershipService
 from tracecat.db.engine import get_async_session
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.logging import logger
 from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.types.exceptions import (
+    TracecatAuthorizationError,
+    TracecatManagementError,
+)
 from tracecat.workspaces.models import (
     CreateWorkspaceMembershipParams,
     CreateWorkspaceParams,
@@ -92,7 +95,7 @@ async def create_workspace(
 
 @router.get("/{workspace_id}", tags=["workspaces"])
 async def get_workspace(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace_by_path)],
     workspace_id: WorkspaceID,
     session: AsyncSession = Depends(get_async_session),
 ) -> WorkspaceResponse:
@@ -162,6 +165,11 @@ async def delete_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
+    except TracecatManagementError as e:
+        raise HTTPException(
+            detail=str(e),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from e
 
 
 # === Memberships === #
@@ -169,7 +177,7 @@ async def delete_workspace(
 
 @router.get("/{workspace_id}/memberships", tags=["workspaces"])
 async def list_workspace_memberships(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace_by_path)],
     workspace_id: WorkspaceID,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[WorkspaceMembershipResponse]:
@@ -220,7 +228,7 @@ async def create_workspace_membership(
 
 @router.get("/{workspace_id}/memberships/{user_id}", tags=["workspaces"])
 async def get_workspace_membership(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace_by_path)],
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncSession = Depends(get_async_session),
