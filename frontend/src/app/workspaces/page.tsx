@@ -21,7 +21,7 @@ export default function WorkspacesPage() {
     console.log("Redirecting to first workspace")
     if (workspaces.length === 0) {
       console.log("Creating a new workspace")
-      createWorkspace({ requestBody: { name: "New Workspace" } })
+      createWorkspace({ name: "New Workspace" })
         .then((workspace) =>
           router.replace(`/workspaces/${workspace.id}/workflows`)
         )
