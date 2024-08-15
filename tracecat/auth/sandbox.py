@@ -7,6 +7,7 @@ import os
 from collections.abc import Iterator
 from typing import Literal, Self
 
+from httpx import HTTPStatusError
 from loguru import logger
 
 from tracecat.clients import AuthenticatedAPIClient
@@ -114,7 +115,9 @@ class AuthSandbox:
 
         try:
             async with (
-                AuthenticatedAPIClient(role=self._role) as client,
+                AuthenticatedAPIClient(
+                    role=self._role, params={"workspace_id": self._role.workspace_id}
+                ) as client,
                 GatheringTaskGroup() as tg,
             ):
                 for secret_name in secret_names:
@@ -124,13 +127,19 @@ class AuthSandbox:
                             res = await client.get(f"/secrets/{name}")
                             res.raise_for_status()  # Raise an exception for HTTP error codes
                             return res
-                        except Exception as e:
+                        except HTTPStatusError as e:
                             msg = (
                                 f"Failed to retrieve secret {name!r}."
                                 f" Please ensure you have set all required secrets: {self._secret_paths}"
                             )
-                            logger.error(msg)
-                            raise TracecatCredentialsError(msg) from e
+                            detail = e.response.text
+                            logger.error(msg, detail=detail)
+                            raise TracecatCredentialsError(msg, detail=detail) from e
+                        except Exception as e:
+                            msg = f"Failed to retrieve secret {name!r}."
+                            detail = str(e)
+                            logger.error(msg, detail=detail)
+                            raise TracecatCredentialsError(msg, detail=detail) from e
 
                     tg.create_task(fetcher(secret_name))
         except* TracecatCredentialsError as eg:

@@ -736,7 +736,7 @@ class DSLActivities:
         except TracecatException as e:
             err_type = e.__class__.__name__
             msg = str(e)
-            act_logger.error(f"{err_type} occurred: {msg}", error=e)
+            act_logger.error(f"{err_type} occurred: {msg}", error=e, detail=e.detail)
             raise ApplicationError(
                 msg, e.detail, non_retryable=True, type=err_type
             ) from e

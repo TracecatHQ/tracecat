@@ -174,10 +174,10 @@ async def _authenticate_user_for_workspace(
     return role
 
 
-async def optional_authenticate_user_for_workspace(
+async def authenticate_optional_user_for_workspace(
     user: Annotated[User | None, Depends(optional_current_active_user)],
-    workspace_id: Annotated[UUID4, Depends(authenticate_user_for_workspace)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    workspace_id: UUID4 = Query(...),
 ) -> Role | None:
     """Authenticate a user for a workspace.
 
@@ -220,7 +220,7 @@ async def authenticate_service(
 
 async def authenticate_user_or_service_for_workspace(
     role_from_user: Annotated[
-        Role | None, Depends(optional_authenticate_user_for_workspace)
+        Role | None, Depends(authenticate_optional_user_for_workspace)
     ] = None,
     api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
     request: Request = None,
@@ -230,9 +230,12 @@ async def authenticate_user_or_service_for_workspace(
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
     if role_from_user:
+        logger.warning("User authentication")
         return role_from_user
     if api_key:
+        logger.warning("Service authentication")
         return await authenticate_service(request, api_key)
+    logger.error("Could not validate credentials")
     raise HTTP_EXC("Could not validate credentials")
 
 
