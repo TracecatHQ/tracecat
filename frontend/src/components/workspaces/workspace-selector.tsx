@@ -1,27 +1,19 @@
 "use client"
 
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  CreateSecretParams,
+  ApiError,
   CreateWorkspaceParams,
   WorkspaceMetadataResponse,
-  WorkspacesListWorkspacesResponse,
 } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
-import { zodResolver } from "@hookform/resolvers/zod"
 import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons"
-import {
-  KeyRoundIcon,
-  PlusCircle,
-  PlusCircleIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { KeyRoundIcon, PlusCircleIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
 
-import { createSecretSchema } from "@/types/schemas"
+import { TracecatApiError } from "@/lib/errors"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -47,7 +39,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -64,13 +55,8 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
   const { user } = useAuth()
   const isAdmin = user?.is_superuser || user?.role === "admin"
   const { workspaceId, workspaceLoading, workspaceError } = useWorkspace()
-  const {
-    workspaces,
-    workspacesError,
-    workspacesLoading,
-    setLastWorkspaceId,
-    createWorkspace,
-  } = useWorkspaceManager()
+  const { workspaces, workspacesError, workspacesLoading, setLastWorkspaceId } =
+    useWorkspaceManager()
   const [open, setOpen] = useState(false)
   const [currWorkspace, setCurrWorkspace] = useState<
     WorkspaceMetadataResponse | undefined
@@ -172,47 +158,54 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
           </Command>
         </PopoverContent>
       </Popover>
-      <CreateWorkspaceForm />
+      <CreateWorkspaceForm
+        open={createWorkspaceDialogOpen}
+        setOpen={setCreateWorkspaceDialogOpen}
+      />
     </Dialog>
   )
 }
 // Define a schema for your form
-function CreateWorkspaceForm() {
-  const { workspaces } = useWorkspaceManager()
-  console.log("workspaces", workspaces)
-
-  const formSchema = useMemo(() => {
-    return z.object({
-      name: z
-        .string()
-        .min(1, "Name is required")
-        .refine(
-          (name) =>
-            !workspaces?.some(
-              (workspace) => workspace.name.toLowerCase() === name.toLowerCase()
-            ),
-          {
-            message: "A workspace with this name already exists",
-          }
-        ),
-    })
-  }, [workspaces]) // Dependency array includes workspaces
-  type FormSchema = z.infer<typeof formSchema>
-  const methods = useForm<FormSchema>({
+function CreateWorkspaceForm({
+  open,
+  setOpen,
+}: {
+  open: boolean
+  setOpen: (open: boolean) => void
+}) {
+  const { createWorkspace } = useWorkspaceManager()
+  const methods = useForm<CreateWorkspaceParams>({
     defaultValues: {
       name: "",
     },
-    mode: "onChange",
   })
 
-  const onSubmit = async (values: FormSchema) => {
-    console.log("Create workspace", values)
+  const onSubmit = async (values: CreateWorkspaceParams) => {
+    console.log("Creating workspace", values)
+    try {
+      await createWorkspace(values)
+      console.log("Workspace created")
+      setOpen(false)
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (error.status === 409) {
+          methods.setError("name", {
+            type: "manual",
+            message: "A workspace with this name already exists.",
+          })
+        }
+      } else {
+        console.error("Error creating workspace", error)
+      }
+    }
   }
   return (
     <DialogContent>
       <DialogHeader>
         <DialogTitle>Create a new workspace</DialogTitle>
-        <DialogDescription>Create a new workspace</DialogDescription>
+        <DialogDescription>
+          Provide a name for the new workspace.
+        </DialogDescription>
       </DialogHeader>
       <Form {...methods}>
         <form onSubmit={methods.handleSubmit(onSubmit)}>
@@ -236,12 +229,10 @@ function CreateWorkspaceForm() {
               )}
             />
             <DialogFooter>
-              <DialogClose asChild>
-                <Button className="ml-auto space-x-2" type="submit">
-                  <KeyRoundIcon className="mr-2 size-4" />
-                  Create
-                </Button>
-              </DialogClose>
+              <Button className="ml-auto space-x-2" type="submit">
+                <KeyRoundIcon className="mr-2 size-4" />
+                Create
+              </Button>
             </DialogFooter>
           </div>
         </form>

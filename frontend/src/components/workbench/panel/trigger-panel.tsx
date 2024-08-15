@@ -19,7 +19,6 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { Webhook, Workflow } from "@/types/schemas"
 import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
 import {
   durationSchema,

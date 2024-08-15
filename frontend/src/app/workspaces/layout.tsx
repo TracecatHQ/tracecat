@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceProvider } from "@/providers/workspace"
 
@@ -13,10 +13,9 @@ export default function WorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { workspaces, workspacesLoading, workspacesError, createWorkspace } =
+  const { workspaces, workspacesLoading, workspacesError } =
     useWorkspaceManager()
   const { workspaceId } = useParams<{ workspaceId?: string }>()
-  const router = useRouter()
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
@@ -38,7 +37,7 @@ export default function WorkspaceLayout({
   console.log("Redirecting to workspace", wsId)
   return (
     <WorkspaceProvider workspaceId={wsId}>
-      <WorkflowProvider>
+      <WorkflowProvider workspaceId={wsId}>
         <div className="no-scrollbar flex h-screen max-h-screen flex-col">
           {/* DynamicNavbar needs a WorkflowProvider */}
           <DynamicNavbar />

@@ -52,12 +52,15 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(
   undefined
 )
 
-export function WorkflowProvider({ children }: { children: ReactNode }) {
+export function WorkflowProvider({
+  workspaceId,
+  children,
+}: {
+  workspaceId: string
+  children: ReactNode
+}) {
   const queryClient = useQueryClient()
-  const { workspaceId, workflowId } = useParams<{
-    workspaceId: string
-    workflowId: string
-  }>()
+  const { workflowId } = useParams<{ workflowId: string }>()
 
   // Queries
   const {

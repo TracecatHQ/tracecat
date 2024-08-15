@@ -5,7 +5,6 @@ import { WorkflowResponse, workflowsDeleteWorkflow } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { SettingsIcon, Trash2Icon } from "lucide-react"
 
-import { Workflow } from "@/types/schemas"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

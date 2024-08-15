@@ -19,7 +19,6 @@ import { Controller, useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
 
-import { Workflow } from "@/types/schemas"
 import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {
   Accordion,

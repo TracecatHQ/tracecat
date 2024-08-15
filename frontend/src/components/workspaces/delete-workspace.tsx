@@ -40,8 +40,8 @@ export function ConfirmDelete({ workspaceName, onDelete }: ConfirmDeleteProps) {
             Are you sure you want to delete this workspace?
           </DialogTitle>
           <DialogDescription>
-            This action cannot be undone. Please type "{workspaceName}" to
-            confirm.
+            This action cannot be undone. Please type &quot;{workspaceName}
+            &quot; to confirm.
           </DialogDescription>
         </DialogHeader>
         <Input

@@ -4,7 +4,6 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { Node } from "reactflow"
 
-import { Workflow } from "@/types/schemas"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
 import { NodeType } from "@/components/workbench/canvas/canvas"

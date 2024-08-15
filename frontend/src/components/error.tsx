@@ -3,7 +3,6 @@
 // Error components must be Client Components
 import { useEffect } from "react"
 import Image from "next/image"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ApiError } from "@/client"
 import { AxiosError } from "axios"

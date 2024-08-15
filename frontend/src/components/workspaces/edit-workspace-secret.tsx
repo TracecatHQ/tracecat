@@ -1,6 +1,6 @@
 "use client"
 
-import React, { PropsWithChildren, useEffect } from "react"
+import React, { PropsWithChildren } from "react"
 import { SecretResponse, UpdateSecretParams } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"

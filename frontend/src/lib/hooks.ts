@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import {
   ActionResponse,
   actionsGetAction,
@@ -14,6 +14,7 @@ import {
   casesListCaseEvents,
   casesUpdateCase,
   CreateSecretParams,
+  CreateWorkspaceParams,
   EventHistoryResponse,
   Schedule,
   schedulesCreateSchedule,
@@ -30,21 +31,14 @@ import {
   secretsUpdateSecretById,
   UpdateActionParams,
   UpdateSecretParams,
-  UpdateWorkspaceParams,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
   WorkflowMetadataResponse,
   workflowsListWorkflows,
-  WorkspaceResponse,
   workspacesCreateWorkspace,
-  WorkspacesCreateWorkspaceData,
-  workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspace,
-  workspacesDeleteWorkspaceMembership,
-  workspacesGetWorkspace,
   workspacesListWorkspaces,
-  workspacesUpdateWorkspace,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkspace } from "@/providers/workspace"
@@ -326,8 +320,10 @@ export function useWorkspaceManager() {
 
   // Create workspace
   const { mutateAsync: createWorkspace } = useMutation({
-    mutationFn: async (values: WorkspacesCreateWorkspaceData) =>
-      await workspacesCreateWorkspace(values),
+    mutationFn: async (params: CreateWorkspaceParams) =>
+      await workspacesCreateWorkspace({
+        requestBody: params,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] })
       toast({
@@ -335,13 +331,21 @@ export function useWorkspaceManager() {
         description: "Your workspace has been created successfully.",
       })
     },
-    onError: (error) => {
-      console.error("Failed to create workspace:", error)
-      toast({
-        title: "Error creating workspace",
-        description: "Could not create workspace. Please try again.",
-        variant: "destructive",
-      })
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.log(
+            "Workspace with this name already exists.",
+            error.body.detail
+          )
+          break
+        default:
+          console.error("Failed to create workspace:", error)
+          toast({
+            title: "Error creating workspace",
+            description: error.body.detail + ". Please try again.",
+          })
+      }
     },
   })
 
