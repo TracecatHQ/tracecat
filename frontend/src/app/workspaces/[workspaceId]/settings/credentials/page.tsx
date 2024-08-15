@@ -1,8 +1,8 @@
 "use client"
 
+import { useWorkspace } from "@/providers/workspace"
 import { PlusCircle } from "lucide-react"
 
-import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { CenteredSpinner } from "@/components/loading/spinner"

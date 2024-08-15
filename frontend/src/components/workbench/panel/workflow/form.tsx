@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import "@radix-ui/react-dialog"
 
 import { useRouter } from "next/navigation"
-import { ApiError } from "@/client"
+import { ApiError, WorkflowResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
   FileInputIcon,
@@ -86,7 +86,7 @@ type WorkflowConfigForm = z.infer<typeof workflowConfigFormSchema>
 export function WorkflowForm({
   workflow,
 }: {
-  workflow: Workflow
+  workflow: WorkflowResponse
 }): React.JSX.Element {
   const router = useRouter()
   const { updateWorkflow: update } = useWorkflow()

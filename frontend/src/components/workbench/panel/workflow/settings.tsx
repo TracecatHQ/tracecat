@@ -1,11 +1,11 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { workflowsDeleteWorkflow } from "@/client"
+import { WorkflowResponse, workflowsDeleteWorkflow } from "@/client"
+import { useWorkspace } from "@/providers/workspace"
 import { SettingsIcon, Trash2Icon } from "lucide-react"
 
 import { Workflow } from "@/types/schemas"
-import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -26,7 +26,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 
-export function WorkflowSettings({ workflow }: { workflow: Workflow }) {
+export function WorkflowSettings({ workflow }: { workflow: WorkflowResponse }) {
   const router = useRouter()
   const { workspaceId } = useWorkspace()
   const handleDeleteWorkflow = async () => {

@@ -1,24 +1,50 @@
-import { type Metadata } from "next"
-import { WorkflowProvider } from "@/providers/workflow"
+"use client"
 
+import { useParams, useRouter } from "next/navigation"
+import { WorkflowProvider } from "@/providers/workflow"
+import { WorkspaceProvider } from "@/providers/workspace"
+
+import { useWorkspaceManager } from "@/lib/hooks"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 
-export const metadata: Metadata = {
-  title: "Workflows",
-}
-
-export default async function WorkspaceLayout({
+export default function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const { workspaces, workspacesLoading, workspacesError, createWorkspace } =
+    useWorkspaceManager()
+  const { workspaceId } = useParams<{ workspaceId?: string }>()
+  const router = useRouter()
+  if (workspacesLoading) {
+    return <CenteredSpinner />
+  }
+  if (workspacesError || !workspaces) {
+    throw workspacesError
+  }
+  let wsId: string
+  if (!workspaceId) {
+    // If no workspaceId is provided, use the first workspace
+    if (workspaces.length === 0) {
+      throw new Error("No workspaces found")
+    } else {
+      wsId = workspaces[0].id
+    }
+  } else {
+    wsId = workspaceId
+  }
+
+  console.log("Redirecting to workspace", wsId)
   return (
-    <WorkflowProvider>
-      <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-        {/* DynamicNavbar needs a WorkflowProvider */}
-        <DynamicNavbar />
-        {children}
-      </div>
-    </WorkflowProvider>
+    <WorkspaceProvider workspaceId={wsId}>
+      <WorkflowProvider>
+        <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+          {/* DynamicNavbar needs a WorkflowProvider */}
+          <DynamicNavbar />
+          {children}
+        </div>
+      </WorkflowProvider>
+    </WorkspaceProvider>
   )
 }

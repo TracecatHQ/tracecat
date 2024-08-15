@@ -3,7 +3,8 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
-import { ApiError } from "@/client"
+import { ApiError, WebhookResponse, WorkflowResponse } from "@/client"
+import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
@@ -19,7 +20,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { Webhook, Workflow } from "@/types/schemas"
-import { useSchedules, useUpdateWebhook, useWorkspace } from "@/lib/hooks"
+import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
 import {
   durationSchema,
   durationToHumanReadable,
@@ -107,7 +108,7 @@ export function TriggerPanel({
   workflow,
 }: {
   nodeData: TriggerNodeData
-  workflow: Workflow
+  workflow: WorkflowResponse
 }) {
   return (
     <div className="size-full overflow-auto">
@@ -240,7 +241,7 @@ export function WebhookControls({
   webhook: { url, status },
   workflowId,
 }: {
-  webhook: Webhook
+  webhook: WebhookResponse
   workflowId: string
 }) {
   const { mutateAsync } = useUpdateWebhook(workflowId)

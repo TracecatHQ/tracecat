@@ -1,4 +1,5 @@
 import React from "react"
+import { WorkflowResponse } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { Node } from "reactflow"
@@ -49,7 +50,13 @@ export function WorkspacePanel() {
     </div>
   )
 }
-function NodePanel({ node, workflow }: { node: NodeType; workflow: Workflow }) {
+function NodePanel({
+  node,
+  workflow,
+}: {
+  node: NodeType
+  workflow: WorkflowResponse
+}) {
   switch (node.type) {
     case "udf":
       return (

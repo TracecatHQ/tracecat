@@ -5,12 +5,12 @@ import {
   WorkspaceResponse,
 } from "@/client"
 import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CirclePlusIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

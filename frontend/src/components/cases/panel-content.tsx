@@ -2,12 +2,13 @@
 
 import React from "react"
 import { useParams } from "next/navigation"
+import { useWorkspace } from "@/providers/workspace"
 import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { CasePriorityType, CaseStatusType } from "@/types/schemas"
-import { useCaseEvents, usePanelCase, useWorkspace } from "@/lib/hooks"
+import { useCaseEvents, usePanelCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Card } from "@/components/ui/card"
 import {

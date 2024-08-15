@@ -1,6 +1,7 @@
 "use client"
 
-import { useWorkspace } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
+
 import { Separator } from "@/components/ui/separator"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"

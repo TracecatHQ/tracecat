@@ -9,6 +9,7 @@ import {
   udfsValidateUdfArgs,
   UpdateActionParams,
 } from "@/client"
+import { useWorkspace } from "@/providers/workspace"
 import {
   AlertTriangleIcon,
   Info,
@@ -22,7 +23,7 @@ import { Controller, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { usePanelAction, useWorkspace } from "@/lib/hooks"
+import { usePanelAction } from "@/lib/hooks"
 import { useUDFSchema } from "@/lib/udf"
 import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {

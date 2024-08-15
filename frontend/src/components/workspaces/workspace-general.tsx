@@ -5,11 +5,11 @@ import "react18-json-view/src/style.css"
 import React from "react"
 import { WorkspaceResponse } from "@/client"
 import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { FormProvider, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
@@ -25,7 +25,7 @@ const workspaceConfigFormSchema = z.object({
 })
 type WorkspaceConfigFormSchema = z.infer<typeof workspaceConfigFormSchema>
 
-export function WprkspaceGeneralSettings({
+export function WorkspaceGeneralSettings({
   workspace,
 }: {
   workspace: WorkspaceResponse
@@ -56,7 +56,6 @@ export function WprkspaceGeneralSettings({
           onSubmit={methods.handleSubmit(onSubmit)}
           className="flex flex-col overflow-auto"
         >
-          <h2 className="font-medium">General</h2>
           <div className="my-4 w-1/2 flex-col space-y-4 px-4">
             <FormField
               control={methods.control}

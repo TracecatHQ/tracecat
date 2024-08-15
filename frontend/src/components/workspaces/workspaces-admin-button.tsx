@@ -2,16 +2,12 @@
 
 import { useRouter } from "next/navigation"
 import { workflowsCreateWorkflow } from "@/client"
+import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  BracesIcon,
-  ChevronDownIcon,
-  UserCircle2Icon,
-} from "lucide-react"
+import { BracesIcon, ChevronDownIcon, UserCircle2Icon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useWorkspace } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

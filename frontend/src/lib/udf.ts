@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query"
 import { z } from "zod"
 
 import { client } from "@/lib/api"
-import { useWorkspace } from "@/lib/hooks"
 
 //////////////////////////////////////////
 // UDF related
@@ -73,12 +72,14 @@ export type UDF = z.infer<typeof UDFSchema>
 //   return udfspec.json_schema
 // }
 
-export function useUDFs(namespaces: string[]): {
+export function useUDFs(
+  workspaceId: string,
+  namespaces: string[]
+): {
   udfs?: UDF[]
   isLoading: boolean
   error: Error | null
 } {
-  const { workspaceId } = useWorkspace()
   const {
     data: udfs,
     isLoading,

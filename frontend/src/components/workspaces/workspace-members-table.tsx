@@ -3,9 +3,9 @@
 import { useState } from "react"
 import { WorkspaceMember, WorkspaceResponse } from "@/client"
 import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 
-import { useWorkspace } from "@/lib/hooks"
 import {
   AlertDialog,
   AlertDialogAction,

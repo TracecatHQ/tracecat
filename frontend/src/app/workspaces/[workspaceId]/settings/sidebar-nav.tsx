@@ -2,9 +2,9 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useWorkspace } from "@/providers/workspace"
 import { BuildingIcon, CircleUserRoundIcon, LucideIcon } from "lucide-react"
 
-import { useWorkspace } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"

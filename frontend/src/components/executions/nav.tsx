@@ -32,9 +32,9 @@ import NoContent from "@/components/no-content"
 import "react18-json-view/src/style.css"
 
 import { useRouter } from "next/navigation"
+import { useWorkspace } from "@/providers/workspace"
 import { TriangleRightIcon } from "@radix-ui/react-icons"
 
-import { useWorkspace } from "@/lib/hooks"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 

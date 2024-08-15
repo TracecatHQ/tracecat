@@ -4,12 +4,12 @@
 import { useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ApiError } from "@/client"
 import { AxiosError } from "axios"
 import TracecatIcon from "public/icon.png"
 
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { AlertLevel, AlertNotification } from "@/components/notifications"
 
 type ErrorProps = Error & { digest?: string }
@@ -48,10 +48,11 @@ function refineError(error: ErrorProps): CustomError {
 }
 
 function GoHome() {
+  const router = useRouter()
   return (
-    <Link href="/" className="">
-      <Button variant="outline">Return to the home page</Button>
-    </Link>
+    <Button variant="outline" onClick={() => router.replace("/workspaces")}>
+      Return to the home page
+    </Button>
   )
 }
 

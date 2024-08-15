@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 import {
   BookText,
   ExternalLink,
@@ -13,7 +14,7 @@ import {
 
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
-import { useWorkspace, useWorkspaceManager } from "@/lib/hooks"
+import { useWorkspaceManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,

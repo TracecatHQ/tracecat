@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
+import { useWorkspace } from "@/providers/workspace"
 import { ConeIcon } from "lucide-react"
 
-import { useWorkflows, useWorkspace } from "@/lib/hooks"
+import { useWorkflows } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import { WorkflowItem } from "@/components/dashboard/workflows-dashboard-item"

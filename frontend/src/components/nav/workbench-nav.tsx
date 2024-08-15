@@ -9,6 +9,7 @@ import {
   workflowExecutionsCreateWorkflowExecution,
 } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
@@ -21,7 +22,6 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useWorkspace } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,

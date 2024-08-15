@@ -113,7 +113,12 @@ export default React.memo(function SelectorNode({
 })
 
 function UDFCommandSelector({ nodeId }: { nodeId: string }) {
-  const { udfs, isLoading: udfsLoading, error } = useUDFs(udfConfig.namespaces)
+  const { workspaceId } = useWorkflowBuilder()
+  const {
+    udfs,
+    isLoading: udfsLoading,
+    error,
+  } = useUDFs(workspaceId, udfConfig.namespaces)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

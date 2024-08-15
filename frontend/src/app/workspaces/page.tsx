@@ -18,7 +18,7 @@ export default function WorkspacesPage() {
   }
   // Redirect to the first workspace
   if (workspaces) {
-    console.log("Redirecting to first workspace", workspaces[0].id)
+    console.log("Redirecting to first workspace")
     if (workspaces.length === 0) {
       console.log("Creating a new workspace")
       createWorkspace({ requestBody: { name: "New Workspace" } })
