@@ -233,7 +233,21 @@ def eval_jsonpath(
     *,
     context_type: ExprContext | None = None,
     strict: bool = False,
-) -> Any:
+) -> T | None:
+    """Evaluate a jsonpath expression on the operand.
+
+    Parameters
+    ----------
+    expr : str
+        The jsonpath expression to evaluate.
+    operand : dict[str, Any]
+        The operand to evaluate the jsonpath on.
+    context_type : ExprContext, optional
+        The context type of the expression, by default None.
+    strict : bool, optional
+        Whether to raise an error if the jsonpath doesn't match, by default False.
+    """
+
     if operand is None or not isinstance(operand, dict | list):
         logger.error("Invalid operand for jsonpath", operand=operand)
         raise TracecatExpressionError(
@@ -251,17 +265,24 @@ def eval_jsonpath(
     matches = [found.value for found in jsonpath_expr.find(operand)]
     if len(matches) == 1:
         return matches[0]
-    if not strict or matches:
+    elif len(matches) > 1:
+        # If there are multiple matches, return the list
         return matches
     else:
-        # We know that if this function is called, there was a templated field.
-        # Therefore, it means the jsonpath was valid but there was no match.
-        logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
-        formatted_expr = _expr_with_context(expr, context_type)
-        raise TracecatExpressionError(
-            f"Couldn't resolve expression {formatted_expr!r} in the context",
-            detail={"expression": formatted_expr, "operand": operand},
-        )
+        # We should only reach this point if the jsonpath didn't match
+        # If there are no matches, raise an error if strict is True
+
+        if strict:
+            # We know that if this function is called, there was a templated field.
+            # Therefore, it means the jsonpath was valid but there was no match.
+            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
+            formatted_expr = _expr_with_context(expr, context_type)
+            raise TracecatExpressionError(
+                f"Couldn't resolve expression {formatted_expr!r} in the context",
+                detail={"expression": formatted_expr, "operand": operand},
+            )
+        # Return None instead of empty list
+        return None
 
 
 def to_datetime(x: Any) -> datetime:

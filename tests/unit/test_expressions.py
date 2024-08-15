@@ -67,7 +67,8 @@ def test_eval_jsonpath():
         _ = eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=True)
         assert "Operand has no path" in str(e.value)
     assert (
-        eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=False) == []
+        eval_jsonpath("$.webhook.data.nonexistent", operand=operand, strict=False)
+        is None
     )
 
 
@@ -410,6 +411,26 @@ def test_eval_templated_object_inline_fails_if_not_str():
             "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
             "It contains 1",
         ),
+        ("True if FN.contains('key1', INPUTS.dict) else False", True),
+        ("True if FN.contains('key2', INPUTS.dict) else False", False),
+        ("True if FN.does_not_contain('key2', INPUTS.dict) else False", True),
+        ("True if FN.does_not_contain('key1', INPUTS.dict) else False", False),
+        (
+            "None if FN.does_not_contain('key1', INPUTS.dict) else INPUTS.dict.key1",
+            1,
+        ),
+        (
+            "'ok' if TRIGGER.hits2._source.data_stream.namespace else TRIGGER.hits2._source.data_stream.namespace",
+            "ok",
+        ),
+        (
+            "None if TRIGGER.hits2._source.data_stream.namespace == None else TRIGGER.hits2._source.data_stream.namespace",
+            "_NAMESPACE",
+        ),
+        ("True if TRIGGER.hits2._source.host.ip else False", False),
+        # Truthy expressions
+        ("TRIGGER.hits2._source.host.ip", None),
+        ("INPUTS.people[4].name", None),
         # Typecast expressions
         ("int(5)", 5),
         ("float(5.0)", 5.0),
@@ -489,6 +510,9 @@ def test_expression_parser(expr, expected):
         },
         ExprContext.INPUTS: {
             "list": [1, 2, 3],
+            "dict": {
+                "key1": 1,
+            },
             "my": {
                 "module": {
                     "items": ["a", "b", "c"],
@@ -532,6 +556,26 @@ def test_expression_parser(expr, expected):
                 },
                 "_test": "_test_ok",
                 "________test": "________test_ok",
+            },
+            "hits2": {
+                "_id": "ID",
+                "_index": ".internal.alerts-security.alerts-default-000007",
+                "_score": 0,
+                "_source": {
+                    "@timestamp": "2024-08-15T13:45:39.808Z",
+                    "agent": {
+                        "ephemeral_id": "_agent_ephemeral_id",
+                        "id": "_agent_id",
+                        "name": "_name",
+                        "type": "filebeat",
+                        "version": "8.13.4",
+                    },
+                    "data_stream": {
+                        "dataset": "system.security",
+                        "namespace": "_NAMESPACE",
+                        "type": "logs",
+                    },
+                },
             },
         },
         ExprContext.LOCAL_VARS: {
@@ -595,11 +639,16 @@ def test_parser_error():
     with pytest.raises(TracecatExpressionError):
         parser.parse(expr)
 
-    evaluator = ExprEvaluator(context=context)
+    strict_evaluator = ExprEvaluator(context=context, strict=True)
     with pytest.raises(TracecatExpressionError):
         test = "ACTIONS.action_test.foo"
         parse_tree = parser.parse(test)
-        evaluator.evaluate(parse_tree)
+        strict_evaluator.evaluate(parse_tree)
+
+    evaluator = ExprEvaluator(context=context, strict=False)
+    test = "ACTIONS.action_test.foo.bar.baz"
+    parse_tree = parser.parse(test)
+    assert evaluator.evaluate(parse_tree) is None
 
 
 def assert_validation_result(

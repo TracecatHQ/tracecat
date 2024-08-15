@@ -27,7 +27,7 @@ class TracecatTransformer(Transformer):
 class ExprEvaluator(TracecatTransformer):
     _visitor_name = "ExprEvaluator"
 
-    def __init__(self, context: ExprContextType, strict: bool = True) -> None:
+    def __init__(self, context: ExprContextType, strict: bool = False) -> None:
         self._context = context
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
