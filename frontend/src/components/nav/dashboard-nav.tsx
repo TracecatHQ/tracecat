@@ -12,7 +12,9 @@ export function DashboardNav() {
   const pathname = usePathname()
   return (
     <nav className="flex space-x-4 lg:space-x-6">
-      <WorkspaceSelector />
+      <div className="md:min-w-[150px] md:max-w-[200px] lg:min-w-[250px] lg:max-w-[300px]">
+        <WorkspaceSelector />
+      </div>
       <Link
         href="/"
         className={cn(
