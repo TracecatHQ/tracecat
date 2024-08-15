@@ -27,7 +27,7 @@ export default function WorkspaceMembersPage() {
   return (
     <div className="h-full space-y-6">
       <div className="flex items-end justify-between">
-        <h3 className="text-lg font-medium">Members</h3>
+        <h3 className="text-lg font-semibold">Members</h3>
       </div>
       <p className="text-sm text-muted-foreground">
         Manage who is a member of{" "}
@@ -36,11 +36,11 @@ export default function WorkspaceMembersPage() {
       <Separator className="my-6" />
       <div className="space-y-4">
         <>
-          <h6 className="text-sm">Invite Members</h6>
+          <h6 className="text-sm font-semibold">Invite Members</h6>
           <AddWorkspaceMember workspace={workspace} />
         </>
         <>
-          <h6 className="text-sm">Manage</h6>
+          <h6 className="text-sm font-semibold">Manage</h6>
           <WorkspaceMembersTable workspace={workspace} />
         </>
       </div>

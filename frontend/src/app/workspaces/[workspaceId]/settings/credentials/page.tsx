@@ -32,7 +32,7 @@ export default function WorkspaceCredentialsPage() {
   return (
     <div className="h-full space-y-6">
       <div className="flex items-end justify-between">
-        <h3 className="text-lg font-medium">Credentials</h3>
+        <h3 className="text-lg font-semibold">Credentials</h3>
       </div>
       <p className="text-sm text-muted-foreground">
         Manage credentials for the{" "}
@@ -41,7 +41,7 @@ export default function WorkspaceCredentialsPage() {
       <Separator className="my-6" />
       <div className="space-y-4">
         <>
-          <h6 className="text-sm">Add secret</h6>
+          <h6 className="text-sm font-semibold">Add secret</h6>
           <NewCredentialsDialog>
             <NewCredentialsDialogTrigger asChild>
               <Button
@@ -56,7 +56,7 @@ export default function WorkspaceCredentialsPage() {
           </NewCredentialsDialog>
         </>
         <>
-          <h6 className="text-sm">Manage Secrets</h6>
+          <h6 className="text-sm font-semibold">Manage Secrets</h6>
           <WorkspaceSecretsTable />
         </>
       </div>
