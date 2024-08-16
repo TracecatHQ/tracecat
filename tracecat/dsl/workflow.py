@@ -396,6 +396,7 @@ class DSLWorkflow:
                 logger.info("Begin task execution", task_ref=task.ref)
                 # Check for a child workflow
                 if self._should_execute_child_workflow(task):
+                    # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                     # 1. Prepare the child workflow
                     logger.trace("Preparing child workflow")
                     child_run_args_data = await self._prepare_child_workflow(task)
@@ -447,6 +448,9 @@ class DSLWorkflow:
                             "Executing child workflow",
                             dsl_run_args=child_run_args,
                         )
+
+                        args = eval_templated_object(task.args, operand=self.context)
+                        child_run_args.trigger_inputs = args.get("trigger_inputs", {})
                         action_result = await self._run_child_workflow(child_run_args)
                 else:
                     # NOTE: We should check for loop iteration here.
