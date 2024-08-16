@@ -5,7 +5,7 @@ import httpx
 import rich
 import typer
 
-from ._config import config, manager
+from .config import config, manager
 
 
 def _aclient():

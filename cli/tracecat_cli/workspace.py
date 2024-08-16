@@ -4,9 +4,9 @@ from dataclasses import asdict
 import rich
 import typer
 
-from ._client import Client
-from ._config import manager
-from ._utils import dynamic_table, pprint_json
+from .client import Client
+from .config import manager
+from .utils import dynamic_table, pprint_json
 
 app = typer.Typer(no_args_is_help=True, help="Manage workspaces.")
 

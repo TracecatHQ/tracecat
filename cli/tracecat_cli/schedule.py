@@ -7,8 +7,8 @@ import rich
 import typer
 from rich.console import Console
 
-from ._client import Client
-from ._utils import dynamic_table, read_input
+from .client import Client
+from .utils import dynamic_table, read_input
 
 app = typer.Typer(no_args_is_help=True, help="Manage schedules.")
 

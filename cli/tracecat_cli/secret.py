@@ -6,8 +6,8 @@ import rich
 import typer
 from rich.console import Console
 
-from ._client import Client
-from ._utils import dynamic_table
+from .client import Client
+from .utils import dynamic_table
 
 app = typer.Typer(no_args_is_help=True, help="Manage secrets.")
 

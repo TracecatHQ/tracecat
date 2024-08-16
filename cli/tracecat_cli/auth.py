@@ -4,8 +4,8 @@ import httpx
 import rich
 import typer
 
-from ._client import Client
-from ._config import config, manager
+from .client import Client
+from .config import config, manager
 
 app = typer.Typer(no_args_is_help=True, help="Authentication")
 
