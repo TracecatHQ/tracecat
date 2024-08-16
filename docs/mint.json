@@ -76,13 +76,22 @@
       "pages": [
         "self-hosting/introduction",
         {
-          "group": "Options",
+          "group": "Deployment Options",
           "pages": [
-            "self-hosting/installation/docker",
-            "self-hosting/installation/kubernetes"
+            "self-hosting/deployment-options/docker-compose",
+            "self-hosting/deployment-options/aws-ec2",
+            "self-hosting/deployment-options/aws-ecs"
           ]
         },
-        "self-hosting/configuration",
+        {
+          "group": "Authentication",
+          "pages": [
+            "self-hosting/authentication/introduction",
+            "self-hosting/authentication/basic",
+            "self-hosting/authentication/google"
+          ]
+        },
+        "self-hosting/external-facing-webhooks",
         "self-hosting/updating"
       ]
     },
