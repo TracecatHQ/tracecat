@@ -30,15 +30,12 @@ import { v4 as uuid4 } from "uuid"
 
 import "reactflow/dist/style.css"
 
+import { actionsDeleteAction } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
-import {
-  createAction,
-  deleteAction,
-  updateWorkflowGraphObject,
-} from "@/lib/workflow"
+import { createAction, updateWorkflowGraphObject } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -386,16 +383,20 @@ export function WorkflowCanvas() {
     if (!workflowId || !reactFlowInstance) {
       return
     }
+    const filteredNodes = nodesToDelete.filter((node) => !isInvincible(node))
+    if (filteredNodes.length === 0) {
+      toast({
+        title: "Invalid action",
+        description: "Cannot delete invincible node",
+      })
+      return
+    }
     try {
-      const filteredNodes = nodesToDelete.filter((node) => !isInvincible(node))
-      if (filteredNodes.length === 0) {
-        toast({
-          title: "Invalid action",
-          description: "Cannot delete invincible node",
-        })
-        return
-      }
-      await Promise.all(filteredNodes.map((node) => deleteAction(node.id)))
+      await Promise.all(
+        filteredNodes.map((node) =>
+          actionsDeleteAction({ actionId: node.id, workspaceId })
+        )
+      )
       setNodes((nds) =>
         nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
       )
@@ -407,6 +408,11 @@ export function WorkflowCanvas() {
       console.log("Nodes deleted successfully")
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
+      toast({
+        title: "Failed to delete nodes",
+        description:
+          "Could not delete nodes. Please check the console logs for more information.",
+      })
     }
   }
 

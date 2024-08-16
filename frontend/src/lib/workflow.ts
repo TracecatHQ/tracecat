@@ -1,11 +1,7 @@
 import { actionsCreateAction, workflowsUpdateWorkflow } from "@/client"
 import { ReactFlowInstance } from "reactflow"
 
-import {
-  actionSchema,
-  type Action,
-  type WorkflowMetadata,
-} from "@/types/schemas"
+import { type WorkflowMetadata } from "@/types/schemas"
 import { client } from "@/lib/api"
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
@@ -43,63 +39,6 @@ export async function updateWorkflowGraphObject(
     })
   } catch (error) {
     console.error("Error updating DnD flow object:", error)
-  }
-}
-
-export async function deleteWorkflow(workflowId: string): Promise<void> {
-  try {
-    await client.delete(`/workflows/${workflowId}`)
-    console.log(`Workflow with ID ${workflowId} deleted successfully.`)
-  } catch (error) {
-    console.error(`Error deleting workflow with ID ${workflowId}:`, error)
-  }
-}
-
-export async function getActionById(
-  actionId: string,
-  workflowId: string
-): Promise<Action> {
-  try {
-    const response = await client.get<Action>(`/actions/${actionId}`, {
-      params: { workflow_id: workflowId },
-    })
-    return actionSchema.parse(response.data)
-  } catch (error) {
-    console.error("Error fetching action:", error)
-    throw error // Rethrow the error to ensure it's caught by useQuery's isError state
-  }
-}
-
-// Form submission
-export async function updateAction(
-  actionId: string,
-  actionProps: Record<string, unknown>
-): Promise<Action> {
-  const { title, description, inputs } = actionProps
-  const updateActionParams = {
-    title,
-    description,
-    inputs,
-  }
-
-  const response = await client.post<Action>(
-    `/actions/${actionId}`,
-    JSON.stringify(updateActionParams),
-    {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  )
-  return actionSchema.parse(response.data)
-}
-
-export async function deleteAction(actionId: string): Promise<void> {
-  try {
-    await client.delete(`/actions/${actionId}`)
-    console.log(`Action with ID ${actionId} deleted successfully.`)
-  } catch (error) {
-    console.error(`Error deleting action with ID ${actionId}:`, error)
   }
 }
 
