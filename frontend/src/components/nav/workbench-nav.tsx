@@ -65,10 +65,15 @@ import { toast } from "@/components/ui/use-toast"
 import { CustomEditor } from "@/components/editor"
 
 export function WorkbenchNav() {
-  const { workflow, isLoading, isOnline, setIsOnline, commitWorkflow } =
-    useWorkflow()
+  const {
+    workflow,
+    isLoading: workflowLoading,
+    isOnline,
+    setIsOnline,
+    commitWorkflow,
+  } = useWorkflow()
 
-  const { workspaceId } = useWorkspace()
+  const { workspaceId, workspace, workspaceLoading } = useWorkspace()
 
   const [commitErrors, setCommitErrors] = React.useState<
     UDFArgsValidationResponse[] | null
@@ -85,7 +90,7 @@ export function WorkbenchNav() {
     }
   }
 
-  if (!workflow || isLoading) {
+  if (!workflow || workflowLoading || !workspace || workspaceLoading) {
     return null
   }
 
@@ -96,7 +101,9 @@ export function WorkbenchNav() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href={workflowsPath}>Workflows</BreadcrumbLink>
+            <BreadcrumbLink href={workflowsPath}>
+              {workspace.name}
+            </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="font-semibold">
             {"/"}
