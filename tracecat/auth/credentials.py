@@ -230,10 +230,10 @@ async def authenticate_user_or_service_for_workspace(
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
     if role_from_user:
-        logger.warning("User authentication")
+        logger.trace("User authentication")
         return role_from_user
     if api_key:
-        logger.warning("Service authentication")
+        logger.trace("Service authentication")
         return await authenticate_service(request, api_key)
     logger.error("Could not validate credentials")
     raise HTTP_EXC("Could not validate credentials")
