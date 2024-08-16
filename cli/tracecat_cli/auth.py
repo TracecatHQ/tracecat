@@ -6,6 +6,7 @@ import typer
 
 from .client import Client
 from .config import config, manager
+from .utils import pprint_json
 
 app = typer.Typer(no_args_is_help=True, help="Authentication")
 
@@ -40,12 +41,18 @@ def login(
 
 
 @app.command(help="Get the current user")
-def whoami():
+def whoami(as_json: bool = typer.Option(False, "--json", help="Output as JSON")):
     """Get the current user."""
     with Client() as client:
         response = client.get("/users/me")
         response.raise_for_status()
-        rich.print(response.json())
+        user = response.json()
+    if as_json:
+        pprint_json(user)
+    else:
+        rich.print(f"Username: {user['email']}")
+        rich.print(f"First Name: {user['first_name']}")
+        rich.print(f"Last Name: {user['last_name']}")
 
 
 @app.command(

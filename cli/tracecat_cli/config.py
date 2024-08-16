@@ -1,8 +1,9 @@
 import json
 import os
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 import httpx
 from dotenv import find_dotenv, load_dotenv
@@ -17,9 +18,8 @@ class Role:
     service_id: str
 
 
-@dataclass
-class Workspace:
-    id: uuid.UUID
+class Workspace(TypedDict):
+    id: str
     name: str
 
 
@@ -48,6 +48,10 @@ class ConfigFileManager:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    def __repr__(self) -> str:
+        data = self._read_config()
+        return f"ConfigFileManager(path={self.path}, data={data})"
+
     def write_cookies(self, cookies: httpx.Cookies) -> None:
         """Write cookies to config."""
         cfg = self._read_config()
@@ -65,11 +69,11 @@ class ConfigFileManager:
         cfg.pop("cookies", None)
         self._write_config(cfg)
 
-    def set_workspace(self, workspace_id: str, workspace_name: str) -> Workspace:
+    def set_workspace(self, workspace_id: uuid.UUID, workspace_name: str) -> Workspace:
         """Set the workspace ID in the configuration."""
         cfg = self._read_config()
-        workspace = Workspace(id=workspace_id, name=workspace_name)
-        cfg["workspace"] = asdict(workspace)
+        workspace = Workspace(id=str(workspace_id), name=workspace_name)
+        cfg["workspace"] = workspace
         self._write_config(cfg)
         return workspace
 

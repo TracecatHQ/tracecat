@@ -1,5 +1,4 @@
 import uuid
-from dataclasses import asdict
 
 import rich
 import typer
@@ -11,8 +10,8 @@ from .utils import dynamic_table, pprint_json
 app = typer.Typer(no_args_is_help=True, help="Manage workspaces.")
 
 
-@app.command(help="List workspaces")
-def list(
+@app.command(name="list", help="List workspaces")
+def list_workspaces(
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List all workspaces."""
@@ -72,7 +71,7 @@ def checkout(
     workspace = manager.set_workspace(
         workspace_id=workspace_data["id"], workspace_name=workspace_data["name"]
     )
-    pprint_json(asdict(workspace))
+    pprint_json(workspace)
 
 
 @app.command(help="Current workspace")
@@ -83,7 +82,7 @@ def current():
         rich.print("[red]No workspace selected[/red]")
         raise typer.Exit()
     with Client() as client:
-        res = client.get(f"/workspaces/{workspace.id}")
+        res = client.get(f"/workspaces/{workspace['id']}")
         result = Client.handle_response(res)
     pprint_json(result)
 

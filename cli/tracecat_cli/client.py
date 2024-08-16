@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -7,13 +8,16 @@ import typer
 
 from .config import config, manager
 
+logger = logging.getLogger(__name__)
+
 
 def _aclient():
     workspace = manager.get_workspace()
+    logger.info(f"workspace: {workspace}")
     return httpx.AsyncClient(
         base_url=config.api_url,
         cookies=manager.read_cookies(),
-        params={"workspace_id": workspace.id} if workspace else None,
+        params={"workspace_id": workspace["id"]} if workspace else None,
     )
 
 
@@ -22,7 +26,7 @@ def _client():
     return httpx.Client(
         base_url=config.api_url,
         cookies=manager.read_cookies(),
-        params={"workspace_id": workspace.id} if workspace else None,
+        params={"workspace_id": workspace["id"]} if workspace else None,
     )
 
 
