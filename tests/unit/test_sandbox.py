@@ -14,7 +14,7 @@ from tracecat.types.auth import Role
 
 
 @pytest.mark.asyncio
-async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_sandbox):
+async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_role):
     role = ctx_role.get()
     assert role is not None
 
@@ -53,15 +53,15 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, auth_s
 
 
 @pytest.mark.asyncio
-async def test_auth_sandbox_without_secrets(auth_sandbox, mock_user_id):
+async def test_auth_sandbox_without_secrets(test_role, mock_user_id):
     # Auth sandbox has a different role.
     with TemporaryRole(
-        type="service", user_id=mock_user_id, service_id="tracecat-testing"
+        type="service", user_id=mock_user_id, service_id="tracecat-service"
     ):
         async with AuthSandbox() as sandbox:
             assert sandbox.secrets == {}
             assert sandbox._role == Role(
                 type="service",
                 workspace_id=mock_user_id,
-                service_id="tracecat-testing",
+                service_id="tracecat-service",
             )
