@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { UserRead, UserUpdate } from "@/client"
+import { UserUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
