@@ -1,0 +1,46 @@
+---
+title: Introduction
+description: Learn how to configure authentication with Tracecat.
+---
+
+## Default Admin User
+
+Every new Tracecat deployment is created with a default admin user.
+This user owns the organization and has super admin rights to every workspace in the Tracecat deployment.
+
+We highly recommend changing the default email and password immediately after login.
+See the following warning callout box for details:
+
+<Warning>
+We cannot stress this enough. Don't forget to change the email and password of the default admin user in production!
+
+The default email is `admin@domain.com` and the default password is `password`.
+</Warning>
+
+![signin-page](/img/signin-page.png)
+
+## Authentication Methods
+
+Tracecat currently supports the following authentication methods:
+- `basic`: Email and Password
+- `google`: Google OAuth
+
+Choose from a number of authentication methods listed below to get started.
+
+<CardGroup cols={2}>
+  <Card title="Basic Auth" icon="lock" href="/self-hosting/authentication/basic">
+    Email and password authentication comes preconfigured and works out-of-the-box.
+  </Card>
+  <Card title="Google OAuth" icon="google" href="/self-hosting/authentication/google">
+    Learn how to authenticate into Tracecat using Google OAuth.
+  </Card>
+</CardGroup>
+
+## Enable / Disable Authentication Methods
+
+You can enable / disable multiple authentication methods in the `.env` file by modifying the `TRACECAT__AUTH_TYPES` environment variable.
+`TRACECAT__AUTH_TYPES` is a comma separated list of auth method keys: i.e. `basic`, `google`.
+
+```bash
+TRACECAT__AUTH_TYPES=basic,google
+```
