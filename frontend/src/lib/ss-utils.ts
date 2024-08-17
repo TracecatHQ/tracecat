@@ -2,8 +2,12 @@ import { NextRequest } from "next/server"
 
 export const getDomain = (request: NextRequest) => {
   // use env variable if set
-  if (process.env.WEB_DOMAIN) {
-    return process.env.WEB_DOMAIN
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    console.log(
+      "Redirecting to NEXT_PUBLIC_APP_URL:",
+      process.env.NEXT_PUBLIC_APP_URL
+    )
+    return process.env.NEXT_PUBLIC_APP_URL
   }
 
   // next, try and build domain from headers
@@ -15,6 +19,7 @@ export const getDomain = (request: NextRequest) => {
     url.host = requestedHost
     url.protocol = requestedProto || url.protocol
     url.port = requestedPort || url.port
+    console.log("Redirecting to requestedHost", url.origin)
     return url.origin
   }
 
