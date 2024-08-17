@@ -14,7 +14,7 @@ export default function WorkspacesPage() {
   if (lastWorkspaceId) {
     // This only works if you're the same user.
     console.log("Redirecting to last workspace", lastWorkspaceId)
-    return router.replace(`/workspaces/${lastWorkspaceId}/workflows`)
+    router.replace(`/workspaces/${lastWorkspaceId}/workflows`)
   }
   // Redirect to the first workspace
   if (workspaces) {
@@ -33,7 +33,7 @@ export default function WorkspacesPage() {
           throw new Error("Could not create workspace")
         })
     } else {
-      return router.replace(`/workspaces/${workspaces[0].id}/workflows`)
+      router.replace(`/workspaces/${workspaces[0].id}/workflows`)
     }
   } else {
     // Some error occurred

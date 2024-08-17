@@ -31,6 +31,8 @@ import {
   secretsUpdateSecretById,
   UpdateActionParams,
   UpdateSecretParams,
+  usersUsersPatchCurrentUser,
+  UserUpdate,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
@@ -626,5 +628,47 @@ export function useSecrets() {
     createSecret,
     updateSecretById,
     deleteSecretById,
+  }
+}
+
+export function useUserManager() {
+  const queryClient = useQueryClient()
+  const {
+    isPending: updateCurrentUserPending,
+    mutateAsync: updateCurrentUser,
+  } = useMutation({
+    mutationFn: async (params: UserUpdate) =>
+      await usersUsersPatchCurrentUser({
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user"] })
+      queryClient.invalidateQueries({ queryKey: ["auth"] })
+      toast({
+        title: "Updated user",
+        description: "User updated successfully.",
+      })
+    },
+    onError: (error: ApiError) => {
+      switch (error.status) {
+        case 400:
+          console.error("User with email already exists", error)
+          toast({
+            title: "User with email already exists",
+            description: "User with this email already exists.",
+          })
+          break
+        default:
+          console.error("Failed to update user", error)
+          toast({
+            title: "Failed to update user",
+            description: "An error occurred while updating the user.",
+          })
+      }
+    },
+  })
+  return {
+    updateCurrentUser,
+    updateCurrentUserPending,
   }
 }

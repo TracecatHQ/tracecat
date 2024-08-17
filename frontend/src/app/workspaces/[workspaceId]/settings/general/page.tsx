@@ -33,16 +33,16 @@ export default function WorkspaceGeneralSettingsPage() {
         <h3 className="text-lg font-semibold">Workspace</h3>
       </div>
       <Separator />
-      <div className="space-y-4">
-        <>
+      <div className="space-y-8">
+        <div className="space-y-2 text-sm">
           <h6 className="text-sm font-semibold">General</h6>
           <WorkspaceGeneralSettings workspace={workspace} />
-        </>
+        </div>
         {isAdmin && (
-          <>
+          <div className="space-y-2 text-sm">
             <h6 className="text-sm font-semibold text-rose-500">Danger Zone</h6>
             <DangerZone workspace={workspace} />
-          </>
+          </div>
         )}
       </div>
     </div>

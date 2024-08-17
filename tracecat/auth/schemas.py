@@ -30,7 +30,7 @@ class UserCreate(schemas.BaseUserCreate):
 
 
 class UserUpdate(schemas.BaseUserUpdate):
-    role: UserRole
+    role: UserRole | None = None
     first_name: str | None = None
     last_name: str | None = None
     settings: dict[str, Any] | None = None
