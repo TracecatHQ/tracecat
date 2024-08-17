@@ -3,7 +3,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
+from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models, schemas
 from fastapi_users.authentication import (
     AuthenticationBackend,
     CookieTransport,
@@ -36,6 +36,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     def __init__(self, user_db: SQLAlchemyUserDatabase) -> None:
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
+
+    async def create(
+        self,
+        user_create: schemas.UC | UserCreate,
+        safe: bool = False,
+        request: Request | None = None,
+    ) -> models.UP:
+        if hasattr(user_create, "role"):
+            user_create.role = UserRole.BASIC
+        return await super().create(user_create, safe=safe, request=request)  # type: ignore
 
     async def on_after_register(
         self, user: User, request: Request | None = None
