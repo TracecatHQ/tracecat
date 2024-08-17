@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 import {
   BookText,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
 
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
+import { useWorkspaceManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -28,7 +30,14 @@ import UserAvatar from "@/components/user-avatar"
 
 export default function UserNav() {
   const { user, logout } = useAuth()
+  const { clearLastWorkspaceId } = useWorkspaceManager()
+  const { workspaceId } = useWorkspace()
+  const workspaceUrl = `/workspaces/${workspaceId}`
 
+  const handleLogout = async () => {
+    clearLastWorkspaceId()
+    await logout()
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -71,13 +80,19 @@ export default function UserNav() {
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>
-          <Link href="/settings" className="my-2 w-full">
+          <Link
+            href={`${workspaceUrl}/settings/general`}
+            className="my-2 w-full"
+          >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <Settings className="mr-2 size-4" />
               Settings
             </DropdownMenuItem>
           </Link>
-          <Link href="/settings/credentials" className="my-2 w-full">
+          <Link
+            href={`${workspaceUrl}/settings/credentials`}
+            className="my-2 w-full"
+          >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <KeyRound className="mr-2 size-4" />
               <span>Credentials</span>
@@ -91,7 +106,7 @@ export default function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-xs hover:cursor-pointer"
-          onClick={async () => await logout()}
+          onClick={handleLogout}
         >
           <LogOut className="mr-2 size-4" />
           <span>Logout</span>

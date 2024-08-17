@@ -7,6 +7,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from httpx_oauth.clients.google import GoogleOAuth2
 from sqlalchemy import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import Session, SQLModel, delete
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -19,29 +20,55 @@ from tracecat.api.routers.cases.management import router as cases_router
 from tracecat.api.routers.public.callbacks import router as callback_router
 from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.schedules import router as schedules_router
-from tracecat.api.routers.secrets import router as secrets_router
 from tracecat.api.routers.udfs import router as udfs_router
+from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
+from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
-from tracecat.auth.users import auth_backend, create_default_admin_user, fastapi_users
+from tracecat.auth.users import (
+    auth_backend,
+    fastapi_users,
+    get_or_create_default_admin_user,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_engine
 from tracecat.db.schemas import UDFSpec
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
+from tracecat.secrets.router import router as secrets_router
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
+from tracecat.workspaces.router import router as workspaces_router
+from tracecat.workspaces.service import WorkspaceService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     registry.init()
     initialize_db()
-    await create_default_admin_user()
+    await setup_defaults()
     yield
+
+
+async def setup_defaults():
+    # Create default admin user
+    admin_user = await get_or_create_default_admin_user()
+    logger.info("Default admin user created", user=admin_user)
+    role = get_role_from_user(admin_user)
+
+    # Create default workspace if there are no workspaces
+    async with WorkspaceService.with_session(role=role) as service:
+        if await service.n_workspaces(user_id=role.user_id) == 0:
+            try:
+                default_workspace = await service.create_workspace(
+                    "Default Workspace", users=[admin_user]
+                )
+                logger.info("Default workspace created", workspace=default_workspace)
+            except IntegrityError:
+                logger.info("Default workspace already exists, skipping")
 
 
 def initialize_db() -> Engine:
@@ -164,6 +191,7 @@ def create_app(**kwargs) -> FastAPI:
     # Routers
     app.include_router(webhook_router)
     app.include_router(callback_router)
+    app.include_router(workspaces_router)
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
     app.include_router(actions_router)
@@ -174,6 +202,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(validation_router)
+    app.include_router(users_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

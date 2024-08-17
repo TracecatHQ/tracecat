@@ -9,7 +9,7 @@ export type AlertLevel = "error" | "info" | "warning" | "success"
 interface AlertNotificationProps
   extends ComponentPropsWithoutRef<typeof Notification> {
   level?: AlertLevel
-  message: string
+  message: React.ReactNode
   reset?: () => void
 }
 

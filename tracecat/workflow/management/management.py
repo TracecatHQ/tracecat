@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
 from pydantic import ValidationError
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import validation
@@ -13,11 +14,15 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Action, Webhook, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
+from tracecat.identifiers import WorkflowID
 from tracecat.logging import logger
 from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.workflow.management.models import CreateWorkflowFromDSLResponse
+from tracecat.workflow.management.models import (
+    CreateWorkflowFromDSLResponse,
+    UpdateWorkflowParams,
+)
 
 
 class WorkflowsManagementService:
@@ -35,6 +40,48 @@ class WorkflowsManagementService:
     ) -> AsyncGenerator[WorkflowsManagementService, None, None]:
         async with get_async_session_context_manager() as session:
             yield WorkflowsManagementService(session, role=role)
+
+    async def list_workflows(self) -> Sequence[Workflow]:
+        """List workflows."""
+
+        statement = select(Workflow).where(Workflow.owner_id == self.role.workspace_id)
+        results = await self.session.exec(statement)
+        workflows = results.all()
+        return workflows
+
+    async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
+        statement = select(Workflow).where(
+            Workflow.owner_id == self.role.workspace_id, Workflow.id == workflow_id
+        )
+        result = await self.session.exec(statement)
+        return result.one_or_none()
+
+    async def update_wrkflow(
+        self, workflow_id: WorkflowID, params: UpdateWorkflowParams
+    ) -> Workflow:
+        statement = select(Workflow).where(
+            Workflow.owner_id == self.role.workspace_id,
+            Workflow.id == workflow_id,
+        )
+        result = await self.session.exec(statement)
+        workflow = result.one()
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safe because params has been validated
+            setattr(workflow, key, value)
+        self.session.add(workflow)
+        await self.session.commit()
+        await self.session.refresh(workflow)
+        return workflow
+
+    async def delete_workflow(self, workflow_id: WorkflowID) -> None:
+        statement = select(Workflow).where(
+            Workflow.owner_id == self.role.workspace_id,
+            Workflow.id == workflow_id,
+        )
+        result = await self.session.exec(statement)
+        workflow = result.one()
+        await self.session.delete(workflow)
+        await self.session.commit()
 
     async def create_workflow(title: str, description: str) -> Workflow:
         """Create a new workflow."""
@@ -85,7 +132,7 @@ class WorkflowsManagementService:
             workflow = Workflow(
                 title=dsl.title,
                 description=dsl.description,
-                owner_id=self.role.user_id,
+                owner_id=self.role.workspace_id,
                 static_inputs=dsl.inputs,
                 returns=dsl.returns,
             )
@@ -95,7 +142,7 @@ class WorkflowsManagementService:
 
             # Create and associate Webhook with the Workflow
             webhook = Webhook(
-                owner_id=self.role.user_id,
+                owner_id=self.role.workspace_id,
                 workflow_id=workflow.id,
             )
             self.session.add(webhook)
@@ -105,7 +152,7 @@ class WorkflowsManagementService:
             actions: list[Action] = []
             for act_stmt in dsl.actions:
                 new_action = Action(
-                    owner_id=self.role.user_id,
+                    owner_id=self.role.workspace_id,
                     workflow_id=workflow.id,
                     type=act_stmt.action,
                     inputs=act_stmt.args,

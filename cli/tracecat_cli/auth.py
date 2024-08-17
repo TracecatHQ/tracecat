@@ -4,9 +4,9 @@ import httpx
 import rich
 import typer
 
-from ._client import Client
-from ._config import config
-from ._utils import delete_cookies, write_cookies
+from .client import Client
+from .config import config, manager
+from .utils import pprint_json
 
 app = typer.Typer(no_args_is_help=True, help="Authentication")
 
@@ -33,20 +33,26 @@ def login(
         )
         response.raise_for_status()
     # Convert cookies to a dictionary
-    write_cookies(response.cookies, config.cookies_path)
+    manager.write_cookies(response.cookies)
 
     rich.print(
-        f"[green]Login successful. Cookies saved to {config.cookies_path}[/green]"
+        f"[green]Login successful. Cookies saved to {config.config_path}[/green]"
     )
 
 
 @app.command(help="Get the current user")
-def whoami():
+def whoami(as_json: bool = typer.Option(False, "--json", help="Output as JSON")):
     """Get the current user."""
     with Client() as client:
         response = client.get("/users/me")
         response.raise_for_status()
-        rich.print(response.json())
+        user = response.json()
+    if as_json:
+        pprint_json(user)
+    else:
+        rich.print(f"Username: {user['email']}")
+        rich.print(f"First Name: {user['first_name']}")
+        rich.print(f"Last Name: {user['last_name']}")
 
 
 @app.command(
@@ -58,5 +64,5 @@ def logout():
         response = client.post("/auth/logout")
         response.raise_for_status()
     # Convert cookies to a dictionary
-    delete_cookies(config.cookies_path)
+    manager.delete_cookies()
     rich.print("[green]Logout successful[/green]")

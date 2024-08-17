@@ -60,6 +60,14 @@ class ResourcePrefix(StrEnum):
         return id_factory(self)
 
 
+class ResourceType(StrEnum):
+    """Resource type identifier."""
+
+    WORKSPACE = "workspace"
+    ORGANIZATION = "organization"
+    USER = "user"
+
+
 if __name__ == "__main__":
     print(ResourcePrefix.WORKFLOW.factory()())
     print(id_factory("act")())

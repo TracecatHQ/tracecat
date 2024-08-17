@@ -3,18 +3,19 @@ import os
 import subprocess
 import time
 import uuid
-from uuid import uuid4
 
 import httpx
 import pytest
 from cryptography.fernet import Fernet
-from loguru import logger
+from pytest_mock import MockerFixture
 
-from tests import shared
+from cli.tracecat_cli.config import Config, ConfigFileManager
 from tracecat import config
-from tracecat.db.schemas import Secret, User
-from tracecat.secrets.encryption import encrypt_keyvalues
-from tracecat.secrets.models import SecretKeyValue
+from tracecat.contexts import ctx_role
+from tracecat.db.schemas import User
+from tracecat.logging import logger
+from tracecat.types.auth import Role
+from tracecat.workspaces.models import WorkspaceMetadataResponse
 
 
 def pytest_addoption(parser: pytest.Parser):
@@ -47,36 +48,6 @@ def check_disable_fixture(request):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(autouse=True, scope="session")
-def monkeysession(request):
-    mpatch = pytest.MonkeyPatch()
-    yield mpatch
-    mpatch.undo()
-
-
-# NOTE: Don't auto-use this fixture unless necessary
-@pytest.fixture(scope="session")
-def auth_sandbox():
-    from tracecat import config
-    from tracecat.contexts import ctx_role
-    from tracecat.types.auth import Role
-
-    service_role = Role(
-        type="service",
-        user_id=config.TRACECAT__DEFAULT_USER_ID,
-        service_id="tracecat-runner",
-    )
-    ctx_role.set(service_role)
-    yield
-
-
-@pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureRequest):
     logger.info("Setting up environment variables")
     temporal_compose_file = request.config.getoption("--temporal-compose-file")
@@ -86,6 +57,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureReques
         "TRACECAT__DB_URI",
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
+    monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -108,22 +80,44 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureReques
     logger.info("Environment variables cleaned up")
 
 
-@pytest.fixture(scope="session")
-def create_mock_secret(auth_sandbox):
-    def _get_secret(secret_name: str, secrets: dict[str, str]) -> list[Secret]:
-        keys = [SecretKeyValue(key=k, value=v) for k, v in secrets.items()]
-        new_secret = Secret(
-            owner_id=uuid4().hex,  # Assuming owner_id should be unique per secret
-            id=uuid4().hex,  # Generate a unique ID for each secret
-            name=secret_name,
-            type="custom",  # Assuming a fixed type; adjust as necessary
-            encrypted_keys=encrypt_keyvalues(
-                keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-            ),
-        )
-        return new_secret
+@pytest.fixture(autouse=True, scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
-    return _get_secret
+
+@pytest.fixture(autouse=True, scope="session")
+def monkeysession(request):
+    mpatch = pytest.MonkeyPatch()
+    yield mpatch
+    mpatch.undo()
+
+
+@pytest.fixture(scope="session")
+def mock_user_id() -> uuid.UUID:
+    # Predictable uuid4 for testing
+    return uuid.UUID("44444444-aaaa-4444-aaaa-444444444444")
+
+
+@pytest.fixture(scope="session")
+def mock_org_id() -> uuid.UUID:
+    # Predictable uuid4 for testing
+    return uuid.UUID("00000000-0000-4444-aaaa-000000000000")
+
+
+# NOTE: Don't auto-use this fixture unless necessary
+@pytest.fixture(scope="session")
+def test_role(test_workspace, mock_org_id):
+    """Create a test role for the test session and set `ctx_role`."""
+    service_role = Role(
+        type="service",
+        user_id=mock_org_id,
+        workspace_id=test_workspace.id,
+        service_id="tracecat-runner",
+    )
+    ctx_role.set(service_role)
+    return service_role
 
 
 @pytest.fixture(scope="session")
@@ -207,44 +201,102 @@ def tracecat_worker(env_sandbox):
         logger.info("Stopped Tracecat Temporal worker")
 
 
-@pytest.fixture
-def mock_user_id():
-    return uuid.UUID(int=0)
+@pytest.fixture(scope="session", autouse=True)
+def test_config_path(tmp_path_factory):
+    tmp_path = tmp_path_factory.mktemp("config")
+    config_path = tmp_path / "test_config.json"
+    yield config_path
 
 
 @pytest.fixture(autouse=True, scope="session")
-def test_user(env_sandbox, tmp_path_factory):
-    # Login
-    logger.info("Logging into default admin user")
+def test_config_manager(test_config_path, session_mocker: MockerFixture):
+    """Use this to manage the config file for the test session."""
+    config = Config(test_config_path)
+    config_manager = ConfigFileManager(test_config_path)
 
-    tmp_path = tmp_path_factory.mktemp("cookies")
-    cookies_path = tmp_path / "cookies.json"
+    # Monkey patch the config manager in the cli module
+    session_mocker.patch("cli.tracecat_cli.config.config", config)
+    session_mocker.patch("cli.tracecat_cli.config.manager", config_manager)
+
+    yield config_manager
+
+
+@pytest.fixture(scope="session")
+def authed_test_client(test_config_manager: ConfigFileManager):
+    def _factory():
+        url = os.getenv("TRACECAT__PUBLIC_API_URL")
+        return httpx.Client(base_url=url, cookies=test_config_manager.read_cookies())
+
+    return _factory
+
+
+@pytest.fixture(autouse=True, scope="session")
+def test_admin_user(
+    env_sandbox, test_config_manager: ConfigFileManager, authed_test_client
+):
+    # Login
 
     url = os.getenv("TRACECAT__PUBLIC_API_URL")
 
     # Login
-    with httpx.Client(base_url=url) as client:
-        response = client.post(
-            "/auth/login",
-            data={"username": "admin@domain.com", "password": "password"},
-        )
-        response.raise_for_status()
-        shared.write_cookies(response.cookies, cookies_path=cookies_path)
+    try:
+        with httpx.Client(base_url=url) as client:
+            response = client.post(
+                "/auth/login",
+                data={"username": "admin@domain.com", "password": "password"},
+            )
+            response.raise_for_status()
+            test_config_manager.write_cookies(response.cookies)
 
-    # Current user
-    with httpx.Client(
-        base_url=url, cookies=shared.read_cookies(cookies_path)
-    ) as client:
-        response = client.get("/users/me")
-        response.raise_for_status()
-        user_data = response.json()
-        user = User(**user_data)
-        logger.info("Current user", user=user)
-    yield user
-    # Logout
-    logger.info("Logging out of test session")
-    with httpx.Client(
-        base_url=url, cookies=shared.read_cookies(cookies_path)
-    ) as client:
-        response = client.post("/auth/logout")
-        response.raise_for_status()
+        # Current user
+
+        with authed_test_client() as client:
+            response = client.get("/users/me")
+            response.raise_for_status()
+            user_data = response.json()
+            user = User(**user_data)
+        logger.info("Logged into admin user", user=user)
+        yield user
+    finally:
+        # Logout
+        logger.info("Logging out of test session")
+        with authed_test_client() as client:
+            response = client.post("/auth/logout")
+            response.raise_for_status()
+        test_config_manager.delete_cookies()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def test_workspace(
+    test_admin_user, authed_test_client, test_config_manager: ConfigFileManager
+):
+    """Create a test workspace for the test session."""
+
+    # Login
+    workspace: WorkspaceMetadataResponse | None = None
+    try:
+        with authed_test_client() as client:
+            response = client.post(
+                "/workspaces",
+                json={"name": "__test_workspace"},
+            )
+            response.raise_for_status()
+            workspace = WorkspaceMetadataResponse(**response.json())
+
+        logger.info("Created test workspace", workspace=workspace)
+        test_config_manager.set_workspace(workspace.id, workspace.name)
+
+        yield workspace
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            logger.info("Test workspace already exists")
+            workspace = test_config_manager.get_workspace()
+            yield WorkspaceMetadataResponse(**workspace)
+    finally:
+        # NOTE: This will remove all test assets created from the DB
+        logger.info("Teardown test workspace")
+        if workspace:
+            test_config_manager.reset_workspace()
+            with authed_test_client() as client:
+                response = client.delete(f"/workspaces/{workspace.id}")
+                response.raise_for_status()

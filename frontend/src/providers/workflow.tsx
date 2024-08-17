@@ -13,7 +13,9 @@ import {
   ApiError,
   CommitWorkflowResponse,
   UpdateWorkflowParams,
+  WorkflowResponse,
   workflowsCommitWorkflow,
+  workflowsGetWorkflow,
   workflowsUpdateWorkflow,
 } from "@/client"
 import {
@@ -23,19 +25,23 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 
-import { Workflow } from "@/types/schemas"
-import { fetchWorkflow, updateWorkflow } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 
 type WorkflowContextType = {
-  workflow: Workflow | null
+  workflow: WorkflowResponse | null
+  workspaceId: string
   workflowId: string | null
   isLoading: boolean
   error: Error | null
   isOnline: boolean
   setIsOnline: (isOnline: boolean) => void
-  commit: MutateFunction<CommitWorkflowResponse, ApiError, void, unknown>
-  update: MutateFunction<void, ApiError, UpdateWorkflowParams, unknown>
+  commitWorkflow: MutateFunction<
+    CommitWorkflowResponse,
+    ApiError,
+    void,
+    unknown
+  >
+  updateWorkflow: MutateFunction<void, ApiError, UpdateWorkflowParams, unknown>
 }
 type TracecatErrorMessage = {
   type?: string
@@ -46,7 +52,13 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(
   undefined
 )
 
-export function WorkflowProvider({ children }: { children: ReactNode }) {
+export function WorkflowProvider({
+  workspaceId,
+  children,
+}: {
+  workspaceId: string
+  children: ReactNode
+}) {
   const queryClient = useQueryClient()
   const { workflowId } = useParams<{ workflowId: string }>()
 
@@ -55,20 +67,28 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     data: workflow,
     isLoading,
     error,
-  } = useQuery<Workflow, Error>({
+  } = useQuery<WorkflowResponse | null, ApiError>({
     queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
-      const [, workflowId] = queryKey as [string, string?]
-      if (!workflowId) {
-        throw new Error("No workflow ID provided")
+      const wfId = queryKey[1] as string | null
+      if (!wfId) {
+        return null
       }
-      return await fetchWorkflow(workflowId)
+      const workflow = await workflowsGetWorkflow({
+        workspaceId,
+        workflowId: queryKey[1] as string,
+      })
+      if (!workflow) {
+        return null
+      }
+      return workflow
     },
   })
 
   // Mutations
-  const { mutateAsync: commit } = useMutation({
-    mutationFn: async () => await workflowsCommitWorkflow({ workflowId }),
+  const { mutateAsync: commitWorkflow } = useMutation({
+    mutationFn: async () =>
+      await workflowsCommitWorkflow({ workspaceId, workflowId }),
     onSuccess: (response) => {
       if (response.status === "success") {
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
@@ -96,9 +116,13 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     },
   })
 
-  const { mutateAsync: update } = useMutation({
+  const { mutateAsync: updateWorkflow } = useMutation({
     mutationFn: async (values: UpdateWorkflowParams) =>
-      await workflowsUpdateWorkflow({ workflowId, requestBody: values }),
+      await workflowsUpdateWorkflow({
+        workspaceId,
+        workflowId,
+        requestBody: values,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
@@ -125,25 +149,30 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   }, [workflow?.status])
 
   const setIsOnline = useCallback(
-    (isOnline: boolean) => {
-      updateWorkflow(workflowId, {
-        status: isOnline ? "online" : "offline",
-      })
-      setIsOnlineVisual(isOnline)
+    async (isOnline: boolean) => {
+      await workflowsUpdateWorkflow({
+        workspaceId,
+        workflowId,
+        requestBody: {
+          status: isOnline ? "online" : "offline",
+        },
+      }),
+        setIsOnlineVisual(isOnline)
     },
     [workflowId]
   )
   return (
     <WorkflowContext.Provider
       value={{
+        workspaceId,
         workflow: workflow || null,
         workflowId,
         isLoading,
         error,
         isOnline: isOnlineVisual,
         setIsOnline,
-        commit,
-        update,
+        commitWorkflow,
+        updateWorkflow,
       }}
     >
       {children}

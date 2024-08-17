@@ -1,7 +1,6 @@
 import { type Metadata } from "next"
-import { WorkflowProvider } from "@/providers/workflow"
 
-import Navbar from "@/components/nav/navbar"
+import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 
 export const metadata: Metadata = {
   title: "Playbooks",
@@ -14,11 +13,9 @@ export default async function WorkflowsLayout({
   children: React.ReactNode
 }) {
   return (
-    <WorkflowProvider>
-      <div className="no-scrollbar flex h-screen max-h-screen flex-col">
-        <Navbar />
-        {children}
-      </div>
-    </WorkflowProvider>
+    <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+      <DynamicNavbar />
+      {children}
+    </div>
   )
 }

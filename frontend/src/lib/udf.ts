@@ -1,7 +1,7 @@
+import { ApiError, udfsGetUdf, udfsListUdfs, UDFSpec } from "@/client"
 import { useQuery } from "@tanstack/react-query"
 import { z } from "zod"
 
-import { strAsDate } from "@/types/schemas"
 import { client } from "@/lib/api"
 
 //////////////////////////////////////////
@@ -35,51 +35,47 @@ export const UDFSchema = z.object({
 
 export type UDF = z.infer<typeof UDFSchema>
 
-export const UDFSpecSchema = z.object({
-  owner_id: z.string(),
-  created_at: strAsDate,
-  updated_at: strAsDate,
-  id: z.string(),
-  description: z.string(),
-  namespace: z.string(),
-  key: z.string(),
-  version: z.string().nullable(),
-  meta: z.record(z.string(), z.unknown()).nullable(),
-  json_schema: UDFSchema,
-})
-export type UDFSpec = z.infer<typeof UDFSpecSchema>
+// export const UDFSpecSchema = z.object({
+//   owner_id: z.string(),
+//   created_at: strAsDate,
+//   updated_at: strAsDate,
+//   id: z.string(),
+//   description: z.string(),
+//   namespace: z.string(),
+//   key: z.string(),
+//   version: z.string().nullable(),
+//   meta: z.record(z.string(), z.unknown()).nullable(),
+//   json_schema: UDFSchema,
+// })
+// export type UDFSpec = z.infer<typeof UDFSpecSchema>
 
-export async function fetchAllUDFs(namespaces: string[]): Promise<UDF[]> {
-  const params = new URLSearchParams()
-  namespaces.forEach((ns) => params.append("ns", ns))
-  const response = await client.get<UDF[]>("/udfs", {
-    params,
-  })
-  try {
-    const udfspecs = await z.array(UDFSpecSchema).parseAsync(response.data)
-    return udfspecs.map((u) => u.json_schema)
-  } catch (e) {
-    console.error("Error parsing UDFs", e)
-    throw e
-  }
-}
+// export async function fetchAllUDFs(
+//   namespaces: string[],
+//   workspaceId: string
+// ): Promise<UDF[]> {
+//   try {
+//     const udfResponses = await udfsListUdfs({ ns: namespaces, workspaceId })
+//     return udfResponses.map((u) => u.json_schema)
+//   } catch (e) {
+//     console.error("Error parsing UDFs", e)
+//     throw e
+//   }
+// }
 
-export async function fetchUDF(key: string, namespace?: string): Promise<UDF> {
-  let path = `/udfs/${key}`
-  if (namespace) {
-    path += `?namespace=${namespace}`
-  }
-  const response = await client.get<UDF>(path)
-  const udfspec = await UDFSpecSchema.parseAsync(response.data)
-  return udfspec.json_schema
-}
+// export async function fetchUDF(key: string, namespace?: string): Promise<UDF> {
+//   let path = `/udfs/${key}`
+//   if (namespace) {
+//     path += `?namespace=${namespace}`
+//   }
+//   const response = await client.get<UDF>(path)
+//   const udfspec = await UDFSpecSchema.parseAsync(response.data)
+//   return udfspec.json_schema
+// }
 
-/**
- * We might not need dto list all UDFs, but just need the keys
- * @param namespace
- * @returns
- */
-export function useUDFs(namespaces: string[]): {
+export function useUDFs(
+  workspaceId: string,
+  namespaces: string[]
+): {
   udfs?: UDF[]
   isLoading: boolean
   error: Error | null
@@ -88,23 +84,25 @@ export function useUDFs(namespaces: string[]): {
     data: udfs,
     isLoading,
     error,
-  } = useQuery<UDF[], Error>({
+  } = useQuery<UDFSpec[], ApiError>({
     queryKey: ["udfs"],
-    queryFn: async () => await fetchAllUDFs(namespaces),
+    queryFn: async () => await udfsListUdfs({ ns: namespaces, workspaceId }),
   })
-  if (isLoading) {
-    return { udfs: undefined, isLoading, error }
+
+  try {
+    const udfSchemas = udfs
+      ?.filter((u) => Boolean(u.json_schema))
+      .map((u) => UDFSchema.parse(u.json_schema))
+    return { udfs: udfSchemas, isLoading, error }
+  } catch (e) {
+    console.error("Error parsing UDFs", e)
+    return { udfs: [], isLoading: false, error: e as Error }
   }
-  return { udfs, isLoading, error }
 }
 
-/**
- *
- * @param key
- * @returns Hook that has the UDF schema that will be passed into AJV
- */
 export function useUDFSchema(
   key: string,
+  workspaceId: string,
   namespace?: string
 ): {
   udf?: UDF
@@ -113,19 +111,18 @@ export function useUDFSchema(
   const { data: udf, isLoading } = useQuery({
     queryKey: ["udf_field_config", key],
     queryFn: async ({ queryKey }) => {
-      const [, key] = queryKey as [string, string]
-      console.log("fetching UDF", key, namespace)
-      return await fetchUDF(key, namespace)
+      return await udfsGetUdf({
+        udfKey: queryKey[1] as string,
+        namespace,
+        workspaceId,
+      })
     },
   })
 
-  if (!udf) {
-    return {
-      udf,
-      isLoading,
-    }
-  }
-  return { udf, isLoading }
+  const udfSchema = udf?.json_schema
+    ? UDFSchema.parse(udf.json_schema)
+    : undefined
+  return { udf: udfSchema, isLoading }
 }
 
 /**
@@ -149,11 +146,6 @@ export type UDFArgsValidationResponse = z.infer<
   typeof UDFArgsValidationResponseSchema
 >
 
-/**
- *
- * @param key
- * @returns Hook that has the UDF schema that will be passed into AJV
- */
 export async function validateUDFArgs(
   key: string,
   args: Record<string, unknown>

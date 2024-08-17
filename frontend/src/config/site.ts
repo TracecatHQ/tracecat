@@ -18,3 +18,7 @@ export const siteConfig: SiteConfig = {
   },
   ogImage: `${env.NEXT_PUBLIC_APP_URL}/og.jpg`,
 }
+
+export const routeConfig = {
+  home: "/workspaces",
+}

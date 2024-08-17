@@ -171,7 +171,7 @@ def test_find_secrets():
     assert sorted(extract_templated_secrets(mock_templated_kwargs)) == sorted(expected)
 
 
-def test_evaluate_templated_secret(auth_sandbox):
+def test_evaluate_templated_secret(test_role):
     TEST_SECRETS = {
         "my_secret": [
             SecretKeyValue(key="TEST_API_KEY_1", value="1234567890"),
@@ -791,7 +791,7 @@ def assert_validation_result(
     ],
 )
 @pytest.mark.asyncio
-async def test_extract_expressions_errors(expr, expected, auth_sandbox, env_sandbox):
+async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox):
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
         action_refs={"my_action"},

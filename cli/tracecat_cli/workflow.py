@@ -9,8 +9,8 @@ import rich
 import typer
 from rich.console import Console
 
-from ._client import Client
-from ._utils import dynamic_table, read_input
+from .client import Client
+from .utils import dynamic_table, read_input
 
 app = typer.Typer(no_args_is_help=True, help="Manage workflows.")
 
@@ -36,28 +36,7 @@ def create(
     """Create a new workflow."""
 
     # Passing a file supercedes creating a blank workflow with title and description
-    if file:
-        with file.open() as f:
-            yaml_content = f.read()
-        with Client() as client:
-            res = client.post(
-                "/workflows",
-                files={"file": (file.name, yaml_content, "application/yaml")},
-            )
-            result = Client.handle_response(res)
-        rich.print("Created workflow from file")
-    else:
-        params = {}
-        if title:
-            params["title"] = title
-        if description:
-            params["description"] = description
-        with Client() as client:
-            # Get the webhook url
-            res = client.post("/workflows", data=params)
-            result = Client.handle_response(res)
-        rich.print("Created workflow")
-
+    result = _create_workflow(title, description, file)
     rich.print(result)
     if activate_workflow:
         _activate_workflow(result["id"], activate_webhook)
@@ -161,6 +140,35 @@ def inspect(
         res = client.get(f"/workflows/{workflow_id}")
         result = Client.handle_response(res)
     rich.print(result)
+
+
+def _create_workflow(
+    title: str | None = None,
+    description: str | None = None,
+    file: Path | None = None,
+):
+    if file:
+        with file.open() as f:
+            yaml_content = f.read()
+        with Client() as client:
+            res = client.post(
+                "/workflows",
+                files={"file": (file.name, yaml_content, "application/yaml")},
+            )
+            result = Client.handle_response(res)
+        rich.print("Created workflow from file")
+    else:
+        params = {}
+        if title:
+            params["title"] = title
+        if description:
+            params["description"] = description
+        with Client() as client:
+            # Get the webhook url
+            res = client.post("/workflows", data=params)
+            result = Client.handle_response(res)
+        rich.print("Created workflow")
+    return result
 
 
 def _run_workflow(

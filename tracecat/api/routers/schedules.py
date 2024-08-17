@@ -6,7 +6,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import identifiers
-from tracecat.auth.credentials import TemporaryRole, authenticate_user
+from tracecat.auth.credentials import TemporaryRole, authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Schedule, WorkflowDefinition
 from tracecat.dsl import schedules
@@ -24,12 +24,12 @@ router = APIRouter(prefix="/schedules")
 
 @router.get("", tags=["schedules"])
 async def list_schedules(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     workflow_id: identifiers.WorkflowID | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[Schedule]:
     """List all schedules for a workflow."""
-    statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+    statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
     if workflow_id:
         statement = statement.where(Schedule.workflow_id == workflow_id)
     result = await session.exec(statement)
@@ -39,7 +39,7 @@ async def list_schedules(
 
 @router.post("", tags=["schedules"])
 async def create_schedule(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: CreateScheduleParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> Schedule:
@@ -61,7 +61,7 @@ async def create_schedule(
             ) from e
 
         schedule = Schedule(
-            owner_id=role.user_id, **params.model_dump(exclude_unset=True)
+            owner_id=role.workspace_id, **params.model_dump(exclude_unset=True)
         )
         await session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
@@ -108,13 +108,13 @@ async def create_schedule(
 
 @router.get("/{schedule_id}", tags=["schedules"])
 async def get_schedule(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     schedule_id: identifiers.ScheduleID,
     session: AsyncSession = Depends(get_async_session),
 ) -> Schedule:
     """Get a schedule from a workflow."""
     statement = select(Schedule).where(
-        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
     )
     result = await session.exec(statement)
     try:
@@ -128,14 +128,14 @@ async def get_schedule(
 
 @router.post("/{schedule_id}", tags=["schedules"])
 async def update_schedule(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     schedule_id: identifiers.ScheduleID,
     params: UpdateScheduleParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> Schedule:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
     statement = select(Schedule).where(
-        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
     )
     result = await session.exec(statement)
     try:
@@ -173,13 +173,13 @@ async def update_schedule(
     tags=["schedules"],
 )
 async def delete_schedule(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     schedule_id: identifiers.ScheduleID,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a schedule from a workflow."""
     statement = select(Schedule).where(
-        Schedule.owner_id == role.user_id, Schedule.id == schedule_id
+        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
     )
     result = await session.exec(statement)
     schedule = result.one_or_none()
@@ -212,12 +212,12 @@ async def delete_schedule(
 
 @router.get("/search", tags=["schedules"])
 async def search_schedules(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: SearchScheduleParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[Schedule]:
     """**[WORK IN PROGRESS]** Search for schedules."""
-    statement = select(Schedule).where(Schedule.owner_id == role.user_id)
+    statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
     results = await session.exec(statement)
     schedules = results.all()
     return schedules

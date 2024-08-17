@@ -3,7 +3,8 @@
 // Error components must be Client Components
 import { useEffect } from "react"
 import Image from "next/image"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { ApiError } from "@/client"
 import { AxiosError } from "axios"
 import TracecatIcon from "public/icon.png"
 
@@ -12,7 +13,11 @@ import { AlertLevel, AlertNotification } from "@/components/notifications"
 
 type ErrorProps = Error & { digest?: string }
 
-export default function Error({ error }: { error: ErrorProps | AxiosError }) {
+export default function Error({
+  error,
+}: {
+  error: ErrorProps | AxiosError | ApiError
+}) {
   const { headline, level, message, action } = refineError(error)
   useEffect(() => {
     // Log the error to an error reporting service
@@ -20,48 +25,87 @@ export default function Error({ error }: { error: ErrorProps | AxiosError }) {
   }, [error])
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
-      <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
+      <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-medium">{headline}</h1>
       {action}
       <AlertNotification level={level} message={message} />
     </main>
   )
 }
-// function sessionExpiredError(router: AppRouterInstance): CustomError {
-//   return {
-//     headline: "Your session has expired",
-//     level: "warning",
-//     message: "Please log in again.",
-//     action: (
-//       <Button
-//         variant="outline"
-//         onClick={async () => {
-//           router.push("/")
-//           router.refresh()
-//         }}
-//       >
-//         Log in
-//       </Button>
-//     ),
-//   }
-// }
-
-type CustomError = {
+export type CustomError = {
   headline: string
   level: AlertLevel
-  message: string
-  action: React.ReactNode | boolean
+  message: React.ReactNode
+  action: React.ReactNode
 }
-function refineError(error: ErrorProps | AxiosError): CustomError {
+function refineError(error: ErrorProps): CustomError {
+  if (error instanceof ApiError) {
+    return apiErrorHandler(error)
+  } else {
+    return unexpectedError(error)
+  }
+}
+
+function GoHome() {
+  const router = useRouter()
+  return (
+    <Button variant="outline" onClick={() => router.replace("/workspaces")}>
+      Return to the home page
+    </Button>
+  )
+}
+
+function unexpectedError(error: ErrorProps | AxiosError): CustomError {
   console.log("HANDLING ERROR", error)
   return {
     headline: "Oh no! An error occurred :(",
     level: "error",
     message: error.message,
-    action: (
-      <Link href="/" className="">
-        <Button variant="outline">Return to the home page</Button>
-      </Link>
-    ),
+    action: <GoHome />,
+  }
+}
+
+function getErrorLevel(status: number): AlertLevel {
+  if (Math.floor(status / 100) === 4) {
+    return "error"
+  }
+  return "warning"
+}
+function apiErrorHandler(error: ApiError): CustomError {
+  const level = getErrorLevel(error.status)
+  switch (error.status) {
+    case 401:
+      return {
+        headline: "Your session has expired",
+        level,
+        message: "Please log in again.",
+        action: <GoHome />,
+      }
+    case 403:
+      return {
+        headline: "Permission denied",
+        level,
+        message: JSON.stringify(error.body),
+        action: <GoHome />,
+      }
+    case 404:
+      return {
+        headline: "Resource not found",
+        level,
+        message: "The resource you are looking for does not exist.",
+        action: <GoHome />,
+      }
+    default:
+      return {
+        headline: "Oh no! An unexpected error occurred :(",
+        level,
+        message: (
+          <div className="space-y-4">
+            <b>{error.message}</b>
+            <p>{JSON.stringify(error.body, null, 2)}</p>
+          </div>
+        ),
+        action: <GoHome />,
+      }
   }
 }

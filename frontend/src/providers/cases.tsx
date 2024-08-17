@@ -7,29 +7,31 @@ import React, {
   useEffect,
   useState,
 } from "react"
+import { ApiError, CaseResponse, casesListCases } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useQuery } from "@tanstack/react-query"
 
-import { type Case } from "@/types/schemas"
-import { getCases } from "@/lib/cases"
-
 interface CasesContextType {
-  cases: Case[]
+  cases: CaseResponse[]
 }
 const CasesContext = createContext<CasesContextType | undefined>(undefined)
 
 export default function CasesProvider({
   children,
 }: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
-  const [cases, setCases] = useState<Case[]>([])
-  const { workflowId } = useWorkflow()
+  const [cases, setCases] = useState<CaseResponse[]>([])
+  const { workspaceId, workflowId } = useWorkflow()
   if (!workflowId) {
     console.error(`Non-existent workflow ${workflowId}, cannot load cases`)
     throw new Error("Non-existent workflow, cannot load cases")
   }
-  const { data } = useQuery<Case[], Error>({
+  const { data } = useQuery<CaseResponse[], ApiError>({
     queryKey: ["cases"],
-    queryFn: async () => await getCases(workflowId),
+    queryFn: async () =>
+      await casesListCases({
+        workspaceId,
+        workflowId,
+      }),
   })
 
   useEffect(() => {

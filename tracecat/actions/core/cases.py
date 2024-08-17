@@ -63,7 +63,7 @@ async def open_case(
         context = [CaseContext(key=key, value=value) for key, value in context.items()]
     async with get_async_session_context_manager() as session:
         case = Case(
-            owner_id=role.user_id,
+            owner_id=role.workspace_id,
             workflow_id=run.wf_id,
             case_title=case_title,
             payload=payload,

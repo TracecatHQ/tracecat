@@ -34,7 +34,6 @@ from tracecat.dsl.workflow import (
 )
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers.resource import ResourcePrefix
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.workflow.management.definitions import (
     WorkflowDefinitionsService,
@@ -127,9 +126,7 @@ def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
 @pytest.mark.asyncio
-async def test_workflow_can_run_from_yaml(
-    dsl, temporal_cluster, mock_registry, auth_sandbox
-):
+async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
@@ -188,9 +185,7 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
 
 @pytest.mark.parametrize("dsl", ORDERING_TEST_DEFNS, indirect=True)
 @pytest.mark.asyncio
-async def test_workflow_ordering_is_correct(
-    dsl, temporal_cluster, mock_registry, auth_sandbox
-):
+async def test_workflow_ordering_is_correct(dsl, temporal_cluster, test_role):
     """We need to test that the ordering of the workflow tasks is correct."""
 
     # Connect client
@@ -264,7 +259,7 @@ correctness_test_cases = [
 )
 @pytest.mark.asyncio
 async def test_workflow_completes_and_correct(
-    dsl_with_expected, temporal_cluster, mock_registry, auth_sandbox
+    dsl_with_expected, temporal_cluster, test_role
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
@@ -302,7 +297,7 @@ async def test_workflow_completes_and_correct(
 )
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_stress_workflow(dsl, temporal_cluster, mock_registry, auth_sandbox):
+async def test_stress_workflow(dsl, temporal_cluster, test_role):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = f"test_stress_workflow-{dsl.title}"
     client = await get_temporal_client()
@@ -342,9 +337,7 @@ async def test_stress_workflow(dsl, temporal_cluster, mock_registry, auth_sandbo
 )
 @pytest.mark.asyncio
 @pytest.mark.skip
-async def test_conditional_execution_fails(
-    dsl, temporal_cluster, mock_registry, auth_sandbox
-):
+async def test_conditional_execution_fails(dsl, temporal_cluster, test_role):
     test_name = f"test_conditional_execution-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
@@ -381,7 +374,7 @@ async def test_conditional_execution_fails(
     indirect=True,
 )
 @pytest.mark.asyncio
-async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbox):
+async def test_execution_fails(dsl, temporal_cluster, test_role):
     test_name = f"test_fatal_execution-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
@@ -404,9 +397,7 @@ async def test_execution_fails(dsl, temporal_cluster, mock_registry, auth_sandbo
 
 
 @pytest.mark.asyncio
-async def test_child_workflow_success(
-    temporal_cluster, mock_registry, env_sandbox, test_user
-):
+async def test_child_workflow_success(temporal_cluster, test_role):
     test_name = "unit_child_workflow_parent"
     data_path = DATA_PATH / f"{test_name}.yml"
     expected_path = DATA_PATH / f"{test_name}_expected.yml"
@@ -414,13 +405,6 @@ async def test_child_workflow_success(
 
     test_name = f"test_child_workflow_success-{parent_dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
-
-    role = Role(
-        type="service",
-        user_id=test_user.id,
-        service_id="tracecat-runner",
-    )
-    ctx_role.set(role)
 
     # Load child workflow dsl
     child_filepath = DATA_PATH / "unit_child_workflow_child.yml"
@@ -430,7 +414,7 @@ async def test_child_workflow_success(
 
     async with get_async_session_context_manager() as session:
         # Create the child workflow
-        mgmt_service = WorkflowsManagementService(session, role=role)
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
         child_res = await mgmt_service.create_workflow_from_dsl(
             child_dsl_data, skip_secret_validation=True
         )
@@ -441,7 +425,7 @@ async def test_child_workflow_success(
         child_dsl = DSLInput.from_workflow(child_workflow)
 
         # Commit the child workflow
-        defn_service = WorkflowDefinitionsService(session, role=role)
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
         await defn_service.create_workflow_definition(
             workflow_id=child_workflow.id, dsl=child_dsl
         )
@@ -461,7 +445,7 @@ async def test_child_workflow_success(
     ):
         result = await client.execute_workflow(
             DSLWorkflow.run,
-            DSLRunArgs(dsl=parent_dsl, role=role, wf_id=TEST_WF_ID),
+            DSLRunArgs(dsl=parent_dsl, role=test_role, wf_id=TEST_WF_ID),
             id=wf_exec_id,
             task_queue=queue,
             retry_policy=retry_policies["workflow:fail_fast"],
@@ -470,16 +454,10 @@ async def test_child_workflow_success(
 
 
 @pytest.mark.asyncio
-async def test_child_workflow_context_passing(temporal_cluster, test_user):
+async def test_child_workflow_context_passing(temporal_cluster, test_role):
     # Setup
     test_name = "test_child_workflow_context_passing"
     wf_exec_id = generate_test_exec_id(test_name)
-    role = Role(
-        type="service",
-        user_id=test_user.id,
-        service_id="tracecat-runner",
-    )
-    ctx_role.set(role)
 
     # Child
     child_dsl = DSLInput(
@@ -511,7 +489,7 @@ async def test_child_workflow_context_passing(temporal_cluster, test_user):
     # Create a definition for the child workflow
     async with get_async_session_context_manager() as session:
         # Create the child workflow
-        mgmt_service = WorkflowsManagementService(session, role=role)
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
         child_res = await mgmt_service.create_workflow_from_dsl(
             child_dsl.model_dump(), skip_secret_validation=True
         )
@@ -522,7 +500,7 @@ async def test_child_workflow_context_passing(temporal_cluster, test_user):
         child_dsl = DSLInput.from_workflow(child_workflow)
 
         # Commit the child workflow
-        defn_service = WorkflowDefinitionsService(session, role=role)
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
         await defn_service.create_workflow_definition(
             workflow_id=child_workflow.id, dsl=child_dsl
         )
@@ -573,7 +551,7 @@ async def test_child_workflow_context_passing(temporal_cluster, test_user):
     )
     run_args = DSLRunArgs(
         dsl=parent_dsl,
-        role=role,
+        role=test_role,
         wf_id=parent_workflow_id,
         trigger_inputs={
             "data": "__EXPECTED_DATA__",
