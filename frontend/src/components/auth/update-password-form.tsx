@@ -1,11 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { UserRead } from "@/client"
+import { UserRead, UserUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { useUserManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -32,32 +33,34 @@ const resetPasswordSchema = z
     path: ["confirmPassword"],
   })
 
-type ResetPassword = z.infer<typeof resetPasswordSchema>
+type UpdatePassword = z.infer<typeof resetPasswordSchema>
 
-export function ResetPasswordForm({ user }: { user: UserRead }) {
-  const [isLoading, setIsLoading] = useState(false)
+export function UpdatePasswordForm() {
   const [showPassword, setShowPassword] = useState(false)
-  const form = useForm<ResetPassword>({
+  const { updateCurrentUser, updateCurrentUserPending } = useUserManager()
+  const methods = useForm<UpdatePassword>({
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: {
       password: "",
       confirmPassword: "",
     },
   })
-  const onSubmit = (values: ResetPassword) => {
+  const onSubmit = async (values: UpdatePassword) => {
     try {
-      setIsLoading(true)
+      await updateCurrentUser({
+        password: values.password,
+      } as UserUpdate)
       toast({
         title: "Password updated",
-        description: `Your password has been updated. ${values}`,
+        description: `Your password has been updated.`,
       })
-    } finally {
-      setIsLoading(false)
+    } catch (error) {
+      console.error("Error updating password", error)
     }
   }
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+    <Form {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
         <div className="flex w-full flex-col space-y-4">
           <div className="grid gap-4">
             <div className="flex items-center space-x-4">
@@ -66,19 +69,19 @@ export function ResetPasswordForm({ user }: { user: UserRead }) {
                 onCheckedChange={setShowPassword}
               />
               <span className="text-xs text-muted-foreground">
-                {showPassword ? "Show" : "Hide"} password
+                {showPassword ? "Hide" : "Show"} password
               </span>
             </div>
             <div className="grid gap-2">
               <FormField
-                control={form.control}
+                control={methods.control}
                 name="password"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">New Password</FormLabel>
                     <FormControl>
                       <Input
-                        type={showPassword ? "password" : "text"}
+                        type={showPassword ? "text" : "password"}
                         placeholder="••••••••••••••••"
                         {...field}
                       />
@@ -90,14 +93,14 @@ export function ResetPasswordForm({ user }: { user: UserRead }) {
             </div>
             <div className="grid gap-2">
               <FormField
-                control={form.control}
+                control={methods.control}
                 name="confirmPassword"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">Confirm Password</FormLabel>
                     <FormControl>
                       <Input
-                        type={showPassword ? "password" : "text"}
+                        type={showPassword ? "text" : "password"}
                         placeholder="••••••••••••••••"
                         {...field}
                       />
@@ -111,10 +114,12 @@ export function ResetPasswordForm({ user }: { user: UserRead }) {
         </div>
         <Button
           className="text-sm font-semibold"
-          disabled={isLoading}
+          disabled={updateCurrentUserPending}
           type="submit"
         >
-          {isLoading && <Icons.spinner className="mr-2 size-4 animate-spin" />}
+          {updateCurrentUserPending && (
+            <Icons.spinner className="mr-2 size-4 animate-spin" />
+          )}
           Reset Password
         </Button>
       </form>

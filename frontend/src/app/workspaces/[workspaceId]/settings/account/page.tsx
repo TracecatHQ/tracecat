@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
 
 import { Separator } from "@/components/ui/separator"
-import { ResetPasswordForm } from "@/components/auth/reset-password-form"
 import { UpdateEmailForm } from "@/components/auth/update-email-form"
+import { UpdatePasswordForm } from "@/components/auth/update-password-form"
 import { UserDetails } from "@/components/auth/user-details-table"
 
 export default function AccountSettingsPage() {
@@ -37,10 +37,10 @@ export default function AccountSettingsPage() {
           </div>
         </div>
         <div className="space-y-2 text-sm">
-          <h6 className="font-bold">Reset Password</h6>
+          <h6 className="font-bold">Update Password</h6>
           <div className="flex items-center justify-between">
             <div className="text-muted-foreground">
-              <ResetPasswordForm user={user} />
+              <UpdatePasswordForm />
             </div>
           </div>
         </div>

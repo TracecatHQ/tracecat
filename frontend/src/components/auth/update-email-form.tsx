@@ -26,27 +26,33 @@ const updateEmailSchema = z.object({
 type UpdateEmail = z.infer<typeof updateEmailSchema>
 
 export function UpdateEmailForm({ user }: { user: UserRead }) {
-  const [isLoading, setIsLoading] = useState(false)
-  const { updateCurrentUser } = useUserManager()
+  const { updateCurrentUser, updateCurrentUserPending } = useUserManager()
   const methods = useForm<UpdateEmail>({
     resolver: zodResolver(updateEmailSchema),
     defaultValues: {
       email: "",
     },
   })
+  console.log("Pending", updateCurrentUserPending)
   const onSubmit = async (values: UpdateEmail) => {
+    if (user.email === values.email) {
+      toast({
+        title: "Email already set",
+        description: `Your email is already ${values.email}`,
+      })
+      return
+    }
     try {
-      setIsLoading(true)
       await updateCurrentUser({
         email: values.email,
       } as UserUpdate)
       console.log("Updating email", values)
       toast({
         title: "Email updated",
-        description: `Your email has been updated. ${values.email}`,
+        description: `Your account email is now ${values.email}`,
       })
-    } finally {
-      setIsLoading(false)
+    } catch (error) {
+      console.error("Error updating email", error)
     }
   }
   return (
@@ -73,10 +79,12 @@ export function UpdateEmailForm({ user }: { user: UserRead }) {
         </div>
         <Button
           className="text-sm font-semibold"
-          disabled={isLoading}
+          disabled={updateCurrentUserPending}
           type="submit"
         >
-          {isLoading && <Icons.spinner className="mr-2 size-4 animate-spin" />}
+          {updateCurrentUserPending && (
+            <Icons.spinner className="mr-2 size-4 animate-spin" />
+          )}
           Update Email
         </Button>
       </form>

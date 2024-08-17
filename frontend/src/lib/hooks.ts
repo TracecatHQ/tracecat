@@ -633,13 +633,17 @@ export function useSecrets() {
 
 export function useUserManager() {
   const queryClient = useQueryClient()
-  const { mutateAsync: updateCurrentUser } = useMutation({
+  const {
+    isPending: updateCurrentUserPending,
+    mutateAsync: updateCurrentUser,
+  } = useMutation({
     mutationFn: async (params: UserUpdate) =>
       await usersUsersPatchCurrentUser({
         requestBody: params,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user"] })
+      queryClient.invalidateQueries({ queryKey: ["auth"] })
       toast({
         title: "Updated user",
         description: "User updated successfully.",
@@ -665,5 +669,6 @@ export function useUserManager() {
   })
   return {
     updateCurrentUser,
+    updateCurrentUserPending,
   }
 }
