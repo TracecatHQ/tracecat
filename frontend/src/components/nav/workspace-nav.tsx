@@ -9,7 +9,7 @@ import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
 
-export function DashboardNav() {
+export function WorkspaceNav() {
   const { workspaceId } = useWorkspace()
   const pathname = usePathname()
   return (

@@ -30,12 +30,12 @@ import UserAvatar from "@/components/user-avatar"
 
 export default function UserNav() {
   const { user, logout } = useAuth()
-  const { setLastWorkspaceId } = useWorkspaceManager()
+  const { clearLastWorkspaceId } = useWorkspaceManager()
   const { workspaceId } = useWorkspace()
   const workspaceUrl = `/workspaces/${workspaceId}`
 
   const handleLogout = async () => {
-    setLastWorkspaceId()
+    clearLastWorkspaceId()
     await logout()
   }
   return (
