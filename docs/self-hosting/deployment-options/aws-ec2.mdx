@@ -1,0 +1,42 @@
+---
+title: AWS EC2
+description: Use Terraform to deploy Tracecat onto an EC2 instance.
+---
+
+<Info>
+This deployment is isolated to a private network.
+Secure access to the EC2 instance is enabled via [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html),
+which comes preconfigured with Tracecat's AWS EC2 Terraform stack.
+</Info>
+
+## Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+- AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
+- AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
+
+## Instructions
+
+<Steps>
+  <Step title="Download Terraform stack">
+    Download installation files from the Tracecat GitHub repo: https://github.com/TracecatHQ/tracecat/tree/main/deployments/aws/ec2
+    </Step>
+  <Step title="Deploy stack">
+    Initialize Terraform and deploy the stack by running the following commands:
+    ```bash
+    terraform init
+    terraform apply
+    ```
+  </Step>
+  <Step title="Port forward into EC2 instance">
+    Run the following script to port forward from `http://localhost:8080` into `http://localhost:80` in the EC2 instance.
+   
+    Note this requires AWS CLI to be installed.
+    ```bash
+    /.start-ssm-session.sh
+    ```
+  </Step>
+  <Step title="Access Tracecat UI">
+    Open `http://localhost:8080` in your local browser to access the Tracecat UI.
+  </Step>
+</Steps>

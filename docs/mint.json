@@ -9,14 +9,22 @@
     "light": "/logo/light.svg"
   },
   "favicon": "/favicon.png",
+  "theme": "venus",
   "colors": {
-    "primary": "#1C1C1C",
-    "light": "#CBEB00",
-    "dark": "#1C1C1C",
+    "primary": "#6F9954",
+    "light": "#C1DEAF",
+    "dark": "#111011",
     "anchors": {
-      "from": "#1C1C1C",
-      "to": "#FFFFFF"
+      "from": "#6F9954",
+      "to": "#C1DEAF"
+    },
+    "background": {
+      "light": "#FFFFFF",
+      "dark": "#111011"
     }
+  },
+  "modeToggle": {
+    "default": "light"
   },
   "topbarLinks": [
     {
@@ -25,17 +33,17 @@
     }
   ],
   "topbarCtaButton": {
-    "name": "Book Demo",
-    "url": "https://cal.com/team/tracecat/onboarding"
+    "type": "github",
+    "url": "https://github.com/TracecatHQ/tracecat"
   },
   "tabs": [
     {
-      "name": "API Reference",
-      "url": "api-reference"
-    },
-    {
       "name": "Integrations",
       "url": "integrations"
+    },
+    {
+      "name": "API Reference",
+      "url": "api-reference"
     }
   ],
   "anchors": [
@@ -45,19 +53,14 @@
       "url": "https://tracecat.com"
     },
     {
-      "name": "GitHub",
-      "icon": "github",
-      "url": "https://github.com/TracecatHQ/tracecat"
+      "name": "Get Live Help",
+      "icon": "headphones",
+      "url": "https://cal.com/team/tracecat/onboarding"
     },
     {
       "name": "Community",
       "icon": "discord",
       "url": "https://discord.gg/n3GF4qxFU8"
-    },
-    {
-      "name": "Playbooks",
-      "icon": "play",
-      "url": "https://github.com/TracecatHQ/tracecat/tree/main/playbooks"
     }
   ],
   "navigation": [
@@ -65,31 +68,51 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "quickstart",
-        "using-tracecat",
-        "using-the-cli"
+        "quickstart"
       ]
     },
     {
-      "group": "Concepts",
+      "group": "Self-Hosting",
+      "pages": [
+        "self-hosting/introduction",
+        {
+          "group": "Deployment Options",
+          "pages": [
+            "self-hosting/deployment-options/docker-compose",
+            "self-hosting/deployment-options/aws-ec2",
+            "self-hosting/deployment-options/aws-ecs"
+          ]
+        },
+        {
+          "group": "Authentication",
+          "pages": [
+            "self-hosting/authentication/introduction",
+            "self-hosting/authentication/basic",
+            "self-hosting/authentication/google"
+          ]
+        },
+        "self-hosting/external-facing-webhooks",
+        "self-hosting/updating"
+      ]
+    },
+    {
+      "group": "Core Features",
       "pages": [
         "concepts/workflows",
         "concepts/actions",
-        "concepts/workflow-definitions",
-        "concepts/user-defined-functions",
-        "concepts/expressions",
+        "concepts/secrets",
         "concepts/webhooks",
         "concepts/schedules",
-        "concepts/case-management",
-        "concepts/secrets"
+        "concepts/expressions",
+        "concepts/case-management"
       ]
     },
     {
-      "group": "Self-hosted",
+      "group": "Developer Features",
       "pages": [
-        "installation",
-        "deployment",
-        "updating"
+        "concepts/user-defined-functions",
+        "concepts/workflow-definitions",
+        "concepts/command-line-interface"
       ]
     },
     {
