@@ -123,17 +123,27 @@
           "group": "Reference",
           "pages": [
             {
-              "group": "API Reference",
-              "pages": [
-                "api-reference/reference/check-health",
-                "api-reference/reference/validate-workflow"
-              ]
-            },
-            {
               "group": "public",
               "pages": [
                 "api-reference/reference/public/incoming-webhook",
-                "api-reference/reference/public/webhook-callback"
+                "api-reference/reference/public/incoming-webhook-wait",
+                "api-reference/reference/public/webhook-callback",
+                "api-reference/reference/public/check-health"
+              ]
+            },
+            {
+              "group": "workspaces",
+              "pages": [
+                "api-reference/reference/workspaces/list-workspaces",
+                "api-reference/reference/workspaces/create-workspace",
+                "api-reference/reference/workspaces/search-workspaces",
+                "api-reference/reference/workspaces/get-workspace",
+                "api-reference/reference/workspaces/delete-workspace",
+                "api-reference/reference/workspaces/update-workspace",
+                "api-reference/reference/workspaces/list-workspace-memberships",
+                "api-reference/reference/workspaces/create-workspace-membership",
+                "api-reference/reference/workspaces/get-workspace-membership",
+                "api-reference/reference/workspaces/delete-workspace-membership"
               ]
             },
             {
@@ -144,17 +154,9 @@
                 "api-reference/reference/workflows/get-workflow",
                 "api-reference/reference/workflows/delete-workflow",
                 "api-reference/reference/workflows/update-workflow",
-                "api-reference/reference/workflows/copy-workflow",
                 "api-reference/reference/workflows/commit-workflow",
                 "api-reference/reference/workflows/get-workflow-definition",
-                "api-reference/reference/workflows/trigger-workflow-run"
-              ]
-            },
-            {
-              "group": "workflow-executions",
-              "pages": [
-                "api-reference/reference/workflow-executions/list-workflow-executions",
-                "api-reference/reference/workflow-executions/get-workflow-execution"
+                "api-reference/reference/workflows/create-workflow-definition"
               ]
             },
             {
@@ -163,6 +165,65 @@
                 "api-reference/reference/triggers/get-webhook",
                 "api-reference/reference/triggers/create-webhook",
                 "api-reference/reference/triggers/update-webhook"
+              ]
+            },
+            {
+              "group": "workflow-executions",
+              "pages": [
+                "api-reference/reference/workflow-executions/list-workflow-executions",
+                "api-reference/reference/workflow-executions/create-workflow-execution",
+                "api-reference/reference/workflow-executions/get-workflow-execution",
+                "api-reference/reference/workflow-executions/list-workflow-execution-event-history",
+                "api-reference/reference/workflow-executions/cancel-workflow-execution",
+                "api-reference/reference/workflow-executions/terminate-workflow-execution"
+              ]
+            },
+            {
+              "group": "actions",
+              "pages": [
+                "api-reference/reference/actions/list-actions",
+                "api-reference/reference/actions/create-action",
+                "api-reference/reference/actions/get-action",
+                "api-reference/reference/actions/update-action",
+                "api-reference/reference/actions/delete-action"
+              ]
+            },
+            {
+              "group": "udfs",
+              "pages": [
+                "api-reference/reference/udfs/list-udfs",
+                "api-reference/reference/udfs/get-udf",
+                "api-reference/reference/udfs/create-udf",
+                "api-reference/reference/udfs/validate-udf-args"
+              ]
+            },
+            {
+              "group": "cases",
+              "pages": [
+                "api-reference/reference/cases/list-cases",
+                "api-reference/reference/cases/create-case",
+                "api-reference/reference/cases/get-case",
+                "api-reference/reference/cases/update-case",
+                "api-reference/reference/cases/list-case-events",
+                "api-reference/reference/cases/create-case-event",
+                "api-reference/reference/cases/get-case-event",
+                "api-reference/reference/cases/list-case-actions",
+                "api-reference/reference/cases/create-case-action",
+                "api-reference/reference/cases/delete-case-action",
+                "api-reference/reference/cases/list-case-contexts",
+                "api-reference/reference/cases/create-case-context",
+                "api-reference/reference/cases/delete-case-context"
+              ]
+            },
+            {
+              "group": "secrets",
+              "pages": [
+                "api-reference/reference/secrets/list-secrets",
+                "api-reference/reference/secrets/create-secret",
+                "api-reference/reference/secrets/get-secret",
+                "api-reference/reference/secrets/update-secret-by-id",
+                "api-reference/reference/secrets/delete-secret-by-id",
+                "api-reference/reference/secrets/search-secrets"
               ]
             },
             {
@@ -177,67 +238,34 @@
               ]
             },
             {
-              "group": "actions",
+              "group": "validation",
               "pages": [
-                "api-reference/reference/actions/list-actions",
-                "api-reference/reference/actions/create-action",
-                "api-reference/reference/actions/get-action",
-                "api-reference/reference/actions/update-action",
-                "api-reference/reference/actions/delete-action"
-              ]
-            },
-            {
-              "group": "events",
-              "pages": [
-                "api-reference/reference/events/search-events"
-              ]
-            },
-            {
-              "group": "cases",
-              "pages": [
-                "api-reference/reference/cases/list-cases",
-                "api-reference/reference/cases/create-case",
-                "api-reference/reference/cases/get-case",
-                "api-reference/reference/cases/update-case",
-                "api-reference/reference/cases/list-case-events",
-                "api-reference/reference/cases/create-case-event",
-                "api-reference/reference/cases/get-case-event",
-                "api-reference/reference/cases/get-case-metrics",
-                "api-reference/reference/cases/list-case-actions",
-                "api-reference/reference/cases/create-case-action",
-                "api-reference/reference/cases/delete-case-action",
-                "api-reference/reference/cases/list-case-contexts",
-                "api-reference/reference/cases/create-case-context",
-                "api-reference/reference/cases/delete-case-context",
-                "api-reference/reference/cases/streaming-autofill-case-fields"
+                "api-reference/reference/validation/validate-workflow"
               ]
             },
             {
               "group": "users",
               "pages": [
-                "api-reference/reference/users/get-user",
-                "api-reference/reference/users/update-user",
-                "api-reference/reference/users/delete-user"
+                "api-reference/reference/users/search-user",
+                "api-reference/reference/users/users:current-user",
+                "api-reference/reference/users/users:patch-current-user",
+                "api-reference/reference/users/users:user",
+                "api-reference/reference/users/users:delete-user",
+                "api-reference/reference/users/users:patch-user"
               ]
             },
             {
-              "group": "secrets",
+              "group": "auth",
               "pages": [
-                "api-reference/reference/secrets/list-secrets",
-                "api-reference/reference/secrets/create-secret",
-                "api-reference/reference/secrets/get-secret",
-                "api-reference/reference/secrets/update-secret",
-                "api-reference/reference/secrets/delete-secret",
-                "api-reference/reference/secrets/search-secrets"
-              ]
-            },
-            {
-              "group": "udfs",
-              "pages": [
-                "api-reference/reference/udfs/list-udfs",
-                "api-reference/reference/udfs/get-udf",
-                "api-reference/reference/udfs/create-udf",
-                "api-reference/reference/udfs/validate-udf-args"
+                "api-reference/reference/auth/auth:databaselogin",
+                "api-reference/reference/auth/auth:databaselogout",
+                "api-reference/reference/auth/register:register",
+                "api-reference/reference/auth/reset:forgot-password",
+                "api-reference/reference/auth/reset:reset-password",
+                "api-reference/reference/auth/verify:request-token",
+                "api-reference/reference/auth/verify:verify",
+                "api-reference/reference/auth/oauth:googledatabaseauthorize",
+                "api-reference/reference/auth/oauth:googledatabasecallback"
               ]
             }
           ]

@@ -2,10 +2,9 @@ openapi: 3.1.0
 info:
   title: Tracecat API
   summary: Tracecat API
-  description:
-    Tracecat is the security automation platform built for builders. You
-    can operate Tracecat in headless mode by using the API to create, manage, and
-    run workflows.
+  description: Tracecat is the open source Tines / Splunk SOAR alternative. You can
+    operate Tracecat in headless mode by using the API to create, manage, and run
+    workflows.
   termsOfService: https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub
   contact:
     name: Tracecat Founders
@@ -13,104 +12,155 @@ info:
   license:
     name: AGPL-3.0
     url: https://www.gnu.org/licenses/agpl-3.0.html
-  version: 0.1.0
+  version: '1'
 paths:
-  /health:
-    get:
-      summary: Check Health
-      operationId: check_health_health_get
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-                title: Response Check Health Health Get
   /webhooks/{path}/{secret}:
     post:
       tags:
-        - public
+      - public
       summary: Incoming Webhook
-      description: "Webhook endpoint to trigger a workflow.
+      description: 'Webhook endpoint to trigger a workflow.
 
 
         This is an external facing endpoint is used to trigger a workflow by sending
         a webhook request.
 
         The workflow is identified by the `path` parameter, which is equivalent to
-        the workflow id."
-      operationId: incoming_webhook_webhooks__path___secret__post
+        the workflow id.'
+      operationId: public-incoming_webhook
       parameters:
-        - name: path
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Path
-        - name: secret
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Secret
-        - name: validate_method
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: true
-            title: Validate Method
-        - name: x-tracecat-enable-runtime-tests
-          in: header
-          required: false
-          schema:
-            anyOf:
-              - type: string
-              - type: "null"
-            title: X-Tracecat-Enable-Runtime-Tests
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      - name: secret
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Secret
+      - name: validate_method
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Validate Method
+      - name: x-tracecat-enable-runtime-tests
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Tracecat-Enable-Runtime-Tests
       requestBody:
         content:
           application/json:
             schema:
               anyOf:
-                - type: object
-                - type: "null"
+              - type: object
+              - type: 'null'
               title: Payload
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
-              schema: {}
-        "422":
+              schema:
+                $ref: '#/components/schemas/CreateWorkflowExecutionResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
+  /webhooks/{path}/{secret}/wait:
+    post:
+      tags:
+      - public
+      summary: Incoming Webhook Wait
+      description: 'Webhook endpoint to trigger a workflow.
+
+
+        This is an external facing endpoint is used to trigger a workflow by sending
+        a webhook request.
+
+        The workflow is identified by the `path` parameter, which is equivalent to
+        the workflow id.'
+      operationId: public-incoming_webhook_wait
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      - name: secret
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Secret
+      - name: validate_method
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Validate Method
+      - name: x-tracecat-enable-runtime-tests
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Tracecat-Enable-Runtime-Tests
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: object
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Public-Incoming Webhook Wait
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /callback/{service}:
     post:
       tags:
-        - public
+      - public
       summary: Webhook Callback
-      description: "Receive a callback from an external service.
+      description: 'Receive a callback from an external service.
 
 
         This can be used to trigger a workflow from an external service, or perform
-        some other actions."
-      operationId: webhook_callback_callback__service__post
+        some other actions.'
+      operationId: public-webhook_callback
       parameters:
-        - name: service
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Service
+      - name: service
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Service
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
@@ -118,1598 +168,1335 @@ paths:
                 type: object
                 additionalProperties:
                   type: string
-                title: Response Webhook Callback Callback  Service  Post
-        "422":
+                title: Response Public-Webhook Callback
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workspaces:
     get:
       tags:
-        - workflows
-      summary: List Workflows
-      description: "List workflows.
+      - workspaces
+      summary: List Workspaces
+      description: 'List workspaces.
 
 
-        If `library` is True, it will list workflows from the library. If `library`
-        is False, it will list workflows owned by the user."
-      operationId: list_workflows_workflows_get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: library
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-            title: Library
+        Access Level
+
+        ------------
+
+        - Basic: Can list workspaces where they are a member.
+
+        - Admin: Can list all workspaces regardless of membership.'
+      operationId: workspaces-list_workspaces
       responses:
-        "200":
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/WorkspaceMetadataResponse'
+                type: array
+                title: Response Workspaces-List Workspaces
+      security:
+      - APIKeyCookie: []
+    post:
+      tags:
+      - workspaces
+      summary: Create Workspace
+      description: 'Create a new workspace.
+
+
+        Access Level
+
+        ------------
+
+        - Admin: Can create a workspace for any user.'
+      operationId: workspaces-create_workspace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceParams'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceMetadataResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyCookie: []
+  /workspaces/search:
+    get:
+      tags:
+      - workspaces
+      summary: Search Workspaces
+      description: Return Workflow as title, description, list of Action JSONs, adjacency
+        list of Action IDs.
+      operationId: workspaces-search_workspaces
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+      responses:
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/WorkflowMetadataResponse"
-                title: Response List Workflows Workflows Get
-        "422":
+                  $ref: '#/components/schemas/WorkspaceMetadataResponse'
+                title: Response Workspaces-Search Workspaces
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    post:
-      tags:
-        - workflows
-      summary: Create Workflow
-      description: Create new Workflow with title and description.
-      operationId: create_workflow_workflows_post
-      security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateWorkflowParams"
-      responses:
-        "201":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkflowMetadataResponse"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workspaces/{workspace_id}:
     get:
       tags:
-        - workflows
-      summary: Get Workflow
-      description:
-        Return Workflow as title, description, list of Action JSONs, adjacency
+      - workspaces
+      summary: Get Workspace
+      description: Return Workflow as title, description, list of Action JSONs, adjacency
         list of Action IDs.
-      operationId: get_workflow_workflows__workflow_id__get
+      operationId: workspaces-get_workspace
       security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkflowResponse"
-        "422":
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     patch:
       tags:
-        - workflows
-      summary: Update Workflow
-      description: Update a workflow.
-      operationId: update_workflow_workflows__workflow_id__patch
+      - workspaces
+      summary: Update Workspace
+      description: Update a workspace.
+      operationId: workspaces-update_workspace
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Workspace Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateWorkflowParams"
+              $ref: '#/components/schemas/UpdateWorkspaceParams'
       responses:
-        "204":
+        '204':
           description: Successful Response
-        "422":
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
-        - workflows
-      summary: Delete Workflow
-      description: Delete a workflow.
-      operationId: delete_workflow_workflows__workflow_id__delete
+      - workspaces
+      summary: Delete Workspace
+      description: Delete a workspace.
+      operationId: workspaces-delete_workspace
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Workspace Id
       responses:
-        "204":
+        '204':
           description: Successful Response
-        "422":
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}/copy:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workspaces/{workspace_id}/memberships:
+    get:
+      tags:
+      - workspaces
+      summary: List Workspace Memberships
+      description: List memberships of a workspace.
+      operationId: workspaces-list_workspace_memberships
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkspaceMembershipResponse'
+                title: Response Workspaces-List Workspace Memberships
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - workflows
-      summary: Copy Workflow
-      description: Copy a workflow. Not intended for users.
-      operationId: copy_workflow_workflows__workflow_id__copy_post
+      - workspaces
+      summary: Create Workspace Membership
+      description: Create a workspace membership for a user.
+      operationId: workspaces-create_workspace_membership
       security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Workspace Id
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              anyOf:
-                - $ref: "#/components/schemas/CopyWorkflowParams"
-                - type: "null"
-              title: Params
+              $ref: '#/components/schemas/CreateWorkspaceMembershipParams'
       responses:
-        "204":
+        '201':
           description: Successful Response
-        "422":
+          content:
+            application/json:
+              schema: {}
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}/commit:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workspaces/{workspace_id}/memberships/{user_id}:
+    get:
+      tags:
+      - workspaces
+      summary: Get Workspace Membership
+      description: Get a workspace membership for a user.
+      operationId: workspaces-get_workspace_membership
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkspaceMembershipResponse'
+                title: Response Workspaces-Get Workspace Membership
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - workspaces
+      summary: Delete Workspace Membership
+      description: Delete a workspace membership.
+      operationId: workspaces-delete_workspace_membership
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: Workspace Id
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid4
+          title: User Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows:
+    get:
+      tags:
+      - workflows
+      summary: List Workflows
+      description: List workflows.
+      operationId: workflows-list_workflows
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowMetadataResponse'
+                title: Response Workflows-List Workflows
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - workflows
-      summary: Commit Workflow
-      description: "Commit a workflow.
+      - workflows
+      summary: Create Workflow
+      description: 'Create a new Workflow.
 
 
-        This deploys the workflow and updates its version. If a YAML file is provided,
-        it will override the workflow in the database."
-      operationId: commit_workflow_workflows__workflow_id__commit_post
+        Optionally, you can provide a YAML file to create a workflow.
+
+        You can also provide a title and description to create a blank workflow.'
+      operationId: workflows-create_workflow
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         content:
           multipart/form-data:
             schema:
               allOf:
-                - $ref: "#/components/schemas/Body_commit_workflow_workflows__workflow_id__commit_post"
+              - $ref: '#/components/schemas/Body_workflows-create_workflow'
               title: Body
       responses:
-        "200":
+        '201':
           description: Successful Response
           content:
             application/json:
-              schema: {}
-        "422":
+              schema:
+                $ref: '#/components/schemas/WorkflowMetadataResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}:
+    get:
+      tags:
+      - workflows
+      summary: Get Workflow
+      description: Return Workflow as title, description, list of Action JSONs, adjacency
+        list of Action IDs.
+      operationId: workflows-get_workflow
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - workflows
+      summary: Update Workflow
+      description: Update a workflow.
+      operationId: workflows-update_workflow
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkflowParams'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - workflows
+      summary: Delete Workflow
+      description: Delete a workflow.
+      operationId: workflows-delete_workflow
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/commit:
+    post:
+      tags:
+      - workflows
+      summary: Commit Workflow
+      description: 'Commit a workflow.
+
+
+        This deploys the workflow and updates its version. If a YAML file is provided,
+        it will override the workflow in the database.'
+      operationId: workflows-commit_workflow
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitWorkflowResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /workflows/{workflow_id}/definition:
     get:
       tags:
-        - workflows
+      - workflows
       summary: Get Workflow Definition
       description: Get the latest version of a workflow definition.
-      operationId: get_workflow_definition_workflows__workflow_id__definition_get
+      operationId: workflows-get_workflow_definition
       security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: version
-          in: query
-          required: false
-          schema:
-            anyOf:
-              - type: integer
-              - type: "null"
-            title: Version
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: version
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkflowDefinition"
-        "422":
+                $ref: '#/components/schemas/WorkflowDefinition'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflow-executions:
-    get:
-      tags:
-        - workflow-executions
-      summary: List Workflow Executions
-      description: List all workflow executions.
-      operationId: list_workflow_executions_workflow_executions_get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: query
-          required: false
-          schema:
-            anyOf:
-              - type: string
-                pattern: wf-[0-9a-f]{32}
-              - type: "null"
-            title: Workflow Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/WorkflowExecutionResponse"
-                title: Response List Workflow Executions Workflow Executions Get
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflow-executions/{execution_id}:
-    get:
-      tags:
-        - workflow-executions
-      summary: Get Workflow Execution
-      description: Get a workflow execution.
-      operationId: get_workflow_execution_workflow_executions__execution_id__get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: execution_id
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: wf-[0-9a-f]{32}:exec-[\w-]+
-            title: Execution Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkflowExecutionResponse"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}/controls/trigger:
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - workflows
-      summary: Trigger Workflow Run
-      description: Trigger a workflow run.
-      operationId: trigger_workflow_run_workflows__workflow_id__controls_trigger_post
+      - workflows
+      summary: Create Workflow Definition
+      description: Get the latest version of a workflow definition.
+      operationId: workflows-create_workflow_definition
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-      requestBody:
+      - name: workflow_id
+        in: path
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TriggerWorkflowRunParams"
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/StartWorkflowResponse"
-        "422":
+                $ref: '#/components/schemas/WorkflowDefinition'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /workflows/{workflow_id}/webhook:
     post:
       tags:
-        - triggers
+      - triggers
       summary: Create Webhook
       description: Create a webhook for a workflow.
-      operationId: create_webhook_workflows__workflow_id__webhook_post
+      operationId: triggers-create_webhook
       security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpsertWebhookParams"
+              $ref: '#/components/schemas/UpsertWebhookParams'
       responses:
-        "201":
+        '201':
           description: Successful Response
           content:
             application/json:
               schema: {}
-        "422":
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     get:
       tags:
-        - triggers
+      - triggers
       summary: Get Webhook
       description: Get the webhook from a workflow.
-      operationId: get_webhook_workflows__workflow_id__webhook_get
+      operationId: triggers-get_webhook
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WebhookResponse"
-        "422":
+                $ref: '#/components/schemas/WebhookResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     patch:
       tags:
-        - triggers
+      - triggers
       summary: Update Webhook
-      description:
-        Update the webhook for a workflow. We currently supprt only one
+      description: Update the webhook for a workflow. We currently supprt only one
         webhook per workflow.
-      operationId: update_webhook_workflows__workflow_id__webhook_patch
+      operationId: triggers-update_webhook
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpsertWebhookParams"
+              $ref: '#/components/schemas/UpsertWebhookParams'
       responses:
-        "204":
+        '204':
           description: Successful Response
-        "422":
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /schedules:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflow-executions:
     get:
       tags:
-        - schedules
-      summary: List Schedules
-      description: List all schedules for a workflow.
-      operationId: list_schedules_schedules_get
+      - workflow-executions
+      summary: List Workflow Executions
+      description: List all workflow executions.
+      operationId: workflow-executions-list_workflow_executions
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: query
-          required: false
-          schema:
-            anyOf:
-              - type: string
-                pattern: wf-[0-9a-f]{32}
-              - type: "null"
-            title: Workflow Id
+      - name: workflow_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          - type: 'null'
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Schedule"
-                title: Response List Schedules Schedules Get
-        "422":
+                  $ref: '#/components/schemas/WorkflowExecutionResponse'
+                title: Response Workflow-Executions-List Workflow Executions
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - schedules
-      summary: Create Schedule
-      description: Create a schedule for a workflow.
-      operationId: create_schedule_schedules_post
+      - workflow-executions
+      summary: Create Workflow Execution
+      description: Create and schedule a workflow execution.
+      operationId: workflow-executions-create_workflow_execution
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateScheduleParams"
+              $ref: '#/components/schemas/CreateWorkflowExecutionParams'
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Schedule"
-        "422":
+                $ref: '#/components/schemas/CreateWorkflowExecutionResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /schedules/{schedule_id}:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflow-executions/{execution_id}:
     get:
       tags:
-        - schedules
-      summary: Get Schedule
-      description: Get a schedule from a workflow.
-      operationId: get_schedule_schedules__schedule_id__get
+      - workflow-executions
+      summary: Get Workflow Execution
+      description: Get a workflow execution.
+      operationId: workflow-executions-get_workflow_execution
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: sch-[0-9a-f]{32}
-            title: Schedule Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Schedule"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    post:
-      tags:
-        - schedules
-      summary: Update Schedule
-      description:
-        Update a schedule from a workflow. You cannot update the Workflow
-        Definition, but you can update other fields.
-      operationId: update_schedule_schedules__schedule_id__post
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: sch-[0-9a-f]{32}
-            title: Schedule Id
-      requestBody:
+      - name: execution_id
+        in: path
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateScheduleParams"
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*
+          title: Execution Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Schedule"
-        "422":
+                $ref: '#/components/schemas/WorkflowExecutionResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    delete:
-      tags:
-        - schedules
-      summary: Delete Schedule
-      description: Delete a schedule from a workflow.
-      operationId: delete_schedule_schedules__schedule_id__delete
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: sch-[0-9a-f]{32}
-            title: Schedule Id
-      responses:
-        "204":
-          description: Successful Response
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /schedules/search:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflow-executions/{execution_id}/history:
     get:
       tags:
-        - schedules
-      summary: Search Schedules
-      description: "**[WORK IN PROGRESS]** Search for schedules."
-      operationId: search_schedules_schedules_search_get
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SearchScheduleParams"
+      - workflow-executions
+      summary: List Workflow Execution Event History
+      description: Get a workflow execution.
+      operationId: workflow-executions-list_workflow_execution_event_history
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: execution_id
+        in: path
         required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*
+          title: Execution Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                items:
-                  $ref: "#/components/schemas/Schedule"
                 type: array
-                title: Response Search Schedules Schedules Search Get
-        "422":
+                items:
+                  $ref: '#/components/schemas/EventHistoryResponse'
+                title: Response Workflow-Executions-List Workflow Execution Event
+                  History
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflow-executions/{execution_id}/cancel:
+    post:
+      tags:
+      - workflow-executions
+      summary: Cancel Workflow Execution
+      description: Get a workflow execution.
+      operationId: workflow-executions-cancel_workflow_execution
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*
+          title: Execution Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflow-executions/{execution_id}/terminate:
+    post:
+      tags:
+      - workflow-executions
+      summary: Terminate Workflow Execution
+      description: Get a workflow execution.
+      operationId: workflow-executions-terminate_workflow_execution
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*
+          title: Execution Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminateWorkflowExecutionParams'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /actions:
     get:
       tags:
-        - actions
+      - actions
       summary: List Actions
       description: List all actions for a workflow.
-      operationId: list_actions_actions_get
+      operationId: actions-list_actions
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: workflow_id
-          in: query
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: workflow_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/ActionMetadataResponse"
-                title: Response List Actions Actions Get
-        "422":
+                  $ref: '#/components/schemas/ActionMetadataResponse'
+                title: Response Actions-List Actions
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - actions
+      - actions
       summary: Create Action
       description: Create a new action for a workflow.
-      operationId: create_action_actions_post
+      operationId: actions-create_action
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateActionParams"
+              $ref: '#/components/schemas/CreateActionParams'
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ActionMetadataResponse"
-        "422":
+                $ref: '#/components/schemas/ActionMetadataResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /actions/{action_id}:
     get:
       tags:
-        - actions
+      - actions
       summary: Get Action
       description: Get an action.
-      operationId: get_action_actions__action_id__get
+      operationId: actions-get_action
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: action_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Action Id
-        - name: workflow_id
-          in: query
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
+      - name: workflow_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ActionResponse"
-        "422":
+                $ref: '#/components/schemas/ActionResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - actions
+      - actions
       summary: Update Action
       description: Update an action.
-      operationId: update_action_actions__action_id__post
+      operationId: actions-update_action
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: action_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Action Id
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateActionParams"
+              $ref: '#/components/schemas/UpdateActionParams'
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ActionResponse"
-        "422":
+                $ref: '#/components/schemas/ActionResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
-        - actions
+      - actions
       summary: Delete Action
       description: Delete an action.
-      operationId: delete_action_actions__action_id__delete
+      operationId: actions-delete_action
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: action_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Action Id
-      responses:
-        "204":
-          description: Successful Response
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /events/search:
-    get:
-      tags:
-        - events
-        - search
-      summary: Search Events
-      description:
-        "**[DEPRECATED]** Search for events based on query parameters.
-
-
-        Note: currently on supports filter by `workflow_id` and sort by `published_at`."
-      operationId: search_events_events_search_get
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EventSearchParams"
+      - name: action_id
+        in: path
         required: true
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: "#/components/schemas/Event"
-                type: array
-                title: Response Search Events Events Search Get
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
-  /workflows/{workflow_id}/cases:
-    post:
-      tags:
-        - cases
-      summary: Create Case
-      description: Create a new case for a workflow.
-      operationId: create_case_workflows__workflow_id__cases_post
-      security:
-        - APIKeyHeader: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-      requestBody:
+        schema:
+          type: string
+          title: Action Id
+      - name: workspace_id
+        in: query
         required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                $ref: "#/components/schemas/CaseParams"
-              title: Cases
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "201":
+        '204':
           description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    get:
-      tags:
-        - cases
-      summary: List Cases
-      description: List all cases for a workflow.
-      operationId: list_cases_workflows__workflow_id__cases_get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 100
-            title: Limit
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Case-Output"
-                title: Response List Cases Workflows  Workflow Id  Cases Get
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}/cases/{case_id}:
-    get:
-      tags:
-        - cases
-      summary: Get Case
-      description: Get a specific case for a workflow.
-      operationId: get_case_workflows__workflow_id__cases__case_id__get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: case_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Case-Output"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    post:
-      tags:
-        - cases
-      summary: Update Case
-      description: Update a specific case for a workflow.
-      operationId: update_case_workflows__workflow_id__cases__case_id__post
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: case_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CaseParams"
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}/cases/{case_id}/events:
-    post:
-      tags:
-        - cases
-      summary: Create Case Event
-      description: Create a new Case Event.
-      operationId: create_case_event_workflows__workflow_id__cases__case_id__events_post
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: case_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CaseEventParams"
-      responses:
-        "201":
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    get:
-      tags:
-        - cases
-      summary: List Case Events
-      description: List all Case Events.
-      operationId: list_case_events_workflows__workflow_id__cases__case_id__events_get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: case_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CaseEvent"
-                title:
-                  Response List Case Events Workflows  Workflow Id  Cases  Case
-                  Id  Events Get
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /workflows/{workflow_id}/cases/{case_id}/events/{event_id}:
-    get:
-      tags:
-        - cases
-      summary: Get Case Event
-      description: Get a specific case event.
-      operationId: get_case_event_workflows__workflow_id__cases__case_id__events__event_id__get
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: workflow_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Workflow Id
-        - name: case_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Id
-        - name: event_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Event Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /case-actions:
-    get:
-      tags:
-        - cases
-      summary: List Case Actions
-      description: List all case actions.
-      operationId: list_case_actions_case_actions_get
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: "#/components/schemas/CaseAction"
-                type: array
-                title: Response List Case Actions Case Actions Get
-      security:
-        - OAuth2PasswordBearer: []
-    post:
-      tags:
-        - cases
-      summary: Create Case Action
-      description: Create a new case action.
-      operationId: create_case_action_case_actions_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CaseActionParams"
-        required: true
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CaseAction"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
-  /case-actions/{case_action_id}:
-    delete:
-      tags:
-        - cases
-      summary: Delete Case Action
-      description: Delete a case action.
-      operationId: delete_case_action_case_actions__case_action_id__delete
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: case_action_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Action Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /case-contexts:
-    get:
-      tags:
-        - cases
-      summary: List Case Contexts
-      description: List all case contexts.
-      operationId: list_case_contexts_case_contexts_get
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: "#/components/schemas/tracecat__db__schemas__CaseContext"
-                type: array
-                title: Response List Case Contexts Case Contexts Get
-      security:
-        - OAuth2PasswordBearer: []
-    post:
-      tags:
-        - cases
-      summary: Create Case Context
-      description: Create a new case context.
-      operationId: create_case_context_case_contexts_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CaseContextParams"
-        required: true
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/tracecat__db__schemas__CaseContext"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
-  /case-contexts/{case_context_id}:
-    delete:
-      tags:
-        - cases
-      summary: Delete Case Context
-      description: Delete a case context.
-      operationId: delete_case_context_case_contexts__case_context_id__delete
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: case_context_id
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Case Context Id
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /users:
-    get:
-      tags:
-        - users
-      summary: Get User
-      description: Get a user.
-      operationId: get_user_users_get
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/User"
-      security:
-        - OAuth2PasswordBearer: []
-    post:
-      tags:
-        - users
-      summary: Update User
-      description: Update a user.
-      operationId: update_user_users_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateUserParams"
-        required: true
-      responses:
-        "204":
-          description: Successful Response
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
-    delete:
-      tags:
-        - users
-      summary: Delete User
-      description: Delete a user.
-      operationId: delete_user_users_delete
-      responses:
-        "204":
-          description: Successful Response
-      security:
-        - OAuth2PasswordBearer: []
-  /secrets:
-    get:
-      tags:
-        - secrets
-      summary: List Secrets
-      description: List user secrets.
-      operationId: list_secrets_secrets_get
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: "#/components/schemas/SecretResponse"
-                type: array
-                title: Response List Secrets Secrets Get
-      security:
-        - OAuth2PasswordBearer: []
-    post:
-      tags:
-        - secrets
-      summary: Create Secret
-      description: Create a secret.
-      operationId: create_secret_secrets_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateSecretParams"
-        required: true
-      responses:
-        "201":
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
-  /secrets/{secret_name}:
-    get:
-      tags:
-        - secrets
-      summary: Get Secret
-      description: Get a secret.
-      operationId: get_secret_secrets__secret_name__get
-      security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
-      parameters:
-        - name: secret_name
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Secret Name
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Secret"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    post:
-      tags:
-        - secrets
-      summary: Update Secret
-      description: Update a secret
-      operationId: update_secret_secrets__secret_name__post
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: secret_name
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Secret Name
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateSecretParams"
-      responses:
-        "201":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Secret"
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-    delete:
-      tags:
-        - secrets
-      summary: Delete Secret
-      description: Delete a secret.
-      operationId: delete_secret_secrets__secret_name__delete
-      security:
-        - OAuth2PasswordBearer: []
-      parameters:
-        - name: secret_name
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Secret Name
-      responses:
-        "204":
-          description: Successful Response
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-  /secrets/search:
-    post:
-      tags:
-        - secrets
-      summary: Search Secrets
-      description: "**[WORK IN PROGRESS]**   Get a secret by ID."
-      operationId: search_secrets_secrets_search_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SearchSecretsParams"
-        required: true
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: "#/components/schemas/Secret"
-                type: array
-                title: Response Search Secrets Secrets Search Post
-        "422":
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
-      security:
-        - OAuth2PasswordBearer: []
+                $ref: '#/components/schemas/HTTPValidationError'
   /udfs:
     get:
       tags:
-        - udfs
+      - udfs
       summary: List Udfs
       description: List all user-defined function specifications for a user.
-      operationId: list_udfs_udfs_get
+      operationId: udfs-list_udfs
       security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
+      - APIKeyCookie: []
       parameters:
-        - name: limit
-          in: query
-          required: false
-          schema:
-            anyOf:
-              - type: integer
-              - type: "null"
-            title: Limit
-        - name: ns
-          in: query
-          required: false
-          schema:
-            anyOf:
-              - type: array
-                items:
-                  type: string
-              - type: "null"
-            title: Ns
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Limit
+      - name: ns
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          title: Ns
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/UDFSpec"
-                title: Response List Udfs Udfs Get
-        "422":
+                  $ref: '#/components/schemas/UDFSpec'
+                title: Response Udfs-List Udfs
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /udfs/{udf_key}:
     get:
       tags:
-        - udfs
+      - udfs
       summary: Get Udf
       description: Get a user-defined function specification.
-      operationId: get_udf_udfs__udf_key__get
+      operationId: udfs-get_udf
       security:
-        - OAuth2PasswordBearer: []
-        - APIKeyHeader: []
+      - APIKeyCookie: []
       parameters:
-        - name: udf_key
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Udf Key
-        - name: namespace
-          in: query
-          required: false
-          schema:
-            type: string
-            title: Namespace
+      - name: udf_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Udf Key
+      - name: namespace
+        in: query
+        required: false
+        schema:
+          type: string
+          title: Namespace
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UDFSpec"
-        "422":
+                $ref: '#/components/schemas/UDFSpec'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
       tags:
-        - udfs
+      - udfs
       summary: Create Udf
       description: Create a user-defined function specification.
-      operationId: create_udf_udfs__udf_key__post
+      operationId: udfs-create_udf
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: udf_key
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Udf Key
+      - name: udf_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Udf Key
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UDFSpec"
-        "422":
+                $ref: '#/components/schemas/UDFSpec'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /udfs/{udf_key}/validate:
     post:
       tags:
-        - udfs
+      - udfs
       summary: Validate Udf Args
       description: Validate user-defined function's arguments.
-      operationId: validate_udf_args_udfs__udf_key__validate_post
+      operationId: udfs-validate_udf_args
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
       parameters:
-        - name: udf_key
-          in: path
-          required: true
-          schema:
-            type: string
-            title: Udf Key
+      - name: udf_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Udf Key
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
         required: true
         content:
@@ -1718,53 +1505,1604 @@ paths:
               type: object
               title: Args
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UDFArgsValidationResponse"
-        "422":
+                $ref: '#/components/schemas/UDFArgsValidationResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/cases:
+    post:
+      tags:
+      - cases
+      summary: Create Case
+      description: Create a new case for a workflow.
+      operationId: cases-create_case
+      security:
+      - APIKeyHeader: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CaseParams'
+              title: Cases
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - cases
+      summary: List Cases
+      description: List all cases for a workflow.
+      operationId: cases-list_cases
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseResponse'
+                title: Response Cases-List Cases
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/cases/{case_id}:
+    get:
+      tags:
+      - cases
+      summary: Get Case
+      description: Get a specific case for a workflow.
+      operationId: cases-get_case
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cases
+      summary: Update Case
+      description: Update a specific case for a workflow.
+      operationId: cases-update_case
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/cases/{case_id}/events:
+    post:
+      tags:
+      - cases
+      summary: Create Case Event
+      description: Create a new Case Event.
+      operationId: cases-create_case_event
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseEventParams'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - cases
+      summary: List Case Events
+      description: List all Case Events.
+      operationId: cases-list_case_events
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseEvent'
+                title: Response Cases-List Case Events
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workflows/{workflow_id}/cases/{case_id}/events/{event_id}:
+    get:
+      tags:
+      - cases
+      summary: Get Case Event
+      description: Get a specific case event.
+      operationId: cases-get_case_event
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Event Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-actions:
+    get:
+      tags:
+      - cases
+      summary: List Case Actions
+      description: List all case actions.
+      operationId: cases-list_case_actions
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseAction'
+                title: Response Cases-List Case Actions
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cases
+      summary: Create Case Action
+      description: Create a new case action.
+      operationId: cases-create_case_action
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseActionParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseAction'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-actions/{case_action_id}:
+    delete:
+      tags:
+      - cases
+      summary: Delete Case Action
+      description: Delete a case action.
+      operationId: cases-delete_case_action
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: case_action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Action Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-contexts:
+    get:
+      tags:
+      - cases
+      summary: List Case Contexts
+      description: List all case contexts.
+      operationId: cases-list_case_contexts
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/tracecat__db__schemas__CaseContext'
+                title: Response Cases-List Case Contexts
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cases
+      summary: Create Case Context
+      description: Create a new case context.
+      operationId: cases-create_case_context
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseContextParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/tracecat__db__schemas__CaseContext'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-contexts/{case_context_id}:
+    delete:
+      tags:
+      - cases
+      summary: Delete Case Context
+      description: Delete a case context.
+      operationId: cases-delete_case_context
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: case_context_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Context Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /secrets:
+    get:
+      tags:
+      - secrets
+      summary: List Secrets
+      description: List user secrets.
+      operationId: secrets-list_secrets
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SecretResponse'
+                title: Response Secrets-List Secrets
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - secrets
+      summary: Create Secret
+      description: Create a secret.
+      operationId: secrets-create_secret
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecretParams'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /secrets/{secret_name}:
+    get:
+      tags:
+      - secrets
+      summary: Get Secret
+      description: Get a secret.
+      operationId: secrets-get_secret
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: secret_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Secret Name
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Secret'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /secrets/{secret_id}:
+    post:
+      tags:
+      - secrets
+      summary: Update Secret By Id
+      description: Update a secret by ID.
+      operationId: secrets-update_secret_by_id
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: secret_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: secret-[0-9a-f]{32}
+          title: Secret Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSecretParams'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - secrets
+      summary: Delete Secret By Id
+      description: Delete a secret by ID.
+      operationId: secrets-delete_secret_by_id
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: secret_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: secret-[0-9a-f]{32}
+          title: Secret Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /secrets/search:
+    post:
+      tags:
+      - secrets
+      summary: Search Secrets
+      description: '**[WORK IN PROGRESS]**   Get a secret by ID.'
+      operationId: secrets-search_secrets
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchSecretsParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Secret'
+                title: Response Secrets-Search Secrets
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /schedules:
+    get:
+      tags:
+      - schedules
+      summary: List Schedules
+      description: List all schedules for a workflow.
+      operationId: schedules-list_schedules
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workflow_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          - type: 'null'
+          title: Workflow Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+                title: Response Schedules-List Schedules
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - schedules
+      summary: Create Schedule
+      description: Create a schedule for a workflow.
+      operationId: schedules-create_schedule
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /schedules/{schedule_id}:
+    get:
+      tags:
+      - schedules
+      summary: Get Schedule
+      description: Get a schedule from a workflow.
+      operationId: schedules-get_schedule
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: sch-[0-9a-f]{32}
+          title: Schedule Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - schedules
+      summary: Update Schedule
+      description: Update a schedule from a workflow. You cannot update the Workflow
+        Definition, but you can update other fields.
+      operationId: schedules-update_schedule
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: sch-[0-9a-f]{32}
+          title: Schedule Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - schedules
+      summary: Delete Schedule
+      description: Delete a schedule from a workflow.
+      operationId: schedules-delete_schedule
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: sch-[0-9a-f]{32}
+          title: Schedule Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /schedules/search:
+    get:
+      tags:
+      - schedules
+      summary: Search Schedules
+      description: '**[WORK IN PROGRESS]** Search for schedules.'
+      operationId: schedules-search_schedules
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchScheduleParams'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+                title: Response Schedules-Search Schedules
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /validate-workflow:
     post:
+      tags:
+      - validation
       summary: Validate Workflow
-      description: "Validate a workflow.
+      description: 'Validate a workflow.
 
 
         This deploys the workflow and updates its version. If a YAML file is provided,
-        it will override the workflow in the database."
-      operationId: validate_workflow_validate_workflow_post
+        it will override the workflow in the database.'
+      operationId: validation-validate_workflow
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       requestBody:
+        required: true
         content:
           multipart/form-data:
             schema:
-              $ref: "#/components/schemas/Body_validate_workflow_validate_workflow_post"
-        required: true
+              $ref: '#/components/schemas/Body_validation-validate_workflow'
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                items:
-                  $ref: "#/components/schemas/UDFArgsValidationResponse"
                 type: array
-                title: Response Validate Workflow Validate Workflow Post
-        "422":
+                items:
+                  $ref: '#/components/schemas/UDFArgsValidationResponse'
+                title: Response Validation-Validate Workflow
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/search:
+    get:
+      tags:
+      - users
+      summary: Search User
+      description: Create new user.
+      operationId: users-search_user
       security:
-        - OAuth2PasswordBearer: []
+      - APIKeyCookie: []
+      parameters:
+      - name: email
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/me:
+    get:
+      tags:
+      - users
+      summary: Users:Current User
+      operationId: users-users:current_user
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '401':
+          description: Missing token or inactive user.
+      security:
+      - APIKeyCookie: []
+    patch:
+      tags:
+      - users
+      summary: Users:Patch Current User
+      operationId: users-users:patch_current_user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '401':
+          description: Missing token or inactive user.
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+              examples:
+                UPDATE_USER_EMAIL_ALREADY_EXISTS:
+                  summary: A user with this email already exists.
+                  value:
+                    detail: UPDATE_USER_EMAIL_ALREADY_EXISTS
+                UPDATE_USER_INVALID_PASSWORD:
+                  summary: Password validation failed.
+                  value:
+                    detail:
+                      code: UPDATE_USER_INVALID_PASSWORD
+                      reason: Password should beat least 3 characters
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyCookie: []
+  /users/{id}:
+    get:
+      tags:
+      - users
+      summary: Users:User
+      operationId: users-users:user
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '401':
+          description: Missing token or inactive user.
+        '403':
+          description: Not a superuser.
+        '404':
+          description: The user does not exist.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - users
+      summary: Users:Patch User
+      operationId: users-users:patch_user
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '401':
+          description: Missing token or inactive user.
+        '403':
+          description: Not a superuser.
+        '404':
+          description: The user does not exist.
+        '400':
+          content:
+            application/json:
+              examples:
+                UPDATE_USER_EMAIL_ALREADY_EXISTS:
+                  summary: A user with this email already exists.
+                  value:
+                    detail: UPDATE_USER_EMAIL_ALREADY_EXISTS
+                UPDATE_USER_INVALID_PASSWORD:
+                  summary: Password validation failed.
+                  value:
+                    detail:
+                      code: UPDATE_USER_INVALID_PASSWORD
+                      reason: Password should beat least 3 characters
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Bad Request
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - users
+      summary: Users:Delete User
+      operationId: users-users:delete_user
+      security:
+      - APIKeyCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      responses:
+        '204':
+          description: Successful Response
+        '401':
+          description: Missing token or inactive user.
+        '403':
+          description: Not a superuser.
+        '404':
+          description: The user does not exist.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/login:
+    post:
+      tags:
+      - auth
+      summary: Auth:Database.Login
+      operationId: auth-auth:database.login
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/login'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+              examples:
+                LOGIN_BAD_CREDENTIALS:
+                  summary: Bad credentials or the user is inactive.
+                  value:
+                    detail: LOGIN_BAD_CREDENTIALS
+                LOGIN_USER_NOT_VERIFIED:
+                  summary: The user is not verified.
+                  value:
+                    detail: LOGIN_USER_NOT_VERIFIED
+        '204':
+          description: No Content
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Auth:Database.Logout
+      operationId: auth-auth:database.logout
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Missing token or inactive user.
+        '204':
+          description: No Content
+      security:
+      - APIKeyCookie: []
+  /auth/register:
+    post:
+      tags:
+      - auth
+      summary: Register:Register
+      operationId: auth-register:register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+              examples:
+                REGISTER_USER_ALREADY_EXISTS:
+                  summary: A user with this email already exists.
+                  value:
+                    detail: REGISTER_USER_ALREADY_EXISTS
+                REGISTER_INVALID_PASSWORD:
+                  summary: Password validation failed.
+                  value:
+                    detail:
+                      code: REGISTER_INVALID_PASSWORD
+                      reason: Password should beat least 3 characters
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/forgot-password:
+    post:
+      tags:
+      - auth
+      summary: Reset:Forgot Password
+      operationId: auth-reset:forgot_password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Body_auth-reset_forgot_password'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/reset-password:
+    post:
+      tags:
+      - auth
+      summary: Reset:Reset Password
+      operationId: auth-reset:reset_password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Body_auth-reset_reset_password'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+              examples:
+                RESET_PASSWORD_BAD_TOKEN:
+                  summary: Bad or expired token.
+                  value:
+                    detail: RESET_PASSWORD_BAD_TOKEN
+                RESET_PASSWORD_INVALID_PASSWORD:
+                  summary: Password validation failed.
+                  value:
+                    detail:
+                      code: RESET_PASSWORD_INVALID_PASSWORD
+                      reason: Password should be at least 3 characters
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/request-verify-token:
+    post:
+      tags:
+      - auth
+      summary: Verify:Request-Token
+      operationId: auth-verify:request-token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Body_auth-verify_request-token'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/verify:
+    post:
+      tags:
+      - auth
+      summary: Verify:Verify
+      operationId: auth-verify:verify
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Body_auth-verify_verify'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+              examples:
+                VERIFY_USER_BAD_TOKEN:
+                  summary: Bad token, not existing user ornot the e-mail currently
+                    set for the user.
+                  value:
+                    detail: VERIFY_USER_BAD_TOKEN
+                VERIFY_USER_ALREADY_VERIFIED:
+                  summary: The user is already verified.
+                  value:
+                    detail: VERIFY_USER_ALREADY_VERIFIED
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/oauth/authorize:
+    get:
+      tags:
+      - auth
+      summary: Oauth:Google.Database.Authorize
+      operationId: auth-oauth:google.database.authorize
+      parameters:
+      - name: scopes
+        in: query
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+          title: Scopes
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2AuthorizeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/oauth/callback:
+    get:
+      tags:
+      - auth
+      summary: Oauth:Google.Database.Callback
+      description: The response varies based on the authentication backend used.
+      operationId: auth-oauth:google.database.callback
+      parameters:
+      - name: code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code
+      - name: code_verifier
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code Verifier
+      - name: state
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: State
+      - name: error
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '400':
+          content:
+            application/json:
+              examples:
+                INVALID_STATE_TOKEN:
+                  summary: Invalid state token.
+                LOGIN_BAD_CREDENTIALS:
+                  summary: User is inactive.
+                  value:
+                    detail: LOGIN_BAD_CREDENTIALS
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Bad Request
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /health:
+    get:
+      tags:
+      - public
+      summary: Check Health
+      operationId: public-check_health
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Public-Check Health
 components:
   schemas:
+    AccessLevel:
+      type: integer
+      enum:
+      - 0
+      - 999
+      title: AccessLevel
+      description: Access control levels for roles.
+    ActionControlFlow:
+      properties:
+        run_if:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Run If
+        for_each:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: For Each
+      type: object
+      title: ActionControlFlow
     ActionMetadataResponse:
       properties:
         id:
@@ -1790,13 +3128,13 @@ components:
           title: Key
       type: object
       required:
-        - id
-        - workflow_id
-        - type
-        - title
-        - description
-        - status
-        - key
+      - id
+      - workflow_id
+      - type
+      - title
+      - description
+      - status
+      - key
       title: ActionMetadataResponse
     ActionResponse:
       properties:
@@ -1821,42 +3159,134 @@ components:
         key:
           type: string
           title: Key
+        control_flow:
+          $ref: '#/components/schemas/ActionControlFlow'
       type: object
       required:
-        - id
-        - type
-        - title
-        - description
-        - status
-        - inputs
-        - key
+      - id
+      - type
+      - title
+      - description
+      - status
+      - inputs
+      - key
       title: ActionResponse
-    Body_commit_workflow_workflows__workflow_id__commit_post:
+    ActionStatement:
       properties:
-        yaml_file:
+        ref:
           type: string
-          format: binary
-          title: Yaml File
-      type: object
-      title: Body_commit_workflow_workflows__workflow_id__commit_post
-    Body_streaming_autofill_case_fields_completions_cases_stream_post:
-      properties:
-        cases:
-          items:
-            $ref: "#/components/schemas/Case-Input"
-          type: array
-          title: Cases
-        fields:
+          pattern: ^[a-z0-9_]+$
+          title: Ref
+          description: Unique reference for the task
+        description:
+          type: string
+          title: Description
+          default: ''
+        action:
+          type: string
+          pattern: ^[a-z0-9_.]+$
+          title: Action
+          description: Action type. Equivalent to the UDF key.
+        args:
+          type: object
+          title: Args
+          description: Arguments for the action
+        depends_on:
           items:
             type: string
           type: array
-          title: Fields
+          title: Depends On
+          description: Task dependencies
+        run_if:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Run If
+          description: Condition to run the task
+        for_each:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: For Each
+          description: Iterate over a list of items and run the task for each item.
       type: object
       required:
-        - cases
-        - fields
-      title: Body_streaming_autofill_case_fields_completions_cases_stream_post
-    Body_validate_workflow_validate_workflow_post:
+      - ref
+      - action
+      title: ActionStatement
+    ActionTest:
+      properties:
+        ref:
+          type: string
+          pattern: ^[a-z0-9_]+$
+          title: Ref
+          description: Action reference
+        enable:
+          type: boolean
+          title: Enable
+          default: true
+        validate_args:
+          type: boolean
+          title: Validate Args
+          default: true
+        success:
+          title: Success
+          description: Patched success output. This can be any data structure.If it's
+            a fsspec file, it will be read and the contents will be used.
+        failure:
+          title: Failure
+          description: Patched failure output
+      type: object
+      required:
+      - ref
+      - success
+      title: ActionTest
+    Body_auth-reset_forgot_password:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+      type: object
+      required:
+      - email
+      title: Body_auth-reset:forgot_password
+    Body_auth-reset_reset_password:
+      properties:
+        token:
+          type: string
+          title: Token
+        password:
+          type: string
+          title: Password
+      type: object
+      required:
+      - token
+      - password
+      title: Body_auth-reset:reset_password
+    Body_auth-verify_request-token:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+      type: object
+      required:
+      - email
+      title: Body_auth-verify:request-token
+    Body_auth-verify_verify:
+      properties:
+        token:
+          type: string
+          title: Token
+      type: object
+      required:
+      - token
+      title: Body_auth-verify:verify
+    Body_validation-validate_workflow:
       properties:
         definition:
           type: string
@@ -1868,162 +3298,33 @@ components:
           title: Payload
       type: object
       required:
-        - definition
-      title: Body_validate_workflow_validate_workflow_post
-    Case-Input:
+      - definition
+      title: Body_validation-validate_workflow
+    Body_workflows-create_workflow:
       properties:
-        id:
-          type: string
-          title: Id
-        owner_id:
-          type: string
-          title: Owner Id
-        workflow_id:
-          type: string
-          title: Workflow Id
-        case_title:
-          type: string
-          title: Case Title
-        payload:
-          type: object
-          title: Payload
-        malice:
-          type: string
-          enum:
-            - malicious
-            - benign
-          title: Malice
-        status:
-          type: string
-          enum:
-            - open
-            - closed
-            - in_progress
-            - reported
-            - escalated
-          title: Status
-        priority:
-          type: string
-          enum:
-            - low
-            - medium
-            - high
-            - critical
-          title: Priority
-        action:
-          type: string
-          enum:
-            - ignore
-            - quarantine
-            - informational
-            - sinkhole
-            - active_compromise
-          title: Action
-        context:
-          $ref: "#/components/schemas/ListModel_CaseContext_-Input"
-        tags:
-          $ref: "#/components/schemas/ListModel_Tag_"
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        file:
+          anyOf:
+          - type: string
+            format: binary
+          - type: 'null'
+          title: File
       type: object
-      required:
-        - owner_id
-        - workflow_id
-        - case_title
-        - payload
-        - malice
-        - status
-        - priority
-        - action
-        - context
-        - tags
-      title: Case
-      description: Case model used in the API and runner.
-    Case-Output:
-      properties:
-        id:
-          type: string
-          title: Id
-        owner_id:
-          type: string
-          title: Owner Id
-        workflow_id:
-          type: string
-          title: Workflow Id
-        case_title:
-          type: string
-          title: Case Title
-        payload:
-          type: object
-          title: Payload
-        malice:
-          type: string
-          enum:
-            - malicious
-            - benign
-          title: Malice
-        status:
-          type: string
-          enum:
-            - open
-            - closed
-            - in_progress
-            - reported
-            - escalated
-          title: Status
-        priority:
-          type: string
-          enum:
-            - low
-            - medium
-            - high
-            - critical
-          title: Priority
-        action:
-          type: string
-          enum:
-            - ignore
-            - quarantine
-            - informational
-            - sinkhole
-            - active_compromise
-          title: Action
-        context:
-          $ref: "#/components/schemas/ListModel_CaseContext_-Output"
-        tags:
-          $ref: "#/components/schemas/ListModel_Tag_"
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-      type: object
-      required:
-        - owner_id
-        - workflow_id
-        - case_title
-        - payload
-        - malice
-        - status
-        - priority
-        - action
-        - context
-        - tags
-      title: Case
-      description: Case model used in the API and runner.
+      title: Body_workflows-create_workflow
     CaseAction:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -2044,17 +3345,18 @@ components:
           title: Value
         user_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+            format: uuid4
+          - type: 'null'
           title: User Id
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - tag
-        - value
-        - user_id
+      - owner_id
+      - created_at
+      - updated_at
+      - tag
+      - value
+      - user_id
       title: CaseAction
     CaseActionParams:
       properties:
@@ -2066,13 +3368,13 @@ components:
           title: Value
         user_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: User Id
       type: object
       required:
-        - tag
-        - value
+      - tag
+      - value
       title: CaseActionParams
     CaseContext-Input:
       properties:
@@ -2084,8 +3386,8 @@ components:
           title: Value
       type: object
       required:
-        - key
-        - value
+      - key
+      - value
       title: CaseContext
     CaseContextParams:
       properties:
@@ -2097,18 +3399,19 @@ components:
           title: Value
         user_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: User Id
       type: object
       required:
-        - tag
-        - value
+      - tag
+      - value
       title: CaseContextParams
     CaseEvent:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -2135,79 +3438,49 @@ components:
           title: Initiator Role
         data:
           anyOf:
-            - additionalProperties:
-                anyOf:
-                  - type: string
-                  - type: "null"
-              type: object
-            - type: "null"
+          - additionalProperties:
+              anyOf:
+              - type: string
+              - type: 'null'
+            type: object
+          - type: 'null'
           title: Data
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - type
-        - workflow_id
-        - case_id
-        - initiator_role
-        - data
+      - owner_id
+      - created_at
+      - updated_at
+      - type
+      - workflow_id
+      - case_id
+      - initiator_role
+      - data
       title: CaseEvent
     CaseEventParams:
       properties:
         type:
           type: string
+          enum:
+          - status_changed
+          - priority_changed
+          - comment_created
+          - case_opened
+          - case_closed
           title: Type
         data:
           anyOf:
-            - additionalProperties:
-                anyOf:
-                  - type: string
-                  - type: "null"
-              type: object
-            - type: "null"
+          - additionalProperties:
+              anyOf:
+              - type: string
+              - type: 'null'
+            type: object
+          - type: 'null'
           title: Data
       type: object
       required:
-        - type
-        - data
+      - type
+      - data
       title: CaseEventParams
-    CaseMetrics:
-      properties:
-        statues:
-          items:
-            additionalProperties:
-              anyOf:
-                - type: integer
-                - type: number
-            type: object
-          type: array
-          title: Statues
-        priority:
-          items:
-            additionalProperties:
-              anyOf:
-                - type: integer
-                - type: number
-            type: object
-          type: array
-          title: Priority
-        malice:
-          items:
-            additionalProperties:
-              anyOf:
-                - type: integer
-                - type: number
-            type: object
-          type: array
-          title: Malice
-      type: object
-      required:
-        - statues
-        - priority
-        - malice
-      title: CaseMetrics
-      description: Summary statistics for cases over a time period.
     CaseParams:
       properties:
         id:
@@ -2215,12 +3488,15 @@ components:
           title: Id
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
+          format: date-time
           title: Created At
         updated_at:
           type: string
+          format: date-time
           title: Updated At
         workflow_id:
           type: string
@@ -2234,64 +3510,177 @@ components:
         malice:
           type: string
           enum:
-            - malicious
-            - benign
+          - malicious
+          - benign
           title: Malice
         status:
           type: string
           enum:
-            - open
-            - closed
-            - in_progress
-            - reported
-            - escalated
+          - open
+          - closed
+          - in_progress
+          - reported
+          - escalated
           title: Status
         priority:
           type: string
           enum:
-            - low
-            - medium
-            - high
-            - critical
+          - low
+          - medium
+          - high
+          - critical
           title: Priority
-        context:
-          $ref: "#/components/schemas/ListModel_CaseContext_-Input"
         action:
           type: string
           enum:
-            - ignore
-            - quarantine
-            - informational
-            - sinkhole
-            - active_compromise
+          - ignore
+          - quarantine
+          - informational
+          - sinkhole
+          - active_compromise
           title: Action
+        context:
+          items:
+            $ref: '#/components/schemas/CaseContext-Input'
+          type: array
+          title: Context
         tags:
-          $ref: "#/components/schemas/ListModel_Tag_"
+          items:
+            $ref: '#/components/schemas/Tag'
+          type: array
+          title: Tags
       type: object
       required:
-        - id
-        - owner_id
-        - created_at
-        - updated_at
-        - workflow_id
-        - case_title
-        - payload
-        - malice
-        - status
-        - priority
-        - context
-        - action
-        - tags
+      - id
+      - owner_id
+      - created_at
+      - updated_at
+      - workflow_id
+      - case_title
+      - payload
+      - malice
+      - status
+      - priority
+      - action
+      - context
+      - tags
       title: CaseParams
-    CopyWorkflowParams:
+    CaseResponse:
       properties:
+        id:
+          type: string
+          title: Id
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        workflow_id:
+          type: string
+          title: Workflow Id
+        case_title:
+          type: string
+          title: Case Title
+        payload:
+          type: object
+          title: Payload
+        malice:
+          type: string
+          enum:
+          - malicious
+          - benign
+          title: Malice
+        status:
+          type: string
+          enum:
+          - open
+          - closed
+          - in_progress
+          - reported
+          - escalated
+          title: Status
+        priority:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          - critical
+          title: Priority
+        action:
+          type: string
+          enum:
+          - ignore
+          - quarantine
+          - informational
+          - sinkhole
+          - active_compromise
+          title: Action
+        context:
+          items:
+            $ref: '#/components/schemas/tracecat__types__api__CaseContext'
+          type: array
+          title: Context
+        tags:
+          items:
+            $ref: '#/components/schemas/Tag'
+          type: array
+          title: Tags
       type: object
       required:
-        - owner_id
-      title: CopyWorkflowParams
+      - id
+      - owner_id
+      - created_at
+      - updated_at
+      - workflow_id
+      - case_title
+      - payload
+      - malice
+      - status
+      - priority
+      - action
+      - context
+      - tags
+      title: CaseResponse
+    CommitWorkflowResponse:
+      properties:
+        workflow_id:
+          type: string
+          title: Workflow Id
+        status:
+          type: string
+          enum:
+          - success
+          - failure
+          title: Status
+        message:
+          type: string
+          title: Message
+        errors:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/UDFArgsValidationResponse'
+            type: array
+          - type: 'null'
+          title: Errors
+        metadata:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      required:
+      - workflow_id
+      - status
+      - message
+      title: CommitWorkflowResponse
     CreateActionParams:
       properties:
         workflow_id:
@@ -2305,9 +3694,9 @@ components:
           title: Title
       type: object
       required:
-        - workflow_id
-        - type
-        - title
+      - workflow_id
+      - type
+      - title
       title: CreateActionParams
     CreateScheduleParams:
       properties:
@@ -2317,13 +3706,13 @@ components:
           title: Workflow Id
         inputs:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Inputs
         cron:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Cron
         every:
           type: string
@@ -2332,36 +3721,36 @@ components:
           description: ISO 8601 duration string
         offset:
           anyOf:
-            - type: string
-              format: duration
-            - type: "null"
+          - type: string
+            format: duration
+          - type: 'null'
           title: Offset
           description: ISO 8601 duration string
         start_at:
           anyOf:
-            - type: string
-              format: date-time
-            - type: "null"
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Start At
           description: ISO 8601 datetime string
         end_at:
           anyOf:
-            - type: string
-              format: date-time
-            - type: "null"
+          - type: string
+            format: date-time
+          - type: 'null'
           title: End At
           description: ISO 8601 datetime string
         status:
           type: string
           enum:
-            - online
-            - offline
+          - online
+          - offline
           title: Status
           default: online
       type: object
       required:
-        - workflow_id
-        - every
+      - workflow_id
+      - every
       title: CreateScheduleParams
     CreateSecretParams:
       properties:
@@ -2374,27 +3763,27 @@ components:
           title: Name
         description:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Description
         keys:
           items:
-            $ref: "#/components/schemas/SecretKeyValue"
+            $ref: '#/components/schemas/SecretKeyValue'
           type: array
           title: Keys
         tags:
           anyOf:
-            - additionalProperties:
-                type: string
-              type: object
-            - type: "null"
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
           title: Tags
       type: object
       required:
-        - name
-        - keys
+      - name
+      - keys
       title: CreateSecretParams
-      description: "Create a new secret.
+      description: 'Create a new secret.
 
 
         Secret types
@@ -2405,147 +3794,472 @@ components:
 
         - `token`: A token, e.g. API Key, JWT Token (TBC)
 
-        - `oauth2`: OAuth2 Client Credentials (TBC)"
-    CreateUserParams:
+        - `oauth2`: OAuth2 Client Credentials (TBC)'
+    CreateWorkflowExecutionParams:
       properties:
-        tier:
+        workflow_id:
           type: string
-          enum:
-            - free
-            - pro
-            - enterprise
-          title: Tier
-          default: free
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+        inputs:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Inputs
+        enable_runtime_tests:
+          type: boolean
+          title: Enable Runtime Tests
+          default: false
+      type: object
+      required:
+      - workflow_id
+      title: CreateWorkflowExecutionParams
+    CreateWorkflowExecutionResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+        wf_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Wf Id
+        wf_exec_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          title: Wf Exec Id
+      type: object
+      required:
+      - message
+      - wf_id
+      - wf_exec_id
+      title: CreateWorkflowExecutionResponse
+    CreateWorkspaceMembershipParams:
+      properties:
+        user_id:
+          type: string
+          format: uuid4
+          title: User Id
+      type: object
+      required:
+      - user_id
+      title: CreateWorkspaceMembershipParams
+    CreateWorkspaceParams:
+      properties:
+        name:
+          type: string
+          title: Name
         settings:
           anyOf:
-            - type: string
-            - type: "null"
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
           title: Settings
+        owner_id:
+          type: string
+          format: uuid
+          title: Owner Id
+          default: 00000000-0000-0000-0000-000000000000
       type: object
-      title: CreateUserParams
-    CreateWorkflowParams:
+      required:
+      - name
+      title: CreateWorkspaceParams
+    DSLConfig:
+      properties:
+        scheduler:
+          type: string
+          enum:
+          - static
+          - dynamic
+          title: Scheduler
+          default: dynamic
+        enable_runtime_tests:
+          type: boolean
+          title: Enable Runtime Tests
+          description: Enable runtime action tests. This is dynamically set on workflow
+            entry.
+          default: false
+      type: object
+      title: DSLConfig
+    DSLEntrypoint:
+      properties:
+        ref:
+          type: string
+          title: Ref
+          description: The entrypoint action ref
+        expects:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Expects
+          description: Expected trigger input shape
+      type: object
+      required:
+      - ref
+      title: DSLEntrypoint
+    DSLInput:
       properties:
         title:
-          anyOf:
-            - type: string
-            - type: "null"
+          type: string
           title: Title
         description:
-          anyOf:
-            - type: string
-            - type: "null"
+          type: string
           title: Description
+        entrypoint:
+          $ref: '#/components/schemas/DSLEntrypoint'
+        actions:
+          items:
+            $ref: '#/components/schemas/ActionStatement'
+          type: array
+          title: Actions
+        config:
+          $ref: '#/components/schemas/DSLConfig'
+        triggers:
+          items:
+            $ref: '#/components/schemas/Trigger'
+          type: array
+          title: Triggers
+        inputs:
+          type: object
+          title: Inputs
+          description: Static input parameters
+        tests:
+          items:
+            $ref: '#/components/schemas/ActionTest'
+          type: array
+          title: Tests
+          description: Action tests
+        returns:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Returns
+          description: The action ref or value to return.
       type: object
-      title: CreateWorkflowParams
-    Event:
+      required:
+      - title
+      - description
+      - entrypoint
+      - actions
+      title: DSLInput
+      description: 'DSL definition for a workflow.
+
+
+        The difference between this and a normal workflow engine is that here,
+
+        our workflow execution order is defined by the DSL itself, independent
+
+        of a workflow scheduler.
+
+
+        With a traditional
+
+        This allows the execution of the workflow to be fully deterministic.'
+    DSLRunArgs:
       properties:
-        published_at:
+        role:
+          $ref: '#/components/schemas/Role'
+        dsl:
+          $ref: '#/components/schemas/DSLInput'
+        wf_id:
           type: string
-          format: date-time
-          title: Published At
+          pattern: wf-[0-9a-f]{32}
+          title: Wf Id
+        trigger_inputs:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Trigger Inputs
+        parent_run_context:
+          anyOf:
+          - $ref: '#/components/schemas/RunContext'
+          - type: 'null'
+        run_config:
+          type: object
+          title: Run Config
+      type: object
+      required:
+      - role
+      - dsl
+      - wf_id
+      title: DSLRunArgs
+    ErrorModel:
+      properties:
+        detail:
+          anyOf:
+          - type: string
+          - additionalProperties:
+              type: string
+            type: object
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: ErrorModel
+    EventFailure:
+      properties:
+        message:
+          type: string
+          title: Message
+        stack_trace:
+          type: string
+          title: Stack Trace
+        cause:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Cause
+        application_failure_info:
+          type: object
+          title: Application Failure Info
+      type: object
+      required:
+      - message
+      - stack_trace
+      title: EventFailure
+    EventGroup:
+      properties:
+        event_id:
+          type: integer
+          title: Event Id
+        udf_namespace:
+          type: string
+          title: Udf Namespace
+        udf_name:
+          type: string
+          title: Udf Name
+        udf_key:
+          type: string
+          title: Udf Key
         action_id:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Action Id
-        action_run_id:
+        action_ref:
           type: string
-          title: Action Run Id
+          title: Action Ref
         action_title:
           type: string
           title: Action Title
-        action_type:
+        action_description:
           type: string
-          title: Action Type
-        workflow_id:
-          type: string
-          title: Workflow Id
-        workflow_title:
-          type: string
-          title: Workflow Title
-        workflow_run_id:
-          type: string
-          title: Workflow Run Id
-        data:
-          type: object
-          title: Data
+          title: Action Description
+        action_input:
+          anyOf:
+          - $ref: '#/components/schemas/UDFActionInput'
+          - $ref: '#/components/schemas/DSLRunArgs'
+          - $ref: '#/components/schemas/GetWorkflowDefinitionActivityInputs'
+          title: Action Input
+        action_result:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Action Result
       type: object
       required:
-        - published_at
-        - action_id
-        - action_run_id
-        - action_title
-        - action_type
-        - workflow_id
-        - workflow_title
-        - workflow_run_id
-        - data
-      title: Event
-    EventSearchParams:
+      - event_id
+      - udf_namespace
+      - udf_name
+      - udf_key
+      - action_id
+      - action_ref
+      - action_title
+      - action_description
+      - action_input
+      title: EventGroup
+    EventHistoryResponse:
       properties:
-        workflow_id:
-          type: string
-          title: Workflow Id
-        limit:
+        event_id:
           type: integer
-          title: Limit
-          default: 1000
-        order_by:
+          title: Event Id
+        event_time:
           type: string
-          title: Order By
-          default: pubished_at
-        workflow_run_id:
+          format: date-time
+          title: Event Time
+        event_type:
+          $ref: '#/components/schemas/EventHistoryType'
+        task_id:
+          type: integer
+          title: Task Id
+        event_group:
           anyOf:
-            - type: string
-            - type: "null"
-          title: Workflow Run Id
-        query:
+          - $ref: '#/components/schemas/EventGroup'
+          - type: 'null'
+          description: The action group of the event. We use this to keep track of
+            what events are related to each other.
+        failure:
           anyOf:
-            - type: string
-            - type: "null"
-          title: Query
-        group_by:
+          - $ref: '#/components/schemas/EventFailure'
+          - type: 'null'
+        result:
           anyOf:
-            - items:
-                type: string
-              type: array
-            - type: "null"
-          title: Group By
-        agg:
+          - {}
+          - type: 'null'
+          title: Result
+        role:
           anyOf:
-            - type: string
-            - type: "null"
-          title: Agg
+          - $ref: '#/components/schemas/Role'
+          - type: 'null'
       type: object
       required:
-        - workflow_id
-      title: EventSearchParams
+      - event_id
+      - event_time
+      - event_type
+      - task_id
+      title: EventHistoryResponse
+    EventHistoryType:
+      type: string
+      enum:
+      - WORKFLOW_EXECUTION_STARTED
+      - WORKFLOW_EXECUTION_COMPLETED
+      - WORKFLOW_EXECUTION_FAILED
+      - WORKFLOW_EXECUTION_TERMINATED
+      - WORKFLOW_EXECUTION_CANCELED
+      - ACTIVITY_TASK_SCHEDULED
+      - ACTIVITY_TASK_STARTED
+      - ACTIVITY_TASK_COMPLETED
+      - ACTIVITY_TASK_FAILED
+      - CHILD_WORKFLOW_EXECUTION_STARTED
+      - CHILD_WORKFLOW_EXECUTION_COMPLETED
+      - CHILD_WORKFLOW_EXECUTION_FAILED
+      - START_CHILD_WORKFLOW_EXECUTION_INITIATED
+      title: EventHistoryType
+      description: The event types we care about.
+    ExprContext:
+      type: string
+      enum:
+      - ACTIONS
+      - SECRETS
+      - FN
+      - INPUTS
+      - ENV
+      - TRIGGER
+      - var
+      title: ExprContext
+    GetWorkflowDefinitionActivityInputs:
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+        task:
+          $ref: '#/components/schemas/ActionStatement'
+        workflow_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+        trigger_inputs:
+          type: object
+          title: Trigger Inputs
+        version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Version
+        run_context:
+          $ref: '#/components/schemas/RunContext'
+      type: object
+      required:
+      - role
+      - task
+      - workflow_id
+      - trigger_inputs
+      - run_context
+      title: GetWorkflowDefinitionActivityInputs
     HTTPValidationError:
       properties:
         detail:
           items:
-            $ref: "#/components/schemas/ValidationError"
+            $ref: '#/components/schemas/ValidationError'
           type: array
           title: Detail
       type: object
       title: HTTPValidationError
-    ListModel_CaseContext_-Input:
-      items:
-        $ref: "#/components/schemas/CaseContext-Input"
-      type: array
-      title: ListModel[CaseContext]
-    ListModel_CaseContext_-Output:
-      items:
-        $ref: "#/components/schemas/tracecat__types__api__CaseContext"
-      type: array
-      title: ListModel[CaseContext]
-    ListModel_Tag_:
-      items:
-        $ref: "#/components/schemas/Tag"
-      type: array
-      title: ListModel[Tag]
+    OAuth2AuthorizeResponse:
+      properties:
+        authorization_url:
+          type: string
+          title: Authorization Url
+      type: object
+      required:
+      - authorization_url
+      title: OAuth2AuthorizeResponse
+    Role:
+      properties:
+        type:
+          type: string
+          enum:
+          - user
+          - service
+          title: Type
+        workspace_id:
+          anyOf:
+          - type: string
+            format: uuid4
+          - type: 'null'
+          title: Workspace Id
+        user_id:
+          anyOf:
+          - type: string
+            format: uuid4
+          - type: 'null'
+          title: User Id
+        access_level:
+          allOf:
+          - $ref: '#/components/schemas/AccessLevel'
+          default: 0
+        service_id:
+          type: string
+          enum:
+          - tracecat-runner
+          - tracecat-api
+          - tracecat-cli
+          - tracecat-schedule-runner
+          - tracecat-service
+          title: Service Id
+      type: object
+      required:
+      - type
+      - service_id
+      title: Role
+      description: "The identity and authorization of a user or service.\n\nParams\n\
+        ------\ntype : Literal[\"user\", \"service\"]\n    The type of role.\nuser_id\
+        \ : UUID | None\n    The user's ID, or the service's user_id.\n    This can\
+        \ be None for internal services, or when a user hasn't been set for the role.\n\
+        service_id : str | None = None\n    The service's role name, or None if the\
+        \ role is a user.\n\n\nUser roles\n----------\n- User roles are authenticated\
+        \ via JWT.\n- The `user_id` is the user's JWT 'sub' claim.\n- User roles do\
+        \ not have an associated `service_id`, this must be None.\n\nService roles\n\
+        -------------\n- Service roles are authenticated via API key.\n- Used for\
+        \ internal services to authenticate with the API.\n- A service's `user_id`\
+        \ is the user it's acting on behalf of. This can be None for internal services."
+    RunContext:
+      properties:
+        wf_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Wf Id
+        wf_exec_id:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}:exec-[\w-]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*
+          title: Wf Exec Id
+        wf_run_id:
+          type: string
+          format: uuid4
+          title: Wf Run Id
+      type: object
+      required:
+      - wf_id
+      - wf_exec_id
+      - wf_run_id
+      title: RunContext
     Schedule:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -2564,8 +4278,8 @@ components:
           default: online
         cron:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Cron
         inputs:
           type: object
@@ -2577,44 +4291,44 @@ components:
           description: ISO 8601 duration string
         offset:
           anyOf:
-            - type: string
-              format: duration
-            - type: "null"
+          - type: string
+            format: duration
+          - type: 'null'
           title: Offset
           description: ISO 8601 duration string
         start_at:
           anyOf:
-            - type: string
-              format: date-time
-            - type: "null"
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Start At
           description: ISO 8601 datetime string
         end_at:
           anyOf:
-            - type: string
-              format: date-time
-            - type: "null"
+          - type: string
+            format: date-time
+          - type: 'null'
           title: End At
           description: ISO 8601 datetime string
         workflow_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Workflow Id
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - every
-        - workflow_id
+      - owner_id
+      - created_at
+      - updated_at
+      - every
+      - workflow_id
       title: Schedule
     SearchScheduleParams:
       properties:
         workflow_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Workflow Id
         limit:
           type: integer
@@ -2626,20 +4340,20 @@ components:
           default: created_at
         query:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Query
         group_by:
           anyOf:
-            - items:
-                type: string
-              type: array
-            - type: "null"
+          - items:
+              type: string
+            type: array
+          - type: 'null'
           title: Group By
         agg:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Agg
       type: object
       title: SearchScheduleParams
@@ -2652,12 +4366,13 @@ components:
           title: Names
       type: object
       required:
-        - names
+      - names
       title: SearchSecretsParams
     Secret:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -2681,9 +4396,9 @@ components:
           description: Secret names should be unique within a user's scope.
         description:
           anyOf:
-            - type: string
-              maxLength: 255
-            - type: "null"
+          - type: string
+            maxLength: 255
+          - type: 'null'
           title: Description
         encrypted_keys:
           type: string
@@ -2691,19 +4406,19 @@ components:
           title: Encrypted Keys
         tags:
           anyOf:
-            - additionalProperties:
-                type: string
-              type: object
-            - type: "null"
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
           title: Tags
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - name
-        - encrypted_keys
-        - tags
+      - owner_id
+      - created_at
+      - updated_at
+      - name
+      - encrypted_keys
+      - tags
       title: Secret
     SecretKeyValue:
       properties:
@@ -2717,8 +4432,8 @@ components:
           writeOnly: true
       type: object
       required:
-        - key
-        - value
+      - key
+      - value
       title: SecretKeyValue
     SecretResponse:
       properties:
@@ -2733,8 +4448,8 @@ components:
           title: Name
         description:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Description
         keys:
           items:
@@ -2743,28 +4458,11 @@ components:
           title: Keys
       type: object
       required:
-        - id
-        - type
-        - name
-        - keys
+      - id
+      - type
+      - name
+      - keys
       title: SecretResponse
-    StartWorkflowResponse:
-      properties:
-        status:
-          type: string
-          title: Status
-        message:
-          type: string
-          title: Message
-        id:
-          type: string
-          title: Id
-      type: object
-      required:
-        - status
-        - message
-        - id
-      title: StartWorkflowResponse
     Tag:
       properties:
         tag:
@@ -2773,28 +4471,64 @@ components:
         value:
           type: string
           title: Value
-        is_ai_generated:
-          type: boolean
-          title: Is Ai Generated
-          default: false
       type: object
       required:
-        - tag
-        - value
+      - tag
+      - value
       title: Tag
-    TriggerWorkflowRunParams:
+    TerminateWorkflowExecutionParams:
       properties:
-        action_key:
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      title: TerminateWorkflowExecutionParams
+    Trigger:
+      properties:
+        type:
           type: string
-          title: Action Key
-        payload:
+          enum:
+          - schedule
+          - webhook
+          title: Type
+        ref:
+          type: string
+          pattern: ^[a-z0-9_]+$
+          title: Ref
+        args:
           type: object
-          title: Payload
+          title: Args
       type: object
       required:
-        - action_key
-        - payload
-      title: TriggerWorkflowRunParams
+      - type
+      - ref
+      title: Trigger
+    UDFActionInput:
+      properties:
+        task:
+          $ref: '#/components/schemas/ActionStatement'
+        role:
+          $ref: '#/components/schemas/Role'
+        exec_context:
+          additionalProperties:
+            type: object
+          type: object
+          title: Exec Context
+        run_context:
+          $ref: '#/components/schemas/RunContext'
+        action_test:
+          anyOf:
+          - $ref: '#/components/schemas/ActionTest'
+          - type: 'null'
+      type: object
+      required:
+      - task
+      - role
+      - exec_context
+      - run_context
+      title: UDFActionInput
     UDFArgsValidationResponse:
       properties:
         ok:
@@ -2805,18 +4539,19 @@ components:
           title: Message
         detail:
           anyOf:
-            - {}
-            - type: "null"
+          - {}
+          - type: 'null'
           title: Detail
       type: object
       required:
-        - ok
-        - message
+      - ok
+      - message
       title: UDFArgsValidationResponse
     UDFSpec:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -2840,109 +4575,113 @@ components:
           title: Key
         version:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Version
         json_schema:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Json Schema
         meta:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Meta
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - description
-        - namespace
-        - key
-        - json_schema
-        - meta
+      - owner_id
+      - created_at
+      - updated_at
+      - description
+      - namespace
+      - key
+      - json_schema
+      - meta
       title: UDFSpec
-      description: "UDF spec.
+      description: 'UDF spec.
 
 
         Used in:
 
         1. Frontend action library
 
-        2. Frontend integration action form"
+        2. Frontend integration action form'
     UpdateActionParams:
       properties:
         title:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Title
         description:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Description
         status:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Status
         inputs:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Inputs
+        control_flow:
+          anyOf:
+          - $ref: '#/components/schemas/ActionControlFlow'
+          - type: 'null'
       type: object
       title: UpdateActionParams
     UpdateScheduleParams:
       properties:
         inputs:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Inputs
         cron:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Cron
         every:
           anyOf:
-            - type: string
-              format: duration
-            - type: "null"
+          - type: string
+            format: duration
+          - type: 'null'
           title: Every
           description: ISO 8601 duration string
         offset:
           anyOf:
-            - type: string
-              format: duration
-            - type: "null"
+          - type: string
+            format: duration
+          - type: 'null'
           title: Offset
           description: ISO 8601 duration string
         start_at:
           anyOf:
-            - type: string
-              format: date-time
-            - type: "null"
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Start At
           description: ISO 8601 datetime string
         end_at:
           anyOf:
-            - type: string
-              format: date-time
-            - type: "null"
+          - type: string
+            format: date-time
+          - type: 'null'
           title: End At
           description: ISO 8601 datetime string
         status:
           anyOf:
-            - type: string
-              enum:
-                - online
-                - offline
-            - type: "null"
+          - type: string
+            enum:
+            - online
+            - offline
+          - type: 'null'
           title: Status
       type: object
       title: UpdateScheduleParams
@@ -2950,36 +4689,36 @@ components:
       properties:
         type:
           anyOf:
-            - const: custom
-            - type: "null"
+          - const: custom
+          - type: 'null'
           title: Type
         name:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Name
         description:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Description
         keys:
           anyOf:
-            - items:
-                $ref: "#/components/schemas/SecretKeyValue"
-              type: array
-            - type: "null"
+          - items:
+              $ref: '#/components/schemas/SecretKeyValue'
+            type: array
+          - type: 'null'
           title: Keys
         tags:
           anyOf:
-            - additionalProperties:
-                type: string
-              type: object
-            - type: "null"
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
           title: Tags
       type: object
       title: UpdateSecretParams
-      description: "Create a new secret.
+      description: 'Create a new secret.
 
 
         Secret types
@@ -2990,112 +4729,252 @@ components:
 
         - `token`: A token, e.g. API Key, JWT Token (TBC)
 
-        - `oauth2`: OAuth2 Client Credentials (TBC)"
+        - `oauth2`: OAuth2 Client Credentials (TBC)'
     UpdateWorkflowParams:
       properties:
         title:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Title
         description:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Description
         status:
           anyOf:
-            - type: string
-              enum:
-                - online
-                - offline
-            - type: "null"
+          - type: string
+            enum:
+            - online
+            - offline
+          - type: 'null'
           title: Status
         object:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Object
         version:
           anyOf:
-            - type: integer
-            - type: "null"
+          - type: integer
+          - type: 'null'
           title: Version
         entrypoint:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Entrypoint
         icon_url:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Icon Url
+        static_inputs:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Static Inputs
+        returns:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Returns
       type: object
       title: UpdateWorkflowParams
+    UpdateWorkspaceParams:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        settings:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Settings
+      type: object
+      title: UpdateWorkspaceParams
     UpsertWebhookParams:
       properties:
         status:
           anyOf:
-            - type: string
-              enum:
-                - online
-                - offline
-            - type: "null"
+          - type: string
+            enum:
+            - online
+            - offline
+          - type: 'null'
           title: Status
         entrypoint_ref:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Entrypoint Ref
         method:
           anyOf:
-            - type: string
-              enum:
-                - GET
-                - POST
-            - type: "null"
+          - type: string
+            enum:
+            - GET
+            - POST
+          - type: 'null'
           title: Method
       type: object
       title: UpsertWebhookParams
-    User:
+    UserCreate:
       properties:
-        owner_id:
+        email:
           type: string
-          title: Owner Id
-        created_at:
+          format: email
+          title: Email
+        password:
           type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
+          title: Password
+        is_active:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Active
+          default: true
+        is_superuser:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Superuser
+          default: false
+        is_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Verified
+          default: false
+        role:
+          allOf:
+          - $ref: '#/components/schemas/UserRole'
+          default: basic
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+      type: object
+      required:
+      - email
+      - password
+      title: UserCreate
+    UserRead:
+      properties:
         id:
           type: string
+          format: uuid
           title: Id
-        tier:
+        email:
           type: string
-          title: Tier
-          default: free
-        settings:
+          format: email
+          title: Email
+        is_active:
+          type: boolean
+          title: Is Active
+          default: true
+        is_superuser:
+          type: boolean
+          title: Is Superuser
+          default: false
+        is_verified:
+          type: boolean
+          title: Is Verified
+          default: false
+        role:
+          $ref: '#/components/schemas/UserRole'
+        first_name:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+        settings:
+          type: object
           title: Settings
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-      title: User
+      - id
+      - email
+      - role
+      - settings
+      title: UserRead
+    UserRole:
+      type: string
+      enum:
+      - basic
+      - admin
+      title: UserRole
+    UserUpdate:
+      properties:
+        password:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Password
+        email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          title: Email
+        is_active:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Active
+        is_superuser:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Superuser
+        is_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Verified
+        role:
+          anyOf:
+          - $ref: '#/components/schemas/UserRole'
+          - type: 'null'
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+        settings:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Settings
+      type: object
+      title: UserUpdate
     ValidationError:
       properties:
         loc:
           items:
             anyOf:
-              - type: string
-              - type: integer
+            - type: string
+            - type: integer
           type: array
           title: Location
         msg:
@@ -3106,14 +4985,15 @@ components:
           title: Error Type
       type: object
       required:
-        - loc
-        - msg
-        - type
+      - loc
+      - msg
+      - type
       title: ValidationError
     WebhookResponse:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -3132,13 +5012,13 @@ components:
         status:
           type: string
           enum:
-            - online
-            - offline
+          - online
+          - offline
           title: Status
         entrypoint_ref:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Entrypoint Ref
         filters:
           type: object
@@ -3146,8 +5026,8 @@ components:
         method:
           type: string
           enum:
-            - GET
-            - POST
+          - GET
+          - POST
           title: Method
         workflow_id:
           type: string
@@ -3157,21 +5037,22 @@ components:
           title: Url
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - id
-        - secret
-        - status
-        - filters
-        - method
-        - workflow_id
-        - url
+      - owner_id
+      - created_at
+      - updated_at
+      - id
+      - secret
+      - status
+      - filters
+      - method
+      - workflow_id
+      - url
       title: WebhookResponse
     WorkflowDefinition:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -3196,14 +5077,14 @@ components:
           title: Content
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - version
-        - workflow_id
-        - content
+      - owner_id
+      - created_at
+      - updated_at
+      - version
+      - workflow_id
+      - content
       title: WorkflowDefinition
-      description: "A workflow definition.
+      description: 'A workflow definition.
 
 
         This is the underlying representation/snapshot of a workflow in the system,
@@ -3223,7 +5104,7 @@ components:
         3. Be able to be versioned
 
 
-        Shouldn'ts
+        Shouldn''ts
 
         ----------
 
@@ -3234,7 +5115,7 @@ components:
 
         -------------
 
-        - 1 Workflow to many WorkflowDefinitions"
+        - 1 Workflow to many WorkflowDefinitions'
     WorkflowExecutionResponse:
       properties:
         id:
@@ -3251,41 +5132,48 @@ components:
           title: Start Time
           description: The start time of the workflow execution
         execution_time:
-          type: string
-          format: date-time
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Execution Time
           description: When this workflow run started or should start.
         close_time:
-          type: string
-          format: date-time
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Close Time
           description: When the workflow was closed if closed.
         status:
           type: string
           enum:
-            - RUNNING
-            - COMPLETED
-            - FAILED
-            - CANCELED
-            - TERMINATED
-            - CONTINUED_AS_NEW
-            - TIMED_OUT
+          - RUNNING
+          - COMPLETED
+          - FAILED
+          - CANCELED
+          - TERMINATED
+          - CONTINUED_AS_NEW
+          - TIMED_OUT
         workflow_type:
           type: string
           title: Workflow Type
         task_queue:
           type: string
           title: Task Queue
+        history_length:
+          type: integer
+          title: History Length
+          description: Number of events in the history
       type: object
       required:
-        - id
-        - run_id
-        - start_time
-        - execution_time
-        - close_time
-        - status
-        - workflow_type
-        - task_queue
+      - id
+      - run_id
+      - start_time
+      - status
+      - workflow_type
+      - task_queue
+      - history_length
       title: WorkflowExecutionResponse
     WorkflowMetadataResponse:
       properties:
@@ -3303,8 +5191,8 @@ components:
           title: Status
         icon_url:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Icon Url
         created_at:
           type: string
@@ -3316,19 +5204,19 @@ components:
           title: Updated At
         version:
           anyOf:
-            - type: integer
-            - type: "null"
+          - type: integer
+          - type: 'null'
           title: Version
       type: object
       required:
-        - id
-        - title
-        - description
-        - status
-        - icon_url
-        - created_at
-        - updated_at
-        - version
+      - id
+      - title
+      - description
+      - status
+      - icon_url
+      - created_at
+      - updated_at
+      - version
       title: WorkflowMetadataResponse
     WorkflowResponse:
       properties:
@@ -3346,51 +5234,198 @@ components:
           title: Status
         actions:
           additionalProperties:
-            $ref: "#/components/schemas/ActionResponse"
+            $ref: '#/components/schemas/ActionResponse'
           type: object
           title: Actions
         object:
           anyOf:
-            - type: object
-            - type: "null"
+          - type: object
+          - type: 'null'
           title: Object
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         version:
           anyOf:
-            - type: integer
-            - type: "null"
+          - type: integer
+          - type: 'null'
           title: Version
         webhook:
-          $ref: "#/components/schemas/WebhookResponse"
+          $ref: '#/components/schemas/WebhookResponse'
         schedules:
           items:
-            $ref: "#/components/schemas/Schedule"
+            $ref: '#/components/schemas/Schedule'
           type: array
           title: Schedules
         entrypoint:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Entrypoint
+        static_inputs:
+          type: object
+          title: Static Inputs
+        returns:
+          title: Returns
+        config:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Config
       type: object
       required:
-        - id
-        - title
-        - description
-        - status
-        - actions
-        - object
-        - owner_id
-        - webhook
-        - schedules
-        - entrypoint
+      - id
+      - title
+      - description
+      - status
+      - actions
+      - object
+      - owner_id
+      - webhook
+      - schedules
+      - entrypoint
+      - static_inputs
+      - returns
+      - config
       title: WorkflowResponse
+    WorkspaceMember:
+      properties:
+        user_id:
+          type: string
+          format: uuid4
+          title: User Id
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+        email:
+          type: string
+          format: email
+          title: Email
+        role:
+          $ref: '#/components/schemas/UserRole'
+      type: object
+      required:
+      - user_id
+      - first_name
+      - last_name
+      - email
+      - role
+      title: WorkspaceMember
+    WorkspaceMembershipResponse:
+      properties:
+        user_id:
+          type: string
+          format: uuid4
+          title: User Id
+        workspace_id:
+          type: string
+          format: uuid4
+          title: Workspace Id
+      type: object
+      required:
+      - user_id
+      - workspace_id
+      title: WorkspaceMembershipResponse
+    WorkspaceMetadataResponse:
+      properties:
+        id:
+          type: string
+          format: uuid4
+          title: Id
+        name:
+          type: string
+          title: Name
+        n_members:
+          type: integer
+          title: N Members
+      type: object
+      required:
+      - id
+      - name
+      - n_members
+      title: WorkspaceMetadataResponse
+    WorkspaceResponse:
+      properties:
+        id:
+          type: string
+          format: uuid4
+          title: Id
+        name:
+          type: string
+          title: Name
+        settings:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Settings
+        owner_id:
+          type: string
+          format: uuid
+          title: Owner Id
+        n_members:
+          type: integer
+          title: N Members
+        members:
+          items:
+            $ref: '#/components/schemas/WorkspaceMember'
+          type: array
+          title: Members
+      type: object
+      required:
+      - id
+      - name
+      - owner_id
+      - n_members
+      - members
+      title: WorkspaceResponse
+    login:
+      properties:
+        grant_type:
+          anyOf:
+          - type: string
+            pattern: password
+          - type: 'null'
+          title: Grant Type
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          title: Password
+        scope:
+          type: string
+          title: Scope
+          default: ''
+        client_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Id
+        client_secret:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Secret
+      type: object
+      required:
+      - username
+      - password
+      title: Body_auth-auth:database.login
     tracecat__db__schemas__CaseContext:
       properties:
         owner_id:
           type: string
+          format: uuid
           title: Owner Id
         created_at:
           type: string
@@ -3411,17 +5446,18 @@ components:
           title: Value
         user_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+            format: uuid4
+          - type: 'null'
           title: User Id
       type: object
       required:
-        - owner_id
-        - created_at
-        - updated_at
-        - tag
-        - value
-        - user_id
+      - owner_id
+      - created_at
+      - updated_at
+      - tag
+      - value
+      - user_id
       title: CaseContext
     tracecat__types__api__CaseContext:
       properties:
@@ -3433,34 +5469,32 @@ components:
           title: Value
       type: object
       required:
-        - key
-        - value
+      - key
+      - value
       title: CaseContext
   securitySchemes:
-    OAuth2PasswordBearer:
-      type: oauth2
-      flows:
-        password:
-          scopes: {}
-          tokenUrl: token
+    APIKeyCookie:
+      type: apiKey
+      in: cookie
+      name: fastapiusersauth
     APIKeyHeader:
       type: apiKey
       in: header
       name: X-API-Key
 tags:
-  - name: public
-    description: Public facing endpoints
-  - name: workflows
-    description: Workflow management
-  - name: actions
-    description: Action management
-  - name: triggers
-    description: Workflow triggers
-  - name: secrets
-    description: Secret management
-  - name: udfs
-    description: User-defined functions
-  - name: events
-    description: Event management
-  - name: cases
-    description: Case management
+- name: public
+  description: Public facing endpoints
+- name: workflows
+  description: Workflow management
+- name: actions
+  description: Action management
+- name: triggers
+  description: Workflow triggers
+- name: secrets
+  description: Secret management
+- name: udfs
+  description: User-defined functions
+- name: events
+  description: Event management
+- name: cases
+  description: Case management
