@@ -26,6 +26,19 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
             "title": "End Time",
             "type": "string"
         },
+        "filter": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "(Optional) Falcon Query Language (FQL) filter to apply to alerts. If specified, overrides `start_time` and `end_time`.",
+            "title": "Filter"
+        },
         "limit": {
             "default": 9999,
             "description": "Maximum number of alerts to return.",

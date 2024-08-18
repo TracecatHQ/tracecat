@@ -1,17 +1,15 @@
 ---
-title: Send Email
-description: core.send_email
+title: Send Email (SMTP)
+description: core.send_email_smtp
 ---
 
-Perform a send email action.
+Perform a send email action using SMTP.
 
-This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `core.send_email` integration.
+This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `core.send_email_smtp` integration.
 
 
 ## Secrets
-| Name | Keys |
-| --- | --- |
-| `resend_api_key` | `RESEND_API_KEY` |
+_No secrets required._
 
 ## Inputs
 
@@ -23,11 +21,6 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
         "body": {
             "title": "Body",
             "type": "string"
-        },
-        "provider": {
-            "const": "resend",
-            "default": "resend",
-            "title": "Provider"
         },
         "recipients": {
             "items": {
@@ -51,7 +44,7 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
         "subject",
         "body"
     ],
-    "title": "CoreSendEmail",
+    "title": "CoreSendEmailSmtp",
     "type": "object"
 }
 ```
