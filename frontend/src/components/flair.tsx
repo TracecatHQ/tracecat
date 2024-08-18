@@ -5,12 +5,12 @@ import { cn } from "@/lib/utils"
 
 interface AIGeneratedFlairProps
   extends PropsWithChildren<React.HTMLAttributes<HTMLElement>> {
-  isAIGenerated: boolean
+  isAIGenerated?: boolean
 }
 export function AIGeneratedFlair({
   className,
   children,
-  isAIGenerated: flair,
+  isAIGenerated: flair = false,
 }: AIGeneratedFlairProps) {
   return (
     <div className={cn("flex items-center", className)}>

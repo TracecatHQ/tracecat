@@ -1,26 +1,24 @@
 ---
-title: Welcome to Tracecat
-description: Workflow orchestration platform for security engineers
+title: What is Tracecat?
+description: An introduction to the Tracecat security automation platform.
 ---
 
-[Tracecat](https://tracecat.com) is an open-source Tines / Splunk SOAR alternative for security engineers. We're building the features of Tines using enterprise-grade open-source tools.
+[Tracecat](https://tracecat.com) is the [open-source](https://github.com/TracecatHQ/tracecat) Tines / Splunk SOAR alternative built for security engineers.
 
 ## Who uses Tracecat?
 
-- **Security Operations (SecOps):** Unify workflow development across security engineering and SOC teams
-- **Security Engineers (SecEng):** Build and maintain complex automations using open source integrations, configuration-as-code, and a powerful templating language
-- **Managed Detection & Response (MDR):** Rapidly embed scalable workflow applications into any security product
+- **Security Operations (SecOps):** Unify playbook development across security analysts and security engineers
+- **Security Engineers (SecEng):** Build and maintain complex playbooks using open source integrations and configuration-as-code (YAML)
+- **Managed Detection & Response (MDR):** Rapidly self-host, embed, and scale multi-tenant playbooks into any security service or product
 
 ## New to Tracecat?
 
-Book an open-source [onboarding call](https://cal.com/team/tracecat/onboarding) with one of our cofounders to get started.
-
 <CardGroup cols={2}>
-  <Card title="Installation" icon="plug" href="/installation">
-    Learn how to install Tracecat locally
+  <Card title="Install" icon="server" href="/self-hosting/introduction">
+    Learn how to self-host Tracecat on your own infrastructure.
   </Card>
-  <Card title="Quickstart" icon="bolt" href="/quickstart">
-    Automate your first security workflow in 15 minutes
+  <Card title="Quickstart" icon="rocket" href="/installation/introduction">
+    Build and deploy the classic VirusTotal enrichment playbook in 15 minutes.
   </Card>
 </CardGroup>
 
@@ -30,38 +28,47 @@ Book an open-source [onboarding call](https://cal.com/team/tracecat/onboarding) 
   <Card title="Workflows" icon="diagram-project" href="/concepts/workflows">
     Automated event-driven workflows
   </Card>
+  <Card title="Actions" icon="square-plus" href="/concepts/actions">
+    Core building blocks for automations
+  </Card>
+  <Card title="Secrets" icon="key" href="/concepts/secrets">
+    Built-in secrets manager
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/concepts/webhooks">
+    Trigger playbooks given external events
+  </Card>
+  <Card title="Schedules" icon="calendar" href="/concepts/schedules">
+    Run workflows at regular intervals
+  </Card>
+  <Card title="Expressions" icon="percent" href="/concepts/expressions">
+    Powerful templating language and formulas
+  </Card>
+  <Card title="Case Management" icon="list-check" href="/concepts/case-management">
+    Manage cases directly in Tracecat
+  </Card>
+</CardGroup>
+
+## Developer Features
+
+Develop and scale playbooks headlessly (without the UI) using configuration-as-code.
+Write custom integrations in code that automatically convert to no-code.
+
+<CardGroup cols={2}>
   <Card
     title="Workflow Definitions"
     icon="file-code"
     href="/concepts/workflow-definitions"
   >
-    Configuration-as-code for workflows
-  </Card>
-  <Card title="Actions" icon="shapes" href="/core/actions">
-    Core building blocks for automations
+    Build repeatable playbooks using YAML
   </Card>
   <Card
     title="User-Defined Functions"
     icon="code"
     href="/core/user-defined-functions"
   >
-    Write custom integrations using Python
+    Add custom integrations with a single Python decorator
   </Card>
-  <Card title="Expressions" icon="divide" href="/concepts/expressions">
-    Powerful templating language and formulas
-  </Card>
-  <Card title="Secrets" icon="key" href="/core/secrets">
-    Built-in secrets manager
-  </Card>
-  <Card title="Case Management" icon="bell" href="/concepts/case-management">
-    AI-assisted case management
-  </Card>
-</CardGroup>
-
-## Tracecat in Production
-
-<CardGroup cols={2}>
-  <Card title="Deployment" icon="cloud" href="/deployment">
-    Deploy Tracecat into your own Cloud environment
+  <Card title="Command Line Interface" icon="terminal" href="/concepts/command-line-interface">
+    Manage workflows and secrets from the terminal
   </Card>
 </CardGroup>

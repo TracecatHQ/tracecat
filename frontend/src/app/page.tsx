@@ -3,7 +3,7 @@
 import React from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { redirect } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
 import { LogInIcon } from "lucide-react"
 import TracecatIcon from "public/icon.png"
@@ -15,8 +15,9 @@ import PrivacyPolicy from "@/components/privacy-policy"
 
 export default function HomePage() {
   const { user } = useAuth()
+  const router = useRouter()
   if (user) {
-    return redirect("/workflows")
+    return router.push("/workspaces")
   }
   return (
     <>

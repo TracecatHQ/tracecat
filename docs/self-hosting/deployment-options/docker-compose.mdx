@@ -1,0 +1,70 @@
+---
+title: Docker Compose
+description: Deploy Tracecat using a Docker Compose template.
+---
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/engine/install/)
+- [Docker Compose](https://docs.docker.com/compose/install/)
+
+## Verify Prerequisites
+
+To verify that Docker Compose and Docker are installed on the machine where you plan to install Tracecat, run the following commands.
+
+```bash
+# Check Docker installation
+docker
+
+# Check Docker Compose installation
+docker compose
+```
+
+## Download Configuration Files
+
+Tracecat requires a set of environment variables and credentials stored in `.env` file to run.
+We created a helpful shell script to generate the `.env` file.
+Use the commands listed below to download the required configuration files
+(`env.sh`, `.env.example`) and generate your own `.env` file.
+
+```bash
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/.env.example
+chmod +x env.sh && ./env.sh
+```
+
+You should see the following instructions after executing `env.sh`.
+Press enter to select the default options.
+
+![env.sh](/img/env-script.png)
+
+## Download Docker Compose File
+
+```bash
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/docker-compose.yml
+```
+
+## Start Tracecat
+
+Run the command below to start Tracecat and all related services.
+Make sure your `docker-compose.yml` and generated `.env` files are in the same directory.
+
+```bash
+docker compose up
+```
+
+Your Tracecat instance should now be running on `http://localhost`.
+To access the Tracecat GUI, visit `http://localhost`.
+
+![welcome-page](/img/welcome-page.png)
+
+<Tip>
+Tracecat comes with a REST API, you can visit the live API docs at `http://localhost/api/docs`.
+</Tip>
+
+## Next Steps
+
+- Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
+- Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/introduction).
+- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/.env.example)
+- (Optional) Configure external-facing webhooks. [View docs](/self-hosting/webhooks).

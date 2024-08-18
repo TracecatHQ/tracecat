@@ -16,9 +16,9 @@ import typer
 import yaml
 from pydantic import BaseModel
 
-from ._client import Client
-from ._config import config
-from ._utils import read_input
+from .client import Client
+from .config import config
+from .utils import read_input
 
 app = typer.Typer(no_args_is_help=True, help="Dev tools.")
 

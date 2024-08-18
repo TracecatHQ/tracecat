@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useWorkspace } from "@/providers/workspace"
 import { ConeIcon } from "lucide-react"
 
 import { useWorkflows } from "@/lib/hooks"
@@ -38,17 +39,26 @@ export function WorkflowsDashboard() {
 }
 
 export function WorkflowList() {
-  const { data: workflows, error, isLoading } = useWorkflows()
-  if (isLoading) {
+  const { workspaceId } = useWorkspace()
+  const { workflows, workflowsLoading, workflowsError } = useWorkflows()
+  if (workflowsLoading) {
     return (
       <div className="flex w-full flex-col items-center space-y-12">
         <ListItemSkeletion n={2} />
       </div>
     )
   }
-  if (error || workflows === undefined) {
+
+  if (workflowsError) {
+    throw workflowsError
+  }
+
+  if (!workflows) {
     return (
-      <AlertNotification level="error" message="Error fetching workflows" />
+      <AlertNotification
+        level="error"
+        message="Couldn't fetch workflows. Please try again."
+      />
     )
   }
 
@@ -64,7 +74,7 @@ export function WorkflowList() {
       ) : (
         <>
           {workflows.map((wf, idx) => (
-            <WorkflowItem key={idx} workflow={wf} />
+            <WorkflowItem key={idx} workspaceId={workspaceId} workflow={wf} />
           ))}
         </>
       )}

@@ -3,7 +3,7 @@
 import React, { useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { redirect } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { ApiError } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -32,8 +32,9 @@ import { Icons } from "@/components/icons"
 
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
+  const router = useRouter()
   if (user) {
-    return redirect("/workflows")
+    router.push("/workspaces")
   }
 
   return (

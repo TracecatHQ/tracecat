@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { workflowsCreateWorkflow } from "@/client"
+import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { BracesIcon, ChevronDownIcon, PlusCircleIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
@@ -44,13 +45,15 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>
 export function CreateWorkflowButton() {
   const router = useRouter()
+  const { workspaceId } = useWorkspace()
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
   })
+  const workspaceUrl = `/workspaces/${workspaceId}/workflows`
   const handleCreateWorkflow = async () => {
     try {
-      const response = await workflowsCreateWorkflow()
-      router.push(`/workflows/${response.id}`)
+      const response = await workflowsCreateWorkflow({ workspaceId })
+      router.push(`${workspaceUrl}/${response.id}`)
     } catch (error) {
       console.error("Error creating workflow:", error)
     }
@@ -59,6 +62,7 @@ export function CreateWorkflowButton() {
   const onSubmit = async (data: FormValues) => {
     try {
       const response = await workflowsCreateWorkflow({
+        workspaceId,
         formData: {
           file: new Blob([data.file], { type: "application/yaml" }),
         },

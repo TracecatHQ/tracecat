@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
   ActionResponse,
   actionsGetAction,
   actionsUpdateAction,
+  ApiError,
+  CaseEvent,
+  CaseEventParams,
+  CaseParams,
+  CaseResponse,
+  casesCreateCaseEvent,
+  casesGetCase,
+  casesListCaseEvents,
+  casesUpdateCase,
+  CreateSecretParams,
+  CreateWorkspaceParams,
   EventHistoryResponse,
   Schedule,
   schedulesCreateSchedule,
@@ -12,27 +24,36 @@ import {
   schedulesListSchedules,
   schedulesUpdateSchedule,
   SchedulesUpdateScheduleData,
+  SecretResponse,
+  secretsCreateSecret,
+  secretsDeleteSecretById,
+  secretsListSecrets,
+  secretsUpdateSecretById,
   UpdateActionParams,
+  UpdateSecretParams,
+  usersUsersPatchCurrentUser,
+  UserUpdate,
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
+  WorkflowMetadataResponse,
+  workflowsListWorkflows,
+  workspacesCreateWorkspace,
+  workspacesDeleteWorkspace,
+  workspacesListWorkspaces,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkspace } from "@/providers/workspace"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Cookies from "js-cookie"
 
-import { CaseEvent, type Case, type WorkflowMetadata } from "@/types/schemas"
-import {
-  CaseEventParams,
-  createCaseEvent,
-  fetchCase,
-  fetchCaseEvents,
-  updateCase,
-} from "@/lib/cases"
+import { type WorkflowMetadata } from "@/types/schemas"
+import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { updateWebhook } from "@/lib/trigger"
 import { isEmptyObject } from "@/lib/utils"
-import { fetchAllPlaybooks, fetchAllWorkflows } from "@/lib/workflow"
+import { fetchAllPlaybooks } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
-import { UDFNodeType } from "@/components/workspace/canvas/udf-node"
+import { UDFNodeType } from "@/components/workbench/canvas/udf-node"
 
 export function useLocalStorage<T>(
   key: string,
@@ -51,14 +72,29 @@ export function useLocalStorage<T>(
   return [value, setValue]
 }
 
-export function usePanelCase(workflowId: string, caseId: string) {
+export function usePanelCase(
+  workspaceId: string,
+  workflowId: string,
+  caseId: string
+) {
   const queryClient = useQueryClient()
-  const { data, isLoading, error } = useQuery<Case, Error>({
+  const { data, isLoading, error } = useQuery<CaseResponse, ApiError>({
     queryKey: ["case", caseId],
-    queryFn: async () => await fetchCase(workflowId, caseId),
+    queryFn: async () =>
+      await casesGetCase({
+        workspaceId,
+        caseId,
+        workflowId,
+      }),
   })
   const { mutateAsync } = useMutation({
-    mutationFn: (newCase: Case) => updateCase(workflowId, caseId, newCase),
+    mutationFn: async (newCase: CaseParams) =>
+      await casesUpdateCase({
+        workspaceId,
+        caseId,
+        workflowId,
+        requestBody: newCase,
+      }),
     onSuccess: () => {
       toast({
         title: "Updated case",
@@ -84,22 +120,31 @@ export function usePanelCase(workflowId: string, caseId: string) {
     caseData: data,
     caseIsLoading: isLoading,
     caseError: error,
-    mutateCaseAsync: mutateAsync,
+    updateCaseAsync: mutateAsync,
   }
 }
 
 export function useCaseEvents(workflowId: string, caseId: string) {
   const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
   const { data, isLoading, error } = useQuery<CaseEvent[], Error>({
     queryKey: ["caseEvents", caseId],
-    queryFn: async () => {
-      return await fetchCaseEvents(workflowId, caseId)
-    },
+    queryFn: async () =>
+      await casesListCaseEvents({
+        workspaceId,
+        workflowId,
+        caseId,
+      }),
   })
 
   const { mutateAsync } = useMutation({
     mutationFn: async (newEvent: CaseEventParams) => {
-      await createCaseEvent(workflowId, caseId, newEvent)
+      await casesCreateCaseEvent({
+        workspaceId,
+        workflowId,
+        caseId,
+        requestBody: newEvent,
+      })
     },
     onSuccess: () => {
       console.log("Case event created")
@@ -144,6 +189,7 @@ export type PanelAction = {
 }
 export function usePanelAction(
   actionId: string,
+  workspaceId: string,
   workflowId: string
 ): PanelAction {
   const queryClient = useQueryClient()
@@ -156,12 +202,12 @@ export function usePanelAction(
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
-      return await actionsGetAction({ actionId, workflowId })
+      return await actionsGetAction({ workspaceId, actionId, workflowId })
     },
   })
   const { mutateAsync } = useMutation({
     mutationFn: async (values: UpdateActionParams) =>
-      await actionsUpdateAction({ actionId, requestBody: values }),
+      await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
     onSuccess: (updatedAction: ActionResponse) => {
       setNodes((nds: UDFNodeType[]) =>
         nds.map((node: UDFNodeType) => {
@@ -236,11 +282,21 @@ export function useUpdateWebhook(workflowId: string) {
 }
 
 export function useWorkflows() {
-  const query = useQuery<WorkflowMetadata[], Error>({
+  const { workspaceId } = useWorkspace()
+  const {
+    data: workflows,
+    isLoading: workflowsLoading,
+    error: workflowsError,
+  } = useQuery<WorkflowMetadataResponse[], ApiError>({
     queryKey: ["workflows"],
-    queryFn: fetchAllWorkflows,
+    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    retry: retryHandler,
   })
-  return query
+  return {
+    workflows,
+    workflowsLoading,
+    workflowsError,
+  }
 }
 
 export function usePlaybooks() {
@@ -250,8 +306,106 @@ export function usePlaybooks() {
   })
   return query
 }
+export function useWorkspaceManager() {
+  const queryClient = useQueryClient()
+  const router = useRouter()
+
+  // List workspaces
+  const {
+    data: workspaces,
+    error: workspacesError,
+    isLoading: workspacesLoading,
+  } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: async () => await workspacesListWorkspaces(),
+  })
+
+  // Create workspace
+  const { mutateAsync: createWorkspace } = useMutation({
+    mutationFn: async (params: CreateWorkspaceParams) =>
+      await workspacesCreateWorkspace({
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Created workspace",
+        description: "Your workspace has been created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.log(
+            "Workspace with this name already exists.",
+            error.body.detail
+          )
+          break
+        default:
+          console.error("Failed to create workspace:", error)
+          toast({
+            title: "Error creating workspace",
+            description: error.body.detail + ". Please try again.",
+          })
+      }
+    },
+  })
+
+  // Delete workspace
+  const { mutateAsync: deleteWorkspace } = useMutation({
+    mutationFn: async (workspaceId: string) =>
+      await workspacesDeleteWorkspace({
+        workspaceId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      router.replace("/workspaces")
+      toast({
+        title: "Deleted workspace",
+        description: "Your workspace has been deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete workspace",
+            description: error.body.detail,
+          })
+          break
+        default:
+          console.error("Failed to delete workspace:", error)
+          toast({
+            title: "Error deleting workspace",
+            description: error.body.detail + ". Please try again.",
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Cookies
+  const getLastWorkspaceId = () =>
+    Cookies.get("__tracecat:workspaces:last-viewed")
+  const setLastWorkspaceId = (id?: string) =>
+    Cookies.set("__tracecat:workspaces:last-viewed", id ?? "")
+  const clearLastWorkspaceId = () =>
+    Cookies.remove("__tracecat:workspaces:last-viewed")
+
+  return {
+    workspaces,
+    workspacesError,
+    workspacesLoading,
+    createWorkspace,
+    deleteWorkspace,
+    getLastWorkspaceId,
+    setLastWorkspaceId,
+    clearLastWorkspaceId,
+  }
+}
 
 export function useWorkflowExecutions(workflowId: string) {
+  const { workspaceId } = useWorkspace()
   const {
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
@@ -260,6 +414,7 @@ export function useWorkflowExecutions(workflowId: string) {
     queryKey: ["workflow-executions", workflowId],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutions({
+        workspaceId,
         workflowId,
       }),
   })
@@ -271,6 +426,7 @@ export function useWorkflowExecutions(workflowId: string) {
 }
 
 export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
+  const { workspaceId } = useWorkspace()
   const {
     data: eventHistory,
     isLoading: eventHistoryLoading,
@@ -279,6 +435,7 @@ export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
     queryKey: ["workflow-executions", workflowExecutionId, "event-history"],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutionEventHistory({
+        workspaceId,
         executionId: workflowExecutionId,
       }),
   })
@@ -291,7 +448,7 @@ export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
 
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
-
+  const { workspaceId } = useWorkspace()
   // Fetch schedules
   const {
     data: schedules,
@@ -302,6 +459,7 @@ export function useSchedules(workflowId: string) {
     queryFn: async ({ queryKey }) => {
       const [workflowId] = queryKey as [string, string]
       return await schedulesListSchedules({
+        workspaceId,
         workflowId,
       })
     },
@@ -376,5 +534,141 @@ export function useSchedules(workflowId: string) {
     createSchedule,
     updateSchedule,
     deleteSchedule,
+  }
+}
+
+export function useSecrets() {
+  const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
+  const {
+    data: secrets,
+    isLoading,
+    error,
+  } = useQuery<SecretResponse[], ApiError>({
+    queryKey: ["secrets"],
+    queryFn: async () => await secretsListSecrets({ workspaceId }),
+  })
+
+  // Create secret
+  const { mutateAsync: createSecret } = useMutation({
+    mutationFn: async (secret: CreateSecretParams) =>
+      await secretsCreateSecret({
+        workspaceId,
+        requestBody: secret,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Added new secret",
+        description: "New secret added successfully.",
+      })
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+    },
+    onError: (error) => {
+      console.error("Failed to add new credentials", error)
+      toast({
+        title: "Failed to add new secret",
+        description: "An error occurred while adding the new secret.",
+      })
+    },
+  })
+
+  // Update secret
+  const { mutateAsync: updateSecretById } = useMutation({
+    mutationFn: async ({
+      secretId,
+      params,
+    }: {
+      secretId: string
+      params: UpdateSecretParams
+    }) =>
+      await secretsUpdateSecretById({
+        workspaceId,
+        secretId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Updated secret",
+        description: "Secret updated successfully.",
+      })
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+    },
+    onError: (error) => {
+      console.error("Failed to update secret", error)
+      toast({
+        title: "Failed to update secret",
+        description: "An error occurred while the secret.",
+      })
+    },
+  })
+
+  // Delete secret
+  const { mutateAsync: deleteSecretById } = useMutation({
+    mutationFn: async (secret: SecretResponse) =>
+      await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+      toast({
+        title: "Deleted secret",
+        description: "Secret deleted successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete credentials", error)
+      toast({
+        title: "Failed to delete secret",
+        description: "An error occurred while deleting the secret.",
+      })
+    },
+  })
+  return {
+    secrets,
+    secretsIsLoading: isLoading,
+    secretsError: error,
+    createSecret,
+    updateSecretById,
+    deleteSecretById,
+  }
+}
+
+export function useUserManager() {
+  const queryClient = useQueryClient()
+  const {
+    isPending: updateCurrentUserPending,
+    mutateAsync: updateCurrentUser,
+  } = useMutation({
+    mutationFn: async (params: UserUpdate) =>
+      await usersUsersPatchCurrentUser({
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user"] })
+      queryClient.invalidateQueries({ queryKey: ["auth"] })
+      toast({
+        title: "Updated user",
+        description: "User updated successfully.",
+      })
+    },
+    onError: (error: ApiError) => {
+      switch (error.status) {
+        case 400:
+          console.error("User with email already exists", error)
+          toast({
+            title: "User with email already exists",
+            description: "User with this email already exists.",
+          })
+          break
+        default:
+          console.error("Failed to update user", error)
+          toast({
+            title: "Failed to update user",
+            description: "An error occurred while updating the user.",
+          })
+      }
+    },
+  })
+  return {
+    updateCurrentUser,
+    updateCurrentUserPending,
   }
 }

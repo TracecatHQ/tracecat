@@ -212,9 +212,9 @@ export const columns: ColumnDef<Case>[] = [
         <div className="flex space-x-2">
           <span className="max-w-[300px] flex-col space-y-1 text-xs text-muted-foreground">
             {tags.length > 0
-              ? tags.map(({ tag, value, is_ai_generated }, idx) => (
+              ? tags.map(({ tag, value }, idx) => (
                   <StatusBadge key={idx}>
-                    <AIGeneratedFlair isAIGenerated={is_ai_generated}>
+                    <AIGeneratedFlair>
                       {tag}:{value}
                     </AIGeneratedFlair>
                   </StatusBadge>

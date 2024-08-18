@@ -27,7 +27,7 @@ class TracecatTransformer(Transformer):
 class ExprEvaluator(TracecatTransformer):
     _visitor_name = "ExprEvaluator"
 
-    def __init__(self, context: ExprContextType, strict: bool = True) -> None:
+    def __init__(self, context: ExprContextType, strict: bool = False) -> None:
         self._context = context
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
@@ -178,7 +178,18 @@ class ExprEvaluator(TracecatTransformer):
         logger.trace("Visiting binary_op:", lhs=lhs, op=op, rhs=rhs)
         return functions.OPERATORS[op](lhs, rhs)
 
-    # Terminals
+    @v_args(inline=True)
+    def jsonpath_expression(self, *args):
+        logger.trace("Visiting jsonpath expression", args=args)
+        return "".join(args)
+
+    @v_args(inline=True)
+    def jsonpath_segment(self, *args):
+        logger.trace("Visiting jsonpath segment", args=args)
+        return "".join(args)
+
+    """Terminals"""
+
     def JSONPATH(self, token: Token):
         logger.trace("Visiting jsonpath:", value=token.value)
         return token
@@ -223,4 +234,12 @@ class ExprEvaluator(TracecatTransformer):
 
     def ATTRIBUTE_PATH(self, token: Token):
         logger.trace("Visiting ATTRIBUTE_PATH:", value=token.value)
+        return token.value
+
+    def ATTRIBUTE_ACCESS(self, token: Token):
+        logger.trace("Visiting ATTRIBUTE_ACCESS:", value=token.value)
+        return token.value
+
+    def BRACKET_ACCESS(self, token: Token):
+        logger.trace("Visiting BRACKET_ACCESS:", value=token.value)
         return token.value

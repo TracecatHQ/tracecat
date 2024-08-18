@@ -1,242 +1,62 @@
 ---
 title: Quickstart
-description: Set up a VirusTotal email reporting workflow in 15 minutes.
+description: Build and deploy the classic VirusTotal enrichment playbook in 15 minutes.
 ---
 
-Tracecat can operate in **headless** (no UI) and **GUI** modes.
-The fastest way to get started with Tracecat is to run it locally in headless mode, in which the main interface will be the REST API.
+<Warning>
+If you haven't installed Tracecat yet, please check out our [self-hosting docs](/self-hosting/introduction) for step-by-step deployment instructions.
+</Warning>
 
-We'll build a simple workflow that does the following:
+## Introduction
+
+By the end of this quickstart, you will:
+- Create a new workflow,
+- Add a secret credential that allows Tracecat to access the VirusTotal API
+- 
+use integrations to automate a simple threat enrichment playbook,
+learn to work with Tracecat's built-in case management system,
+and run the workflow live.
+
+Let's get started!
+
+## Prerequisites
+- VirusTotal API key. You can obtain one for free from the [VirusTotal website](https://www.virustotal.com/gui/my-apikey).
+
+## Tutorial
 
 <Steps>
-  <Step title="Receive an incoming webhook request">
-    We'll send a HTTP request to the webhook with a malicious hash.
+  <Step title="Log into Tracecat">
+    <Note>
+        If you are working with a brand new Tracecat deployment, you can find the default admin user's email and password in the [authentication docs](/self-hosting/authentication/introduction).
+    </Note>
   </Step>
-  <Step title="Upload malicious hash to VirusTotal">
-    Make a HTTP request to the VirusTotal API to check the hash.
+  <Step title="Create a new workflow">
   </Step>
-  <Step title="Send an email with VirusTotal findings">
-    Send an email to yourself with the VirusTotal findings.
+  <Step title="Add secret">
+    Add your VirusTotal API key to workspace secrets.
+  </Step>
+  <Step title="Add enrichment step">
+    Go back to the workflow builder view.
+    Then from the trigger action, search and select the VirusTotal **Analyze URL** integration
+  </Step>
+  <Step title="Pass URL from webhook into analyze URL action inputs">
+    <Tip>
+        Tracecat comes with a powerful templating language called "expressions" to manipulate data directly in action inputs.
+        You can find out more [here in our docs](/concepts/expressions).
+    </Tip>
+    Use expressions and [JSONPath match syntax](https://www.ietf.org/archive/id/draft-ietf-jsonpath-base-01.html) to select data from the webhook trigger.
+  </Step>
+  <Step title="Add open case step">
+    From the analyze URL action, search and select the **Open Case** action.
+  </Step>
+  <Step title="Pass data from VirusTotal into open case inputs">
+  </Step>
+  <Step title="Commit (AKA save) workflow">
+  </Step>
+  <Step title="Trigger workflow from UI">
+  </Step>
+  <Step title="View workflow outputs">
+  </Step>
+  <Step title="Check if new case is created">
   </Step>
 </Steps>
-
-## Setup
-
-We'll be running Tracecat without authentication for this quickstart.
-
-## Step 1: Install Tracecat
-
-Follow the [installation guide](/installation) to install Tracecat and its dependencies (Temporal + ngrok).
-
-### Prerequisites
-
-- [VirusTotal API key](https://www.virustotal.com/gui/sign-in) (free tier)
-- [Resend API key](https://www.resend.com/) (free tier)
-
-### Install Tracecat CLI (optional)
-
-Requires Python 3.12. Run the following command:
-```bash
-cd tracecat && pip install .
-```
-
-## Step 2: Create a new workflow
-
-With Tracecat running, create a new workflow from your terminal:
-
-
-<CodeGroup>
-  ```bash Using curl
-  curl -X POST "$TRACECAT__PUBLIC_RUNNER_URL/workflows" \
-    -H "Authorization: Bearer super-secret-jwt-token" \
-    -H "Content-Type: application/json" \
-    -d '{"title":"My first workflow"}'
-  ```
-
-```bash Using Tracecat CLI
-tracecat workflow create --title "My first workflow"
-```
-</CodeGroup>
-
-Take note of the workflow ID (some `wf-xxxxxxxxxxxxxx`) returned. We'll refer to this as `$WORKFLOW_ID`.
-We recommend exporting this as an environment variable for convenience:
-
-```bash
-export WORKFLOW_ID=wf-... # Replace with the actual ID
-```
-
-<Note>
-  Please replace `$WORKFLOW_ID` with the actual ID in the following steps if you
-  choose not to export it.
-</Note>
-
-## Step 3: Build the workflow using YAML
-
-Create a file called `playbook.yml` and paste the following contents:
-
-```yaml virustotal_email.yml
-title: Send Virustotal report to email
-description: |
-  Scan a malicious hash on Virustotal and
-  send the results to an email address.
-
-inputs:
-  # CHANGE THIS TO YOUR EMAIL ADDRESS
-  email_address: hello@world.com
-
-entrypoint: call_virustotal
-triggers:
-  - type: webhook
-    ref: my_webhook
-    entrypoint: call_virustotal
-
-actions:
-  - ref: call_virustotal
-    action: core.http_request
-    args:
-      url: https://www.virustotal.com/api/v3/files/${{ TRIGGER.hash }}
-      method: GET
-      headers:
-        x-apikey: ${{ SECRETS.virustotal.VT_API_KEY }}
-
-  - ref: send_email_with_virustotal_results
-    action: core.send_email
-    depends_on:
-      - call_virustotal
-    args:
-      recipients:
-        - ${{ INPUTS.email_address }}
-      subject: Malware report for ${{ TRIGGER.hash }}
-      body: |
-        Hello!
-
-        Below is the daily malware report summary for the file.
-
-        1. File Identification
-
-        SHA256: ${{ ACTIONS.call_virustotal.result.data.data.attributes.sha256 }}
-        File Names: ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.names) -> str }}
-
-        2. Submission Dates
-
-        First Submission: ${{ ACTIONS.call_virustotal.result.data.data.attributes.first_submission_date }}
-        Last Analysis: ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_date }}
-
-        3. Analysis Results
-
-        Malicious Detections:
-        ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_results }}
-
-        4. Detection Tags
-
-        ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.tags) -> str }}
-        5. File Details
-
-        ~Tracecat
-```
-
-## Step 4. Create secrets
-
-Create secrets for the VirusTotal and Resend API keys:
-
-<CodeGroup>
-```bash Using curl
-# Replace 'your-virustotal-api-key' with the actual key
-curl -X PUT  "$TRACECAT__API_URL/secrets" \
-  -H "Authorization: Bearer super-secret-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type":"custom",
-    "name":"virustotal",
-    "keys":[
-      {
-        "key":"VT_API_KEY",
-        "value": "your-virustotal-api-key"
-      }
-    ]
-  }'
-
-# Replace `your-resend-api-key` with the actual key
-curl -X PUT  "$TRACECAT__API_URL/secrets" \
-  -H "Authorization: Bearer super-secret-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type":"custom",
-    "name":"resend_api_key",
-    "keys":[
-      {
-        "key":"RESEND_API_KEY",
-        "value": "your-resend-api-key"
-      }
-    ]
-  }'
-```
-
-```bash Using Tracecat CLI
-tracecat secret create virustotal VT_API_KEY=your-virustotal-api-key
-tracecat secret create resend RESEND_API_KEY=your-resend-api-key
-```
-</CodeGroup>
-
-## Step 4: Commit workflow changes
-
-We now run the following command to convert the YAML file into a [Workflow Definition](/workflow-definition),
-meaning it can now be executed by Tracecat workflow runners.
-
-<CodeGroup>
-```bash Using curl
-curl -X POST "$TRACECAT__API_URL/workflows/$WORKFLOW_ID/commit" \
-  -H "Authorization: Bearer super-secret-jwt-token" \
-  -F "yaml_file=@/path/to/slack_notifications_for_aws_guardduty.yml"
-```
-
-```bash Using Tracecat CLI
-tracecat workflow commit --file /path/to/playbook.yml $WORKFLOW_ID
-```
-</CodeGroup>
-
-
-## Step 5: Activate workflow and webhook
-
-On creation, workflows and their webhooks are deactivated by default.
-You need to enable them before they can be triggered.
-
-<CodeGroup>
-```bash Using curl
-curl -X PATCH  "$TRACECAT__API_URL/workflows/$WORKFLOW_ID/webhook" \
-  -H "Authorization: Bearer super-secret-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"online"}'
-
-curl -X PATCH  "$TRACECAT__API_URL/workflows/$WORKFLOW_ID" \
-  -H "Authorization: Bearer super-secret-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"online"}'
-```
-
-```bash Using Tracecat CLI
-tracecat workflow up --webhook $WORKFLOW_ID
-```
-</CodeGroup>
-
-## Step 6: Run workflow
-
-First fetch the webhook URL:
-
-```bash Get the webhook URL
-curl -X GET "$TRACECAT__API_URL/workflows/$WORKFLOW_ID/webhook" -H "Authorization: Bearer super-secret-jwt-token"
-```
-
-Then send a POST request to the webhook URL. The POST request should contain the hash of the malicious file you want to check.
-Check out [MalwareBazaar](https://bazaar.abuse.ch/verify-ua/) for a list of malicious hashes.
-
-<CodeGroup>
-```bash Using curl
-# Replace $WEBHOOK_URL and 'your-malicious-hash' with the actual URL
-curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d '{"hash":"your-malicious-hash"}'
-```
-
-```bash Using Tracecat CLI
-tracecat workflow run --data '{"hash":"your-malicious-hash"}' $WORKFLOW_ID
-```
-</CodeGroup>

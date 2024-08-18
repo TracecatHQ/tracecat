@@ -19,7 +19,7 @@ from fastapi_users.openapi import OpenAPIResponseType
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.auth.schemas import UserCreate
+from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -153,27 +153,27 @@ current_active_user = fastapi_users.current_user(active=True)
 optional_current_active_user = fastapi_users.current_user(active=True, optional=True)
 
 
-async def create_user(params: UserCreate, exist_ok: bool = True) -> User | None:
-    try:
-        async with get_async_session_context_manager() as session:
-            async with get_user_db_context(session) as user_db:
-                async with get_user_manager_context(user_db) as user_manager:
+async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
+    async with get_async_session_context_manager() as session:
+        async with get_user_db_context(session) as user_db:
+            async with get_user_manager_context(user_db) as user_manager:
+                try:
                     user = await user_manager.create(params)
                     logger.info(f"User created {user}")
                     return user
-    except UserAlreadyExists:
-        logger.warning(f"User {params.email} already exists")
-        if not exist_ok:
-            raise
-        return None
+                except UserAlreadyExists:
+                    logger.warning(f"User {params.email} already exists")
+                    if not exist_ok:
+                        raise
+                    return await user_manager.get_by_email(params.email)
 
 
 async def get_user_db_sqlmodel(session: AsyncSession = Depends(get_async_session)):
     yield SQLModelUserDatabaseAsync(session, User, OAuthAccount)
 
 
-def create_default_admin_user() -> Awaitable[User]:
-    return create_user(default_admin_user(), exist_ok=True)
+def get_or_create_default_admin_user() -> Awaitable[User]:
+    return get_or_create_user(default_admin_user(), exist_ok=True)
 
 
 def default_admin_user() -> UserCreate:
@@ -184,4 +184,5 @@ def default_admin_user() -> UserCreate:
         password="password",
         is_superuser=True,
         is_verified=True,
+        role=UserRole.ADMIN,
     )

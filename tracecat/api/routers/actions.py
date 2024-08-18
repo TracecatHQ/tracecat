@@ -5,7 +5,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Action
 from tracecat.types.api import (
@@ -21,13 +21,13 @@ router = APIRouter(prefix="/actions")
 
 @router.get("", tags=["actions"])
 async def list_actions(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     workflow_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> list[ActionMetadataResponse]:
     """List all actions for a workflow."""
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.workflow_id == workflow_id,
     )
     results = await session.exec(statement)
@@ -49,13 +49,13 @@ async def list_actions(
 
 @router.post("", tags=["actions"])
 async def create_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     params: CreateActionParams,
     session: AsyncSession = Depends(get_async_session),
 ) -> ActionMetadataResponse:
     """Create a new action for a workflow."""
     action = Action(
-        owner_id=role.user_id,
+        owner_id=role.workspace_id,
         workflow_id=params.workflow_id,
         type=params.type,
         title=params.title,
@@ -63,7 +63,7 @@ async def create_action(
     )
     # Check if a clashing action ref exists
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.workflow_id == action.workflow_id,
         Action.ref == action.ref,
     )
@@ -92,14 +92,14 @@ async def create_action(
 
 @router.get("/{action_id}", tags=["actions"])
 async def get_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     action_id: str,
     workflow_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> ActionResponse:
     """Get an action."""
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.id == action_id,
         Action.workflow_id == workflow_id,
     )
@@ -125,7 +125,7 @@ async def get_action(
 
 @router.post("/{action_id}", tags=["actions"])
 async def update_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     action_id: str,
     params: UpdateActionParams,
     session: AsyncSession = Depends(get_async_session),
@@ -133,7 +133,7 @@ async def update_action(
     """Update an action."""
     # Fetch the action by id
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.id == action_id,
     )
     result = await session.exec(statement)
@@ -172,13 +172,13 @@ async def update_action(
 
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"])
 async def delete_action(
-    role: Annotated[Role, Depends(authenticate_user)],
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     action_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete an action."""
     statement = select(Action).where(
-        Action.owner_id == role.user_id,
+        Action.owner_id == role.workspace_id,
         Action.id == action_id,
     )
     result = await session.exec(statement)

@@ -1,13 +1,19 @@
 import Link from "next/link"
+import { WorkflowMetadataResponse } from "@/client"
 
-import { WorkflowMetadata } from "@/types/schemas"
 import { cn } from "@/lib/utils"
 
-export function WorkflowItem({ workflow }: { workflow: WorkflowMetadata }) {
+export function WorkflowItem({
+  workspaceId,
+  workflow,
+}: {
+  workspaceId: string
+  workflow: WorkflowMetadataResponse
+}) {
   return (
     <Link
       key={workflow.id}
-      href={`/workflows/${workflow.id}`}
+      href={`/workspaces/${workspaceId}/workflows/${workflow.id}`}
       className={cn(
         "flex min-h-24 min-w-[600px] flex-col items-start justify-start rounded-lg border p-6 text-left text-sm shadow-md transition-all hover:bg-accent",
         "dark:bg-muted dark:text-white dark:hover:bg-muted dark:hover:text-white"

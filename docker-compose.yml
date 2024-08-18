@@ -3,6 +3,8 @@ services:
     image: caddy:2.8.4-alpine
     container_name: caddy
     restart: unless-stopped
+    networks:
+      - core
     ports:
       - 80:80
     environment:
@@ -12,11 +14,13 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.6.4}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.7.0}
     container_name: api
     restart: unless-stopped
-    ports:
-      - 8000:8000
+    networks:
+      - core
+      - core-db
+      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -37,12 +41,14 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-    volumes:
-      - core-app:/var/lib/tracecat
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.6.4}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.7.0}
     restart: unless-stopped
+    networks:
+      - core
+      - core-db
+      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -60,22 +66,26 @@ services:
       # SMTP
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
-      SMTP_STARTTL_ENABLED: ${SMTP_STARTTLS}
-      SMTP_SSL_ENABLED: ${SMTP_SSL}
+      SMTP_STARTTLS_ENABLED: ${SMTP_STARTTLS_ENABLED}
+      SMTP_SSL_ENABLED: ${SMTP_SSL_ENABLED}
       SMTP_IGNORE_CERT_ERRORS: ${SMTP_IGNORE_CERT_ERRORS}
-      SMTP_AUTH_ENABLED: ${SMTP_AUTH}
+      SMTP_AUTH_ENABLED: ${SMTP_AUTH_ENABLED}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
-    volumes:
-      - core-app:/var/lib/tracecat
+      # LDAP
+      LDAP_HOST: ${LDAP_HOST}
+      LDAP_PORT: ${LDAP_PORT}
+      LDAP_SSL: ${LDAP_SSL}
+      LDAP_TYPE: ${LDAP_TYPE}
+
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.6.4}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.7.0}
     container_name: ui
     restart: unless-stopped
-    ports:
-      - 3000:3000
+    networks:
+      - core
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
@@ -90,8 +100,8 @@ services:
     image: postgres:16
     container_name: postgres_db
     restart: always
-    ports:
-      - 5432:5432
+    networks:
+      - core-db
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
@@ -103,6 +113,8 @@ services:
     image: postgres:13
     container_name: temporal_postgres_db
     restart: always
+    networks:
+      - temporal-db
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
@@ -113,8 +125,9 @@ services:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
     container_name: temporal
     restart: always
-    ports:
-      - 7233:7233
+    networks:
+      - temporal
+      - temporal-db
     environment:
       - DB=postgres12
       - DB_PORT=5432
@@ -125,18 +138,14 @@ services:
     depends_on:
       - temporal_postgres_db
 
-  temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
-    container_name: temporal_ui
-    ports:
-      - 8080:8080
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-    depends_on:
-      - temporal
-
 volumes:
-  core-app:
   core-db:
   temporal-db:
+
+networks:
+  core:
+  core-db:
+    internal: true
+  temporal:
+  temporal-db:
+    internal: true

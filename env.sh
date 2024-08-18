@@ -76,8 +76,8 @@ dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
 
 # Prompt user for environment mode
 while true; do
-    read -p "Use production mode? (y/n, default: n): " prod_mode
-    prod_mode=${prod_mode:-n}
+    read -p "Use production mode? (y/n, default: y): " prod_mode
+    prod_mode=${prod_mode:-y}
     case $prod_mode in
         [Yy]* )
             env_mode="production"

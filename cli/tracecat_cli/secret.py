@@ -1,4 +1,3 @@
-import asyncio
 from typing import TypedDict
 
 import orjson
@@ -6,8 +5,8 @@ import rich
 import typer
 from rich.console import Console
 
-from ._client import Client
-from ._utils import dynamic_table
+from .client import Client
+from .utils import dynamic_table, pprint_json
 
 app = typer.Typer(no_args_is_help=True, help="Manage secrets.")
 
@@ -61,8 +60,7 @@ def list_secrets(
         result = Client.handle_response(res)
 
     if as_json:
-        out = orjson.dumps(result, option=orjson.OPT_INDENT_2).decode()
-        rich.print(out)
+        pprint_json(result)
     elif not result:
         rich.print("[cyan]No secrets found[/cyan]")
     else:
@@ -86,13 +84,17 @@ def delete(
         rich.print("Aborted")
         return
 
-    async def _delete():
-        async with Client() as client, asyncio.TaskGroup() as tg:
+    try:
+        with Client() as client:
             for name in secret_names:
-                tg.create_task(client.delete(f"/secrets/{name}"))
-
-    asyncio.run(_delete())
-    rich.print("[green]Secret deleted successfully![/green]")
+                get_response = client.get(f"/secrets/{name}")
+                secret = Client.handle_response(get_response)
+                del_response = client.delete(f"/secrets/{secret['id']}")
+                del_response.raise_for_status()
+        rich.print("[green]Secret deleted successfully![/green]")
+    except Exception as e:
+        rich.print(f"[red]Error: {e}[/red]")
+        return
 
 
 @app.command(no_args_is_help=True, help="Update a secret.")

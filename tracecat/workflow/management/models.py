@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import UUID4, BaseModel
+from pydantic import BaseModel
 
-from tracecat import identifiers
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Schedule, Workflow
 from tracecat.dsl.models import ActionStatement
+from tracecat.identifiers import OwnerID, WorkflowID
 from tracecat.types.api import (
     ActionResponse,
     UDFArgsValidationResponse,
@@ -29,7 +29,7 @@ class WorkflowResponse(BaseModel):
     status: str
     actions: dict[str, ActionResponse]
     object: dict[str, Any] | None  # React Flow object
-    owner_id: UUID4
+    owner_id: OwnerID
     version: int | None = None
     webhook: WebhookResponse
     schedules: list[Schedule]
@@ -70,7 +70,7 @@ class CreateWorkflowParams(BaseModel):
 class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
     task: ActionStatement
-    workflow_id: identifiers.WorkflowID
+    workflow_id: WorkflowID
     trigger_inputs: dict[str, Any]
     version: int | None = None
     run_context: RunContext

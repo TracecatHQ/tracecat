@@ -45,6 +45,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-schedule-runner",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
+TRACECAT__DEFAULT_ORG_ID = uuid.UUID(int=0)
 
 # === DB Config === #
 TRACECAT__DB_URI = os.environ.get(

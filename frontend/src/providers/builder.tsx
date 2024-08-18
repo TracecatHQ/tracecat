@@ -19,11 +19,12 @@ import {
 
 import { slugify } from "@/lib/utils"
 import { updateWorkflowGraphObject } from "@/lib/workflow"
-import { NodeType } from "@/components/workspace/canvas/canvas"
+import { NodeType } from "@/components/workbench/canvas/canvas"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
   workflowId: string | null
+  workspaceId: string
   selectedNodeId: string | null
   getNode: (id: string) => NodeType | undefined
   getNodeRef: (id?: string) => string | undefined
@@ -43,7 +44,7 @@ export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
-  const { workflowId, error } = useWorkflow()
+  const { workspaceId, workflowId, error } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   if (!workflowId) {
@@ -53,14 +54,14 @@ export const WorkflowBuilderProvider: React.FC<
   const setReactFlowNodes = useCallback(
     (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
       reactFlowInstance.setNodes(nodes)
-      updateWorkflowGraphObject(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workspaceId, workflowId, reactFlowInstance)
     },
     [workflowId, reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
     (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
       reactFlowInstance.setEdges(edges)
-      updateWorkflowGraphObject(workflowId, reactFlowInstance)
+      updateWorkflowGraphObject(workspaceId, workflowId, reactFlowInstance)
     },
     [workflowId, reactFlowInstance]
   )
@@ -82,6 +83,7 @@ export const WorkflowBuilderProvider: React.FC<
     <ReactFlowInteractionsContext.Provider
       value={{
         workflowId,
+        workspaceId,
         selectedNodeId,
         getNode: reactFlowInstance.getNode,
         setNodes: setReactFlowNodes,
