@@ -11,7 +11,7 @@ IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 @registry.register(
     default_title="Extract IPv4 addresses",
     description="Extract unique IPv4 addresses from a list of strings.",
-    namespace="core.extraction",
+    namespace="etl.extraction",
     display_group="Data Extraction",
 )
 def extract_ipv4_addresses(
