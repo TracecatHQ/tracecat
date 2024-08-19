@@ -28,8 +28,8 @@ Use the commands listed below to download the required configuration files
 (`env.sh`, `.env.example`) and generate your own `.env` file.
 
 ```bash
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/.env.example
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/.env.example
 chmod +x env.sh && ./env.sh
 ```
 
@@ -41,7 +41,7 @@ Press enter to select the default options.
 ## Download Docker Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/docker-compose.yml
 ```
 
 ## Start Tracecat
@@ -66,5 +66,5 @@ Tracecat comes with a REST API, you can visit the live API docs at `http://local
 
 - Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
 - Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/introduction).
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.0/.env.example)
+- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/.env.example)
 - (Optional) Configure external-facing webhooks. [View docs](/self-hosting/webhooks).
