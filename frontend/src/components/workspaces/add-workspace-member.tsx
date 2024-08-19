@@ -101,7 +101,6 @@ export function AddWorkspaceMember({
               Add a user to the <b className="inline-block">{workspace.name}</b>{" "}
               workspace.
             </span>
-            ccbkvnukcbdeeudu
           </div>
         </DialogHeader>
         <Form {...methods}>
