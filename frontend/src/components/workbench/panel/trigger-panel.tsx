@@ -243,7 +243,8 @@ export function WebhookControls({
   webhook: WebhookResponse
   workflowId: string
 }) {
-  const { mutateAsync } = useUpdateWebhook(workflowId)
+  const { workspaceId } = useWorkspace()
+  const { mutateAsync } = useUpdateWebhook(workspaceId, workflowId)
   const onCheckedChange = async (checked: boolean) => {
     await mutateAsync({
       status: checked ? "online" : "offline",

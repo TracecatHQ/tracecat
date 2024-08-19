@@ -29,8 +29,10 @@ import {
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
+  triggersUpdateWebhook,
   UpdateActionParams,
   UpdateSecretParams,
+  UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
   WorkflowExecutionResponse,
@@ -49,7 +51,6 @@ import Cookies from "js-cookie"
 
 import { type WorkflowMetadata } from "@/types/schemas"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
-import { updateWebhook } from "@/lib/trigger"
 import { isEmptyObject } from "@/lib/utils"
 import { fetchAllPlaybooks } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
@@ -257,14 +258,15 @@ export function usePanelAction(
   }
 }
 
-export function useUpdateWebhook(workflowId: string) {
+export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: async (params: {
-      entrypointRef?: string
-      method?: "GET" | "POST"
-      status?: "online" | "offline"
-    }) => await updateWebhook(workflowId, params),
+    mutationFn: async (params: UpsertWebhookParams) =>
+      await triggersUpdateWebhook({
+        workspaceId,
+        workflowId,
+        requestBody: params,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
