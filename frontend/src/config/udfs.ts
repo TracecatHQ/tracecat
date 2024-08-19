@@ -1,3 +1,3 @@
 export const udfConfig = {
-  namespaces: ["core", "integrations"],
+  namespaces: ["core", "integrations", "etl"],
 }
