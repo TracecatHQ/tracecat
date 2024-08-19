@@ -146,10 +146,12 @@ export function WorkspaceMembersTable({
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel>Admin</DropdownMenuLabel>
                         <DropdownMenuItem
+                          disabled
                           onClick={() =>
-                            console.log("Change role", row.original)
+                            console.log("Change role is not available yet")
                           }
                         >
+                          {/* Feature not available yet */}
                           Change role
                         </DropdownMenuItem>
                         <AlertDialogTrigger asChild>
