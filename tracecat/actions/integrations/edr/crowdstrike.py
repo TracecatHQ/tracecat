@@ -87,14 +87,20 @@ async def list_crowdstrike_alerts(
     ],
     filter: Annotated[
         str | None,
-        Field(..., description="(Optional) Falcon Query Language (FQL) filter to apply to alerts. If specified, overrides `start_time` and `end_time`."),
+        Field(
+            ...,
+            description="(Optional) Falcon Query Language (FQL) filter to apply to alerts. If specified, overrides `start_time` and `end_time`.",
+        ),
     ] = None,
     limit: Annotated[
         int, Field(default=9999, description="Maximum number of alerts to return.")
     ] = 9999,
 ) -> list[dict[str, Any]]:
     falcon = Alerts(**get_crowdstrike_credentials())
-    filter = filter or f"created_timestamp:>='{start_time.isoformat()}' + created_timestamp:<='{end_time.isoformat()}'"
+    filter = (
+        filter
+        or f"created_timestamp:>='{start_time.isoformat()}' + created_timestamp:<='{end_time.isoformat()}'"
+    )
     response = falcon.query_alerts_v2(
         limit=limit,
         filter=filter,
@@ -120,14 +126,20 @@ async def list_crowdstrike_detects(
     ],
     filter: Annotated[
         str | None,
-        Field(..., description="(Optional) Falcon Query Language (FQL) filter to apply to alerts. If specified, overrides `start_time` and `end_time`."),
+        Field(
+            ...,
+            description="(Optional) Falcon Query Language (FQL) filter to apply to alerts. If specified, overrides `start_time` and `end_time`.",
+        ),
     ] = None,
     limit: Annotated[
         int, Field(default=9999, description="Maximum number of alerts to return.")
     ] = 9999,
 ) -> list[dict[str, Any]]:
     falcon = Detects(**get_crowdstrike_credentials())
-    filter = filter or f"created_timestamp:>='{start_time.isoformat()}' + created_timestamp:<='{end_time.isoformat()}'"
+    filter = (
+        filter
+        or f"created_timestamp:>='{start_time.isoformat()}' + created_timestamp:<='{end_time.isoformat()}'"
+    )
     response = falcon.query_detects(
         limit=limit,
         filter=filter,
