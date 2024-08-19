@@ -327,15 +327,6 @@
           ]
         },
         {
-          "group": "example",
-          "pages": [
-            "integrations/udfs/example_add",
-            "integrations/udfs/example_another_function",
-            "integrations/udfs/example_my_function",
-            "integrations/udfs/example_passthrough"
-          ]
-        },
-        {
           "group": "integrations",
           "pages": [
             {
