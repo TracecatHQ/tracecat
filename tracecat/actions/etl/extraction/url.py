@@ -11,7 +11,7 @@ URL_REGEX = r'https?://(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(?:/[^\s"\'\],\.]*)?'
 @registry.register(
     default_title="Extract URLs",
     description="Extract unique URLs from a list of strings.",
-    namespace="integrations.extraction",
+    namespace="etl.extraction",
     display_group="Data Extraction",
 )
 def extract_urls(

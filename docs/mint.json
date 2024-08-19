@@ -123,17 +123,27 @@
           "group": "Reference",
           "pages": [
             {
-              "group": "API Reference",
-              "pages": [
-                "api-reference/reference/check-health",
-                "api-reference/reference/validate-workflow"
-              ]
-            },
-            {
               "group": "public",
               "pages": [
                 "api-reference/reference/public/incoming-webhook",
-                "api-reference/reference/public/webhook-callback"
+                "api-reference/reference/public/incoming-webhook-wait",
+                "api-reference/reference/public/webhook-callback",
+                "api-reference/reference/public/check-health"
+              ]
+            },
+            {
+              "group": "workspaces",
+              "pages": [
+                "api-reference/reference/workspaces/list-workspaces",
+                "api-reference/reference/workspaces/create-workspace",
+                "api-reference/reference/workspaces/search-workspaces",
+                "api-reference/reference/workspaces/get-workspace",
+                "api-reference/reference/workspaces/delete-workspace",
+                "api-reference/reference/workspaces/update-workspace",
+                "api-reference/reference/workspaces/list-workspace-memberships",
+                "api-reference/reference/workspaces/create-workspace-membership",
+                "api-reference/reference/workspaces/get-workspace-membership",
+                "api-reference/reference/workspaces/delete-workspace-membership"
               ]
             },
             {
@@ -144,17 +154,9 @@
                 "api-reference/reference/workflows/get-workflow",
                 "api-reference/reference/workflows/delete-workflow",
                 "api-reference/reference/workflows/update-workflow",
-                "api-reference/reference/workflows/copy-workflow",
                 "api-reference/reference/workflows/commit-workflow",
                 "api-reference/reference/workflows/get-workflow-definition",
-                "api-reference/reference/workflows/trigger-workflow-run"
-              ]
-            },
-            {
-              "group": "workflow-executions",
-              "pages": [
-                "api-reference/reference/workflow-executions/list-workflow-executions",
-                "api-reference/reference/workflow-executions/get-workflow-execution"
+                "api-reference/reference/workflows/create-workflow-definition"
               ]
             },
             {
@@ -163,6 +165,65 @@
                 "api-reference/reference/triggers/get-webhook",
                 "api-reference/reference/triggers/create-webhook",
                 "api-reference/reference/triggers/update-webhook"
+              ]
+            },
+            {
+              "group": "workflow-executions",
+              "pages": [
+                "api-reference/reference/workflow-executions/list-workflow-executions",
+                "api-reference/reference/workflow-executions/create-workflow-execution",
+                "api-reference/reference/workflow-executions/get-workflow-execution",
+                "api-reference/reference/workflow-executions/list-workflow-execution-event-history",
+                "api-reference/reference/workflow-executions/cancel-workflow-execution",
+                "api-reference/reference/workflow-executions/terminate-workflow-execution"
+              ]
+            },
+            {
+              "group": "actions",
+              "pages": [
+                "api-reference/reference/actions/list-actions",
+                "api-reference/reference/actions/create-action",
+                "api-reference/reference/actions/get-action",
+                "api-reference/reference/actions/update-action",
+                "api-reference/reference/actions/delete-action"
+              ]
+            },
+            {
+              "group": "udfs",
+              "pages": [
+                "api-reference/reference/udfs/list-udfs",
+                "api-reference/reference/udfs/get-udf",
+                "api-reference/reference/udfs/create-udf",
+                "api-reference/reference/udfs/validate-udf-args"
+              ]
+            },
+            {
+              "group": "cases",
+              "pages": [
+                "api-reference/reference/cases/list-cases",
+                "api-reference/reference/cases/create-case",
+                "api-reference/reference/cases/get-case",
+                "api-reference/reference/cases/update-case",
+                "api-reference/reference/cases/list-case-events",
+                "api-reference/reference/cases/create-case-event",
+                "api-reference/reference/cases/get-case-event",
+                "api-reference/reference/cases/list-case-actions",
+                "api-reference/reference/cases/create-case-action",
+                "api-reference/reference/cases/delete-case-action",
+                "api-reference/reference/cases/list-case-contexts",
+                "api-reference/reference/cases/create-case-context",
+                "api-reference/reference/cases/delete-case-context"
+              ]
+            },
+            {
+              "group": "secrets",
+              "pages": [
+                "api-reference/reference/secrets/list-secrets",
+                "api-reference/reference/secrets/create-secret",
+                "api-reference/reference/secrets/get-secret",
+                "api-reference/reference/secrets/update-secret-by-id",
+                "api-reference/reference/secrets/delete-secret-by-id",
+                "api-reference/reference/secrets/search-secrets"
               ]
             },
             {
@@ -177,67 +238,34 @@
               ]
             },
             {
-              "group": "actions",
+              "group": "validation",
               "pages": [
-                "api-reference/reference/actions/list-actions",
-                "api-reference/reference/actions/create-action",
-                "api-reference/reference/actions/get-action",
-                "api-reference/reference/actions/update-action",
-                "api-reference/reference/actions/delete-action"
-              ]
-            },
-            {
-              "group": "events",
-              "pages": [
-                "api-reference/reference/events/search-events"
-              ]
-            },
-            {
-              "group": "cases",
-              "pages": [
-                "api-reference/reference/cases/list-cases",
-                "api-reference/reference/cases/create-case",
-                "api-reference/reference/cases/get-case",
-                "api-reference/reference/cases/update-case",
-                "api-reference/reference/cases/list-case-events",
-                "api-reference/reference/cases/create-case-event",
-                "api-reference/reference/cases/get-case-event",
-                "api-reference/reference/cases/get-case-metrics",
-                "api-reference/reference/cases/list-case-actions",
-                "api-reference/reference/cases/create-case-action",
-                "api-reference/reference/cases/delete-case-action",
-                "api-reference/reference/cases/list-case-contexts",
-                "api-reference/reference/cases/create-case-context",
-                "api-reference/reference/cases/delete-case-context",
-                "api-reference/reference/cases/streaming-autofill-case-fields"
+                "api-reference/reference/validation/validate-workflow"
               ]
             },
             {
               "group": "users",
               "pages": [
-                "api-reference/reference/users/get-user",
-                "api-reference/reference/users/update-user",
-                "api-reference/reference/users/delete-user"
+                "api-reference/reference/users/search-user",
+                "api-reference/reference/users/users:current-user",
+                "api-reference/reference/users/users:patch-current-user",
+                "api-reference/reference/users/users:user",
+                "api-reference/reference/users/users:delete-user",
+                "api-reference/reference/users/users:patch-user"
               ]
             },
             {
-              "group": "secrets",
+              "group": "auth",
               "pages": [
-                "api-reference/reference/secrets/list-secrets",
-                "api-reference/reference/secrets/create-secret",
-                "api-reference/reference/secrets/get-secret",
-                "api-reference/reference/secrets/update-secret",
-                "api-reference/reference/secrets/delete-secret",
-                "api-reference/reference/secrets/search-secrets"
-              ]
-            },
-            {
-              "group": "udfs",
-              "pages": [
-                "api-reference/reference/udfs/list-udfs",
-                "api-reference/reference/udfs/get-udf",
-                "api-reference/reference/udfs/create-udf",
-                "api-reference/reference/udfs/validate-udf-args"
+                "api-reference/reference/auth/auth:databaselogin",
+                "api-reference/reference/auth/auth:databaselogout",
+                "api-reference/reference/auth/register:register",
+                "api-reference/reference/auth/reset:forgot-password",
+                "api-reference/reference/auth/reset:reset-password",
+                "api-reference/reference/auth/verify:request-token",
+                "api-reference/reference/auth/verify:verify",
+                "api-reference/reference/auth/oauth:googledatabaseauthorize",
+                "api-reference/reference/auth/oauth:googledatabasecallback"
               ]
             }
           ]
@@ -266,16 +294,9 @@
                 "integrations/udfs/core_condition_regex"
               ]
             },
-            {
-              "group": "extraction",
-              "pages": [
-                "integrations/udfs/core_extraction_extract_emails",
-                "integrations/udfs/core_extraction_extract_ipv4_addresses"
-              ]
-            },
             "integrations/udfs/core_http_request",
             "integrations/udfs/core_open_case",
-            "integrations/udfs/core_send_email",
+            "integrations/udfs/core_send_email_smtp",
             {
               "group": "transform",
               "pages": [
@@ -283,16 +304,26 @@
                 "integrations/udfs/core_transform_filter",
                 "integrations/udfs/core_transform_reshape"
               ]
+            },
+            {
+              "group": "workflow",
+              "pages": [
+                "integrations/udfs/core_workflow_execute"
+              ]
             }
           ]
         },
         {
-          "group": "example",
+          "group": "etl",
           "pages": [
-            "integrations/udfs/example_add",
-            "integrations/udfs/example_another_function",
-            "integrations/udfs/example_my_function",
-            "integrations/udfs/example_passthrough"
+            {
+              "group": "extraction",
+              "pages": [
+                "integrations/udfs/etl_extraction_extract_emails",
+                "integrations/udfs/etl_extraction_extract_ipv4_addresses",
+                "integrations/udfs/etl_extraction_extract_urls"
+              ]
+            }
           ]
         },
         {
@@ -315,8 +346,10 @@
                 {
                   "group": "slack",
                   "pages": [
+                    "integrations/udfs/integrations_chat_slack_list_slack_conversations",
                     "integrations/udfs/integrations_chat_slack_list_slack_users",
-                    "integrations/udfs/integrations_chat_slack_post_slack_message"
+                    "integrations/udfs/integrations_chat_slack_post_slack_message",
+                    "integrations/udfs/integrations_chat_slack_tag_slack_users"
                   ]
                 }
               ]
@@ -343,9 +376,22 @@
               ]
             },
             {
-              "group": "extraction",
+              "group": "email",
               "pages": [
-                "integrations/udfs/integrations_extraction_extract_urls"
+                {
+                  "group": "resend",
+                  "pages": [
+                    "integrations/udfs/integrations_email_resend_send_email_resend"
+                  ]
+                }
+              ]
+            },
+            {
+              "group": "ldap",
+              "pages": [
+                "integrations/udfs/integrations_ldap_disable_ad_user",
+                "integrations/udfs/integrations_ldap_enable_ad_user",
+                "integrations/udfs/integrations_ldap_find_ldap_users"
               ]
             },
             {
@@ -356,9 +402,25 @@
               ]
             },
             {
+              "group": "okta",
+              "pages": [
+                "integrations/udfs/integrations_okta_expire_okta_sessions",
+                "integrations/udfs/integrations_okta_find_okta_users",
+                "integrations/udfs/integrations_okta_list_okta_user_events",
+                "integrations/udfs/integrations_okta_suspend_okta_user",
+                "integrations/udfs/integrations_okta_unsuspend_okta_user"
+              ]
+            },
+            {
               "group": "sentinel_one",
               "pages": [
+                "integrations/udfs/integrations_sentinel_one_get_sentinel_one_firewall_rule",
+                "integrations/udfs/integrations_sentinel_one_get_sentinelone_agents_by_hostname",
+                "integrations/udfs/integrations_sentinel_one_get_sentinelone_agents_by_username",
+                "integrations/udfs/integrations_sentinel_one_isolate_sentinelone_agent",
                 "integrations/udfs/integrations_sentinel_one_list_sentinelone_alerts",
+                "integrations/udfs/integrations_sentinel_one_unisolate_sentinelone_agent",
+                "integrations/udfs/integrations_sentinel_one_update_sentinel_one_firewall_rule",
                 "integrations/udfs/integrations_sentinel_one_update_sentinelone_alert_status"
               ]
             },

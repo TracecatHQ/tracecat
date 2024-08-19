@@ -1,11 +1,11 @@
 ---
-title: List Slack Users
-description: integrations.chat.slack.list_slack_users
+title: Tag Slack users in JSON objects
+description: integrations.chat.slack.tag_slack_users
 ---
 
-Fetch Slack users by team ID or list of emails.
+Extract emails from list of JSON objects, tags users (if exists), and returns list of JSONs with tagged users.
 
-This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `integrations.chat.slack.list_slack_users` integration.
+This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `integrations.chat.slack.tag_slack_users` integration.
 
 
 ## Secrets
@@ -20,6 +20,14 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
 {
     "additionalProperties": false,
     "properties": {
+        "jsons": {
+            "description": "List of JSONs to extract emails from and tag Slack users",
+            "items": {
+                "type": "object"
+            },
+            "title": "Jsons",
+            "type": "array"
+        },
         "team_id": {
             "anyOf": [
                 {
@@ -34,7 +42,10 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
             "title": "Team Id"
         }
     },
-    "title": "IntegrationsChatSlackListSlackUsers",
+    "required": [
+        "jsons"
+    ],
+    "title": "IntegrationsChatSlackTagSlackUsers",
     "type": "object"
 }
 ```
@@ -47,9 +58,6 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
 ```json JSONSchema7 Definition
 {
     "items": {
-        "additionalProperties": {
-            "type": "string"
-        },
         "type": "object"
     },
     "type": "array"

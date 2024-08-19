@@ -18,7 +18,7 @@ def normalize_email_address(email: str) -> str:
 @registry.register(
     default_title="Extract emails",
     description="Extract unique emails from a list of strings.",
-    namespace="core.extraction",
+    namespace="etl.extraction",
     display_group="Data Extraction",
 )
 def extract_emails(

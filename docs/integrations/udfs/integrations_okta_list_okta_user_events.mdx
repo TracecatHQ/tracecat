@@ -1,17 +1,17 @@
 ---
-title: List Crowdstrike alerts
-description: integrations.crowdstrike.list_crowdstrike_alerts
+title: List Okta user events
+description: integrations.okta.list_okta_user_events
 ---
 
-Fetch all Crowdstrike alerts from Falcon SIEM.
+List Okta events for a user.
 
-This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `integrations.crowdstrike.list_crowdstrike_alerts` integration.
+This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-notes) definition for the `integrations.okta.list_okta_user_events` integration.
 
 
 ## Secrets
 | Name | Keys |
 | --- | --- |
-| `crowdstrike` | `CROWDSTRIKE_CLIENT_ID`, `CROWDSTRIKE_CLIENT_SECRET` |
+| `okta` | `OKTA_BASE_URL`, `OKTA_API_TOKEN` |
 
 ## Inputs
 
@@ -26,24 +26,16 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
             "title": "End Time",
             "type": "string"
         },
-        "filter": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "default": null,
-            "description": "(Optional) Falcon Query Language (FQL) filter to apply to alerts. If specified, overrides `start_time` and `end_time`.",
-            "title": "Filter"
-        },
         "limit": {
-            "default": 9999,
+            "default": 1000,
             "description": "Maximum number of alerts to return.",
             "title": "Limit",
             "type": "integer"
+        },
+        "okta_user_id": {
+            "description": "Okta user id to list events for.",
+            "title": "Okta User Id",
+            "type": "string"
         },
         "start_time": {
             "description": "Start time, return alerts created after this time.",
@@ -53,10 +45,11 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
         }
     },
     "required": [
+        "okta_user_id",
         "start_time",
         "end_time"
     ],
-    "title": "IntegrationsCrowdstrikeListCrowdstrikeAlerts",
+    "title": "IntegrationsOktaListOktaUserEvents",
     "type": "object"
 }
 ```
