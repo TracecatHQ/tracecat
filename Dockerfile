@@ -30,17 +30,25 @@ RUN groupadd -g 1001 apiuser && \
 # Set the working directory inside the container
 WORKDIR /app
 
-# Change to the non-root user
-USER apiuser
-
 # Copy the application files into the container and set ownership
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
+COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
+COPY --chown=apiuser:apiuser ./alembic /app/alembic
+
+# Copy the entrypoint script
+COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Change to the non-root user
+USER apiuser
 
 # Install package
 RUN pip install --upgrade pip && pip install .
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Command to run the application
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]
