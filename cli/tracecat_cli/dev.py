@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+from collections import defaultdict
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -418,6 +419,10 @@ Note that the fully qualified namespace for each Core Action UDF is prefixed wit
 ## Integrations
 Note that the fully qualified namespace for each Integration UDF is prefixed with `integrations.`.
 {integrations_secrets_table}
+
+## ETL Actions
+Note that the fully qualified namespace for each ETL UDF is prefixed with `etl.`.
+{etl_secrets_table}
 """
 
 
@@ -434,31 +439,22 @@ def generate_secret_tables(
     registry.init()
 
     # Table of core UDFs required secrets
-    core_udfs_secrets = []
-    integrations_secrets = []
+    secrets = defaultdict(list)
     # Get UDF -> Secrets mapping
-    for key, udf in registry.filter():
-        match key.split("."):
-            case ["integrations", *stem, func]:
-                integrations_secrets.append(
-                    (
-                        ".".join(stem) if stem else "-",
-                        func,
-                        ", ".join(wrap(s.name, "`") for s in udf.secrets)
-                        if udf.secrets
-                        else "-",
-                    )
-                )
-            case ["core", *stem, func]:
-                core_udfs_secrets.append(
-                    (
-                        ".".join(stem) if stem else "-",
-                        func,
-                        ", ".join(wrap(s.name, "`") for s in udf.secrets)
-                        if udf.secrets
-                        else "-",
-                    )
-                )
+    blacklist = {"example"}
+    for key, udf in registry:
+        top_level_ns, *stem, func = key.split(".")
+        if top_level_ns in blacklist:
+            continue
+        secrets[top_level_ns].append(
+            (
+                ".".join(stem) if stem else "-",
+                func,
+                ", ".join(wrap(s.name, "`") for s in udf.secrets)
+                if udf.secrets
+                else "-",
+            )
+        )
 
     # Get all secrets -> secret keys
     api_credentials = set()
@@ -475,10 +471,14 @@ def generate_secret_tables(
             header=("Secret Name", "Secret Keys"), rows=list(api_credentials)
         ),
         core_udfs_secrets_table=create_markdown_table(
-            header=("Sub-namespace", "Function", "Secrets"), rows=core_udfs_secrets
+            header=("Sub-namespace", "Function", "Secrets"), rows=secrets["core"]
         ),
         integrations_secrets_table=create_markdown_table(
-            header=("Sub-namespace", "Function", "Secrets"), rows=integrations_secrets
+            header=("Sub-namespace", "Function", "Secrets"),
+            rows=secrets["integrations"],
+        ),
+        etl_secrets_table=create_markdown_table(
+            header=("Sub-namespace", "Function", "Secrets"), rows=secrets["etl"]
         ),
     )
 
