@@ -11,6 +11,7 @@ export type SiteConfig = {
     github: string
     discord: string
     docs: string
+    playbooks: string
   }
   ogImage: string
 }

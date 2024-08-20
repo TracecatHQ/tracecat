@@ -4,7 +4,7 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
-import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
+import { BlocksIcon, WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
@@ -26,16 +26,6 @@ export function WorkspaceNav() {
       >
         <WorkflowIcon className="mr-2 size-4" />
         <span>Workflows</span>
-      </Link>
-      <Link
-        href="/playbooks"
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.startsWith("/playbooks") && "text-primary"
-        )}
-      >
-        <LibraryIcon className="mr-2 size-4" />
-        <span>Playbooks</span>
       </Link>
       <Link
         href="https://docs.tracecat.com/integrations/introduction"
