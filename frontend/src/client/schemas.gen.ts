@@ -1452,7 +1452,7 @@ export const $Role = {
         },
         service_id: {
             type: 'string',
-            enum: ['tracecat-runner', 'tracecat-api', 'tracecat-cli', 'tracecat-schedule-runner'],
+            enum: ['tracecat-runner', 'tracecat-api', 'tracecat-cli', 'tracecat-schedule-runner', 'tracecat-service'],
             title: 'Service Id'
         }
     },
@@ -2633,7 +2633,14 @@ export const $UserUpdate = {
             title: 'Is Verified'
         },
         role: {
-            '$ref': '#/components/schemas/UserRole'
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/UserRole'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         },
         first_name: {
             anyOf: [
@@ -2670,7 +2677,6 @@ export const $UserUpdate = {
         }
     },
     type: 'object',
-    required: ['role'],
     title: 'UserUpdate'
 } as const;
 

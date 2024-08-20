@@ -460,12 +460,12 @@ export type Role = {
     workspace_id?: string | null;
     user_id?: string | null;
     access_level?: AccessLevel;
-    service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner';
+    service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 };
 
 export type type2 = 'user' | 'service';
 
-export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner';
+export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 
 export type RunContext = {
     wf_id: string;
@@ -721,7 +721,7 @@ export type UserUpdate = {
     is_active?: boolean | null;
     is_superuser?: boolean | null;
     is_verified?: boolean | null;
-    role: UserRole;
+    role?: UserRole | null;
     first_name?: string | null;
     last_name?: string | null;
     settings?: {
@@ -952,6 +952,12 @@ export type WorkspacesCreateWorkspaceData = {
 
 export type WorkspacesCreateWorkspaceResponse = WorkspaceMetadataResponse;
 
+export type WorkspacesSearchWorkspacesData = {
+    name?: string | null;
+};
+
+export type WorkspacesSearchWorkspacesResponse = Array<WorkspaceMetadataResponse>;
+
 export type WorkspacesGetWorkspaceData = {
     workspaceId: string;
 };
@@ -1039,6 +1045,21 @@ export type WorkflowsCommitWorkflowData = {
 };
 
 export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
+
+export type WorkflowsExportWorkflowData = {
+    /**
+     * Export format: 'json' or 'yaml'
+     */
+    format?: 'json' | 'yaml';
+    /**
+     * Workflow definition version. If not provided, the latest version is exported.
+     */
+    version?: number | null;
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsExportWorkflowResponse = unknown;
 
 export type WorkflowsGetWorkflowDefinitionData = {
     version?: number | null;
@@ -1544,6 +1565,21 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/workspaces/search': {
+        get: {
+            req: WorkspacesSearchWorkspacesData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<WorkspaceMetadataResponse>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
     '/workspaces/{workspace_id}': {
         get: {
             req: WorkspacesGetWorkspaceData;
@@ -1718,6 +1754,21 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: CommitWorkflowResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/workflows/{workflow_id}/export': {
+        get: {
+            req: WorkflowsExportWorkflowData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */
