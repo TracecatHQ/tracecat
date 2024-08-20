@@ -107,7 +107,9 @@ export function WorkflowsDashboardTable() {
                     <span
                       className={cn(
                         "flex size-2 rounded-full",
-                        status === "online" ? "bg-emerald-600" : "bg-gray-400"
+                        status === "online"
+                          ? "bg-emerald-500/80"
+                          : "bg-gray-400"
                       )}
                     />
                   </div>
