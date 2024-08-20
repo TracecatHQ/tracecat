@@ -28,16 +28,6 @@ export function WorkspaceNav() {
         <span>Workflows</span>
       </Link>
       <Link
-        href="/playbooks"
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.startsWith("/playbooks") && "text-primary"
-        )}
-      >
-        <LibraryIcon className="mr-2 size-4" />
-        <span>Playbooks</span>
-      </Link>
-      <Link
         href="https://docs.tracecat.com/integrations/introduction"
         target="_blank"
         className={cn(

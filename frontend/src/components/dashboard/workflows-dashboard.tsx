@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { ConeIcon } from "lucide-react"
 
+import { siteConfig } from "@/config/site"
 import { Button } from "@/components/ui/button"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import { WorkflowsDashboardTable } from "@/components/dashboard/dashboard-table"
@@ -19,7 +20,7 @@ export function WorkflowsDashboard() {
             </p>
           </div>
           <div className="ml-auto flex items-center space-x-2">
-            <Link href="/playbooks">
+            <Link href={siteConfig.links.playbooks} target="_blank">
               <Button variant="outline" role="combobox" className="space-x-2">
                 <ConeIcon className="size-4 text-emerald-600" />
                 <span>Find playbook</span>
