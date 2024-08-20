@@ -14,6 +14,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
+  DownloadIcon,
   GitPullRequestCreateArrowIcon,
   MoreHorizontal,
   PlayIcon,
@@ -442,7 +443,8 @@ function WorkbenchNavOptions({
             }
           }}
         >
-          Export as JSON
+          <DownloadIcon className="mr-2 size-4 text-foreground/70" />
+          <span className="text-xs text-foreground/70">Export as JSON</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
