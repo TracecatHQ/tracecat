@@ -455,42 +455,37 @@ async function exportWorkflowJson({
   format,
   version,
 }: WorkflowsExportWorkflowData) {
+  const url = `/workflows/${workflowId}/export`
+  const response = await client.get(url, {
+    params: { version, format, workspace_id: workspaceId },
+  })
+  // Extract the filename from the Content-Disposition header
+  const contentDisposition = response.headers["content-disposition"]
+
+  let filename = `${workflowId}.json`
+  if (contentDisposition) {
+    const filenameMatch = (contentDisposition as string).match(
+      /filename="?(.+)"?/
+    )
+    if (filenameMatch && filenameMatch.length > 1) {
+      filename = filenameMatch[1]
+    } else {
+      console.warn("Failed to extract filename from Content-Disposition")
+    }
+  }
+
+  console.log("Downloading workflow definition:", filename)
+  const jsonData = JSON.stringify(response.data, null, 2)
+  const blob = new Blob([jsonData], { type: "application/json" })
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const a = document.createElement("a")
   try {
-    const url = `/workflows/${workflowId}/export`
-    const response = await client.get(url, {
-      params: { version, format, workspace_id: workspaceId },
-    })
-    // Extract the filename from the Content-Disposition header
-    const contentDisposition = response.headers["content-disposition"]
-
-    let filename = `${workflowId}.json`
-    if (contentDisposition) {
-      const filenameMatch = (contentDisposition as string).match(
-        /filename="?(.+)"?/
-      )
-      console.log("Filename match:", filenameMatch)
-      if (filenameMatch && filenameMatch.length > 1) {
-        filename = filenameMatch[1]
-      } else {
-        console.warn("Failed to extract filename from Content-Disposition")
-      }
-    }
-
-    console.log("Downloading workflow definition:", filename)
-    const jsonData = JSON.stringify(response.data, null, 2)
-    const blob = new Blob([jsonData], { type: "application/json" })
-    const downloadUrl = window.URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    try {
-      a.href = downloadUrl
-      a.download = filename
-      document.body.appendChild(a) // Required for Firefox
-      a.click()
-    } finally {
-      a.remove() // Clean up
-      window.URL.revokeObjectURL(downloadUrl)
-    }
-  } catch (error) {
-    console.error("Failed to download workflow definition:", error)
+    a.href = downloadUrl
+    a.download = filename
+    document.body.appendChild(a) // Required for Firefox
+    a.click()
+  } finally {
+    a.remove() // Clean up
+    window.URL.revokeObjectURL(downloadUrl)
   }
 }
