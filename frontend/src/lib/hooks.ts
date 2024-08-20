@@ -39,6 +39,7 @@ import {
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
   WorkflowMetadataResponse,
+  workflowsDeleteWorkflow,
   workflowsListWorkflows,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
@@ -283,8 +284,11 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   return mutation
 }
 
-export function useWorkflows() {
+export function useWorkflowManager() {
+  const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
+
+  // List workflows
   const {
     data: workflows,
     isLoading: workflowsLoading,
@@ -294,10 +298,44 @@ export function useWorkflows() {
     queryFn: async () => await workflowsListWorkflows({ workspaceId }),
     retry: retryHandler,
   })
+
+  // Delete workflow
+  const { mutateAsync: deleteWorkflow } = useMutation({
+    mutationFn: async (workflowId: string) =>
+      await workflowsDeleteWorkflow({
+        workflowId,
+        workspaceId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      toast({
+        title: "Deleted workflow",
+        description: "Your workflow has been deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete workflow",
+            description: error.body.detail,
+          })
+          break
+        default:
+          console.error("Failed to delete workflow:", error)
+          toast({
+            title: "Error deleting workflow",
+            description: error.body.detail + ". Please try again.",
+            variant: "destructive",
+          })
+      }
+    },
+  })
   return {
     workflows,
     workflowsLoading,
     workflowsError,
+    deleteWorkflow,
   }
 }
 

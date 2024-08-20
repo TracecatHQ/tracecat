@@ -17,6 +17,7 @@ import {
   useReactTable,
   VisibilityState,
 } from "@tanstack/react-table"
+import { AlertTriangleIcon } from "lucide-react"
 
 import {
   Table,
@@ -29,6 +30,7 @@ import {
 import AuxClickMenu, {
   AuxClickMenuOptionProps,
 } from "@/components/aux-click-menu"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { DataTablePagination, DataTableToolbar } from "@/components/table"
 
 import { DataTableToolbarProps } from "./toolbar"
@@ -39,10 +41,15 @@ export type TableCol<TData> = {
 }
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
-  data: TData[]
+  data?: TData[]
   onClickRow?: (row: Row<TData>) => () => void
   toolbarProps?: DataTableToolbarProps
   tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
+  isLoading?: boolean
+  error?: Error
+  emptyMessage?: string
+  errorMessage?: string
+  showSelectedRows?: boolean
 }
 
 export function DataTable<TData, TValue>({
@@ -51,6 +58,11 @@ export function DataTable<TData, TValue>({
   onClickRow,
   toolbarProps,
   tableHeaderAuxOptions,
+  isLoading,
+  error,
+  emptyMessage,
+  errorMessage,
+  showSelectedRows = false,
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
@@ -61,7 +73,7 @@ export function DataTable<TData, TValue>({
   const [sorting, setSorting] = React.useState<SortingState>([])
 
   const table = useReactTable({
-    data,
+    data: data || [],
     columns,
     state: {
       sorting,
@@ -113,39 +125,100 @@ export function DataTable<TData, TValue>({
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && "selected"}
-                    onClick={onClickRow?.(row)}
-                    className="cursor-pointer"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={columns.length}
-                    className="font-sm h-24 text-center text-xs text-muted-foreground"
-                  >
-                    No results.
-                  </TableCell>
-                </TableRow>
-              )}
+              <TableContents
+                isLoading={isLoading}
+                error={error}
+                table={table}
+                colSpan={columns.length}
+                onClickRow={onClickRow}
+                emptyMessage={emptyMessage}
+                errorMessage={errorMessage}
+              />
             </TableBody>
           </Table>
         </div>
-        <DataTablePagination table={table} />
+        <DataTablePagination
+          table={table}
+          showSelectedRows={showSelectedRows}
+        />
       </div>
     </div>
+  )
+}
+
+function TableContents<TData>({
+  isLoading,
+  error,
+  table,
+  colSpan,
+  onClickRow,
+  emptyMessage = "No results.",
+  errorMessage = "Failed to fetch data",
+}: {
+  isLoading?: boolean
+  error?: Error
+  table: ReturnType<typeof useReactTable<TData>>
+  colSpan: number
+  onClickRow?: (row: Row<TData>) => () => void
+  emptyMessage?: string
+  errorMessage?: string
+}) {
+  if (isLoading) {
+    return (
+      <TableRow>
+        <TableCell
+          colSpan={colSpan}
+          className="font-sm h-24 text-center text-xs text-muted-foreground"
+        >
+          <CenteredSpinner />
+        </TableCell>
+      </TableRow>
+    )
+  }
+  if (error) {
+    return (
+      <TableRow>
+        <TableCell
+          colSpan={colSpan}
+          className="font-sm h-24 text-center text-xs text-muted-foreground"
+        >
+          <div className="flex items-center justify-center">
+            <AlertTriangleIcon className="mr-2 size-4 fill-rose-500 stroke-white" />
+            <span>{errorMessage}</span>
+          </div>
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  if (table.getRowModel().rows?.length === 0) {
+    return (
+      <TableRow>
+        <TableCell
+          colSpan={colSpan}
+          className="font-sm h-24 text-center text-xs text-muted-foreground"
+        >
+          {emptyMessage}
+        </TableCell>
+      </TableRow>
+    )
+  }
+  return (
+    <>
+      {table.getRowModel().rows.map((row) => (
+        <TableRow
+          key={row.id}
+          data-state={row.getIsSelected() && "selected"}
+          onClick={onClickRow?.(row)}
+          className="cursor-pointer"
+        >
+          {row.getVisibleCells().map((cell) => (
+            <TableCell key={cell.id}>
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
   )
 }
