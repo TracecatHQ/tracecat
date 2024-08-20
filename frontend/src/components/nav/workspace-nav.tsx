@@ -4,7 +4,7 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
-import { BlocksIcon, LibraryIcon, WorkflowIcon } from "lucide-react"
+import { BlocksIcon, WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
