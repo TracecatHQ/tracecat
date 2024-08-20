@@ -525,7 +525,7 @@ export function WorkflowCanvas() {
         fitViewOptions={fitViewOptions}
         nodeDragThreshold={4}
         maxZoom={1}
-        minZoom={0.75}
+        minZoom={0.25}
         panOnScroll
       >
         <Background />
