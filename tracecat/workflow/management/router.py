@@ -23,7 +23,6 @@ from tracecat import validation
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logging import logger
@@ -246,8 +245,6 @@ async def commit_workflow(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
             )
-        # Hydrate actions
-        _ = workflow.actions
 
         # Perform Tiered Validation
         # Tier 1: DSLInput validation
@@ -256,7 +253,7 @@ async def commit_workflow(
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
-            dsl = DSLInput.from_workflow(workflow)
+            dsl = await mgmt_service.build_dsl_from_workflow(workflow)
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(

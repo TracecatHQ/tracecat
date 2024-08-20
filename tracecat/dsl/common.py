@@ -10,7 +10,6 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.contexts import RunContext
-from tracecat.db.schemas import Workflow
 from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeData
 from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
@@ -149,39 +148,6 @@ class DSLInput(BaseModel):
 
     def dump_yaml(self) -> str:
         return yaml.dump(self.model_dump())
-
-    @staticmethod
-    def from_workflow(workflow: Workflow) -> DSLInput:
-        """Converter for Workflow to DSLInput.
-
-        Use Case: Committing a Workflow into a Workflow Definition
-        """
-        # NOTE: Must only call inside a db session
-        # Check that we're inside an open
-        if not workflow.object:
-            raise ValueError("Empty workflow graph object. Is `workflow.object` set?")
-        # XXX: Invoking workflow.actions instantiates the actions relationship
-        # If it still falsy, raise a user facing error
-        if not workflow.actions:
-            raise TracecatValidationError(
-                "Workflow has no actions. Please add an action to the workflow before committing."
-            )
-        graph = RFGraph.from_workflow(workflow)
-        return DSLInput(
-            title=workflow.title,
-            description=workflow.description,
-            entrypoint={
-                # XXX: Sus
-                "ref": graph.logical_entrypoint.ref,
-                # TODO: Add expects for UI -> DSL
-                "expects": {},
-            },
-            actions=graph.action_statements(workflow),
-            inputs=workflow.static_inputs,
-            config=workflow.config,
-            returns=workflow.returns,
-            # triggers=workflow.triggers,
-        )
 
     def to_graph(self, trigger_node: TriggerNode, ref2id: dict[str, str]) -> RFGraph:
         """Construct a new react flow graph from this DSLInput.
