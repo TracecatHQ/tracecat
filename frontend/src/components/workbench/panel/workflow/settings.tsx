@@ -1,10 +1,11 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { WorkflowResponse, workflowsDeleteWorkflow } from "@/client"
+import { WorkflowResponse } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { SettingsIcon, Trash2Icon } from "lucide-react"
 
+import { useWorkflowManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -23,19 +24,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
-import { toast } from "@/components/ui/use-toast"
 
 export function WorkflowSettings({ workflow }: { workflow: WorkflowResponse }) {
   const router = useRouter()
   const { workspaceId } = useWorkspace()
+  const { deleteWorkflow } = useWorkflowManager()
   const handleDeleteWorkflow = async () => {
     console.log("Delete workflow")
-    await workflowsDeleteWorkflow({ workspaceId, workflowId: workflow.id })
+    await deleteWorkflow(workflow.id)
     router.push(`/workspaces/${workspaceId}`)
-    toast({
-      title: "Workflow deleted",
-      description: `Successfully deleted "${workflow.title}".`,
-    })
     router.refresh()
   }
   return (
