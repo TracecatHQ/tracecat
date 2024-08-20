@@ -62,7 +62,7 @@ export function DataTable<TData, TValue>({
   error,
   emptyMessage,
   errorMessage,
-  showSelectedRows,
+  showSelectedRows = false,
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
@@ -137,7 +137,10 @@ export function DataTable<TData, TValue>({
             </TableBody>
           </Table>
         </div>
-        <DataTablePagination table={table} />
+        <DataTablePagination
+          table={table}
+          showSelectedRows={showSelectedRows}
+        />
       </div>
     </div>
   )
