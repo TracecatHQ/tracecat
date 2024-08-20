@@ -7,13 +7,16 @@ import {
   ApiError,
   UDFArgsValidationResponse,
   workflowExecutionsCreateWorkflowExecution,
+  WorkflowsExportWorkflowData,
 } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
+  DownloadIcon,
   GitPullRequestCreateArrowIcon,
+  MoreHorizontal,
   PlayIcon,
   ShieldAlertIcon,
   SquarePlay,
@@ -22,6 +25,7 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { client } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -43,6 +47,12 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Form,
   FormControl,
@@ -249,6 +259,12 @@ export function WorkbenchNav() {
             {isOnline ? "stop" : "start"} new executions and receive events.
           </TooltipContent>
         </Tooltip>
+
+        {/* Workflow options */}
+        <WorkbenchNavOptions
+          workspaceId={workspaceId}
+          workflowId={workflow.id}
+        />
       </div>
     </div>
   )
@@ -392,4 +408,86 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
       </form>
     </Form>
   )
+}
+
+function WorkbenchNavOptions({
+  workspaceId,
+  workflowId,
+}: {
+  workspaceId: string
+  workflowId: string
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon">
+          <MoreHorizontal className="size-4" />
+          <span className="sr-only">More</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={async () => {
+            try {
+              await exportWorkflowJson({
+                workspaceId,
+                workflowId,
+                format: "json",
+              })
+            } catch (error) {
+              console.error("Failed to download workflow definition:", error)
+              toast({
+                title: "Error exporting workflow",
+                description: "Could not export workflow. Please try again.",
+              })
+            }
+          }}
+        >
+          <DownloadIcon className="mr-2 size-4 text-foreground/70" />
+          <span className="text-xs text-foreground/70">Export as JSON</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+async function exportWorkflowJson({
+  workspaceId,
+  workflowId,
+  format,
+  version,
+}: WorkflowsExportWorkflowData) {
+  const url = `/workflows/${workflowId}/export`
+  const response = await client.get(url, {
+    params: { version, format, workspace_id: workspaceId },
+  })
+  // Extract the filename from the Content-Disposition header
+  const contentDisposition = response.headers["content-disposition"]
+
+  let filename = `${workflowId}.json`
+  if (contentDisposition) {
+    const filenameMatch = (contentDisposition as string).match(
+      /filename="?(.+)"?/
+    )
+    if (filenameMatch && filenameMatch.length > 1) {
+      filename = filenameMatch[1]
+    } else {
+      console.warn("Failed to extract filename from Content-Disposition")
+    }
+  }
+
+  console.log("Downloading workflow definition:", filename)
+  const jsonData = JSON.stringify(response.data, null, 2)
+  const blob = new Blob([jsonData], { type: "application/json" })
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  try {
+    a.href = downloadUrl
+    a.download = filename
+    document.body.appendChild(a) // Required for Firefox
+    a.click()
+  } finally {
+    a.remove() // Clean up
+    window.URL.revokeObjectURL(downloadUrl)
+  }
 }

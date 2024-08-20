@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 import orjson
 import yaml
@@ -9,6 +9,8 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
+    Response,
     UploadFile,
     status,
 )
@@ -315,6 +317,47 @@ async def commit_workflow(
             status="success",
             message="Workflow committed successfully.",
             metadata={"version": defn.version},
+        )
+
+
+@router.get("/{workflow_id}/export", tags=["workflows"])
+async def export_workflow(
+    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    workflow_id: WorkflowID,
+    format: Literal["json", "yaml"] = Query(
+        default="json", description="Export format: 'json' or 'yaml'"
+    ),
+    version: int | None = Query(
+        default=None,
+        description="Workflow definition version. If not provided, the latest version is exported.",
+    ),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Export a workflow's current state and optionally its definitions and logs.
+
+    Supported formats are JSON and CSV.
+    """
+    logger.info(
+        "Exporting workflow", workflow_id=workflow_id, format=format, version=version
+    )
+    service = WorkflowDefinitionsService(session, role=role)
+    defn = await service.get_definition_by_workflow_id(workflow_id, version=version)
+    if not defn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow definition not found",
+        )
+    if format == "json":
+        return Response(
+            content=defn.model_dump_json(indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename={workflow_id}.json"},
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only JSON format is supported",
         )
 
 
