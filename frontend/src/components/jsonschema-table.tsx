@@ -21,8 +21,8 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
   return (
     <Table>
       <TableHeader>
-        <TableRow className="h-6  text-xs capitalize ">
-          <TableHead className="font-bold">Parameter</TableHead>
+        <TableRow className="h-6 text-xs capitalize ">
+          <TableHead className="font-bold whitespace-nowrap min-w-max">Parameter</TableHead>
           <TableHead className="font-bold">Type</TableHead>
           <TableHead className="font-bold">Default</TableHead>
         </TableRow>
@@ -35,7 +35,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                 key={idx}
                 className="font-mono text-xs tracking-tight text-muted-foreground"
               >
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   {row.parameter}
                   {row.required && " *"}
                 </TableCell>
@@ -56,7 +56,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                         {row.parameter}
                       </span>
                       <span className="text-xs text-muted-foreground/80">
-                        {row.required ? "(required)" : "(optional)"}
+                        &nbsp;{row.required ? "(required)" : "(optional)"}
                       </span>
                     </div>
                     <div className="w-full space-y-1">
@@ -74,20 +74,6 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                       <p className="text-xs text-foreground/70">
                         {row.constraints || "None"}
                       </p>
-                    </div>
-                    <div className="w-full space-y-1">
-                      <span className="text-xs font-semibold text-muted-foreground">
-                        Example
-                      </span>
-                      <div className="rounded-md border bg-muted-foreground/10 p-2">
-                        <pre className="text-xs text-foreground/70">
-                          {YAML.stringify(
-                            { placeholder: "Examples coming soon!" },
-                            null,
-                            2
-                          )}
-                        </pre>
-                      </div>
                     </div>
                   </HoverCardContent>
                 </TableCell>
