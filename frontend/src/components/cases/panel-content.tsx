@@ -53,8 +53,8 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     caseIsLoading,
     caseError,
     updateCaseAsync: mutateCaseAsync,
-  } = usePanelCase(workspaceId, workflowId, caseId)
-  const { mutateCaseEventsAsync } = useCaseEvents(workflowId, caseId)
+  } = usePanelCase(workspaceId, caseId)
+  const { mutateCaseEventsAsync } = useCaseEvents(caseId)
 
   if (caseIsLoading) {
     return <CenteredSpinner />
@@ -83,7 +83,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     console.log("Updating status to", newStatus)
     await mutateCaseAsync({
       ...caseData,
-      id: caseId,
+
       status: newStatus,
     })
     await mutateCaseEventsAsync({
@@ -98,7 +98,6 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
     console.log("Updating priority to", newPriority)
     await mutateCaseAsync({
       ...caseData,
-      id: caseId,
       priority: newPriority,
     })
     await mutateCaseEventsAsync({
@@ -223,7 +222,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                 </div>
                 <div className="col-span-2 space-y-4">
                   <h5 className="text-xs font-semibold">Activity</h5>
-                  <Timeline workflowId={workflowId} caseId={caseId} />
+                  <Timeline caseId={caseId} />
                 </div>
               </div>
             </div>

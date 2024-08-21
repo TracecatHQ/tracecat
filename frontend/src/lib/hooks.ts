@@ -6,13 +6,13 @@ import {
   actionsUpdateAction,
   ApiError,
   CaseEvent,
-  CaseEventParams,
-  CaseParams,
-  CaseResponse,
+  CaseEventCreate,
+  CaseRead,
   casesCreateCaseEvent,
   casesGetCase,
   casesListCaseEvents,
   casesUpdateCase,
+  CaseUpdate,
   CreateSecretParams,
   CreateWorkspaceParams,
   EventHistoryResponse,
@@ -72,28 +72,22 @@ export function useLocalStorage<T>(
   return [value, setValue]
 }
 
-export function usePanelCase(
-  workspaceId: string,
-  workflowId: string,
-  caseId: string
-) {
+export function usePanelCase(workspaceId: string, caseId: string) {
   const queryClient = useQueryClient()
-  const { data, isLoading, error } = useQuery<CaseResponse, ApiError>({
+  const { data, isLoading, error } = useQuery<CaseRead, ApiError>({
     queryKey: ["case", caseId],
     queryFn: async () =>
       await casesGetCase({
         workspaceId,
         caseId,
-        workflowId,
       }),
   })
   const { mutateAsync } = useMutation({
-    mutationFn: async (newCase: CaseParams) =>
+    mutationFn: async (params: CaseUpdate) =>
       await casesUpdateCase({
         workspaceId,
         caseId,
-        workflowId,
-        requestBody: newCase,
+        requestBody: params,
       }),
     onSuccess: () => {
       toast({
@@ -124,7 +118,7 @@ export function usePanelCase(
   }
 }
 
-export function useCaseEvents(workflowId: string, caseId: string) {
+export function useCaseEvents(caseId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
   const { data, isLoading, error } = useQuery<CaseEvent[], Error>({
@@ -132,18 +126,16 @@ export function useCaseEvents(workflowId: string, caseId: string) {
     queryFn: async () =>
       await casesListCaseEvents({
         workspaceId,
-        workflowId,
         caseId,
       }),
   })
 
   const { mutateAsync } = useMutation({
-    mutationFn: async (newEvent: CaseEventParams) => {
+    mutationFn: async (params: CaseEventCreate) => {
       await casesCreateCaseEvent({
         workspaceId,
-        workflowId,
         caseId,
-        requestBody: newEvent,
+        requestBody: params,
       })
     },
     onSuccess: () => {

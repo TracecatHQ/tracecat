@@ -40,11 +40,9 @@ export type TimelineCommentForm = z.infer<typeof timelineCommentFormSchema>
  * @returns
  */
 export function Timeline({
-  workflowId,
   caseId,
   className,
 }: React.HTMLAttributes<HTMLUListElement> & {
-  workflowId: string
   caseId: string
 }) {
   const { user } = useAuth()
@@ -53,7 +51,7 @@ export function Timeline({
     caseEventsIsLoading,
     caseEventsError,
     mutateCaseEventsAsync,
-  } = useCaseEvents(workflowId, caseId)
+  } = useCaseEvents(caseId)
 
   const methods = useForm<TimelineCommentForm>({
     resolver: zodResolver(timelineCommentFormSchema),
@@ -78,6 +76,7 @@ export function Timeline({
       type: "comment_created",
       data,
     })
+    methods.reset()
   }
 
   return (

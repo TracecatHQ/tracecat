@@ -1,11 +1,11 @@
 "use client"
 
 import { useMemo } from "react"
+import { CaseRead } from "@/client"
 import CasePanelProvider, { useCasePanelContext } from "@/providers/case-panel"
 import { useCasesContext } from "@/providers/cases"
 import { type Row } from "@tanstack/react-table"
 
-import { type Case } from "@/types/schemas"
 import { tableHeaderAuxOptions } from "@/components/cases/aux-click-menu-config"
 import { indicators, priorities, statuses } from "@/components/cases/categories"
 import { columns } from "@/components/cases/columns"
@@ -55,7 +55,7 @@ function InternalCaseTable() {
 
   const memoizedColumns = useMemo(() => columns, [])
 
-  function handleClickRow(row: Row<Case>) {
+  function handleClickRow(row: Row<CaseRead>) {
     return () => {
       setSidePanelCase(row.original)
       setIsOpen(true)
@@ -67,7 +67,7 @@ function InternalCaseTable() {
         <div className="items-start space-y-2 text-left">
           <h2 className="text-2xl font-bold tracking-tight">Cases</h2>
           <p className="text-md text-muted-foreground">
-            Here are the cases for this workflow.
+            Here are the cases for the workspace.
           </p>
         </div>
       </div>
