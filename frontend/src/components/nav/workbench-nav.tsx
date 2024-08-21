@@ -162,7 +162,7 @@ export function WorkbenchNav() {
                 ? "Please commit changes to enable manual trigger."
                 : "Run the workflow manually without a webhook. Click to configure inputs."}
             </TooltipContent>
-            <PopoverContent className="p-3">
+            <PopoverContent className="p-3 w-96">
               <WorkflowExecutionControls workflowId={workflow.id} />
             </PopoverContent>
           </Tooltip>
