@@ -68,7 +68,7 @@ async def setup_defaults():
         users = await list_users(session=session)
         if len(users) == 0:
             # Create admin user only if there are no users
-            await get_or_create_default_admin_user(session=session)
+            await get_or_create_default_admin_user()
 
         service = WorkspaceService(session, role=admin_role)
         workspaces = await service.admin_list_workspaces()
