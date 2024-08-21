@@ -16,7 +16,9 @@ from fastapi_users.authentication.strategy.db import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
 from fastapi_users.openapi import OpenAPIResponseType
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
 from tracecat.auth.schemas import UserCreate, UserRole
@@ -57,18 +59,18 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         )
 
 
-async def get_user_db(session: AsyncSession = Depends(get_async_session)):
+async def get_user_db(session: SQLAlchemyAsyncSession = Depends(get_async_session)):
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
 
 async def get_access_token_db(
-    session: AsyncSession = Depends(get_async_session),
+    session: SQLAlchemyAsyncSession = Depends(get_async_session),
 ) -> AsyncGenerator[SQLModelAccessTokenDatabaseAsync, None]:
     yield SQLModelAccessTokenDatabaseAsync(session, AccessToken)  # type: ignore
 
 
 def get_user_db_context(
-    session: AsyncSession,
+    session: SQLAlchemyAsyncSession,
 ) -> contextlib.AbstractAsyncContextManager[SQLAlchemyUserDatabase]:
     return contextlib.asynccontextmanager(get_user_db)(session=session)
 
@@ -162,18 +164,27 @@ async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
                     logger.info(f"User created {user}")
                     return user
                 except UserAlreadyExists:
+                    # Compares by email
                     logger.warning(f"User {params.email} already exists")
                     if not exist_ok:
                         raise
                     return await user_manager.get_by_email(params.email)
 
 
-async def get_user_db_sqlmodel(session: AsyncSession = Depends(get_async_session)):
+async def get_user_db_sqlmodel(
+    session: SQLAlchemyAsyncSession = Depends(get_async_session),
+):
     yield SQLModelUserDatabaseAsync(session, User, OAuthAccount)
 
 
 def get_or_create_default_admin_user() -> Awaitable[User]:
     return get_or_create_user(default_admin_user(), exist_ok=True)
+
+
+async def list_users(*, session: SQLModelAsyncSession) -> list[User]:
+    statement = select(User)
+    result = await session.exec(statement)
+    return result.all()
 
 
 def default_admin_user() -> UserCreate:
