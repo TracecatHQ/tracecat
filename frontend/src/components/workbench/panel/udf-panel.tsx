@@ -243,6 +243,7 @@ export function UDFActionPanel({
             type="multiple"
             defaultValue={[
               "action-schema",
+              "action-inputs"
             ]}
             className="pb-10"
           >
