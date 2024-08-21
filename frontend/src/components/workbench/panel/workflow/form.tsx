@@ -216,7 +216,7 @@ export function WorkflowForm({
               <div className="flex items-center">
                 <Undo2Icon className="mr-3 size-4" />
                 <span className="capitalize">
-                  Workflow return value expression
+                  Output Schema
                 </span>
               </div>
             </AccordionTrigger>
@@ -236,13 +236,12 @@ export function WorkflowForm({
                     </HoverCardContent>
                   </HoverCard>
                   <span className="text-xs text-muted-foreground">
-                    Edit the workflow return expression in YAML below.
+                    Define key-value pairs to reshape the data returned by the workflow run.
                   </span>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  If left blank, the workflow will return its entire execution
-                  context by default.
-                </span>
+                    If undefined, the entire workflow run context is returned.
+                  </span>
                 <Controller
                   name="returns"
                   control={form.control}
@@ -281,7 +280,7 @@ export function WorkflowForm({
                     </HoverCardContent>
                   </HoverCard>
                   <span className="text-xs text-muted-foreground">
-                    Edit the static workflow inputs in YAML below.
+                    Define optional static inputs for the workflow.
                   </span>
                 </div>
                 <Controller
@@ -314,14 +313,15 @@ function StaticInputTooltip() {
       </div>
       <div className="flex w-full flex-col items-center justify-between space-y-4 text-muted-foreground">
         <span>
-          Static inputs are unchanging inputs that are passed into every
-          workflow definition and their executions.
+          Fixed key-value pairs passed into every action input and workflow run.
         </span>
-        <span>The values are availble in the INPUTS context, for example:</span>
+        <span className="w-full text-muted-foreground">
+          Usage example in expressions:
+        </span>
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
-          {"${{ INPUTS.my_static_input }}"}
+          {"${{ INPUTS.my_static_key }}"}
         </pre>
       </div>
     </div>
@@ -333,17 +333,15 @@ function WorkflowReturnValueTooltip() {
     <div className="flex w-full flex-col space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground">
         <span className="font-mono text-sm font-semibold">
-          Return Value Expression
+          Output Schema
         </span>
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <span className="w-full text-muted-foreground">
-        Define an expression that will be evaluated and returned as the
-        workflow&apos;s output.
+        Key-value pairs that define the data returned by the workflow run.
       </span>
       <span className="w-full text-muted-foreground">
-        For example, to return the result of an action `My Action` (reference
-        `my_action`), use the following expression:
+        Usage example in expressions:
       </span>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
