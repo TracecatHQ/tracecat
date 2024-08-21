@@ -119,23 +119,28 @@ export function WorkbenchNav() {
   const manualTriggerDisabled = workflow.version === null
   const workflowsPath = `/workspaces/${workspaceId}/workflows`
   return (
-    <div className="flex w-full items-center space-x-8">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href={workflowsPath}>
-              {workspace.name}
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator className="font-semibold">
-            {"/"}
-          </BreadcrumbSeparator>
-          <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <TabSwitcher workflowId={workflow.id} />
+    <div className="flex items-center w-full">
+      <div className="flex-1 min-w-0 mr-4">
+        <Breadcrumb>
+          <BreadcrumbList className="flex-nowrap whitespace-nowrap overflow-hidden">
+            <BreadcrumbItem>
+              <BreadcrumbLink href={workflowsPath}>
+                {workspace.name}
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="font-semibold flex-shrink-0">
+              {"/"}
+            </BreadcrumbSeparator>
+            <BreadcrumbItem>
+              {workflow.title}
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
 
-      <div className="flex flex-1 items-center justify-end space-x-6">
+      <div className="flex items-center justify-end space-x-6">
+        {/* Workflow tabs */}
+        <TabSwitcher workflowId={workflow.id} />
         {/* Workflow manual trigger */}
         <Popover>
           <Tooltip>
@@ -169,7 +174,7 @@ export function WorkbenchNav() {
         </Popover>
 
         {/* Commit button */}
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center space-x-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
