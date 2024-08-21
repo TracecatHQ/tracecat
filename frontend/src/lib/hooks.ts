@@ -50,10 +50,8 @@ import { useWorkspace } from "@/providers/workspace"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 
-import { type WorkflowMetadata } from "@/types/schemas"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { isEmptyObject } from "@/lib/utils"
-import { fetchAllPlaybooks } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 import { UDFNodeType } from "@/components/workbench/canvas/udf-node"
 
@@ -339,13 +337,6 @@ export function useWorkflowManager() {
   }
 }
 
-export function usePlaybooks() {
-  const query = useQuery<WorkflowMetadata[], Error>({
-    queryKey: ["playbooks"],
-    queryFn: fetchAllPlaybooks,
-  })
-  return query
-}
 export function useWorkspaceManager() {
   const queryClient = useQueryClient()
   const router = useRouter()
