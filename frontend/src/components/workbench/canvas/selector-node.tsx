@@ -32,10 +32,22 @@ import {
   isEphemeral,
 } from "@/components/workbench/canvas/canvas"
 import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
-import {
-  groupByDisplayGroup,
-  TOP_LEVEL_GROUP,
-} from "@/components/workbench/catalog/udf-catalog"
+
+const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
+
+const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
+  const groups = {} as Record<string, UDF[]>
+  udfs.forEach((udf) => {
+    const displayGroup = (
+      udf.metadata?.display_group || TOP_LEVEL_GROUP
+    ).toString()
+    if (!groups[displayGroup]) {
+      groups[displayGroup] = []
+    }
+    groups[displayGroup].push(udf)
+  })
+  return groups
+}
 
 export const SelectorTypename = "selector" as const
 
