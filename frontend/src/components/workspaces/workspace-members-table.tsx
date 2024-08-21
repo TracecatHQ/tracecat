@@ -26,8 +26,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { DataTableColumnHeader } from "@/components/data-table/column-header"
-import { DataTable, type DataTableToolbarProps } from "@/components/table"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/table"
 
 export function WorkspaceMembersTable({
   workspace,
