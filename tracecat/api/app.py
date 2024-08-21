@@ -24,20 +24,25 @@ from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
-from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
     get_or_create_default_admin_user,
+    list_users,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_engine, get_engine
+from tracecat.db.engine import (
+    get_async_engine,
+    get_async_session_context_manager,
+    get_engine,
+)
 from tracecat.db.schemas import UDFSpec
 from tracecat.logging import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
 from tracecat.secrets.router import router as secrets_router
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
@@ -54,20 +59,25 @@ async def lifespan(app: FastAPI):
 
 
 async def setup_defaults():
-    # Create default admin user
-    admin_user = await get_or_create_default_admin_user()
-    role = get_role_from_user(admin_user)
+    admin_role = Role(
+        type="service",
+        access_level=AccessLevel.ADMIN,
+        service_id="tracecat-api",
+    )
+    async with get_async_session_context_manager() as session:
+        users = await list_users(session=session)
+        if len(users) == 0:
+            # Create admin user only if there are no users
+            await get_or_create_default_admin_user(session=session)
 
-    # Create default workspace if there are no workspaces
-    async with WorkspaceService.with_session(role=role) as service:
+        service = WorkspaceService(session, role=admin_role)
         workspaces = await service.admin_list_workspaces()
         n_workspaces = len(workspaces)
         logger.info(f"{n_workspaces} workspaces found")
         if n_workspaces == 0:
+            # Create default workspace if there are no workspaces
             try:
-                default_workspace = await service.create_workspace(
-                    "Default Workspace", users=[admin_user]
-                )
+                default_workspace = await service.create_workspace("Default Workspace")
                 logger.info("Default workspace created", workspace=default_workspace)
             except IntegrityError:
                 logger.info("Default workspace already exists, skipping")
