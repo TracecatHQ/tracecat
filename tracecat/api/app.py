@@ -56,12 +56,14 @@ async def lifespan(app: FastAPI):
 async def setup_defaults():
     # Create default admin user
     admin_user = await get_or_create_default_admin_user()
-    logger.info("Default admin user created", user=admin_user)
     role = get_role_from_user(admin_user)
 
     # Create default workspace if there are no workspaces
     async with WorkspaceService.with_session(role=role) as service:
-        if await service.n_workspaces(user_id=role.user_id) == 0:
+        workspaces = await service.admin_list_workspaces()
+        n_workspaces = len(workspaces)
+        logger.info(f"{n_workspaces} workspaces found")
+        if n_workspaces == 0:
             try:
                 default_workspace = await service.create_workspace(
                     "Default Workspace", users=[admin_user]
