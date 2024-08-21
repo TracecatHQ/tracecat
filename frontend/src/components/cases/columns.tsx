@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils"
 import { Checkbox } from "@/components/ui/checkbox"
 import { StatusBadge } from "@/components/badges"
 import { priorities, statuses } from "@/components/cases/categories"
-import { DataTableColumnHeader } from "@/components/data-table/column-header"
 import { AIGeneratedFlair } from "@/components/flair"
+import { DataTableColumnHeader } from "@/components/table"
 
 export const columns: ColumnDef<Case>[] = [
   {
