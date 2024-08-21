@@ -1,8 +1,6 @@
 import { actionsCreateAction, workflowsUpdateWorkflow } from "@/client"
 import { ReactFlowInstance } from "reactflow"
 
-import { type WorkflowMetadata } from "@/types/schemas"
-import { client } from "@/lib/api"
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
 export async function updateWorkflowGraphObject(
@@ -60,23 +58,6 @@ export async function createAction(
     return actionMetadata.id
   } catch (error) {
     console.error("Error creating action:", error)
-    throw error
-  }
-}
-
-/**
- *
- * View all playbooks.
- *
- * @param maybeToken
- * @returns
- */
-export async function fetchAllPlaybooks(): Promise<WorkflowMetadata[]> {
-  try {
-    const response = await client.get("/workflows?library=true")
-    return response.data
-  } catch (error) {
-    console.error("Error fetching playbooks:", error)
     throw error
   }
 }
