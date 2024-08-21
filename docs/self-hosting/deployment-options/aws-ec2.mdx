@@ -14,6 +14,7 @@ which comes preconfigured with Tracecat's AWS EC2 Terraform stack.
 - [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
 - AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
 - AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
+- AWS Session Manager plugin. View [installation docs](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
 
 ## Instructions
 
@@ -31,9 +32,9 @@ which comes preconfigured with Tracecat's AWS EC2 Terraform stack.
   <Step title="Port forward into EC2 instance">
     Run the following script to port forward from `http://localhost:8080` into `http://localhost:80` in the EC2 instance.
    
-    Note this requires AWS CLI to be installed.
+    Note: this requires AWS CLI to be installed with the [session manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
     ```bash
-    /.start-ssm-session.sh
+    ./ssm-start-session.sh
     ```
   </Step>
   <Step title="Access Tracecat UI">

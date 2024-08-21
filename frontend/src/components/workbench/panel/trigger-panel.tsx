@@ -484,7 +484,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const form = useForm<ScheduleInputs>({
     resolver: zodResolver(scheduleInputsSchema),
     defaultValues: {
-      inputs: '{"example": "value"}',
+      inputs: '{"sampleWebhookParam": "sampleValue"}',
     },
   })
 
