@@ -17,7 +17,6 @@ import {
   GitPullRequestCreateArrowIcon,
   MoreHorizontal,
   PlayIcon,
-  SettingsIcon,
   ShieldAlertIcon,
   SquarePlay,
   Trash2Icon,
@@ -119,16 +118,16 @@ export function WorkbenchNav() {
   const manualTriggerDisabled = workflow.version === null
   const workflowsPath = `/workspaces/${workspaceId}/workflows`
   return (
-    <div className="flex items-center w-full">
-      <div className="flex-1 min-w-0 mr-4">
+    <div className="flex w-full items-center">
+      <div className="mr-4 min-w-0 flex-1">
         <Breadcrumb>
-          <BreadcrumbList className="flex-nowrap whitespace-nowrap overflow-hidden">
+          <BreadcrumbList className="flex-nowrap overflow-hidden whitespace-nowrap">
             <BreadcrumbItem>
               <BreadcrumbLink href={workflowsPath}>
                 {workspace.name}
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="font-semibold flex-shrink-0">
+            <BreadcrumbSeparator className="shrink-0 font-semibold">
               {"/"}
             </BreadcrumbSeparator>
             <BreadcrumbItem>
@@ -167,7 +166,7 @@ export function WorkbenchNav() {
                 ? "Please commit changes to enable manual trigger."
                 : "Run the workflow manually without a webhook. Click to configure inputs."}
             </TooltipContent>
-            <PopoverContent className="p-3 w-96">
+            <PopoverContent className="w-96 p-3">
               <WorkflowExecutionControls workflowId={workflow.id} />
             </PopoverContent>
           </Tooltip>

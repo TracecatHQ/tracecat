@@ -1,5 +1,4 @@
 import { JSONSchema7 } from "json-schema"
-import YAML from "yaml"
 
 import { transformJsonSchemaToTableRows } from "@/lib/jsonschema"
 import {
@@ -22,7 +21,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
     <Table>
       <TableHeader>
         <TableRow className="h-6 text-xs capitalize ">
-          <TableHead className="font-bold whitespace-nowrap min-w-max">Parameter</TableHead>
+          <TableHead className="min-w-max whitespace-nowrap font-bold">Parameter</TableHead>
           <TableHead className="font-bold">Type</TableHead>
           <TableHead className="font-bold">Default</TableHead>
         </TableRow>
