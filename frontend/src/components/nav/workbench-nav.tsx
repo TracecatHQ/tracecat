@@ -441,7 +441,6 @@ function WorkbenchNavOptions({
     console.log("Delete workflow")
     await deleteWorkflow(workflowId)
     router.push(`/workspaces/${workspaceId}`)
-    router.refresh()
   }
 
   return (
