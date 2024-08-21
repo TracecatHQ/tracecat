@@ -1014,10 +1014,9 @@ export const casesGetCase = (data: CasesGetCaseData): CancelablePromise<CasesGet
  * Update a specific case for a workflow.
  * @param data The data for the request.
  * @param data.caseId
- * @param data.workflowId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns CaseResponse Successful Response
+ * @returns CaseRead Successful Response
  * @throws ApiError
  */
 export const casesUpdateCase = (data: CasesUpdateCaseData): CancelablePromise<CasesUpdateCaseResponse> => { return __request(OpenAPI, {
@@ -1027,7 +1026,6 @@ export const casesUpdateCase = (data: CasesUpdateCaseData): CancelablePromise<Ca
         case_id: data.caseId
     },
     query: {
-        workflow_id: data.workflowId,
         workspace_id: data.workspaceId
     },
     body: data.requestBody,
@@ -1042,7 +1040,6 @@ export const casesUpdateCase = (data: CasesUpdateCaseData): CancelablePromise<Ca
  * Create a new Case Event.
  * @param data The data for the request.
  * @param data.caseId
- * @param data.workflowId
  * @param data.workspaceId
  * @param data.requestBody
  * @returns unknown Successful Response
@@ -1055,7 +1052,6 @@ export const casesCreateCaseEvent = (data: CasesCreateCaseEventData): Cancelable
         case_id: data.caseId
     },
     query: {
-        workflow_id: data.workflowId,
         workspace_id: data.workspaceId
     },
     body: data.requestBody,
@@ -1070,7 +1066,6 @@ export const casesCreateCaseEvent = (data: CasesCreateCaseEventData): Cancelable
  * List all Case Events.
  * @param data The data for the request.
  * @param data.caseId
- * @param data.workflowId
  * @param data.workspaceId
  * @returns CaseEvent Successful Response
  * @throws ApiError
@@ -1082,7 +1077,6 @@ export const casesListCaseEvents = (data: CasesListCaseEventsData): CancelablePr
         case_id: data.caseId
     },
     query: {
-        workflow_id: data.workflowId,
         workspace_id: data.workspaceId
     },
     errors: {
@@ -1096,7 +1090,6 @@ export const casesListCaseEvents = (data: CasesListCaseEventsData): CancelablePr
  * @param data The data for the request.
  * @param data.caseId
  * @param data.eventId
- * @param data.workflowId
  * @param data.workspaceId
  * @returns unknown Successful Response
  * @throws ApiError
@@ -1109,7 +1102,6 @@ export const casesGetCaseEvent = (data: CasesGetCaseEventData): CancelablePromis
         event_id: data.eventId
     },
     query: {
-        workflow_id: data.workflowId,
         workspace_id: data.workspaceId
     },
     errors: {

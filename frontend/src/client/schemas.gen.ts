@@ -366,6 +366,20 @@ export const $CaseCreate = {
             type: 'object',
             title: 'Payload'
         },
+        context: {
+            items: {
+                '$ref': '#/components/schemas/CaseContext'
+            },
+            type: 'array',
+            title: 'Context'
+        },
+        tags: {
+            items: {
+                '$ref': '#/components/schemas/Tag'
+            },
+            type: 'array',
+            title: 'Tags'
+        },
         malice: {
             type: 'string',
             enum: ['malicious', 'benign'],
@@ -385,24 +399,10 @@ export const $CaseCreate = {
             type: 'string',
             enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
             title: 'Action'
-        },
-        context: {
-            items: {
-                '$ref': '#/components/schemas/CaseContext'
-            },
-            type: 'array',
-            title: 'Context'
-        },
-        tags: {
-            items: {
-                '$ref': '#/components/schemas/Tag'
-            },
-            type: 'array',
-            title: 'Tags'
         }
     },
     type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
+    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'context', 'tags', 'malice', 'status', 'priority', 'action'],
     title: 'CaseCreate'
 } as const;
 
@@ -430,10 +430,6 @@ export const $CaseEvent = {
         type: {
             type: 'string',
             title: 'Type'
-        },
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
         },
         case_id: {
             type: 'string',
@@ -466,11 +462,11 @@ export const $CaseEvent = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'type', 'workflow_id', 'case_id', 'initiator_role', 'data'],
+    required: ['owner_id', 'created_at', 'updated_at', 'type', 'case_id', 'initiator_role', 'data'],
     title: 'CaseEvent'
 } as const;
 
-export const $CaseEventParams = {
+export const $CaseEventCreate = {
     properties: {
         type: {
             type: 'string',
@@ -501,80 +497,7 @@ export const $CaseEventParams = {
     },
     type: 'object',
     required: ['type', 'data'],
-    title: 'CaseEventParams'
-} as const;
-
-export const $CaseParams = {
-    properties: {
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        case_title: {
-            type: 'string',
-            title: 'Case Title'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        },
-        malice: {
-            type: 'string',
-            enum: ['malicious', 'benign'],
-            title: 'Malice'
-        },
-        status: {
-            type: 'string',
-            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
-            title: 'Status'
-        },
-        priority: {
-            type: 'string',
-            enum: ['low', 'medium', 'high', 'critical'],
-            title: 'Priority'
-        },
-        action: {
-            type: 'string',
-            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
-            title: 'Action'
-        },
-        context: {
-            items: {
-                '$ref': '#/components/schemas/CaseContext'
-            },
-            type: 'array',
-            title: 'Context'
-        },
-        tags: {
-            items: {
-                '$ref': '#/components/schemas/Tag'
-            },
-            type: 'array',
-            title: 'Tags'
-        }
-    },
-    type: 'object',
-    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
-    title: 'CaseParams'
+    title: 'CaseEventCreate'
 } as const;
 
 export const $CaseRead = {
@@ -597,6 +520,20 @@ export const $CaseRead = {
             type: 'object',
             title: 'Payload'
         },
+        context: {
+            items: {
+                '$ref': '#/components/schemas/CaseContext'
+            },
+            type: 'array',
+            title: 'Context'
+        },
+        tags: {
+            items: {
+                '$ref': '#/components/schemas/Tag'
+            },
+            type: 'array',
+            title: 'Tags'
+        },
         malice: {
             type: 'string',
             enum: ['malicious', 'benign'],
@@ -616,20 +553,6 @@ export const $CaseRead = {
             type: 'string',
             enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
             title: 'Action'
-        },
-        context: {
-            items: {
-                '$ref': '#/components/schemas/CaseContext'
-            },
-            type: 'array',
-            title: 'Context'
-        },
-        tags: {
-            items: {
-                '$ref': '#/components/schemas/Tag'
-            },
-            type: 'array',
-            title: 'Tags'
         },
         id: {
             type: 'string',
@@ -648,81 +571,63 @@ export const $CaseRead = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags', 'id', 'created_at', 'updated_at'],
+    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'context', 'tags', 'malice', 'status', 'priority', 'action', 'id', 'created_at', 'updated_at'],
     title: 'CaseRead'
 } as const;
 
-export const $CaseResponse = {
+export const $CaseUpdate = {
     properties: {
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        case_title: {
-            type: 'string',
-            title: 'Case Title'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        },
         malice: {
-            type: 'string',
-            enum: ['malicious', 'benign'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['malicious', 'benign']
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Malice'
         },
         status: {
-            type: 'string',
-            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['open', 'closed', 'in_progress', 'reported', 'escalated']
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Status'
         },
         priority: {
-            type: 'string',
-            enum: ['low', 'medium', 'high', 'critical'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['low', 'medium', 'high', 'critical']
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Priority'
         },
         action: {
-            type: 'string',
-            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise']
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Action'
-        },
-        context: {
-            items: {
-                '$ref': '#/components/schemas/CaseContext'
-            },
-            type: 'array',
-            title: 'Context'
-        },
-        tags: {
-            items: {
-                '$ref': '#/components/schemas/Tag'
-            },
-            type: 'array',
-            title: 'Tags'
         }
     },
     type: 'object',
-    required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
-    title: 'CaseResponse'
+    title: 'CaseUpdate'
 } as const;
 
 export const $CommitWorkflowResponse = {

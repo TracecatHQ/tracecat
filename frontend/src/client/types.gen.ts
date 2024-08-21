@@ -120,12 +120,12 @@ export type CaseCreate = {
     payload: {
         [key: string]: unknown;
     };
+    context: Array<CaseContext>;
+    tags: Array<Tag>;
     malice: 'malicious' | 'benign';
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
 };
 
 export type malice = 'malicious' | 'benign';
@@ -142,7 +142,6 @@ export type CaseEvent = {
     updated_at: string;
     id?: string;
     type: string;
-    workflow_id: string;
     case_id: string;
     initiator_role: string;
     data: {
@@ -150,7 +149,7 @@ export type CaseEvent = {
 } | null;
 };
 
-export type CaseEventParams = {
+export type CaseEventCreate = {
     type: 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
     data: {
     [key: string]: (string | null);
@@ -159,24 +158,6 @@ export type CaseEventParams = {
 
 export type type = 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
 
-export type CaseParams = {
-    id: string;
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-};
-
 export type CaseRead = {
     owner_id: string;
     workflow_id: string;
@@ -184,33 +165,22 @@ export type CaseRead = {
     payload: {
         [key: string]: unknown;
     };
+    context: Array<CaseContext>;
+    tags: Array<Tag>;
     malice: 'malicious' | 'benign';
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
     id: string;
     created_at: string;
     updated_at: string;
 };
 
-export type CaseResponse = {
-    id: string;
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
+export type CaseUpdate = {
+    malice?: 'malicious' | 'benign' | null;
+    status?: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated' | null;
+    priority?: 'low' | 'medium' | 'high' | 'critical' | null;
+    action?: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise' | null;
 };
 
 export type CommitWorkflowResponse = {
@@ -1232,17 +1202,15 @@ export type CasesGetCaseResponse = CaseRead;
 
 export type CasesUpdateCaseData = {
     caseId: string;
-    requestBody: CaseParams;
-    workflowId: string;
+    requestBody: CaseUpdate;
     workspaceId: string;
 };
 
-export type CasesUpdateCaseResponse = CaseResponse;
+export type CasesUpdateCaseResponse = CaseRead;
 
 export type CasesCreateCaseEventData = {
     caseId: string;
-    requestBody: CaseEventParams;
-    workflowId: string;
+    requestBody: CaseEventCreate;
     workspaceId: string;
 };
 
@@ -1250,7 +1218,6 @@ export type CasesCreateCaseEventResponse = unknown;
 
 export type CasesListCaseEventsData = {
     caseId: string;
-    workflowId: string;
     workspaceId: string;
 };
 
@@ -1259,7 +1226,6 @@ export type CasesListCaseEventsResponse = Array<CaseEvent>;
 export type CasesGetCaseEventData = {
     caseId: string;
     eventId: string;
-    workflowId: string;
     workspaceId: string;
 };
 
@@ -2063,7 +2029,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: CaseResponse;
+                200: CaseRead;
                 /**
                  * Validation Error
                  */
