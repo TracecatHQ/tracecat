@@ -234,7 +234,7 @@ export function WorkflowForm({
                     </HoverCardContent>
                   </HoverCard>
                   <span className="text-xs text-muted-foreground">
-                    Define key-value pairs to reshape the data returned by the workflow run.
+                    Define the data returned by the workflow.
                   </span>
                 </div>
                 <span className="text-xs text-muted-foreground">
@@ -336,7 +336,9 @@ function WorkflowReturnValueTooltip() {
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <span className="w-full text-muted-foreground">
-        Key-value pairs that define the data returned by the workflow run.
+        Define the data returned by the workflow.
+        Accepts static values and expressions.
+        Use expressions to reference specific action outputs.
       </span>
       <span className="w-full text-muted-foreground">
         Usage example in expressions:
