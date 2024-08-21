@@ -22,8 +22,11 @@ import {
   DeleteWorkflowAlertDialog,
   DeleteWorkflowAlertDialogTrigger,
 } from "@/components/dashboard/delete-workflow-dialog"
-import { DataTableColumnHeader } from "@/components/data-table/column-header"
-import { DataTable, type DataTableToolbarProps } from "@/components/table"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/table"
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()

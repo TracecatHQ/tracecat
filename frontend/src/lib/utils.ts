@@ -1,8 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
-import { Action } from "@/types/schemas"
-
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
@@ -70,10 +68,6 @@ export function undoSlugifyNamespaced(
  */
 export function getSlugFromActionKey(key: string): string {
   return key.split(".")[1]
-}
-
-export function getActionKey(action: Action): string {
-  return `${action.id}.${slugify(action.title)}`
 }
 
 export function tryStringify(value: string, defaultValue: string = ""): string {

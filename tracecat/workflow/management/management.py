@@ -83,24 +83,16 @@ class WorkflowsManagementService:
         await self.session.delete(workflow)
         await self.session.commit()
 
-    async def create_workflow(title: str, description: str) -> Workflow:
-        """Create a new workflow."""
-        workflow = Workflow(
-            title=title,
-            description=description,
-        )
-        return workflow
-
     async def create_workflow_from_dsl(
-        self, data: dict[str, Any], *, skip_secret_validation: bool = False
+        self, dsl_data: dict[str, Any], *, skip_secret_validation: bool = False
     ) -> CreateWorkflowFromDSLResponse:
-        """Create a new workflow from a file."""
+        """Create a new workflow from a Tracecat DSL data object."""
 
         construction_errors = []
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
-            dsl = DSLInput.model_validate(data)
+            dsl = DSLInput.model_validate(dsl_data)
             logger.info("Commiting workflow from database")
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
@@ -187,3 +179,71 @@ class WorkflowsManagementService:
             logger.error(f"Error creating workflow: {e}")
             await self.session.rollback()
             raise e
+
+    async def build_dsl_from_workflow(self, workflow: Workflow) -> DSLInput:
+        """Build a DSLInput from a Workflow."""
+
+        if not workflow.object:
+            raise TracecatValidationError(
+                "Empty workflow graph object. Is `workflow.object` set?"
+            )
+        # XXX: Invoking workflow.actions instantiates the actions relationship
+        actions = workflow.actions
+        # If it still falsy, raise a user facing error
+        if not actions:
+            raise TracecatValidationError(
+                "Workflow has no actions. Please add an action to the workflow before committing."
+            )
+        graph = RFGraph.from_workflow(workflow)
+        graph_actions = graph.action_nodes()
+        if len(graph_actions) != len(actions):
+            logger.warning(
+                f"Mismatch between graph actions (view) and workflow actions (model): {len(graph_actions)=} != {len(actions)=}"
+            )
+            logger.debug("Actions", graph_actions=graph_actions, actions=actions)
+            # NOTE: This likely occurs due to race conditions in the FE
+            # To recover from this, we will use the RFGraph object (view) as the source
+            # of truth, and remove any orphaned `Actions` in the database
+            await self._synchronize_graph_with_db_actions(actions, graph)
+            # Refetch the actions
+            await self.session.refresh(workflow)
+            # Check again
+            actions = workflow.actions
+            if len(graph_actions) != len(actions):
+                raise TracecatValidationError(
+                    "Couldn't synchronize actions between graph and database."
+                )
+        action_statements = graph.build_action_statements(actions)
+        return DSLInput(
+            title=workflow.title,
+            description=workflow.description,
+            entrypoint={
+                # XXX: Sus
+                "ref": graph.logical_entrypoint.ref,
+                # TODO: Add expects for UI -> DSL
+                "expects": {},
+            },
+            actions=action_statements,
+            inputs=workflow.static_inputs,
+            config=workflow.config,
+            returns=workflow.returns,
+            # triggers=workflow.triggers,
+        )
+
+    async def _synchronize_graph_with_db_actions(
+        self, actions: list[Action], graph: RFGraph
+    ) -> None:
+        """Recover actions based on the action nodes."""
+        action_nodes = graph.action_nodes()
+
+        # Set difference of action IDs
+        ids_in_graph = {node.id for node in action_nodes}
+        ids_in_db = {action.id for action in actions}
+        # Delete actions that don't exist in the action_nodes
+        orphaned_action_ids = ids_in_db - ids_in_graph
+        for action in actions:
+            if action.id not in orphaned_action_ids:
+                continue
+            await self.session.delete(action)
+        await self.session.commit()
+        logger.info(f"Deleted orphaned action: {action.title}")

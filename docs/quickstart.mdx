@@ -16,6 +16,8 @@ By the end of this quickstart, you will:
 learn to work with Tracecat's built-in case management system,
 and run the workflow live.
 
+![crowdstrikebluescreen](/img/quickstart/configure-open-case.png)
+
 Let's get started!
 
 ## Prerequisites
@@ -28,15 +30,17 @@ Let's get started!
     <Note>
         If you are working with a brand new Tracecat deployment, you can find the default admin user's email and password in the [authentication docs](/self-hosting/authentication/introduction).
     </Note>
+    ![Sign-in](/img/signin-page.png)
   </Step>
   <Step title="Create a new workflow">
+    ![Create new workflow](/img/quickstart/create-new-workflow.png)
   </Step>
-  <Step title="Add secret">
-    Add your VirusTotal API key to workspace secrets.
+  <Step title="Rename workflow">
+    ![Rename workflow](/img/quickstart/change-workflow-name.png)
   </Step>
   <Step title="Add enrichment step">
-    Go back to the workflow builder view.
-    Then from the trigger action, search and select the VirusTotal **Analyze URL** integration
+    From the trigger action, search and select the VirusTotal **Analyze URL** integration.
+    ![Add new action](/img/quickstart/add-node.png)
   </Step>
   <Step title="Pass URL from webhook into analyze URL action inputs">
     <Tip>
@@ -44,18 +48,70 @@ Let's get started!
         You can find out more [here in our docs](/concepts/expressions).
     </Tip>
     Use expressions and [JSONPath match syntax](https://www.ietf.org/archive/id/draft-ietf-jsonpath-base-01.html) to select data from the webhook trigger.
+
+    Fill in inputs with the following:
+
+    ```yaml
+    url: ${{ TRIGGER.url_input }}
+    ```
+
+    ![Configure VirusTotal URL input](/img/quickstart/configure-vt-input.png)
+  </Step>
+  <Step title="Add secret">
+    Add your VirusTotal API key to workspace secrets.
+    For the integration to work, you'll need to name the secret `virustotal` and assign your API token to a `VIRUSTOTAL_API_KEY` secret key.
+    ![Secret settings](/img/quickstart/credentials-setting.png)
+    ![Create secret](/img/quickstart/create-secret.png)
   </Step>
   <Step title="Add open case step">
+    Go back to the workflow builder.
     From the analyze URL action, search and select the **Open Case** action.
+
+    Fill in **Inputs** with the following:
+    
+    ```yaml
+    action: informational
+    malice: malicious
+    status: open
+    payload: ${{ ACTIONS.analyze_url.result.data }}
+    priority: ${{ 'high' if ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 30 else 'medium' }}
+    case_title: ${{ TRIGGER.url }}
+    ```
+    ![Add open case](/img/quickstart/configure-open-case.png)
   </Step>
-  <Step title="Pass data from VirusTotal into open case inputs">
+  <Step title="Add condition to open case">
+    To reduce the number of low signal alerts, let's only open a case if there are more than 10 reports of malicious intent.
+
+    Fill in **Run If** under **Control Flow** with the following:
+    
+    ```yaml
+    ${{ ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 10 }}
+    ```
+    ![Add open case](/img/quickstart/configure-open-case.png)
   </Step>
   <Step title="Commit (AKA save) workflow">
+    ![Save workflow](/img/quickstart/commit-workflow.png)
   </Step>
-  <Step title="Trigger workflow from UI">
+  <Step title="Trigger workflow">
+    You can now trigger the workflow with a JSON payload directly from the UI.
+    For this demo, we use the following sample payload:
+
+    ```json
+    {"url_input": "crowdstrikebluescreen.com"}
+    ```
+    ![Trigger workflow](/img/quickstart/trigger-workflow.png)
   </Step>
-  <Step title="View workflow outputs">
+  <Step title="View workflow context">
+    Every workflow run comes with context about every step executed in the workflow.
+    You can view this information by switching to the **Runs** tab.
+    ![New run context](/img/quickstart/run-context.png)
   </Step>
-  <Step title="Check if new case is created">
+  <Step title="View open case">
+    🎉 Congratulations on running your first security workflow in Tracecat!
+    You can finish this quickstart by going into the **Cases** tab to view the newly opened case.
+
+    ![Cases table](/img/quickstart/case.png)
+    ![Cases side panel](/img/quickstart/case-panel.png)
+
   </Step>
 </Steps>
