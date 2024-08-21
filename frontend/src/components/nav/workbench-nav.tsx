@@ -2,7 +2,7 @@
 
 import React, { useCallback } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   ApiError,
   UDFArgsValidationResponse,
@@ -17,14 +17,17 @@ import {
   GitPullRequestCreateArrowIcon,
   MoreHorizontal,
   PlayIcon,
+  SettingsIcon,
   ShieldAlertIcon,
   SquarePlay,
+  Trash2Icon,
   WorkflowIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { exportWorkflowJson } from "@/lib/export"
+import { useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -46,6 +49,16 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -165,7 +178,7 @@ export function WorkbenchNav() {
                 className={cn(
                   "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
                   commitErrors &&
-                    "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+                  "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
                 )}
               >
                 {commitErrors ? (
@@ -416,36 +429,78 @@ function WorkbenchNavOptions({
   workspaceId: string
   workflowId: string
 }) {
+
+  const router = useRouter()
+  const { deleteWorkflow } = useWorkflowManager()
+
+  const handleDeleteWorkflow = async () => {
+    console.log("Delete workflow")
+    await deleteWorkflow(workflowId)
+    router.push(`/workspaces/${workspaceId}`)
+    router.refresh()
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon">
-          <MoreHorizontal className="size-4" />
-          <span className="sr-only">More</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          onClick={async () => {
-            try {
-              await exportWorkflowJson({
-                workspaceId,
-                workflowId,
-                format: "json",
-              })
-            } catch (error) {
-              console.error("Failed to download workflow definition:", error)
-              toast({
-                title: "Error exporting workflow",
-                description: "Could not export workflow. Please try again.",
-              })
-            }
-          }}
-        >
-          <DownloadIcon className="mr-2 size-4 text-foreground/70" />
-          <span className="text-xs text-foreground/70">Export as JSON</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <Dialog>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="size-4" />
+              <span className="sr-only">More</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              className="text-xs text-foreground/70"
+              onClick={async () => {
+                try {
+                  await exportWorkflowJson({
+                    workspaceId,
+                    workflowId,
+                    format: "json",
+                  })
+                } catch (error) {
+                  console.error("Failed to download workflow definition:", error)
+                  toast({
+                    title: "Error exporting workflow",
+                    description: "Could not export workflow. Please try again.",
+                  })
+                }
+              }}
+            >
+              <DownloadIcon className="mr-2 size-4" />
+              <span>Export as JSON</span>
+            </DropdownMenuItem>
+            <DialogTrigger asChild>
+            <DropdownMenuItem className="text-xs text-red-600">
+                <Trash2Icon className="mr-2 size-4" />
+                <span>Delete</span>
+            </DropdownMenuItem>
+            </DialogTrigger>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete workflow</DialogTitle>
+            <DialogClose />
+          </DialogHeader>
+          <DialogDescription>
+            Are you sure you want to permanently delete this workflow?
+          </DialogDescription>
+          <DialogFooter>
+            <Button variant="outline">Cancel</Button>
+            <Button
+              onClick={handleDeleteWorkflow}
+              variant="destructive"
+              className="mr-2"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

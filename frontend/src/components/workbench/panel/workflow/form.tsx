@@ -51,7 +51,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { CustomEditor } from "@/components/editor"
-import { WorkflowSettings } from "@/components/workbench/panel/workflow/settings"
 
 const workflowConfigFormSchema = z.object({
   title: z.string(),
@@ -136,7 +135,6 @@ export function WorkflowForm({
             </TooltipTrigger>
             <TooltipContent>Save Changes</TooltipContent>
           </Tooltip>
-          <WorkflowSettings workflow={workflow} />
         </div>
         <Separator />
         {/* Workflow Settings */}
