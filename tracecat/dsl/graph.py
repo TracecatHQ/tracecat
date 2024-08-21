@@ -13,6 +13,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+from tracecat.db.schemas import Action
 from tracecat.dsl.models import ActionStatement
 from tracecat.identifiers import action
 from tracecat.logging import logger
@@ -259,17 +260,8 @@ class RFGraph(TSObject):
         """Return all `udf` (action) type nodes."""
         return [node for node in self.nodes if node.type == "udf"]
 
-    def action_statements(self, workflow: Workflow) -> list[ActionStatement]:
-        """Create ActionStatements by combining RFGraph.nodes and Workflow.actions."""
-        if len(self.action_nodes()) != len(workflow.actions):
-            logger.error(
-                f"Mismatch between graph action nodes and workflow actions: {len(self.nodes)=} != {len(workflow.actions)=}"
-            )
-            raise ValueError(
-                f"Mismatch between graph nodes and workflow actions: {len(self.nodes)=} != {len(workflow.actions)=}"
-            )
-
-        actions = workflow.actions or []
+    def build_action_statements(self, actions: list[Action]) -> list[ActionStatement]:
+        """Convert DB Actions into ActionStatements using the graph."""
         ref2action = {action.ref: action for action in actions}
 
         statements = []

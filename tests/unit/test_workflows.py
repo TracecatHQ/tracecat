@@ -422,7 +422,7 @@ async def test_child_workflow_success(temporal_cluster, test_role):
         if not child_workflow:
             raise ValueError("Child workflow not created")
         _ = child_workflow.actions
-        child_dsl = DSLInput.from_workflow(child_workflow)
+        child_dsl = await mgmt_service.build_dsl_from_workflow(child_workflow)
 
         # Commit the child workflow
         defn_service = WorkflowDefinitionsService(session, role=test_role)
@@ -497,7 +497,7 @@ async def test_child_workflow_context_passing(temporal_cluster, test_role):
         if not child_workflow:
             raise ValueError("Child workflow not created")
         _ = child_workflow.actions
-        child_dsl = DSLInput.from_workflow(child_workflow)
+        child_dsl = await mgmt_service.build_dsl_from_workflow(child_workflow)
 
         # Commit the child workflow
         defn_service = WorkflowDefinitionsService(session, role=test_role)
