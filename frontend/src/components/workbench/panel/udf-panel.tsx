@@ -242,10 +242,8 @@ export function UDFActionPanel({
           <Accordion
             type="multiple"
             defaultValue={[
-              "action-settings",
               "action-schema",
-              "action-inputs",
-              "action-control-flow",
+              "action-inputs"
             ]}
             className="pb-10"
           >
@@ -319,7 +317,7 @@ export function UDFActionPanel({
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                 <div className="flex items-center">
                   <Shapes className="mr-3 size-4" />
-                  <span>Schema</span>
+                  <span>Input Schema</span>
                 </div>
               </AccordionTrigger>
               <AccordionContent className="space-y-4">
@@ -361,7 +359,7 @@ export function UDFActionPanel({
                 {/* UDF inputs */}
                 <div className="space-y-4 px-4">
                   <span className="text-xs text-muted-foreground">
-                    Hover over the fields to see more details.
+                    Hover over each row for details.
                   </span>
                   <JSONSchemaTable schema={udf.args} />
                 </div>
@@ -387,14 +385,14 @@ export function UDFActionPanel({
                     </div>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    Edit the action inputs in YAML below.
+                    Define action inputs in YAML below.
                   </span>
                   <Controller
                     name="inputs"
                     control={methods.control}
                     render={({ field }) => (
                       <CustomEditor
-                        className="h-96 w-full"
+                        className="h-72 w-full"
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
@@ -421,7 +419,7 @@ export function UDFActionPanel({
               </AccordionTrigger>
               <AccordionContent className="space-y-4">
                 {/* Run if */}
-                <div className="flex flex-col space-y-2 px-4">
+                <div className="flex flex-col space-y-4 px-4">
                   <FormLabel className="flex items-center gap-2 text-xs font-medium">
                     <span>Run If</span>
                   </FormLabel>
@@ -440,8 +438,7 @@ export function UDFActionPanel({
                     </HoverCard>
 
                     <span className="text-xs text-muted-foreground">
-                      Define a conditional expression that determines if the
-                      action executes.
+                      Define a conditional expression that determines if the action executes.
                     </span>
                   </div>
 
@@ -450,7 +447,7 @@ export function UDFActionPanel({
                     control={methods.control}
                     render={({ field }) => (
                       <CustomEditor
-                        className="h-16 w-full"
+                        className="h-24 w-full"
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
@@ -478,7 +475,7 @@ export function UDFActionPanel({
                     </HoverCard>
 
                     <span className="text-xs text-muted-foreground">
-                      Define one or more loop expressions for the action.
+                      Define one or more loop expressions for the action to iterate over.
                     </span>
                   </div>
 
@@ -513,8 +510,7 @@ function RunIfTooltip() {
       </div>
       <div className="flex w-full items-center justify-between text-muted-foreground ">
         <span>
-          A run-if expression is just a conditional expression that evaluates to
-          a truthy or falsy value:
+          A run-if expression is a conditional expression that evaluates to a truthy or falsy value:
         </span>
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
