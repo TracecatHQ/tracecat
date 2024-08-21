@@ -63,6 +63,7 @@ Owners can be Workspaces or the Organization.
 """
 
 SecretID = Annotated[str, StringConstraints(pattern=r"secret-[0-9a-f]{32}")]
+CaseID = Annotated[str, StringConstraints(pattern=r"case-[0-9a-f]{32}")]
 
 InternalServiceID = Literal[
     "tracecat-runner",

@@ -14,9 +14,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
-from tracecat.api.routers.cases.actions import router as case_actions_router
-from tracecat.api.routers.cases.contexts import router as case_contexts_router
-from tracecat.api.routers.cases.management import router as cases_router
 from tracecat.api.routers.public.callbacks import router as callback_router
 from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.schedules import router as schedules_router
@@ -31,6 +28,7 @@ from tracecat.auth.users import (
     get_or_create_default_admin_user,
     list_users,
 )
+from tracecat.cases.router import router as cases_router
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
@@ -209,8 +207,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(actions_router)
     app.include_router(udfs_router)
     app.include_router(cases_router)
-    app.include_router(case_actions_router)
-    app.include_router(case_contexts_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(validation_router)

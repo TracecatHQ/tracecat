@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from tracecat.db.schemas import Resource
-from tracecat.identifiers import OwnerID, WorkflowID
+from tracecat.identifiers import WorkflowID
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.validation import ValidationResult
 
@@ -75,66 +75,6 @@ class WebhookResponse(Resource):
     url: str
 
 
-class Tag(BaseModel):
-    tag: str
-    value: str
-
-
-class CaseContext(BaseModel):
-    key: str
-    value: str
-
-
-class CaseParams(BaseModel):
-    # SQLModel defaults
-    id: str
-    owner_id: OwnerID
-    created_at: datetime
-    updated_at: datetime
-    # Case related fields
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    priority: Literal["low", "medium", "high", "critical"]
-    action: Literal[
-        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
-    ]
-    context: list[CaseContext]
-    tags: list[Tag]
-
-
-class CaseResponse(BaseModel):
-    id: str
-    owner_id: OwnerID
-    created_at: datetime
-    updated_at: datetime
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    priority: Literal["low", "medium", "high", "critical"]
-    action: Literal[
-        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
-    ]
-    context: list[CaseContext]
-    tags: list[Tag]
-
-
-class CaseActionParams(BaseModel):
-    tag: str
-    value: str
-    user_id: str | None = None
-
-
-class CaseContextParams(BaseModel):
-    tag: str
-    value: str
-    user_id: str | None = None
-
-
 class SearchWebhooksParams(BaseModel):
     action_id: str | None = None
     workflow_id: str | None = None
@@ -159,20 +99,6 @@ class StartWorkflowResponse(BaseModel):
     status: str
     message: str
     id: str
-
-
-CaseEventType = Literal[
-    "status_changed",
-    "priority_changed",
-    "comment_created",
-    "case_opened",
-    "case_closed",
-]
-
-
-class CaseEventParams(BaseModel):
-    type: CaseEventType
-    data: dict[str, str | None] | None
 
 
 class UDFArgsValidationResponse(BaseModel):
