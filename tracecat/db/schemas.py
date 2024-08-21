@@ -203,8 +203,9 @@ class CaseEvent(Resource, table=True):
         default_factory=id_factory("case-evt"), nullable=False, unique=True, index=True
     )
     type: str  # The CaseEvent type
-    workflow_id: str
-    case_id: str
+    case_id: str = Field(
+        sa_column=Column(String, ForeignKey("case.id", ondelete="CASCADE"))
+    )
     # Tells us what kind of role modified the case
     initiator_role: str  # "user", "service"
     # Changes: We'll use a dict to store the changes

@@ -7,21 +7,45 @@ from pydantic import BaseModel
 
 from tracecat.identifiers import CaseID, OwnerID, WorkflowID
 
+CaseMalice = Literal[
+    "malicious",
+    "benign",
+]
+CaseStatus = Literal[
+    "open",
+    "closed",
+    "in_progress",
+    "reported",
+    "escalated",
+]
+CasePriority = Literal[
+    "low",
+    "medium",
+    "high",
+    "critical",
+]
+CaseAction = Literal[
+    "ignore",
+    "quarantine",
+    "informational",
+    "sinkhole",
+    "active_compromise",
+]
+
 
 class CaseBase(BaseModel):
-    # Case related fields
+    # Immutable
     owner_id: OwnerID
     workflow_id: WorkflowID
     case_title: str
     payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    priority: Literal["low", "medium", "high", "critical"]
-    action: Literal[
-        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
-    ]
     context: list[CaseContext]
     tags: list[Tag]
+    # Mutable
+    malice: CaseMalice
+    status: CaseStatus
+    priority: CasePriority
+    action: CaseAction
 
 
 class CaseCreate(CaseBase):
@@ -45,12 +69,14 @@ class Tag(BaseModel):
     value: str
 
 
+class CaseUpdate(BaseModel):
+    malice: CaseMalice | None = None
+    status: CaseStatus | None = None
+    priority: CasePriority | None = None
+    action: CaseAction | None = None
+
+
 """Case Events"""
-
-
-class CaseEventParams(BaseModel):
-    type: CaseEventType
-    data: dict[str, str | None] | None
 
 
 CaseEventType = Literal[
@@ -62,39 +88,6 @@ CaseEventType = Literal[
 ]
 
 
-class CaseResponse(BaseModel):
-    id: str
-    owner_id: OwnerID
-    created_at: datetime
-    updated_at: datetime
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    priority: Literal["low", "medium", "high", "critical"]
-    action: Literal[
-        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
-    ]
-    context: list[CaseContext]
-    tags: list[Tag]
-
-
-class CaseParams(BaseModel):
-    # SQLModel defaults
-    id: str
-    owner_id: OwnerID
-    created_at: datetime
-    updated_at: datetime
-    # Case related fields
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any]
-    malice: Literal["malicious", "benign"]
-    status: Literal["open", "closed", "in_progress", "reported", "escalated"]
-    priority: Literal["low", "medium", "high", "critical"]
-    action: Literal[
-        "ignore", "quarantine", "informational", "sinkhole", "active_compromise"
-    ]
-    context: list[CaseContext]
-    tags: list[Tag]
+class CaseEventCreate(BaseModel):
+    type: CaseEventType
+    data: dict[str, str | None] | None
