@@ -19,8 +19,8 @@ You can find this key in your `.env` file assigned to the environment variable: 
     Fetch the latest environment variables migration script `env-migration.sh`
     and template `.env.example` to ensure compatibility with the new Tracecat version.
     ```
-    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/env-migration.sh
-    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/.env.example
+    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/env-migration.sh
+    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/.env.example
     ```
   </Step>
   <Step title="Execute environment variables migration">
@@ -32,7 +32,7 @@ You can find this key in your `.env` file assigned to the environment variable: 
   <Step title="Update Docker Compose Configuration">
     Download the latest Docker Compose file.
     ```
-    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.1/docker-compose.yml
+    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/docker-compose.yml
     ```
   </Step>
   <Step title="Restart Tracecat">
@@ -47,7 +47,7 @@ To update Tracecat, you can download the latest Terraform stack from Tracecat's 
 
 ## Data Migration
 
-As of version 0.7.1, data migrations are automatically applied when the API service is spun up.
+As of version 0.7.2, data migrations are automatically applied when the API service is spun up.
 Data migrations are, however, non-trivial operations.
 We recommend backing up your database before running migrations, especially in a production environment.
 
