@@ -1,10 +1,6 @@
 import { z } from "zod"
 
-import {
-  keyValueSchema,
-  stringToJSONSchema,
-  tagSchema,
-} from "@/types/validators"
+import { keyValueSchema, tagSchema } from "@/types/validators"
 
 export const strAsDate = z.string().transform((x) => new Date(x))
 
@@ -50,94 +46,6 @@ export const scheduleSchema = z
   .and(resourceSchema)
 export type Schedule = z.infer<typeof scheduleSchema>
 /** Workflow Schemas */
-
-const actionStatusSchema = z.enum(["online", "offline"])
-export type ActionStatus = z.infer<typeof actionStatusSchema>
-
-export const actionControlFlowSchema = z.object({
-  run_if: z.string().nullable(),
-  for_each: z.string().nullable(),
-})
-export const actionSchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: actionStatusSchema,
-  inputs: z.record(z.any()),
-  control_flow: actionControlFlowSchema,
-})
-
-export type Action = z.infer<typeof actionSchema>
-
-export const actionMetadataSchema = z.object({
-  id: z.string(),
-  workflow_id: z.string(),
-  title: z.string(),
-  description: z.string(),
-})
-export type ActionMetadata = z.infer<typeof actionMetadataSchema>
-
-const workflowStatusSchema = z.enum(["online", "offline"])
-export type WorkflowStatus = z.infer<typeof workflowStatusSchema>
-
-export const workflowSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: workflowStatusSchema,
-  actions: z.record(actionSchema),
-  version: z.number().nullish(),
-  object: z.record(z.any()).nullable(),
-  webhook: webhookSchema,
-  schedules: z.array(scheduleSchema).default([]),
-  entrypoint: z.string().nullable(),
-  static_inputs: z.record(z.string(), z.any()),
-  returns: z.unknown().nullable(),
-})
-
-export type Workflow = z.infer<typeof workflowSchema>
-
-export const workflowMetadataSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: workflowStatusSchema,
-  icon_url: z.string().url().nullable(),
-})
-export type WorkflowMetadata = z.infer<typeof workflowMetadataSchema>
-
-const runStatusSchema = z.enum([
-  "pending",
-  "success",
-  "failure",
-  "canceled",
-  "running",
-])
-export type RunStatus = z.infer<typeof runStatusSchema>
-
-export const actionRunSchema = z.object({
-  id: z.string(),
-  created_at: strAsDate,
-  updated_at: strAsDate,
-  action_id: z.string(),
-  workflow_run_id: z.string(),
-  status: runStatusSchema,
-  error_msg: z.string().nullable(),
-  result: stringToJSONSchema.nullable(),
-})
-export type ActionRun = z.infer<typeof actionRunSchema>
-
-export const workflowRunSchema = z.object({
-  id: z.string(),
-  created_at: strAsDate,
-  updated_at: strAsDate,
-  workflow_id: z.string(),
-  status: runStatusSchema,
-  action_runs: z.array(actionRunSchema).nullish().default([]),
-})
-
-export type WorkflowRun = z.infer<typeof workflowRunSchema>
 
 export const caseActionTypes = [
   "ignore",
