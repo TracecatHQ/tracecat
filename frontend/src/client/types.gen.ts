@@ -108,32 +108,33 @@ export type Body_workflows_create_workflow = {
     file?: (Blob | File) | null;
 };
 
-export type CaseAction = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    tag: string;
-    value: string;
-    user_id: string | null;
-};
-
-export type CaseActionParams = {
-    tag: string;
-    value: string;
-    user_id?: string | null;
-};
-
-export type CaseContext_Input = {
+export type CaseContext = {
     key: string;
     value: string;
 };
 
-export type CaseContextParams = {
-    tag: string;
-    value: string;
-    user_id?: string | null;
+export type CaseCreate = {
+    owner_id: string;
+    workflow_id: string;
+    case_title: string;
+    payload: {
+        [key: string]: unknown;
+    };
+    malice: 'malicious' | 'benign';
+    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
+    context: Array<CaseContext>;
+    tags: Array<Tag>;
 };
+
+export type malice = 'malicious' | 'benign';
+
+export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
+
+export type priority = 'low' | 'medium' | 'high' | 'critical';
+
+export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
 
 export type CaseEvent = {
     owner_id: string;
@@ -172,17 +173,27 @@ export type CaseParams = {
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: Array<CaseContext_Input>;
+    context: Array<CaseContext>;
     tags: Array<Tag>;
 };
 
-export type malice = 'malicious' | 'benign';
-
-export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-
-export type priority = 'low' | 'medium' | 'high' | 'critical';
-
-export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
+export type CaseRead = {
+    owner_id: string;
+    workflow_id: string;
+    case_title: string;
+    payload: {
+        [key: string]: unknown;
+    };
+    malice: 'malicious' | 'benign';
+    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
+    context: Array<CaseContext>;
+    tags: Array<Tag>;
+    id: string;
+    created_at: string;
+    updated_at: string;
+};
 
 export type CaseResponse = {
     id: string;
@@ -198,7 +209,7 @@ export type CaseResponse = {
     status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
     priority: 'low' | 'medium' | 'high' | 'critical';
     action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    context: Array<tracecat__types__api__CaseContext>;
+    context: Array<CaseContext>;
     tags: Array<Tag>;
 };
 
@@ -895,21 +906,6 @@ export type login = {
     client_secret?: string | null;
 };
 
-export type tracecat__db__schemas__CaseContext = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    tag: string;
-    value: string;
-    user_id: string | null;
-};
-
-export type tracecat__types__api__CaseContext = {
-    key: string;
-    value: string;
-};
-
 export type PublicIncomingWebhookData = {
     path: string;
     requestBody?: {
@@ -1213,27 +1209,26 @@ export type UdfsValidateUdfArgsData = {
 export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse;
 
 export type CasesCreateCaseData = {
-    requestBody: Array<CaseParams>;
-    workflowId: string;
-};
-
-export type CasesCreateCaseResponse = CaseResponse;
-
-export type CasesListCasesData = {
-    limit?: number;
-    workflowId: string;
+    requestBody: CaseCreate;
     workspaceId: string;
 };
 
-export type CasesListCasesResponse = Array<CaseResponse>;
+export type CasesCreateCaseResponse = CaseRead;
+
+export type CasesListCasesData = {
+    limit?: number | null;
+    workflowId?: string | null;
+    workspaceId: string;
+};
+
+export type CasesListCasesResponse = Array<CaseRead>;
 
 export type CasesGetCaseData = {
     caseId: string;
-    workflowId: string;
     workspaceId: string;
 };
 
-export type CasesGetCaseResponse = CaseResponse;
+export type CasesGetCaseResponse = CaseRead;
 
 export type CasesUpdateCaseData = {
     caseId: string;
@@ -1269,46 +1264,6 @@ export type CasesGetCaseEventData = {
 };
 
 export type CasesGetCaseEventResponse = unknown;
-
-export type CasesListCaseActionsData = {
-    workspaceId: string;
-};
-
-export type CasesListCaseActionsResponse = Array<CaseAction>;
-
-export type CasesCreateCaseActionData = {
-    requestBody: CaseActionParams;
-    workspaceId: string;
-};
-
-export type CasesCreateCaseActionResponse = CaseAction;
-
-export type CasesDeleteCaseActionData = {
-    caseActionId: string;
-    workspaceId: string;
-};
-
-export type CasesDeleteCaseActionResponse = unknown;
-
-export type CasesListCaseContextsData = {
-    workspaceId: string;
-};
-
-export type CasesListCaseContextsResponse = Array<tracecat__db__schemas__CaseContext>;
-
-export type CasesCreateCaseContextData = {
-    requestBody: CaseContextParams;
-    workspaceId: string;
-};
-
-export type CasesCreateCaseContextResponse = tracecat__db__schemas__CaseContext;
-
-export type CasesDeleteCaseContextData = {
-    caseContextId: string;
-    workspaceId: string;
-};
-
-export type CasesDeleteCaseContextResponse = unknown;
 
 export type SecretsListSecretsData = {
     workspaceId: string;
@@ -2060,14 +2015,14 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/cases': {
+    '/cases': {
         post: {
             req: CasesCreateCaseData;
             res: {
                 /**
                  * Successful Response
                  */
-                201: CaseResponse;
+                201: CaseRead;
                 /**
                  * Validation Error
                  */
@@ -2080,7 +2035,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<CaseResponse>;
+                200: Array<CaseRead>;
                 /**
                  * Validation Error
                  */
@@ -2088,14 +2043,14 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/cases/{case_id}': {
+    '/cases/{case_id}': {
         get: {
             req: CasesGetCaseData;
             res: {
                 /**
                  * Successful Response
                  */
-                200: CaseResponse;
+                200: CaseRead;
                 /**
                  * Validation Error
                  */
@@ -2116,7 +2071,7 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/cases/{case_id}/events': {
+    '/cases/{case_id}/events': {
         post: {
             req: CasesCreateCaseEventData;
             res: {
@@ -2144,95 +2099,9 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/workflows/{workflow_id}/cases/{case_id}/events/{event_id}': {
+    '/cases/{case_id}/events/{event_id}': {
         get: {
             req: CasesGetCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/case-actions': {
-        get: {
-            req: CasesListCaseActionsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseAction>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: CasesCreateCaseActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseAction;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/case-actions/{case_action_id}': {
-        delete: {
-            req: CasesDeleteCaseActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/case-contexts': {
-        get: {
-            req: CasesListCaseContextsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<tracecat__db__schemas__CaseContext>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: CasesCreateCaseContextData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: tracecat__db__schemas__CaseContext;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/case-contexts/{case_context_id}': {
-        delete: {
-            req: CasesDeleteCaseContextData;
             res: {
                 /**
                  * Successful Response

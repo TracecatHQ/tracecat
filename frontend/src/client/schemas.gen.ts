@@ -330,81 +330,7 @@ export const $Body_workflows_create_workflow = {
     title: 'Body_workflows-create_workflow'
 } as const;
 
-export const $CaseAction = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        tag: {
-            type: 'string',
-            title: 'Tag'
-        },
-        value: {
-            type: 'string',
-            title: 'Value'
-        },
-        user_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'uuid4'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'User Id'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'tag', 'value', 'user_id'],
-    title: 'CaseAction'
-} as const;
-
-export const $CaseActionParams = {
-    properties: {
-        tag: {
-            type: 'string',
-            title: 'Tag'
-        },
-        value: {
-            type: 'string',
-            title: 'Value'
-        },
-        user_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'User Id'
-        }
-    },
-    type: 'object',
-    required: ['tag', 'value'],
-    title: 'CaseActionParams'
-} as const;
-
-export const $CaseContext_Input = {
+export const $CaseContext = {
     properties: {
         key: {
             type: 'string',
@@ -420,31 +346,64 @@ export const $CaseContext_Input = {
     title: 'CaseContext'
 } as const;
 
-export const $CaseContextParams = {
+export const $CaseCreate = {
     properties: {
-        tag: {
+        owner_id: {
             type: 'string',
-            title: 'Tag'
+            format: 'uuid',
+            title: 'Owner Id'
         },
-        value: {
+        workflow_id: {
             type: 'string',
-            title: 'Value'
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Workflow Id'
         },
-        user_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'User Id'
+        case_title: {
+            type: 'string',
+            title: 'Case Title'
+        },
+        payload: {
+            type: 'object',
+            title: 'Payload'
+        },
+        malice: {
+            type: 'string',
+            enum: ['malicious', 'benign'],
+            title: 'Malice'
+        },
+        status: {
+            type: 'string',
+            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
+            title: 'Status'
+        },
+        priority: {
+            type: 'string',
+            enum: ['low', 'medium', 'high', 'critical'],
+            title: 'Priority'
+        },
+        action: {
+            type: 'string',
+            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
+            title: 'Action'
+        },
+        context: {
+            items: {
+                '$ref': '#/components/schemas/CaseContext'
+            },
+            type: 'array',
+            title: 'Context'
+        },
+        tags: {
+            items: {
+                '$ref': '#/components/schemas/Tag'
+            },
+            type: 'array',
+            title: 'Tags'
         }
     },
     type: 'object',
-    required: ['tag', 'value'],
-    title: 'CaseContextParams'
+    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
+    title: 'CaseCreate'
 } as const;
 
 export const $CaseEvent = {
@@ -600,7 +559,7 @@ export const $CaseParams = {
         },
         context: {
             items: {
-                '$ref': '#/components/schemas/CaseContext-Input'
+                '$ref': '#/components/schemas/CaseContext'
             },
             type: 'array',
             title: 'Context'
@@ -616,6 +575,81 @@ export const $CaseParams = {
     type: 'object',
     required: ['id', 'owner_id', 'created_at', 'updated_at', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags'],
     title: 'CaseParams'
+} as const;
+
+export const $CaseRead = {
+    properties: {
+        owner_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Owner Id'
+        },
+        workflow_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Workflow Id'
+        },
+        case_title: {
+            type: 'string',
+            title: 'Case Title'
+        },
+        payload: {
+            type: 'object',
+            title: 'Payload'
+        },
+        malice: {
+            type: 'string',
+            enum: ['malicious', 'benign'],
+            title: 'Malice'
+        },
+        status: {
+            type: 'string',
+            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
+            title: 'Status'
+        },
+        priority: {
+            type: 'string',
+            enum: ['low', 'medium', 'high', 'critical'],
+            title: 'Priority'
+        },
+        action: {
+            type: 'string',
+            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
+            title: 'Action'
+        },
+        context: {
+            items: {
+                '$ref': '#/components/schemas/CaseContext'
+            },
+            type: 'array',
+            title: 'Context'
+        },
+        tags: {
+            items: {
+                '$ref': '#/components/schemas/Tag'
+            },
+            type: 'array',
+            title: 'Tags'
+        },
+        id: {
+            type: 'string',
+            pattern: 'case-[0-9a-f]{32}',
+            title: 'Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'malice', 'status', 'priority', 'action', 'context', 'tags', 'id', 'created_at', 'updated_at'],
+    title: 'CaseRead'
 } as const;
 
 export const $CaseResponse = {
@@ -673,7 +707,7 @@ export const $CaseResponse = {
         },
         context: {
             items: {
-                '$ref': '#/components/schemas/tracecat__types__api__CaseContext'
+                '$ref': '#/components/schemas/CaseContext'
             },
             type: 'array',
             title: 'Context'
@@ -3234,67 +3268,4 @@ export const $login = {
     type: 'object',
     required: ['username', 'password'],
     title: 'Body_auth-auth:database.login'
-} as const;
-
-export const $tracecat__db__schemas__CaseContext = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        tag: {
-            type: 'string',
-            title: 'Tag'
-        },
-        value: {
-            type: 'string',
-            title: 'Value'
-        },
-        user_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'uuid4'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'User Id'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'tag', 'value', 'user_id'],
-    title: 'CaseContext'
-} as const;
-
-export const $tracecat__types__api__CaseContext = {
-    properties: {
-        key: {
-            type: 'string',
-            title: 'Key'
-        },
-        value: {
-            type: 'string',
-            title: 'Value'
-        }
-    },
-    type: 'object',
-    required: ['key', 'value'],
-    title: 'CaseContext'
 } as const;
