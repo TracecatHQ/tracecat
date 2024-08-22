@@ -9,15 +9,15 @@ import React, {
   useEffect,
   useState,
 } from "react"
+import { CaseRead } from "@/client"
 
-import { type Case } from "@/types/schemas"
 import { cn } from "@/lib/utils"
 import { CasePanelContent } from "@/components/cases/panel-content"
 import { SlidingPanel } from "@/components/sliding-panel"
 
 interface CasePanelContextProps {
-  panelCase: Case | null
-  setPanelCase: Dispatch<SetStateAction<Case | null>>
+  panelCase: CaseRead | null
+  setPanelCase: Dispatch<SetStateAction<CaseRead | null>>
   isOpen: boolean
   setIsOpen: Dispatch<SetStateAction<boolean>>
 }
@@ -25,7 +25,7 @@ interface CasePanelContextProps {
 export const useCasePanelContext = () =>
   useContext<CasePanelContextProps>(CasePanelContext)
 const CasePanelContext = createContext<CasePanelContextProps>({
-  panelCase: null as Case | null,
+  panelCase: null as CaseRead | null,
   setPanelCase: () => {},
   isOpen: false,
   setIsOpen: () => {},
@@ -35,7 +35,7 @@ export default function CasePanelProvider({
   children,
   className,
 }: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
-  const [selectedCase, setSelectedCase] = useState<Case | null>(null)
+  const [selectedCase, setSelectedCase] = useState<CaseRead | null>(null)
   const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {

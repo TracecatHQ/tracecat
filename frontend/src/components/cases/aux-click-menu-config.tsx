@@ -1,13 +1,13 @@
 import * as React from "react"
+import { CaseRead } from "@/client"
 import { Column, Table } from "@tanstack/react-table"
 import { Sparkles } from "lucide-react"
 
-import { Case } from "@/types/schemas"
 import { AuxClickMenuOptionProps } from "@/components/aux-click-menu"
 
 type TableCol = {
-  table: Table<Case>
-  column: Column<Case>
+  table: Table<CaseRead>
+  column: Column<CaseRead>
 }
 export const tableHeaderAuxOptions: AuxClickMenuOptionProps<TableCol>[] = [
   {

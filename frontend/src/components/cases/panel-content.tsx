@@ -1,15 +1,22 @@
 "use client"
 
 import React from "react"
-import { useParams } from "next/navigation"
+import Link from "next/link"
 import { useWorkspace } from "@/providers/workspace"
-import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
+import {
+  Bell,
+  ShieldQuestion,
+  Smile,
+  SquareArrowOutUpRight,
+  TagsIcon,
+} from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs"
 
 import { CasePriorityType, CaseStatusType } from "@/types/schemas"
 import { useCaseEvents, usePanelCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import {
   Select,
@@ -45,16 +52,11 @@ interface CasePanelContentProps {
 
 export function CasePanelContent({ caseId }: CasePanelContentProps) {
   const { workspaceId } = useWorkspace()
-  const { workflowId } = useParams<{
-    workflowId: string
-  }>()
-  const {
-    caseData,
-    caseIsLoading,
-    caseError,
-    updateCaseAsync: mutateCaseAsync,
-  } = usePanelCase(workspaceId, workflowId, caseId)
-  const { mutateCaseEventsAsync } = useCaseEvents(workflowId, caseId)
+  const { caseData, caseIsLoading, caseError, updateCaseAsync } = usePanelCase(
+    workspaceId,
+    caseId
+  )
+  const { mutateCaseEventsAsync } = useCaseEvents(caseId)
 
   if (caseIsLoading) {
     return <CenteredSpinner />
@@ -69,6 +71,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
   }
   const {
     id,
+    workflow_id,
     case_title,
     status: caseStatus,
     priority,
@@ -81,31 +84,25 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
 
   const handleStatusChange = async (newStatus: CaseStatusType) => {
     console.log("Updating status to", newStatus)
-    await mutateCaseAsync({
-      ...caseData,
-      id: caseId,
+    const updateParams = {
       status: newStatus,
-    })
+    }
+    await updateCaseAsync(updateParams)
     await mutateCaseEventsAsync({
       type: "status_changed",
-      data: {
-        status: newStatus,
-      },
+      data: updateParams,
     })
   }
 
   const handlePriorityChange = async (newPriority: CasePriorityType) => {
     console.log("Updating priority to", newPriority)
-    await mutateCaseAsync({
-      ...caseData,
-      id: caseId,
+    const params = {
       priority: newPriority,
-    })
+    }
+    await updateCaseAsync(params)
     await mutateCaseEventsAsync({
       type: "priority_changed",
-      data: {
-        priority: newPriority,
-      },
+      data: params,
     })
   }
 
@@ -116,7 +113,32 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
       <div className="flex h-full flex-col">
         <div className="my-6 space-y-4">
           <SheetHeader>
-            <small className="text-xs text-muted-foreground">Case #{id}</small>
+            <div className="flex space-x-4">
+              <Badge
+                variant="secondary"
+                className="text-xs font-normal text-muted-foreground"
+              >
+                Case ID: {id}
+              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/workspaces/${workspaceId}/workflows/${workflow_id}`}
+                  >
+                    <Badge
+                      variant="secondary"
+                      className="flex items-center gap-2 text-xs font-normal text-muted-foreground"
+                    >
+                      <span>Workflow ID: {workflow_id}</span>
+                      <SquareArrowOutUpRight className="size-3 text-muted-foreground" />
+                    </Badge>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={5}>
+                  Open Workflow
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <div className="flex items-center justify-between">
               <SheetTitle className="text-lg">{case_title}</SheetTitle>
               <div className="flex items-center gap-2">
@@ -130,6 +152,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                 />
               </div>
             </div>
+
             <div className="flex flex-col space-y-2 text-muted-foreground">
               <div className="flex items-center gap-4">
                 <div className="flex items-center space-x-2">
@@ -223,7 +246,7 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
                 </div>
                 <div className="col-span-2 space-y-4">
                   <h5 className="text-xs font-semibold">Activity</h5>
-                  <Timeline workflowId={workflowId} caseId={caseId} />
+                  <Timeline caseId={caseId} />
                 </div>
               </div>
             </div>

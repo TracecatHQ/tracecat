@@ -17,7 +17,6 @@ import {
   GitPullRequestCreateArrowIcon,
   MoreHorizontal,
   PlayIcon,
-  ShieldAlertIcon,
   SquarePlay,
   Trash2Icon,
   WorkflowIcon,
@@ -130,9 +129,7 @@ export function WorkbenchNav() {
             <BreadcrumbSeparator className="shrink-0 font-semibold">
               {"/"}
             </BreadcrumbSeparator>
-            <BreadcrumbItem>
-              {workflow.title}
-            </BreadcrumbItem>
+            <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
       </div>
@@ -182,7 +179,7 @@ export function WorkbenchNav() {
                 className={cn(
                   "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
                   commitErrors &&
-                  "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+                    "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
                 )}
               >
                 {commitErrors ? (
@@ -290,9 +287,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
   const { workspaceId } = useWorkspace()
   let leafRoute: string = "workflow"
-  if (pathname.endsWith("cases")) {
-    leafRoute = "cases"
-  } else if (pathname.endsWith("executions")) {
+  if (pathname.endsWith("executions")) {
     leafRoute = "executions"
   }
 
@@ -300,21 +295,11 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
 
   return (
     <Tabs value={leafRoute}>
-      <TabsList className="grid h-8 w-full grid-cols-3">
+      <TabsList className="grid h-8 w-full grid-cols-2">
         <TabsTrigger className="w-full px-2 py-0" value="workflow" asChild>
           <Link href={workbenchPath} className="size-full text-xs" passHref>
             <WorkflowIcon className="mr-2 size-4" />
             <span>Workflow</span>
-          </Link>
-        </TabsTrigger>
-        <TabsTrigger className="w-full px-2 py-0" value="cases" asChild>
-          <Link
-            href={workbenchPath + "/cases"}
-            className="size-full text-xs"
-            passHref
-          >
-            <ShieldAlertIcon className="mr-2 size-4" />
-            <span>Cases</span>
           </Link>
         </TabsTrigger>
         <TabsTrigger className="w-full px-2 py-0" value="executions" asChild>
@@ -433,7 +418,6 @@ function WorkbenchNavOptions({
   workspaceId: string
   workflowId: string
 }) {
-
   const router = useRouter()
   const { deleteWorkflow } = useWorkflowManager()
 
@@ -464,7 +448,10 @@ function WorkbenchNavOptions({
                     format: "json",
                   })
                 } catch (error) {
-                  console.error("Failed to download workflow definition:", error)
+                  console.error(
+                    "Failed to download workflow definition:",
+                    error
+                  )
                   toast({
                     title: "Error exporting workflow",
                     description: "Could not export workflow. Please try again.",
@@ -476,10 +463,10 @@ function WorkbenchNavOptions({
               <span>Export as JSON</span>
             </DropdownMenuItem>
             <DialogTrigger asChild>
-            <DropdownMenuItem className="text-xs text-red-600">
+              <DropdownMenuItem className="text-xs text-red-600">
                 <Trash2Icon className="mr-2 size-4" />
                 <span>Delete</span>
-            </DropdownMenuItem>
+              </DropdownMenuItem>
             </DialogTrigger>
           </DropdownMenuContent>
         </DropdownMenu>
