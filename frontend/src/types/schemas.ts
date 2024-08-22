@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { keyValueSchema, tagSchema } from "@/types/validators"
+import { keyValueSchema } from "@/types/validators"
 
 export const strAsDate = z.string().transform((x) => new Date(x))
 
@@ -71,34 +71,6 @@ export type CaseStatusType = (typeof caseStatusTypes)[number]
 export const casePriorityTypes = ["low", "medium", "high", "critical"] as const
 export type CasePriorityType = (typeof casePriorityTypes)[number]
 
-export const caseSchema = z.object({
-  // SQLModel metadata
-  id: z.string(),
-  owner_id: z.string(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  // Case related data
-  workflow_id: z.string(),
-  case_title: z.string(),
-  payload: z.record(z.string(), z.any()),
-  malice: z.enum(caseMaliceTypes),
-  status: z.enum(caseStatusTypes),
-  priority: z.enum(casePriorityTypes),
-  action: z.enum(caseActionTypes),
-  context: z.array(keyValueSchema).default([]),
-  tags: z.array(tagSchema).default([]),
-})
-
-export type Case = z.infer<typeof caseSchema>
-
-export const caseCompletionUpdateSchema = z.object({
-  id: z.string(),
-  response: z.object({
-    tags: z.array(tagSchema),
-  }),
-})
-export type CaseCompletionUpdate = z.infer<typeof caseCompletionUpdateSchema>
-
 export const secretTypes = ["custom", "token", "oauth2"] as const
 export type SecretType = (typeof secretTypes)[number]
 
@@ -121,24 +93,3 @@ export const secretSchema = z.object({
 })
 
 export type Secret = z.infer<typeof secretSchema>
-
-export const caseEventTypes = [
-  "status_changed",
-  "priority_changed",
-  "comment_created",
-  "case_opened",
-  "case_closed",
-] as const
-export type CaseEventType = (typeof caseEventTypes)[number]
-
-export const caseEventSchema = z.object({
-  id: z.string(),
-  created_at: strAsDate,
-  type: z.enum(caseEventTypes),
-  workflow_id: z.string().nullable(),
-  case_id: z.string(),
-  initiator_role: z.enum(["user", "service"]),
-  data: z.record(z.string(), z.string().nullish()),
-})
-
-export type CaseEvent = z.infer<typeof caseEventSchema>
