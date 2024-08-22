@@ -51,13 +51,13 @@ const defaultToolbarProps: DataTableToolbarProps = {
  */
 function InternalCaseTable() {
   const { cases } = useCasesContext()
-  const { setPanelCase: setSidePanelCase, setIsOpen } = useCasePanelContext()
+  const { setPanelCase, setIsOpen } = useCasePanelContext()
 
   const memoizedColumns = useMemo(() => columns, [])
 
   function handleClickRow(row: Row<CaseRead>) {
     return () => {
-      setSidePanelCase(row.original)
+      setPanelCase(row.original)
       setIsOpen(true)
     }
   }

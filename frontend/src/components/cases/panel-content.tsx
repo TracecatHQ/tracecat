@@ -1,7 +1,6 @@
 "use client"
 
 import React from "react"
-import { useParams } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
 import { Bell, ShieldQuestion, Smile, TagsIcon } from "lucide-react"
 import SyntaxHighlighter from "react-syntax-highlighter"
@@ -45,15 +44,10 @@ interface CasePanelContentProps {
 
 export function CasePanelContent({ caseId }: CasePanelContentProps) {
   const { workspaceId } = useWorkspace()
-  const { workflowId } = useParams<{
-    workflowId: string
-  }>()
-  const {
-    caseData,
-    caseIsLoading,
-    caseError,
-    updateCaseAsync: mutateCaseAsync,
-  } = usePanelCase(workspaceId, caseId)
+  const { caseData, caseIsLoading, caseError, updateCaseAsync } = usePanelCase(
+    workspaceId,
+    caseId
+  )
   const { mutateCaseEventsAsync } = useCaseEvents(caseId)
 
   if (caseIsLoading) {
@@ -81,30 +75,25 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
 
   const handleStatusChange = async (newStatus: CaseStatusType) => {
     console.log("Updating status to", newStatus)
-    await mutateCaseAsync({
-      ...caseData,
-
+    const updateParams = {
       status: newStatus,
-    })
+    }
+    await updateCaseAsync(updateParams)
     await mutateCaseEventsAsync({
       type: "status_changed",
-      data: {
-        status: newStatus,
-      },
+      data: updateParams,
     })
   }
 
   const handlePriorityChange = async (newPriority: CasePriorityType) => {
     console.log("Updating priority to", newPriority)
-    await mutateCaseAsync({
-      ...caseData,
+    const params = {
       priority: newPriority,
-    })
+    }
+    await updateCaseAsync(params)
     await mutateCaseEventsAsync({
       type: "priority_changed",
-      data: {
-        priority: newPriority,
-      },
+      data: params,
     })
   }
 
@@ -115,7 +104,9 @@ export function CasePanelContent({ caseId }: CasePanelContentProps) {
       <div className="flex h-full flex-col">
         <div className="my-6 space-y-4">
           <SheetHeader>
-            <small className="text-xs text-muted-foreground">Case #{id}</small>
+            <small className="text-xs text-muted-foreground">
+              Case ID: <p className="inline-block font-mono">{id}</p>
+            </small>
             <div className="flex items-center justify-between">
               <SheetTitle className="text-lg">{case_title}</SheetTitle>
               <div className="flex items-center gap-2">

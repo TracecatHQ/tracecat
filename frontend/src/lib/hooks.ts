@@ -74,7 +74,11 @@ export function useLocalStorage<T>(
 
 export function usePanelCase(workspaceId: string, caseId: string) {
   const queryClient = useQueryClient()
-  const { data, isLoading, error } = useQuery<CaseRead, ApiError>({
+  const {
+    data: caseData,
+    isLoading: caseIsLoading,
+    error: caseError,
+  } = useQuery<CaseRead, ApiError>({
     queryKey: ["case", caseId],
     queryFn: async () =>
       await casesGetCase({
@@ -82,7 +86,7 @@ export function usePanelCase(workspaceId: string, caseId: string) {
         caseId,
       }),
   })
-  const { mutateAsync } = useMutation({
+  const { mutateAsync: updateCaseAsync } = useMutation({
     mutationFn: async (params: CaseUpdate) =>
       await casesUpdateCase({
         workspaceId,
@@ -111,17 +115,21 @@ export function usePanelCase(workspaceId: string, caseId: string) {
   })
 
   return {
-    caseData: data,
-    caseIsLoading: isLoading,
-    caseError: error,
-    updateCaseAsync: mutateAsync,
+    caseData,
+    caseIsLoading,
+    caseError,
+    updateCaseAsync,
   }
 }
 
 export function useCaseEvents(caseId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
-  const { data, isLoading, error } = useQuery<CaseEvent[], Error>({
+  const {
+    data: caseEvents,
+    isLoading: caseEventsIsLoading,
+    error: caseEventsError,
+  } = useQuery<CaseEvent[], Error>({
     queryKey: ["caseEvents", caseId],
     queryFn: async () =>
       await casesListCaseEvents({
@@ -130,7 +138,7 @@ export function useCaseEvents(caseId: string) {
       }),
   })
 
-  const { mutateAsync } = useMutation({
+  const { mutateAsync: mutateCaseEventsAsync } = useMutation({
     mutationFn: async (params: CaseEventCreate) => {
       await casesCreateCaseEvent({
         workspaceId,
@@ -161,10 +169,10 @@ export function useCaseEvents(caseId: string) {
   })
 
   return {
-    caseEvents: data,
-    caseEventsIsLoading: isLoading,
-    caseEventsError: error,
-    mutateCaseEventsAsync: mutateAsync,
+    caseEvents,
+    caseEventsIsLoading,
+    caseEventsError,
+    mutateCaseEventsAsync,
   }
 }
 

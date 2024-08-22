@@ -42,8 +42,8 @@ export const columns: ColumnDef<CaseRead>[] = [
       <DataTableColumnHeader className="text-xs" column={column} title="ID" />
     ),
     cell: ({ row }) => {
-      const id = row.getValue<CaseRead["id"]>("id").split(":").pop()
-      return <div className="w-[60px] truncate text-xs">#{id}</div>
+      const id = row.getValue<CaseRead["id"]>("id").slice(0, 10)
+      return <div className="w-[80px] text-xs">{id}...</div>
     },
     enableSorting: true,
     enableHiding: false,
@@ -114,7 +114,7 @@ export const columns: ColumnDef<CaseRead>[] = [
   {
     accessorKey: "case_title",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Case Title" />
+      <DataTableColumnHeader column={column} title="Title" />
     ),
     cell: ({ row }) => {
       return (
