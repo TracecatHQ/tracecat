@@ -66,8 +66,6 @@ async def create_schedule(
         await session.refresh(defn_data)
         defn = WorkflowDefinition.model_validate(defn_data)
         dsl = DSLInput(**defn.content)
-        if params.inputs:
-            dsl.trigger_inputs = params.inputs
 
         try:
             # Set the role for the schedule as the tracecat-runner
@@ -84,6 +82,7 @@ async def create_schedule(
                     offset=params.offset,
                     start_at=params.start_at,
                     end_at=params.end_at,
+                    trigger_inputs=params.inputs,
                 )
                 logger.info(
                     "Created schedule",
