@@ -13,7 +13,6 @@ import {
   PlusCircleIcon,
   SaveIcon,
   SettingsIcon,
-  TimerOffIcon,
   WebhookIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
@@ -307,14 +306,14 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="text-xs font-semibold pl-3">
+            <TableHead className="pl-3 text-xs font-semibold">
               Schedule ID
             </TableHead>
             <TableHead className="text-xs font-semibold">
               Interval
             </TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
-            <TableHead className="text-right text-xs font-semibold pr-3">
+            <TableHead className="pr-3 text-right text-xs font-semibold">
               Actions
             </TableHead>
           </TableRow>
@@ -325,7 +324,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
               <HoverCard>
                 <HoverCardTrigger asChild className="hover:border-none">
                   <TableRow key={id} className="ext-xs text-muted-foreground">
-                    <TableCell className="items-center text-xs pl-3">
+                    <TableCell className="items-center pl-3 text-xs">
                       {id}
                     </TableCell>
                     <TableCell className="items-center text-xs">
@@ -336,7 +335,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                         <p>{status}</p>
                       </div>
                     </TableCell>
-                    <TableCell className="items-center text-xs pr-3">
+                    <TableCell className="items-center pr-3 text-xs">
                       <div className="flex justify-end">
                         <AlertDialog>
                           <DropdownMenu>
