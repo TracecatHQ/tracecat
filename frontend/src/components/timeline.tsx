@@ -213,10 +213,11 @@ function TimelineItemActivityHeader(props: TimelineItemProps) {
     event: { created_at },
     className,
   } = props
+  const dt = new Date(created_at)
   return (
     <div className={cn("items-center justify-between sm:flex", className)}>
       <time className="mb-1 text-xs font-normal text-muted-foreground sm:order-last sm:mb-0">
-        {created_at.toLocaleString()}
+        {dt.toLocaleDateString()}, {dt.toLocaleTimeString()}
       </time>
       <div className="lex font-normal text-muted-foreground">
         {activityDescription}
