@@ -58,8 +58,8 @@ No-code workflows are automatically synced into code, and vice versa. Tracecat e
       <img src="img/workflow.png" alt="Build security workflows" width="100%" />
     </td>
     <td align="center" width="50%">
-      <h4>Close security cases fast with AI</h4>
-      <img src="img/cases.gif" alt="Manage security cases with AI" width="100%" />
+      <h4>Case management</h4>
+      <img src="img/cases.gif" alt="Manage cases directly in Tracecat" width="100%" />
     </td>
   </tr>
 </table>
