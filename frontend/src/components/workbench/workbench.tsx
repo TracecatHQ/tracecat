@@ -18,10 +18,7 @@ interface WorkbenchProps {
   defaultCollapsed?: boolean
 }
 
-export function Workbench({
-  defaultLayout = [1, 60, 20],
-}: WorkbenchProps) {
-
+export function Workbench({ defaultLayout = [60, 30] }: WorkbenchProps) {
   return (
     <ReactFlowProvider>
       <WorkflowBuilderProvider>
@@ -35,11 +32,11 @@ export function Workbench({
               )}`
             }}
           >
-            <ResizablePanel defaultSize={defaultLayout[1]}>
+            <ResizablePanel defaultSize={defaultLayout[0]}>
               <WorkflowCanvas />
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={defaultLayout[2]} minSize={30}>
+            <ResizablePanel defaultSize={defaultLayout[1]} minSize={30}>
               <WorkspacePanel />
             </ResizablePanel>
           </ResizablePanelGroup>
