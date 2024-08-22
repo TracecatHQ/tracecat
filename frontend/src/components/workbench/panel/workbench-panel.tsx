@@ -13,7 +13,7 @@ import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
 import { UDFActionPanel } from "@/components/workbench/panel/udf-panel"
 import { WorkflowForm } from "@/components/workbench/panel/workflow/form"
 
-export function WorkspacePanel() {
+export function WorkbenchPanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")
