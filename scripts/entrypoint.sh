@@ -4,7 +4,7 @@ set -euo pipefail
 # Function to run migrations
 run_migrations() {
     echo "Running database migrations..."
-    if ! alembic upgrade head; then
+    if ! python3 -m alembic upgrade head; then
         echo "Migration failed!"
         return 1
     fi

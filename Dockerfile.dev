@@ -15,9 +15,16 @@ COPY ./tracecat /app/tracecat
 COPY ./pyproject.toml /app/pyproject.toml
 COPY ./README.md /app/README.md
 COPY ./LICENSE /app/LICENSE
+COPY ./alembic.ini /app/alembic.ini
+COPY ./alembic /app/alembic
+
+COPY scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Install package
 RUN pip install --upgrade pip && pip install -e .
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Command to run the application
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
