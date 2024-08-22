@@ -40,10 +40,10 @@ export default function WorkspaceLayout({
   return (
     <WorkspaceProvider workspaceId={wsId}>
       <WorkflowProvider workspaceId={wsId}>
-        <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+        <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
           {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
           <DynamicNavbar />
-          {children}
+          <div className="flex-grow overflow-auto">{children}</div>
         </div>
       </WorkflowProvider>
     </WorkspaceProvider>

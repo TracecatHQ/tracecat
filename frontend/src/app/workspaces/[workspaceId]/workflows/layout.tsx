@@ -10,7 +10,7 @@ export default async function WorkflowsLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="no-scrollbar flex h-screen max-h-screen flex-col">
+    <div className="no-scrollbar flex h-full max-h-full flex-col">
       {children}
     </div>
   )
