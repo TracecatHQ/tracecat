@@ -17,7 +17,6 @@ import {
   GitPullRequestCreateArrowIcon,
   MoreHorizontal,
   PlayIcon,
-  ShieldAlertIcon,
   SquarePlay,
   Trash2Icon,
   WorkflowIcon,
