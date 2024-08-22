@@ -307,14 +307,14 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="h-8 pl-6 text-xs font-semibold">
+            <TableHead className="text-xs font-semibold pl-3">
               Schedule ID
             </TableHead>
-            <TableHead className="h-8 text-xs font-semibold">
+            <TableHead className="text-xs font-semibold">
               Interval
             </TableHead>
-            <TableHead className="h-8 text-xs font-semibold">Status</TableHead>
-            <TableHead className="h-8 w-[100px] pr-6 text-right text-xs font-semibold">
+            <TableHead className="text-xs font-semibold">Status</TableHead>
+            <TableHead className="text-right text-xs font-semibold pr-3">
               Actions
             </TableHead>
           </TableRow>
@@ -325,21 +325,18 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
               <HoverCard>
                 <HoverCardTrigger asChild className="hover:border-none">
                   <TableRow key={id} className="ext-xs text-muted-foreground">
-                    <TableCell className="h-6 items-center py-1 pl-6 text-xs">
+                    <TableCell className="items-center text-xs pl-3">
                       {id}
                     </TableCell>
-                    <TableCell className="h-6 items-center py-1 text-xs">
+                    <TableCell className="items-center text-xs">
                       {durationToHumanReadable(every)}
                     </TableCell>
-                    <TableCell className="h-6 py-1 text-xs capitalize">
+                    <TableCell className="text-xs capitalize">
                       <div className="flex">
                         <p>{status}</p>
-                        {status === "offline" && (
-                          <TimerOffIcon className="ml-2 size-3 text-muted-foreground" />
-                        )}
                       </div>
                     </TableCell>
-                    <TableCell className="h-6 w-[100px]  items-center py-1 pr-8 text-xs">
+                    <TableCell className="items-center text-xs pr-3">
                       <div className="flex justify-end">
                         <AlertDialog>
                           <DropdownMenu>
@@ -364,8 +361,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                               <DropdownMenuItem
                                 className={cn(
                                   "text-xs",
-                                  status === "online" &&
-                                    "text-orange-500 focus:text-orange-600"
+                                  status === "online"
                                 )}
                                 onClick={async () =>
                                   await updateSchedule({
@@ -522,7 +518,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
           <span>Create Schedule</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Create a new schedule</DialogTitle>
           <DialogDescription>
@@ -585,15 +581,15 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                       <FormLabel className="text-xs text-foreground/80">
                         <span>
                           Scheduled workflow inputs. Access these through the{" "}
-                          <p className="inline-block rounded-sm bg-amber-100 p-[0.75px] font-mono">
+                          <p className="inline-block rounded-sm bg-amber-100 font-mono">
                             TRIGGER
                           </p>{" "}
-                          conttext.
+                          context.
                         </span>
                       </FormLabel>
                       <FormControl>
                         <CustomEditor
-                          className="h-36 w-full"
+                          className="h-40 w-full"
                           defaultLanguage="yaml"
                           value={field.value}
                           onChange={field.onChange}
