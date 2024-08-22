@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -14,7 +15,8 @@ class ValidationResult(BaseModel):
     detail: Any | None = None
 
     def __hash__(self) -> int:
-        return hash((self.status, self.msg, self.detail))
+        detail = json.dumps(self.detail, sort_keys=True)
+        return hash((self.status, self.msg, detail))
 
 
 class RegistryValidationResult(ValidationResult):

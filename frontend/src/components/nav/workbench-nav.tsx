@@ -101,12 +101,16 @@ export function WorkbenchNav() {
 
   const handleCommit = async () => {
     console.log("Committing changes...")
-    const response = await commitWorkflow()
-    const { status, errors } = response
-    if (status === "failure") {
-      setCommitErrors(errors || null)
-    } else {
-      setCommitErrors(null)
+    try {
+      const response = await commitWorkflow()
+      const { status, errors } = response
+      if (status === "failure") {
+        setCommitErrors(errors || null)
+      } else {
+        setCommitErrors(null)
+      }
+    } catch (error) {
+      console.error("Failed to commit workflow:", error)
     }
   }
 
