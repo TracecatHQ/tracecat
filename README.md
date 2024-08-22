@@ -49,21 +49,6 @@ No-code workflows are automatically synced into code, and vice versa. Tracecat e
 - **Security Engineers (SecEng):** Build and maintain complex automations using open source integrations, configuration-as-code, and a powerful templating language
 - **Managed Detection & Response (MDR):** Rapidly embed scalable workflow applications into any security product
 
-## Highlights
-
-<table>
-  <tr>
-    <td align="center" width="50%">
-      <h4>Automate security workflows</h4>
-      <img src="img/workflow.png" alt="Build security workflows" width="100%" />
-    </td>
-    <td align="center" width="50%">
-      <h4>Case management</h4>
-      <img src="img/cases.gif" alt="Manage cases directly in Tracecat" width="100%" />
-    </td>
-  </tr>
-</table>
-
 ## Getting Started
 
 The easiest way to get started is to meet one of our cofounders on an open-source [onboarding call](https://cal.com/team/tracecat/onboarding). We'll help you install Tracecat self-hosted via `docker compose` and run your first workflow in 30 minutes.
