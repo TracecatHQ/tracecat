@@ -11,9 +11,5 @@ export default function WorkbenchPage() {
   const layout = cookies().get("react-resizable-panels:layout")
   const defaultLayout = layout ? JSON.parse(layout.value) : undefined
 
-  return (
-    <Workbench
-      defaultLayout={defaultLayout}
-    />
-  )
+  return <Workbench defaultLayout={defaultLayout} />
 }

@@ -11,17 +11,14 @@ import {
 } from "@/components/ui/resizable"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/workbench/canvas/canvas"
-import { WorkspacePanel } from "@/components/workbench/panel/workbench-panel"
+import { WorkbenchPanel } from "@/components/workbench/panel/workbench-panel"
 
 interface WorkbenchProps {
   defaultLayout: number[] | undefined
   defaultCollapsed?: boolean
 }
 
-export function Workbench({
-  defaultLayout = [1, 60, 20],
-}: WorkbenchProps) {
-
+export function Workbench({ defaultLayout = [60, 30] }: WorkbenchProps) {
   return (
     <ReactFlowProvider>
       <WorkflowBuilderProvider>
@@ -35,12 +32,12 @@ export function Workbench({
               )}`
             }}
           >
-            <ResizablePanel defaultSize={defaultLayout[1]}>
+            <ResizablePanel defaultSize={defaultLayout[0]}>
               <WorkflowCanvas />
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={defaultLayout[2]} minSize={30}>
-              <WorkspacePanel />
+            <ResizablePanel defaultSize={defaultLayout[1]} minSize={30}>
+              <WorkbenchPanel />
             </ResizablePanel>
           </ResizablePanelGroup>
         </TooltipProvider>
