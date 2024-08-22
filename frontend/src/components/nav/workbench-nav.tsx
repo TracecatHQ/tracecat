@@ -333,7 +333,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
   const { workspaceId } = useWorkspace()
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
-    defaultValues: { payload: '{"example": "value"}' },
+    defaultValues: { payload: '{"sampleWebhookParam": "sampleValue"}' },
   })
 
   const handleSubmit = useCallback(async () => {
