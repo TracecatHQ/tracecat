@@ -70,7 +70,7 @@ export default function UserNav() {
             </DropdownMenuItem>
           </Link>
           <Link
-            href={siteConfig.links.docs}
+            href={siteConfig.links.github}
             target="_blank"
             className="my-2 w-full"
           >
