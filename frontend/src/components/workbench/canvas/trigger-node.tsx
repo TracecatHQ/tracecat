@@ -1,4 +1,5 @@
 import React from "react"
+import { Schedule, WebhookResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
   BellDotIcon,
@@ -14,7 +15,6 @@ import {
 } from "lucide-react"
 import { Node, NodeProps, Position } from "reactflow"
 
-import { Schedule, Webhook } from "@/types/schemas"
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -51,7 +51,7 @@ export interface TriggerNodeData {
   status: "online" | "offline"
   isConfigured: boolean
   entrypointId?: string
-  webhook: Webhook
+  webhook: WebhookResponse
   schedules: Schedule[]
 }
 export type TriggerNodeType = Node<TriggerNodeData>
