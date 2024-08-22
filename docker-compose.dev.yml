@@ -49,6 +49,8 @@ services:
       SMTP_AUTH_ENABLED: ${SMTP_AUTH_ENABLED}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
+      # Migrations
+      RUN_MIGRATIONS: true
     volumes:
       - ./tracecat:/app/tracecat
 
