@@ -9,7 +9,7 @@ from httpx_oauth.clients.google import GoogleOAuth2
 from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlmodel import Session, SQLModel, delete
+from sqlmodel import Session, delete
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
@@ -83,7 +83,6 @@ async def setup_defaults():
 
 def initialize_db() -> Engine:
     engine = get_engine()
-    SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
         # Add integrations to integrations table regardless of whether it's empty
@@ -99,8 +98,6 @@ def initialize_db() -> Engine:
 async def async_initialize_db() -> AsyncEngine:
     registry.init()
     engine = get_async_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
 
     async with AsyncSession(engine) as session:
         await session.exec(delete(UDFSpec))
