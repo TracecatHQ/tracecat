@@ -67,7 +67,7 @@ export function CreateWorkflowButton() {
           file: new Blob([data.file], { type: "application/yaml" }),
         },
       })
-      router.push(`/workflows/${response.id}`)
+      router.push(`${workspaceUrl}/${response.id}`)
     } catch (error) {
       console.error("Error creating workflow:", error)
     }
