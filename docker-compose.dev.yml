@@ -53,6 +53,7 @@ services:
       RUN_MIGRATIONS: true
     volumes:
       - ./tracecat:/app/tracecat
+      - ./alembic:/app/alembic
 
   worker:
     build:
