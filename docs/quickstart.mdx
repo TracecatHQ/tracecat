@@ -75,7 +75,7 @@ Let's get started!
     status: open
     payload: ${{ ACTIONS.analyze_url.result.data }}
     priority: ${{ 'high' if ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 30 else 'medium' }}
-    case_title: ${{ TRIGGER.url }}
+    case_title: ${{ TRIGGER.url_input }}
     ```
     ![Add open case](/img/quickstart/configure-open-case.png)
   </Step>
