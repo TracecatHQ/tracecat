@@ -20,7 +20,6 @@ services:
     networks:
       - core
       - core-db
-      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -49,7 +48,6 @@ services:
     networks:
       - core
       - core-db
-      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -127,7 +125,7 @@ services:
     container_name: temporal
     restart: always
     networks:
-      - temporal
+      - core
       - temporal-db
     environment:
       - DB=postgres12
@@ -147,6 +145,5 @@ networks:
   core:
   core-db:
     internal: true
-  temporal:
   temporal-db:
     internal: true
