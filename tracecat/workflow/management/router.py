@@ -1,3 +1,4 @@
+import json
 from typing import Annotated, Literal
 
 import orjson
@@ -15,7 +16,7 @@ from fastapi import (
 )
 from pydantic import ValidationError
 from slugify import slugify
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -124,11 +125,19 @@ async def create_workflow(
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": "failure",
-                    "message": "Error validating external workflow definition",
-                    "errors": e.errors(),
-                },
+                detail=json.dumps(
+                    {
+                        "status": "failure",
+                        "message": "Error validating external workflow definition",
+                        "errors": e.errors(),
+                    },
+                    indent=2,
+                ),
+            ) from e
+        except IntegrityError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Workflow already exists",
             ) from e
     else:
         workflow = await service.create_workflow(

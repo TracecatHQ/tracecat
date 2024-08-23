@@ -105,7 +105,7 @@ class ExternalWorkflowDefinition(BaseModel):
         default=None,
         description="Last update datetime of the workflow, will be set to current time if not provided.",
     )
-    version: int = Field(gt=0)
+    version: int = Field(default=1, gt=0)
     definition: DSLInput
 
     @staticmethod
