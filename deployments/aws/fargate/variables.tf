@@ -1,6 +1,7 @@
-locals {
-  core_db_hostname = split(":", aws_db_instance.core_database.endpoint)[0]
-  temp_db_hostname = split(":", aws_db_instance.temporal_database.endpoint)[0]
+## Top-level variables
+
+variable "aws_region" {
+  default = "us-east-2"
 }
 
 variable "az_count" {
@@ -8,213 +9,9 @@ variable "az_count" {
     default = "2"
 }
 
-variable "health_check_path" {
-  default = "/"
-}
-
-variable "app_port" {
-    description = "Port exposed by the docker image to redirect traffic to"
-    default = 3000
-}
-
-locals {
-  temporal_secrets = [ 
-    {
-      name  = "POSTGRES_PWD"
-      valueFrom = aws_secretsmanager_secret.db_pass.id
-    }
-  ] 
-  tracecat_ui_secrets = [  
-
-  ]  
-  tracecat_secrets = [    
-    {
-      name  = "TRACECAT__DB_ENCRYPTION_KEY"
-      valueFrom = aws_secretsmanager_secret.db_encryption_key.id
-    },
-    {
-      name  = "TRACECAT__SERVICE_KEY"
-      valueFrom = aws_secretsmanager_secret.service_key.id 
-    },
-    {
-      name  = "TRACECAT__SIGNING_SECRET"
-      valueFrom = aws_secretsmanager_secret.signing_secret.id 
-    },
-    {
-      name  = "TRACECAT__DB_PASS"
-      valueFrom = aws_secretsmanager_secret.db_pass.id 
-    },
-  ]
-  tracecat_ui_environment = [
-    {
-      name  = "CLERK_SECRET_KEY"
-      value = "blahblah"
-    },
-    {
-      name  = "CLERK_SECRET_KEY"
-      value = "blahblah"
-    },
-    {
-      name  = "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
-      value = "blahblah"
-    },
-    {
-      name  = "NEXT_PUBLIC_DISABLE_AUTH"
-      value = "true"
-    },
-    {
-      name  = "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
-      value = "blahblah"
-    },
-    {
-      name  = "NEXT_PUBLIC_DISABLE_AUTH"
-      value = "true"
-    },
-    {
-      name  = "NODE_ENV"
-      value = "production"
-    },
-    {
-      name  = "API_URL"
-      value = "https://${var.cname_record_api}.${var.domain_name}" 
-    },
-    {
-      name  = "NEXT_PUBLIC_API_URL"
-      value = "https://${var.cname_record_api}.${var.domain_name}" 
-    },
-    {
-      name  = "NEXT_PUBLIC_APP_ENV"
-      value = "production"
-    },
-    {
-      name  = "NEXT_PUBLIC_APP_URL"
-      value = "https://${var.cname_record_app}.${var.domain_name}" 
-    },
-    {
-      name  = "NEXT_SERVER_API_URL"
-      value = "http://api-service:8000"
-    },
-  ]
-  temporal_environment = [
-    {
-      name  = "BIND_ON_IP"
-      value = "0.0.0.0" 
-    },
-    {
-      name  = "TEMPORAL_BROADCAST_ADDRESS"
-      value = "0.0.0.0"
-    },
-    {
-      name  = "LOG_LEVEL"
-      value = var.log_level
-    },
-    {
-      name  = "POSTGRES_USER"
-      value = "postgres"
-    },
-    {
-      name  = "TEMPORAL__POSTGRES_USER"
-      value = "postgres"
-    },
-    {
-      name  = "TEMPORAL__POSTGRES_PASSWORD"
-      value = var.db_pass_value
-    },
-    {
-      name  = "DB"
-      value = "postgres12"
-    },
-    {
-      name  = "DB_PORT"
-      value = "5432"
-    },
-    {
-      name  = "POSTGRES_SEEDS"
-      value = local.temp_db_hostname
-    },
-    {
-      name  = "TEMPORAL__CLUSTER_URL"
-      value = "temporal-service:7233"
-      #value = "grpc://temporal-service:7233"
-    },
-    {
-      name  = "TEMPORAL__CLUSTER_QUEUE"
-      value = "tracecat-task-queue"
-    },
-    {
-      name  = "TEMPORAL__CLUSTER_NAMESPACE"
-      value = "tracecat-namespace"
-    },
-    {
-      name  = "TEMPORAL__VERSION"
-      value = "1.24.2"
-    },
-  ]
-  tracecat_environment = [
-    {
-      name  = "TRACECAT__ALLOW_ORIGINS"
-      value = "https://${var.cname_record_app}.${var.domain_name}" 
-    },
-    {
-      name  = "LOG_LEVEL"
-      value = var.log_level
-    },
-    {
-      name  = "TRACECAT__API_URL"
-      value = "https://${var.cname_record_api}.${var.domain_name}" 
-    },
-    {
-      name  = "TRACECAT__APP_ENV"
-      value = var.tracecat_app_env
-    },
-    {
-      name  = "TRACECAT__DB_USER"
-      value = "postgres"
-    },
-    {
-      name  = "TRACECAT__DB_NAME"
-      value = "postgres"
-    },
-    {
-      name  = "TRACECAT__DB_ENDPOINT"
-      value = local.core_db_hostname
-    },
-    {
-      name  = "TRACECAT__DB_PORT"
-      value = tostring(aws_db_instance.core_database.port)
-    },
-    {
-      name  = "TRACECAT__DISABLE_AUTH"
-      value = var.tracecat_disable_auth
-    },
-    {
-      name  = "TRACECAT__PUBLIC_RUNNER_URL"
-      value = "https://${var.cname_record_api}.${var.domain_name}" 
-    },
-    {
-      name  = "TEMPORAL__CLUSTER_URL"
-      #value = "grpc://temporal-service:7233"
-      value = var.temporal_cluster_url
-    },
-    {
-      name  = "TEMPORAL__CLUSTER_QUEUE"
-      value = var.temporal_cluster_queue
-    },
-    {
-      name  = "TRACECAT__DB_SSLMODE"
-      value = "require"
-    }
-  ]
-}
-
 variable "log_level" {
   type    = string
   default = "INFO"
-}
-
-variable "tracecat_api_url" {
-  type = string
-  default = "https://blah"
 }
 
 variable "tracecat_app_env" {
@@ -222,33 +19,303 @@ variable "tracecat_app_env" {
   default = "production"
 }
 
-variable "tracecat_disable_auth" {
-  type = string
-  default = "1"
+### Images and Versions
+
+variable "temporal_server_image" {
+  default = "temporalio/auto-setup"
 }
 
-variable "db_pass_value" {
-  default = "Tracecat2024"
+variable "temporal_server_image_tag" {
+  #default = "latest"
+  default = "1.24.2"
 }
+
+variable "tracecat_image_api" {
+  default = "ghcr.io/tracecathq/tracecat"
+}
+
+variable "tracecat_image_api_tag" {
+  #default = "latest"
+  default = "0.5.2"
+}
+
+### Secret ARNs
+
+variable "tracecat_db_password_arn" {
+  type = string
+  description = "The ARN of the secret containing the Tracecat database password"
+}
+
+variable "temporal_db_password_arn" {
+  type = string
+  description = "The ARN of the secret containing the Temporal database password"
+}
+
+variable "tracecat_db_encryption_key_arn" {
+  type = string
+  description = "The ARN of the secret containing the Tracecat database encryption key"
+}
+
+variable "tracecat_service_key_arn" {
+  type = string
+  description = "The ARN of the secret containing the Tracecat service key"
+}
+
+variable "tracecat_signing_secret_arn" {
+  type = string
+  description = "The ARN of the secret containing the Tracecat signing secret"
+}
+
+variable "oauth_client_id" {
+  type = string
+  description = "The OAuth client ID (optional)"
+  default = null
+}
+
+variable "oauth_client_secret" {
+  type = string
+  description = "The OAuth client secret (optional)"
+  default = null
+}
+
+### DNS
+
+variable "hosted_zone_id" {
+  description = "The ID of the hosted zone in Route53"
+}
+
+variable "domain_name" {
+  description = "The domain name to use for the application"
+}
+
+### Compute / Memory
+
+variable "api_cpu" {
+  default = "256"
+} 
+
+variable "api_memory" {
+  default = "512"
+}
+
+variable "worker_cpu" {
+  default = "256"
+} 
+
+variable "worker_memory" {
+  default = "512"
+}
+
+variable "ui_cpu" {
+  default = "256"
+} 
+
+variable "ui_memory" {
+  default = "512"
+} 
+
+variable "temporal_cpu" {
+  default = "256"
+} 
+
+variable "temporal_memory" {
+  default = "512"
+} 
+
+variable "db_instance_class" {
+  type    = string
+  default = "db.t3"
+}
+
+variable "db_instance_size" {
+  type    = string
+  default = "medium" 
+}
+
+### Container Env Vars
+# NOTE: sensitive variables are stored in secrets manager
+# and specified directly in the task definition via a secret reference
+
+### Container Env Vars
+
+variable "tracecat_api_url" {
+  type = string
+  description = "The URL of the Tracecat API"
+}
+
+variable "tracecat_api_root_path" {
+  type = string
+  description = "The root path of the Tracecat API"
+  default = "/api"
+}
+
+variable "log_level" {
+  type = string
+  description = "Log level for the application"
+}
+
+variable "tracecat_app_env" {
+  type = string
+  description = "The environment of the Tracecat application"
+}
+
+variable "tracecat_db_sslmode" {
+  type = string
+  description = "SSL mode for the database connection"
+}
+
+variable "tracecat_db_uri" {
+  type = string
+  description = "Database URI"
+}
+
+variable "tracecat_public_runner_url" {
+  type = string
+  description = "Public URL for the runner"
+}
+
+variable "tracecat_public_app_url" {
+  type = string
+  description = "Public URL for the application"
+}
+
+variable "tracecat_allow_origins" {
+  type = string
+  description = "Allowed origins for CORS"
+}
+
+# UI
+
+variable "auth_types" {
+  type = string
+  default = "basic,google_oauth"
+}
+
+# Temporal
 
 variable "temporal_cluster_url" {
   type = string
-  default = "temporal-service:7233"
-}
-
-variable "signing_secret_value" {
-  default = "bloah"
-}
-
-variable "service_key_value" {
-  default = "blah"
-}
-
-variable "db_encryption_key_value" {
-  default = "blah"
+  description = "Temporal cluster URL"
 }
 
 variable "temporal_cluster_queue" {
   type = string
-  default = "tracecat-task-queue"
+  description = "Temporal cluster queue"
+}
+
+# # SMTP
+
+# variable "smtp_host" {
+#   type = string
+#   description = "SMTP host"
+# }
+
+# variable "smtp_port" {
+#   type = number
+#   description = "SMTP port"
+# }
+
+# variable "smtp_starttls_enabled" {
+#   type = bool
+#   description = "Enable STARTTLS for SMTP"
+# }
+
+# variable "smtp_ssl_enabled" {
+#   type = bool
+#   description = "Enable SSL for SMTP"
+# }
+
+# variable "smtp_ignore_cert_errors" {
+#   type = bool
+#   description = "Ignore certificate errors for SMTP"
+# }
+
+# variable "smtp_auth_enabled" {
+#   type = bool
+#   description = "Enable authentication for SMTP"
+# }
+
+# variable "smtp_user" {
+#   type = string
+#   description = "SMTP username"
+# }
+
+# variable "smtp_pass" {
+#   type = string
+#   description = "SMTP password"
+# }
+
+# # LDAP
+
+# variable "ldap_host" {
+#   type = string
+#   description = "LDAP host"
+# }
+
+# variable "ldap_port" {
+#   type = number
+#   description = "LDAP port"
+# }
+
+# variable "ldap_ssl" {
+#   type = bool
+#   description = "Enable SSL for LDAP"
+# }
+
+# variable "ldap_type" {
+#   type = string
+#   description = "LDAP type"
+# }
+
+### Locals to organize env vars
+locals {
+  api_env = {
+    LOG_LEVEL                    = var.log_level
+    TRACECAT__API_URL            = var.tracecat_api_url
+    TRACECAT__API_ROOT_PATH      = var.tracecat_api_root_path
+    TRACECAT__APP_ENV            = var.tracecat_app_env
+    TRACECAT__DB_SSLMODE         = var.tracecat_db_sslmode
+    TRACECAT__DB_URI             = var.tracecat_db_uri
+    TRACECAT__PUBLIC_RUNNER_URL  = var.tracecat_public_runner_url
+    TRACECAT__PUBLIC_APP_URL     = var.tracecat_public_app_url
+    TRACECAT__ALLOW_ORIGINS      = var.tracecat_allow_origins
+    TRACECAT__AUTH_TYPES         = var.auth_types
+    TEMPORAL__CLUSTER_URL        = var.temporal_cluster_url
+    TEMPORAL__CLUSTER_QUEUE      = var.temporal_cluster_queue
+  }
+  worker_env = {
+    LOG_LEVEL                    = var.log_level
+    TRACECAT__API_URL            = var.tracecat_api_url
+    TRACECAT__API_ROOT_PATH      = var.tracecat_api_root_path
+    TRACECAT__APP_ENV            = var.tracecat_app_env
+    TRACECAT__DB_SSLMODE         = var.tracecat_db_sslmode
+    TRACECAT__DB_URI             = var.tracecat_db_uri
+    TRACECAT__PUBLIC_RUNNER_URL  = var.tracecat_public_runner_url
+    TEMPORAL__CLUSTER_URL        = var.temporal_cluster_url
+    TEMPORAL__CLUSTER_QUEUE      = var.temporal_cluster_queue
+    # SMTP_HOST                    = var.smtp_host
+    # SMTP_PORT                    = var.smtp_port
+    # SMTP_STARTTLS_ENABLED        = var.smtp_starttls_enabled
+    # SMTP_SSL_ENABLED             = var.smtp_ssl_enabled
+    # SMTP_IGNORE_CERT_ERRORS      = var.smtp_ignore_cert_errors
+    # SMTP_AUTH_ENABLED            = var.smtp_auth_enabled
+    # SMTP_USER                    = var.smtp_user
+    # SMTP_PASS                    = var.smtp_pass
+    # LDAP_HOST                    = var.ldap_host
+    # LDAP_PORT                    = var.ldap_port
+    # LDAP_SSL                     = var.ldap_ssl
+    # LDAP_TYPE                    = var.ldap_type
+  }
+  ui_env = {
+    NEXT_PUBLIC_API_URL          = "${var.tracecat_api_url}/api/"
+    NEXT_PUBLIC_APP_ENV          = var.tracecat_app_env
+    NEXT_PUBLIC_APP_URL          = var.tracecat_public_app_url
+    NEXT_PUBLIC_AUTH_TYPES       = var.auth_types
+    NEXT_SERVER_API_URL          = "http://api-service:8000"  # Service connect DNS name
+    NODE_ENV                     = var.tracecat_app_env
+  }
+  temporal_env = {
+    TEMPORAL__CLUSTER_URL        = var.temporal_cluster_url
+    TEMPORAL__CLUSTER_QUEUE      = var.temporal_cluster_queue
+  }
 }
