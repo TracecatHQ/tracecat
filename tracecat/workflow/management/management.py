@@ -15,7 +15,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Action, Webhook, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
-from tracecat.identifiers import WorkflowID, WorkspaceID
+from tracecat.identifiers import WorkflowID
 from tracecat.logging import logger
 from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
@@ -231,9 +231,9 @@ class WorkflowsManagementService:
         # 1. The workspace the workflow is imported into
         # 2. The owner of the workflow
         # 3. The ID of the workflow
+
         workflow = await self._create_db_workflow_from_dsl(
             dsl,
-            workspace_id=external_defn.workspace_id,
             workflow_id=external_defn.workflow_id,
             created_at=external_defn.created_at,
             updated_at=external_defn.updated_at,
@@ -244,7 +244,6 @@ class WorkflowsManagementService:
         self,
         dsl: DSLInput,
         *,
-        workspace_id: WorkspaceID | None = None,
         workflow_id: WorkflowID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -254,7 +253,7 @@ class WorkflowsManagementService:
         workflow_kwargs = {
             "title": dsl.title,
             "description": dsl.description,
-            "owner_id": workspace_id or self.role.workspace_id,
+            "owner_id": self.role.workspace_id,
             "static_inputs": dsl.inputs,
             "returns": dsl.returns,
         }
