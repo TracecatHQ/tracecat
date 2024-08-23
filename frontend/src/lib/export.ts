@@ -1,4 +1,5 @@
 import { WorkflowsExportWorkflowData } from "@/client"
+import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"
 
@@ -11,6 +12,7 @@ export async function exportWorkflow({
   const response = await client.get(`/workflows/${workflowId}/export`, {
     params: { version, format, workspace_id: workspaceId },
   })
+
   // Extract the filename from the Content-Disposition header
   const contentDisposition = response.headers["content-disposition"]
 
@@ -47,4 +49,21 @@ function filenameFromHeader(contentDisposition: string): string | null {
     return filenameMatch[1]
   }
   return null
+}
+
+export function handleExportError(error: Error) {
+  console.error("Failed to download workflow definition:", error)
+  const toastData = {
+    title: "Error exporting workflow",
+    description: "Could not export workflow. Please try again.",
+  }
+
+  if (error instanceof AxiosError && error.response?.status === 404) {
+    toastData.title = "No workflow definition"
+    toastData.description =
+      "Cannot export workflow without a definition. Please commit changes to create a definition."
+  } else {
+    toastData.description += ` ${error.message}`
+  }
+  return toastData
 }

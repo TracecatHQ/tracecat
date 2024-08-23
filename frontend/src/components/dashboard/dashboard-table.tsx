@@ -7,7 +7,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 
-import { exportWorkflow } from "@/lib/export"
+import { exportWorkflow, handleExportError } from "@/lib/export"
 import { useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -180,11 +180,7 @@ export function WorkflowsDashboardTable() {
                             "Failed to download workflow definition:",
                             error
                           )
-                          toast({
-                            title: "Error exporting workflow",
-                            description:
-                              "Could not export workflow to JSON. Please try again.",
-                          })
+                          toast(handleExportError(error as Error))
                         }
                       }}
                     >
@@ -206,11 +202,7 @@ export function WorkflowsDashboardTable() {
                             "Failed to download workflow definition:",
                             error
                           )
-                          toast({
-                            title: "Error exporting workflow",
-                            description:
-                              "Could not export workflow to YAML. Please try again.",
-                          })
+                          toast(handleExportError(error as Error))
                         }
                       }}
                     >

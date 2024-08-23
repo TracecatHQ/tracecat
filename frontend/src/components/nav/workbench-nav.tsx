@@ -24,7 +24,7 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { exportWorkflow } from "@/lib/export"
+import { exportWorkflow, handleExportError } from "@/lib/export"
 import { useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
@@ -456,11 +456,7 @@ function WorkbenchNavOptions({
                     "Failed to download JSON workflow definition:",
                     error
                   )
-                  toast({
-                    title: "Error exporting workflow",
-                    description:
-                      "Could not export workflow to JSON. Please try again.",
-                  })
+                  toast(handleExportError(error as Error))
                 }
               }}
             >
@@ -481,11 +477,7 @@ function WorkbenchNavOptions({
                     "Failed to download YAML workflow definition:",
                     error
                   )
-                  toast({
-                    title: "Error exporting workflow",
-                    description:
-                      "Could not export workflow to YAML. Please try again.",
-                  })
+                  toast(handleExportError(error as Error))
                 }
               }}
             >
