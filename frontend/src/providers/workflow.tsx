@@ -98,8 +98,16 @@ export function WorkflowProvider({
         })
       } else {
         toast({
-          title: "Error commiting workflow",
-          description: response.message || "Could not commit workflow.",
+          title: "Workflow validation failed",
+          description: (
+            <div className="flex flex-col space-y-2">
+              <p>
+                {response.message ||
+                  "Could not commit workflow due to valiation errors"}
+              </p>
+              <p>Please hover over the commit button to view errors.</p>
+            </div>
+          ),
           variant: "destructive",
         })
       }
