@@ -1,22 +1,3 @@
-# API Service resources for Tracecat
-
-variable "tracecat_image_api" {
-  default = "ghcr.io/tracecathq/tracecat"
-}
-
-variable "tracecat_image_api_tag" {
-  #default = "latest"
-  default = "0.5.2"
-}
-
-variable "fargate_cpu" {
-  default = "256"
-} 
-
-variable "fargate_memory" {
-  default = "512"
-} 
-
 # ECS Task Definition for API Service
 resource "aws_ecs_task_definition" "api_task_definition" {
   family                   = "TracecatApiTaskDefinition"

@@ -1,13 +1,3 @@
-# Temporal Service resources for Tracecat
-variable "temporal_server_image" {
-  default = "temporalio/auto-setup"
-}
-
-variable "temporal_server_image_tag" {
-  #default = "latest"
-  default = "1.24.2"
-}
-
 # ECS Task Definition for Temporal Service
 resource "aws_ecs_task_definition" "temporal_task_definition" {
   family                   = "TracecatTemporalTaskDefinition"

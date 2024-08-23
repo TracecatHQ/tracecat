@@ -1,14 +1,3 @@
-# Worker Service resources for Tracecat
-
-variable "tracecat_image_worker" {
-  default = "ghcr.io/tracecathq/tracecat"
-}
-
-variable "tracecat_image_worker_tag" {
-  #default = "latest"
-  default = "0.5.2"
-}
-
 # ECS Task Definition for Worker Service
 resource "aws_ecs_task_definition" "worker_task_definition" {
   family                   = "TracecatWorkerTaskDefinition"
