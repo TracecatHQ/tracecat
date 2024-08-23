@@ -24,7 +24,7 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { exportWorkflowJson } from "@/lib/export"
+import { exportWorkflow } from "@/lib/export"
 import { useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
@@ -446,25 +446,51 @@ function WorkbenchNavOptions({
               className="text-xs text-foreground/70"
               onClick={async () => {
                 try {
-                  await exportWorkflowJson({
+                  await exportWorkflow({
                     workspaceId,
                     workflowId,
                     format: "json",
                   })
                 } catch (error) {
                   console.error(
-                    "Failed to download workflow definition:",
+                    "Failed to download JSON workflow definition:",
                     error
                   )
                   toast({
                     title: "Error exporting workflow",
-                    description: "Could not export workflow. Please try again.",
+                    description:
+                      "Could not export workflow to JSON. Please try again.",
                   })
                 }
               }}
             >
               <DownloadIcon className="mr-2 size-4" />
               <span>Export as JSON</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-xs text-foreground/70"
+              onClick={async () => {
+                try {
+                  await exportWorkflow({
+                    workspaceId,
+                    workflowId,
+                    format: "yaml",
+                  })
+                } catch (error) {
+                  console.error(
+                    "Failed to download YAML workflow definition:",
+                    error
+                  )
+                  toast({
+                    title: "Error exporting workflow",
+                    description:
+                      "Could not export workflow to YAML. Please try again.",
+                  })
+                }
+              }}
+            >
+              <DownloadIcon className="mr-2 size-4" />
+              <span>Export as YAML</span>
             </DropdownMenuItem>
             <DialogTrigger asChild>
               <DropdownMenuItem className="text-xs text-red-600">

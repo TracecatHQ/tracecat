@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Schedule, Workflow
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import ActionStatement
-from tracecat.identifiers import OwnerID, WorkflowID
+from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.types.api import (
     ActionResponse,
     UDFArgsValidationResponse,
@@ -74,3 +75,17 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     trigger_inputs: dict[str, Any]
     version: int | None = None
     run_context: RunContext
+
+
+WorkflowExportFormat = Literal["json", "yaml"]
+
+
+class WorkflowExport(BaseModel):
+    """External interchangable format for workflows."""
+
+    workspace_id: WorkspaceID
+    workflow_id: WorkflowID
+    created_at: datetime
+    updated_at: datetime
+    version: int = Field(gt=0)
+    definition: DSLInput

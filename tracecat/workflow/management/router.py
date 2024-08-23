@@ -351,10 +351,16 @@ async def export_workflow(
             media_type="application/json",
             headers={"Content-Disposition": f"attachment; filename={workflow_id}.json"},
         )
+    elif format == "yaml":
+        return Response(
+            content=yaml.dump(defn.model_dump(mode="json"), indent=2),
+            media_type="application/yaml",
+            headers={"Content-Disposition": f"attachment; filename={workflow_id}.yaml"},
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only JSON format is supported",
+            detail=f"{format!r} is not a supported export format",
         )
 
 
