@@ -115,8 +115,8 @@ services:
     networks:
       - temporal-db
     environment:
-      POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
-      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
+      POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}  # Sensitive
+      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}  # Sensitive
     volumes:
       - temporal-db:/var/lib/postgresql/data
 
@@ -130,8 +130,8 @@ services:
     environment:
       - DB=postgres12
       - DB_PORT=5432
-      - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
-      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
+      - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}  # Sensitive
+      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}  # Sensitive
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
     depends_on:
