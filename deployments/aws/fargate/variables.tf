@@ -203,70 +203,6 @@ variable "temporal_cluster_queue" {
   description = "Temporal cluster queue"
 }
 
-# # SMTP
-
-# variable "smtp_host" {
-#   type = string
-#   description = "SMTP host"
-# }
-
-# variable "smtp_port" {
-#   type = number
-#   description = "SMTP port"
-# }
-
-# variable "smtp_starttls_enabled" {
-#   type = bool
-#   description = "Enable STARTTLS for SMTP"
-# }
-
-# variable "smtp_ssl_enabled" {
-#   type = bool
-#   description = "Enable SSL for SMTP"
-# }
-
-# variable "smtp_ignore_cert_errors" {
-#   type = bool
-#   description = "Ignore certificate errors for SMTP"
-# }
-
-# variable "smtp_auth_enabled" {
-#   type = bool
-#   description = "Enable authentication for SMTP"
-# }
-
-# variable "smtp_user" {
-#   type = string
-#   description = "SMTP username"
-# }
-
-# variable "smtp_pass" {
-#   type = string
-#   description = "SMTP password"
-# }
-
-# # LDAP
-
-# variable "ldap_host" {
-#   type = string
-#   description = "LDAP host"
-# }
-
-# variable "ldap_port" {
-#   type = number
-#   description = "LDAP port"
-# }
-
-# variable "ldap_ssl" {
-#   type = bool
-#   description = "Enable SSL for LDAP"
-# }
-
-# variable "ldap_type" {
-#   type = string
-#   description = "LDAP type"
-# }
-
 ### Locals to organize env vars
 locals {
   api_env = {
@@ -293,18 +229,6 @@ locals {
     TRACECAT__PUBLIC_RUNNER_URL  = var.tracecat_public_runner_url
     TEMPORAL__CLUSTER_URL        = var.temporal_cluster_url
     TEMPORAL__CLUSTER_QUEUE      = var.temporal_cluster_queue
-    # SMTP_HOST                    = var.smtp_host
-    # SMTP_PORT                    = var.smtp_port
-    # SMTP_STARTTLS_ENABLED        = var.smtp_starttls_enabled
-    # SMTP_SSL_ENABLED             = var.smtp_ssl_enabled
-    # SMTP_IGNORE_CERT_ERRORS      = var.smtp_ignore_cert_errors
-    # SMTP_AUTH_ENABLED            = var.smtp_auth_enabled
-    # SMTP_USER                    = var.smtp_user
-    # SMTP_PASS                    = var.smtp_pass
-    # LDAP_HOST                    = var.ldap_host
-    # LDAP_PORT                    = var.ldap_port
-    # LDAP_SSL                     = var.ldap_ssl
-    # LDAP_TYPE                    = var.ldap_type
   }
   ui_env = {
     NEXT_PUBLIC_API_URL          = "${var.tracecat_api_url}/api/"
