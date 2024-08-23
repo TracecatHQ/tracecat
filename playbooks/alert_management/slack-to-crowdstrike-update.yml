@@ -1,66 +1,67 @@
-title: Update Crowdstrike alerts via Slack
-description: |
-  Receives a Slack action and updates Crowdstrike alerts based on
-  `alert_ids` and `status` provided in the Slack action payload.
-config:
-  enable_runtime_tests: true
-entrypoint:
-  ref: extract_slack_payload
-triggers:
-  - type: webhook
-    ref: slack_actions_webhook
-    entrypoint: receive_slack_action
-    # shape:
-    #   - action_id: string
-    #   - alert_id: string
-    #   - old_status: string
-    #   - new_status: string
-    #   - username: string
+definition:
+  title: Update Crowdstrike alerts via Slack
+  description: |
+    Receives a Slack action and updates Crowdstrike alerts based on
+    `alert_ids` and `status` provided in the Slack action payload.
+  config:
+    enable_runtime_tests: true
+  entrypoint:
+    ref: extract_slack_payload
+  triggers:
+    - type: webhook
+      ref: slack_actions_webhook
+      entrypoint: receive_slack_action
+      # shape:
+      #   - action_id: string
+      #   - alert_id: string
+      #   - old_status: string
+      #   - new_status: string
+      #   - username: string
 
-actions:
-  - ref: extract_slack_payload
-    action: core.transform.reshape
-    args:
-      value:
-        username: ${{ TRIGGER.username }}
-        alert_id: ${{ TRIGGER.alert_id }}
-        old_status: ${{ TRIGGER.old_status }}
-        new_status: ${{ TRIGGER.new_status }}
+  actions:
+    - ref: extract_slack_payload
+      action: core.transform.reshape
+      args:
+        value:
+          username: ${{ TRIGGER.username }}
+          alert_id: ${{ TRIGGER.alert_id }}
+          old_status: ${{ TRIGGER.old_status }}
+          new_status: ${{ TRIGGER.new_status }}
 
-  - ref: update_crowdstrike_alerts
-    action: integrations.crowdstrike.update_crowdstrike_alert_status
-    depends_on:
-      - extract_slack_payload
-    args:
-      alert_ids:
-        - ${{ ACTIONS.extract_slack_payload.result.alert_id }}
-      status: ${{ ACTIONS.extract_slack_payload.result.new_status }}
+    - ref: update_crowdstrike_alerts
+      action: integrations.crowdstrike.update_crowdstrike_alert_status
+      depends_on:
+        - extract_slack_payload
+      args:
+        alert_ids:
+          - ${{ ACTIONS.extract_slack_payload.result.alert_id }}
+        status: ${{ ACTIONS.extract_slack_payload.result.new_status }}
 
-  # Send slack notifiaction after updating Crowdstrike alerts
-  - ref: send_slack_notification
-    action: integrations.chat.slack.post_slack_message
-    depends_on:
-      - update_crowdstrike_alerts
-    args:
-      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      text: CrowdStrike alerts updated
-      blocks:
-        - type: header
-          text:
-            type: plain_text
-            text: ${{ ACTIONS.extract_slack_payload.result.username }} changed status of alert
-            emoji: true
-        - type: section
-          fields:
-            - type: mrkdwn
-              text: "*Alert ID:* ${{ ACTIONS.extract_slack_payload.result.alert_id }}"
-            - type: mrkdwn
-              text: "*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}"
-            - type: mrkdwn
-              text: "*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}"
+    # Send slack notifiaction after updating Crowdstrike alerts
+    - ref: send_slack_notification
+      action: integrations.chat.slack.post_slack_message
+      depends_on:
+        - update_crowdstrike_alerts
+      args:
+        channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+        text: CrowdStrike alerts updated
+        blocks:
+          - type: header
+            text:
+              type: plain_text
+              text: ${{ ACTIONS.extract_slack_payload.result.username }} changed status of alert
+              emoji: true
+          - type: section
+            fields:
+              - type: mrkdwn
+                text: "*Alert ID:* ${{ ACTIONS.extract_slack_payload.result.alert_id }}"
+              - type: mrkdwn
+                text: "*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}"
+              - type: mrkdwn
+                text: "*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}"
 
-tests:
-  - ref: update_crowdstrike_alerts
-    success:
-      status: ok
-      code: 200
+  tests:
+    - ref: update_crowdstrike_alerts
+      success:
+        status: ok
+        code: 200

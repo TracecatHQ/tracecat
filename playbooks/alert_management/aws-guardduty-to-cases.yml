@@ -1,67 +1,68 @@
-title: Open cases for GuardDuty findings
-description: |
-  Pulls GuardDuty findings from AWS and opens cases.
-  Also sends a message if no findings available.
-entrypoint:
-  ref: pull_aws_guardduty_findings
-triggers:
-  - type: webhook
-    ref: guardduty_findings_webhook
-    entrypoint: pull_aws_guardduty_findings
+definition:
+  title: Open cases for GuardDuty findings
+  description: |
+    Pulls GuardDuty findings from AWS and opens cases.
+    Also sends a message if no findings available.
+  entrypoint:
+    ref: pull_aws_guardduty_findings
+  triggers:
+    - type: webhook
+      ref: guardduty_findings_webhook
+      entrypoint: pull_aws_guardduty_findings
 
-actions:
-  - ref: pull_aws_guardduty_findings
-    action: integrations.aws.guardduty.list_guardduty_alerts
-    args:
-      start_time: ${{ TRIGGER.start_time }}
-      end_time: ${{ TRIGGER.end_time }}
-      limit: 10
+  actions:
+    - ref: pull_aws_guardduty_findings
+      action: integrations.aws.guardduty.list_guardduty_alerts
+      args:
+        start_time: ${{ TRIGGER.start_time }}
+        end_time: ${{ TRIGGER.end_time }}
+        limit: 10
 
-  # Transform the list of GuardDuty findings into a list of SMAC findings
-  - ref: reshape_findings_into_smac
-    action: core.transform.reshape
-    depends_on:
-      - pull_aws_guardduty_findings
-    run_if: ${{ FN.not_empty(ACTIONS.pull_aws_guardduty_findings.result) }}
-    for_each: ${{ for var.finding in ACTIONS.pull_aws_guardduty_findings.result }}
-    args:
-      value:
-        title: ${{ var.finding.Title }}
-        description: ${{ var.finding.Description }}
-        payload:
-          rule: ${{ var.finding.Type }}
-          severity: ${{ var.finding.Severity }}
-        status: ${{ 'closed' if var.finding.Service.Archived else 'open' }}
-        malice: ${{ 'malicious' if FN.greater_than(var.finding.Severity, 0) else 'benign' }}
-        action: quarantine
+    # Transform the list of GuardDuty findings into a list of SMAC findings
+    - ref: reshape_findings_into_smac
+      action: core.transform.reshape
+      depends_on:
+        - pull_aws_guardduty_findings
+      run_if: ${{ FN.not_empty(ACTIONS.pull_aws_guardduty_findings.result) }}
+      for_each: ${{ for var.finding in ACTIONS.pull_aws_guardduty_findings.result }}
+      args:
+        value:
+          title: ${{ var.finding.Title }}
+          description: ${{ var.finding.Description }}
+          payload:
+            rule: ${{ var.finding.Type }}
+            severity: ${{ var.finding.Severity }}
+          status: ${{ 'closed' if var.finding.Service.Archived else 'open' }}
+          malice: ${{ 'malicious' if FN.greater_than(var.finding.Severity, 0) else 'benign' }}
+          action: quarantine
+          context:
+            account_id: ${{ var.finding.AccountId }}
+            region: ${{ var.finding.Region }}
+            resource_type: ${{ var.finding.Resource.ResourceType }}
+            updated_at: ${{ var.finding.UpdatedAt }}
+            created_at: ${{ var.finding.CreatedAt }}
+
+    # Open cases in Tracecat's case management system
+    - ref: open_cases
+      action: core.open_case
+      depends_on:
+        - reshape_findings_into_smac
+      for_each: ${{ for var.smac in ACTIONS.reshape_findings_into_smac.result }}
+      args:
+        case_title: ${{ var.smac.title }}
+        status: ${{ var.smac.status }}
+        malice: ${{ var.smac.malice }}
+        action: ${{ var.smac.action }}
         context:
-          account_id: ${{ var.finding.AccountId }}
-          region: ${{ var.finding.Region }}
-          resource_type: ${{ var.finding.Resource.ResourceType }}
-          updated_at: ${{ var.finding.UpdatedAt }}
-          created_at: ${{ var.finding.CreatedAt }}
-
-  # Open cases in Tracecat's case management system
-  - ref: open_cases
-    action: core.open_case
-    depends_on:
-      - reshape_findings_into_smac
-    for_each: ${{ for var.smac in ACTIONS.reshape_findings_into_smac.result }}
-    args:
-      case_title: ${{ var.smac.title }}
-      status: ${{ var.smac.status }}
-      malice: ${{ var.smac.malice }}
-      action: ${{ var.smac.action }}
-      context:
-        - key: account_id
-          value: ${{ var.smac.context.account_id }}
-        - key: region
-          value: ${{ var.smac.context.region }}
-        - key: resource_type
-          value: ${{ var.smac.context.resource_type }}
-        - key: updated_at
-          value: ${{ var.smac.context.updated_at }}
-        - key: created_at
-          value: ${{ var.smac.context.created_at }}
-      payload: ${{ var.smac.payload }}
-      priority: ${{ 'high' if var.smac.payload.severity > 50 else ('medium' if var.smac.payload.severity > 20 else 'low') }}
+          - key: account_id
+            value: ${{ var.smac.context.account_id }}
+          - key: region
+            value: ${{ var.smac.context.region }}
+          - key: resource_type
+            value: ${{ var.smac.context.resource_type }}
+          - key: updated_at
+            value: ${{ var.smac.context.updated_at }}
+          - key: created_at
+            value: ${{ var.smac.context.created_at }}
+        payload: ${{ var.smac.payload }}
+        priority: ${{ 'high' if var.smac.payload.severity > 50 else ('medium' if var.smac.payload.severity > 20 else 'low') }}

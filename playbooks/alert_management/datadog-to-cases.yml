@@ -1,111 +1,112 @@
-title: Pull Datadog signals, send to Slack and open cases
-description: |
-  This playbook pulls Datadog signals, sends them to Slack and
-  opens cases in Tracecat's case management system.
+definition:
+  title: Pull Datadog signals, send to Slack and open cases
+  description: |
+    This playbook pulls Datadog signals, sends them to Slack and
+    opens cases in Tracecat's case management system.
 
-entrypoint:
-  ref: pull_datadog_signals
-inputs:
-  dd_region: us5
-  dd_api_url: https://api.us5.datadoghq.com
+  entrypoint:
+    ref: pull_datadog_signals
+  inputs:
+    dd_region: us5
+    dd_api_url: https://api.us5.datadoghq.com
 
-triggers:
-  - type: webhook
-    ref: datadog_webhook
-    entrypoint: pull_datadog_siem_signals
+  triggers:
+    - type: webhook
+      ref: datadog_webhook
+      entrypoint: pull_datadog_siem_signals
 
-actions:
-  - ref: pull_datadog_signals
-    action: integrations.datadog.list_datadog_alerts
-    args:
-      start_time: ${{ TRIGGER.start_time }}
-      end_time: ${{ TRIGGER.end_time }}
-      limit: 10
+  actions:
+    - ref: pull_datadog_signals
+      action: integrations.datadog.list_datadog_alerts
+      args:
+        start_time: ${{ TRIGGER.start_time }}
+        end_time: ${{ TRIGGER.end_time }}
+        limit: 10
 
-  - ref: reshape_signals
-    action: core.transform.reshape
-    depends_on:
-      - pull_datadog_siem_signals
-    run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_siem_signals.result) }}
-    for_each: ${{ for var.signal in ACTIONS.pull_datadog_siem_signals.result }}
-    args:
-      value:
-        title: ${{ var.signal.attributes.attributes.title }}
-        description: ${{ var.signal.attributes.message }}
-        status: ${{ var.signal.attributes.status }}
-        first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
-        last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
-        samples: ${{ var.signal.attributes.attributes.samples }}
-        link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.id }}
-
-  - ref: send_slack_notification
-    action: integrations.chat.slack.post_slack_message
-    depends_on:
-      - reshape_signals
-    for_each:
-      - ${{ for var.signal in ACTIONS.reshape_signals.result }}
-    args:
-      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      text: Datadog alerts
-      blocks:
-        - type: header
-          text:
-            type: plain_text
-            text: ${{ var.signal.title }}
-            emoji: true
-        - type: context
-          elements:
-            - type: plain_text
-              text: "*Link to signal:* ${{ var.signal.link_to_signal }}"
-        - type: context
-          elements:
-            - type: plain_text
-              text: "*Status:* ${{ var.signal.status }}"
-        - type: context
-          elements:
-            - type: plain_text
-              text: "*First seen:* ${{ FN.from_timestamp(var.signal.first_seen, 'ms') }}"
-            - type: plain_text
-              text: "*Last seen:* ${{ FN.from_timestamp(var.signal.last_seen, 'ms') }}"
-        - type: section
-          text:
-            type: mrkdwn
-            text: ${{ var.signal.description }}
-
-  - ref: reshape_findings_into_smac
-    action: core.transform.reshape
-    depends_on:
-      - pull_datadog_signals
-    run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result) }}
-    for_each: ${{ for var.signal in ACTIONS.pull_datadog_signals.result }}
-    args:
-      value:
-        title: ${{ var.signal.attributes.attributes.title }}
-        description: ${{ var.signal.attributes.message }}
-        payload:
-          rule: ${{ var.signal.attributes.attributes.rule }}
-        status: ${{ var.signal.attributes.status }}
-        malice: ${{ var.signal.attributes.status }}
-        action: Investigate and remediate
-        context:
+    - ref: reshape_signals
+      action: core.transform.reshape
+      depends_on:
+        - pull_datadog_siem_signals
+      run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_siem_signals.result) }}
+      for_each: ${{ for var.signal in ACTIONS.pull_datadog_siem_signals.result }}
+      args:
+        value:
+          title: ${{ var.signal.attributes.attributes.title }}
+          description: ${{ var.signal.attributes.message }}
+          status: ${{ var.signal.attributes.status }}
           first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
           last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
+          samples: ${{ var.signal.attributes.attributes.samples }}
           link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.id }}
 
-  # Open cases in Tracecat's case management system
-  - ref: open_cases
-    action: core.open_case
-    depends_on:
-      - reshape_findings_into_smac
-    for_each: ${{ for var.smac in ACTIONS.reshape_findings_into_smac.result }}
-    args:
-      case_title: ${{ var.smac.title }}
-      status: ${{ var.smac.status }}
-      malice: ${{ var.smac.malice }}
-      action: ${{ var.smac.action }}
-      context: ${{ var.smac.context }}
-      payload: ${{ var.smac.payload }}
-      # Datadog: critical, high, medium, low, info
-      # Tracecat: critical, high, medium, low
-      # NOTE: 'info' in Datadog is considered as 'low' in Tracecat
-      priority: ${{ 'low' if FN.equals(var.smac.status, 'info') else var.smac.status }}
+    - ref: send_slack_notification
+      action: integrations.chat.slack.post_slack_message
+      depends_on:
+        - reshape_signals
+      for_each:
+        - ${{ for var.signal in ACTIONS.reshape_signals.result }}
+      args:
+        channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+        text: Datadog alerts
+        blocks:
+          - type: header
+            text:
+              type: plain_text
+              text: ${{ var.signal.title }}
+              emoji: true
+          - type: context
+            elements:
+              - type: plain_text
+                text: "*Link to signal:* ${{ var.signal.link_to_signal }}"
+          - type: context
+            elements:
+              - type: plain_text
+                text: "*Status:* ${{ var.signal.status }}"
+          - type: context
+            elements:
+              - type: plain_text
+                text: "*First seen:* ${{ FN.from_timestamp(var.signal.first_seen, 'ms') }}"
+              - type: plain_text
+                text: "*Last seen:* ${{ FN.from_timestamp(var.signal.last_seen, 'ms') }}"
+          - type: section
+            text:
+              type: mrkdwn
+              text: ${{ var.signal.description }}
+
+    - ref: reshape_findings_into_smac
+      action: core.transform.reshape
+      depends_on:
+        - pull_datadog_signals
+      run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result) }}
+      for_each: ${{ for var.signal in ACTIONS.pull_datadog_signals.result }}
+      args:
+        value:
+          title: ${{ var.signal.attributes.attributes.title }}
+          description: ${{ var.signal.attributes.message }}
+          payload:
+            rule: ${{ var.signal.attributes.attributes.rule }}
+          status: ${{ var.signal.attributes.status }}
+          malice: ${{ var.signal.attributes.status }}
+          action: Investigate and remediate
+          context:
+            first_seen: ${{ var.signal.attributes.attributes.workflow.first_seen }}
+            last_seen: ${{ var.signal.attributes.attributes.workflow.last_seen }}
+            link_to_signal: ${{ INPUTS.dd_api_url }}/security?event=${{ var.signal.id }}
+
+    # Open cases in Tracecat's case management system
+    - ref: open_cases
+      action: core.open_case
+      depends_on:
+        - reshape_findings_into_smac
+      for_each: ${{ for var.smac in ACTIONS.reshape_findings_into_smac.result }}
+      args:
+        case_title: ${{ var.smac.title }}
+        status: ${{ var.smac.status }}
+        malice: ${{ var.smac.malice }}
+        action: ${{ var.smac.action }}
+        context: ${{ var.smac.context }}
+        payload: ${{ var.smac.payload }}
+        # Datadog: critical, high, medium, low, info
+        # Tracecat: critical, high, medium, low
+        # NOTE: 'info' in Datadog is considered as 'low' in Tracecat
+        priority: ${{ 'low' if FN.equals(var.smac.status, 'info') else var.smac.status }}

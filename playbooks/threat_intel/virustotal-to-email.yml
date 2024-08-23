@@ -1,55 +1,56 @@
-title: Send Virustotal report to email using the builtin integration
-description: Scan a malicious hash on Virustotal and send the results to an email address
+definition:
+  title: Send Virustotal report to email using the builtin integration
+  description: Scan a malicious hash on Virustotal and send the results to an email address
 
-entrypoint:
-  ref: call_virustotal
-triggers:
-  - type: webhook
-    ref: virustotal_webhook
-    entrypoint: call_virustotal
+  entrypoint:
+    ref: call_virustotal
+  triggers:
+    - type: webhook
+      ref: virustotal_webhook
+      entrypoint: call_virustotal
 
-actions:
-  # Using the hash from the webhook trigger, we'll make
-  # an API call to Virustotal
-  - ref: call_virustotal
-    action: integrations.virustotal.analyze_url
-    args:
-      url: ${{ TRIGGER.url }} # Pulls from the webhoo
+  actions:
+    # Using the hash from the webhook trigger, we'll make
+    # an API call to Virustotal
+    - ref: call_virustotal
+      action: integrations.virustotal.analyze_url
+      args:
+        url: ${{ TRIGGER.url }} # Pulls from the webhoo
 
-  # Grab the results from the Virustotal API call and send
-  # them to an email address
-  - ref: send_email_with_virustotal_results
-    action: core.send_email
-    depends_on:
-      - call_virustotal
-    args:
-      recipients:
-        - daryl@tracecat.com
-        - chris@tracecat.com
-      subject: Malware report for ${{ TRIGGER.hash }}
-      body: |
-        Dear Team,
+    # Grab the results from the Virustotal API call and send
+    # them to an email address
+    - ref: send_email_with_virustotal_results
+      action: core.send_email
+      depends_on:
+        - call_virustotal
+      args:
+        recipients:
+          - daryl@tracecat.com
+          - chris@tracecat.com
+        subject: Malware report for ${{ TRIGGER.hash }}
+        body: |
+          Dear Team,
 
-        Below is the daily malware report summary for the file.
+          Below is the daily malware report summary for the file.
 
-        1. File Identification
+          1. File Identification
 
-        SHA256: ${{ ACTIONS.call_virustotal.result.data.data.attributes.sha256 }}
-        File Names: ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.names) -> str }}
+          SHA256: ${{ ACTIONS.call_virustotal.result.data.data.attributes.sha256 }}
+          File Names: ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.names) -> str }}
 
-        2. Submission Dates
+          2. Submission Dates
 
-        First Submission: ${{ ACTIONS.call_virustotal.result.data.data.attributes.first_submission_date }}
-        Last Analysis: ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_date }}
+          First Submission: ${{ ACTIONS.call_virustotal.result.data.data.attributes.first_submission_date }}
+          Last Analysis: ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_date }}
 
-        3. Analysis Results
+          3. Analysis Results
 
-        Malicious Detections:
-        ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_results }}
+          Malicious Detections:
+          ${{ ACTIONS.call_virustotal.result.data.data.attributes.last_analysis_results }}
 
-        4. Detection Tags
+          4. Detection Tags
 
-        ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.tags) -> str }}
-        5. File Details
+          ${{ FN.join(ACTIONS.call_virustotal.result.data.data.attributes.tags) -> str }}
+          5. File Details
 
-        ~Tracecat
+          ~Tracecat

@@ -1,73 +1,74 @@
-title: Extract IoCs from Slack conversation message, tag Slack users, and create thread.
-description: |
-  Given a Slack conversation message, this playbook extracts URLs and IP addresses from the message,
-  tags the users mentioned in the message, and creates a thread with the extracted IOCs.
-config:
-  # NOTE: Setting `enable_runtime_tests` to `true` here will override all other
-  # runtime configuration for this flag i.e. tracecat workflow run --test flag).
-  enable_runtime_tests: false
-entrypoint:
-  ref: pull_slack_conversations
-  expects:
-    latest: datetime
-    oldest: datetime
-    message_limit: int
+definition:
+  title: Extract IoCs from Slack conversation message, tag Slack users, and create thread.
+  description: |
+    Given a Slack conversation message, this playbook extracts URLs and IP addresses from the message,
+    tags the users mentioned in the message, and creates a thread with the extracted IOCs.
+  config:
+    # NOTE: Setting `enable_runtime_tests` to `true` here will override all other
+    # runtime configuration for this flag i.e. tracecat workflow run --test flag).
+    enable_runtime_tests: false
+  entrypoint:
+    ref: pull_slack_conversations
+    expects:
+      latest: datetime
+      oldest: datetime
+      message_limit: int
 
-actions:
-  - ref: pull_slack_conversations
-    action: integrations.chat.slack.list_slack_conversations
-    args:
-      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      latest: ${{ TRIGGER.latest }}
-      oldest: ${{ TRIGGER.oldest }}
-      limit: ${{ TRIGGER.message_limit }}
+  actions:
+    - ref: pull_slack_conversations
+      action: integrations.chat.slack.list_slack_conversations
+      args:
+        channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+        latest: ${{ TRIGGER.latest }}
+        oldest: ${{ TRIGGER.oldest }}
+        limit: ${{ TRIGGER.message_limit }}
 
-  - ref: filter_datadog_messages_only
-    action: core.transform.filter
-    depends_on:
-      - pull_slack_conversations
-    run_if: ${{ FN.not_empty(ACTIONS.pull_slack_conversations.result) }}
-    args:
-      items: ${{ ACTIONS.pull_slack_conversations.result }}
-      constraint:
-        jsonpath: $.bot_profile.name
-        operator: ==
-        target: Datadog
+    - ref: filter_datadog_messages_only
+      action: core.transform.filter
+      depends_on:
+        - pull_slack_conversations
+      run_if: ${{ FN.not_empty(ACTIONS.pull_slack_conversations.result) }}
+      args:
+        items: ${{ ACTIONS.pull_slack_conversations.result }}
+        constraint:
+          jsonpath: $.bot_profile.name
+          operator: ==
+          target: Datadog
 
-  - ref: reshape_conversations
-    action: core.transform.reshape
-    depends_on:
-      - filter_datadog_messages_only
-    run_if: ${{ FN.not_empty(ACTIONS.filter_datadog_messages_only.result) }}
-    for_each: ${{ for var.conversation in ACTIONS.filter_datadog_messages_only.result }}
-    args:
-      value:
-        attachments: ${{ var.conversation.attachments }}
-        thread_ts: ${{ var.conversation.ts }}
+    - ref: reshape_conversations
+      action: core.transform.reshape
+      depends_on:
+        - filter_datadog_messages_only
+      run_if: ${{ FN.not_empty(ACTIONS.filter_datadog_messages_only.result) }}
+      for_each: ${{ for var.conversation in ACTIONS.filter_datadog_messages_only.result }}
+      args:
+        value:
+          attachments: ${{ var.conversation.attachments }}
+          thread_ts: ${{ var.conversation.ts }}
 
-  - ref: tag_slack_users
-    action: integrations.chat.slack.tag_slack_users
-    depends_on:
-      - reshape_conversations
-    args:
-      jsons: ${{ ACTIONS.reshape_conversations.result}}
+    - ref: tag_slack_users
+      action: integrations.chat.slack.tag_slack_users
+      depends_on:
+        - reshape_conversations
+      args:
+        jsons: ${{ ACTIONS.reshape_conversations.result}}
 
-  - ref: create_thread
-    action: integrations.chat.slack.post_slack_message
-    depends_on:
-      - tag_slack_users
-    run_if: ${{ FN.not_empty(ACTIONS.tag_slack_users.result) }}
-    for_each: ${{ for var.tagged_conversation in ACTIONS.tag_slack_users.result }}
-    args:
-      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
-      thread_ts: ${{ var.tagged_conversation.json.thread_ts }}
-      text: "*Tagged users:* ${{ FN.join(var.tagged_conversation.user_tags, ', ') }}"
+    - ref: create_thread
+      action: integrations.chat.slack.post_slack_message
+      depends_on:
+        - tag_slack_users
+      run_if: ${{ FN.not_empty(ACTIONS.tag_slack_users.result) }}
+      for_each: ${{ for var.tagged_conversation in ACTIONS.tag_slack_users.result }}
+      args:
+        channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+        thread_ts: ${{ var.tagged_conversation.json.thread_ts }}
+        text: "*Tagged users:* ${{ FN.join(var.tagged_conversation.user_tags, ', ') }}"
 
-tests:
-  - ref: pull_slack_conversations
-    success: []
-    # success: http://host.docker.internal:8005/dd_slack_tag/some_no_email_multiple.json
+  tests:
+    - ref: pull_slack_conversations
+      success: []
+      # success: http://host.docker.internal:8005/dd_slack_tag/some_no_email_multiple.json
 
-  # Could only find 1 user
-  - ref: tag_slack_users
-    success: http://host.docker.internal:8005/dd_slack_tag/email_no_slack_user.json
+    # Could only find 1 user
+    - ref: tag_slack_users
+      success: http://host.docker.internal:8005/dd_slack_tag/email_no_slack_user.json
