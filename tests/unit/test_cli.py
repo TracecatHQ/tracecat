@@ -223,12 +223,12 @@ def test_manage_workflows(capture_cli):
 def test_create_workflow_with_file(capture_cli):
     from cli.tracecat_cli.workflow import _create_workflow, list_workflows
 
-    expected_title = "Reshape data in a loop"
+    expected_title = "Send Virustotal report to email"
     expected_description = (
-        "Test reshaping data from a list of mappings to a list of key-value pairs"
+        "Scan a malicious hash on Virustotal and send the results to an email address"
     )
 
-    file = DATA_PATH.joinpath("unit_transform_reshape_arrange_loop.yml")
+    file = DATA_PATH.joinpath("playbook_virustotal_email.yml")
     wf = _create_workflow(file=file)
     captured_output = capture_cli()
 
