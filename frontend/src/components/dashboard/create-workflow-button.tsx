@@ -131,7 +131,7 @@ export function CreateWorkflowButton() {
             </DropdownMenuItem>
             <DialogTrigger asChild>
               <DropdownMenuItem>
-                Upload Definition File
+                Import from file
                 <DropdownMenuShortcut>
                   <BracesIcon className="size-4" />
                 </DropdownMenuShortcut>
