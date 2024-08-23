@@ -1,66 +1,86 @@
-# random_pet suffix to prevent resource name clashing
-resource "random_pet" "suffix" {
+# Required secrets:
+# 1. TRACECAT__DB_PASSWORD
+# 2. TEMPORAL__DB_PASSWORD
+# 3. TRACECAT__DB_ENCRYPTION_KEY
+# 4. TRACECAT__SERVICE_KEY
+# 5. TRACECAT__SIGNING_SECRET
+#
+# Optional secrets:
+# 1. OAUTH_CLIENT_ID
+# 2. OAUTH_CLIENT_SECRET
+
+# Required secrets
+data "aws_secretsmanager_secret" "tracecat_db_password" {
+  arn = var.tracecat_db_password_arn
 }
 
-resource "random_password" "pw" {
-  length = 15
+data "aws_secretsmanager_secret" "temporal_db_password" {
+  arn = var.temporal_db_password_arn
 }
 
-resource "aws_secretsmanager_secret" "db_encryption_key" {
-  name        = "DB_ENCRYPTION_KEY_NAME-${random_pet.suffix.id}"
-  description = "Database encryption key for Tracecat"
+data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
+  arn = var.tracecat_db_encryption_key_arn
 }
 
-resource "aws_secretsmanager_secret" "postgres_pwd" {
-  name        = "POSTGRES_PWD-${random_pet.suffix.id}"
-  description = "Postgres DB password"
+data "aws_secretsmanager_secret" "tracecat_service_key" {
+  arn = var.tracecat_service_key_arn
 }
 
-resource "aws_secretsmanager_secret_version" "postgres_pwd" {
-  secret_id     = aws_secretsmanager_secret.postgres_pwd.id
-  secret_string = var.db_pass_value
-  /*secret_string = jsonencode({
-    password = random_password.pw.result
-  })*/
+data "aws_secretsmanager_secret" "tracecat_signing_secret" {
+  arn = var.tracecat_signing_secret_arn
 }
 
-data "aws_secretsmanager_secret_version" "postgres_pwd" {
-  secret_id = aws_secretsmanager_secret.postgres_pwd.id
-  version_id = aws_secretsmanager_secret_version.postgres_pwd.version_id
+# Optional secrets
+data "aws_secretsmanager_secret" "oauth_client_id" {
+  count = var.oauth_client_id != null ? 1 : 0
+  arn   = var.oauth_client_id
 }
 
-
-resource "aws_secretsmanager_secret_version" "db_encryption_key" {
-  secret_id     = aws_secretsmanager_secret.db_encryption_key.id
-  secret_string = var.db_encryption_key_value
+data "aws_secretsmanager_secret" "oauth_client_secret" {
+  count = var.oauth_client_secret != null ? 1 : 0
+  arn   = var.oauth_client_secret
 }
 
-resource "aws_secretsmanager_secret" "service_key" {
-  name        = "SERVICE_KEY_NAME-${random_pet.suffix.id}"
-  description = "Service key for Tracecat"
+# Retrieve secret values
+data "aws_secretsmanager_secret_version" "tracecat_db_password" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_db_password.id
 }
 
-resource "aws_secretsmanager_secret_version" "service_key" {
-  secret_id     = aws_secretsmanager_secret.service_key.id
-  secret_string = var.service_key_value
+data "aws_secretsmanager_secret_version" "temporal_db_password" {
+  secret_id = data.aws_secretsmanager_secret.temporal_db_password.id
 }
 
-resource "aws_secretsmanager_secret" "signing_secret" {
-  name        = "SIGNING_SECRET_NAME-${random_pet.suffix.id}"
-  description = "Signing secret for Tracecat"
+data "aws_secretsmanager_secret_version" "tracecat_db_encryption_key" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_db_encryption_key.id
 }
 
-resource "aws_secretsmanager_secret_version" "signing_secret" {
-  secret_id     = aws_secretsmanager_secret.signing_secret.id
-  secret_string = var.signing_secret_value
+data "aws_secretsmanager_secret_version" "tracecat_service_key" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_service_key.id
 }
 
-resource "aws_secretsmanager_secret" "db_pass" {
-  name        = "DB_PASS_NAME-${random_pet.suffix.id}"
-  description = "Database password for Tracecat"
+data "aws_secretsmanager_secret_version" "tracecat_signing_secret" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_signing_secret.id
 }
 
-resource "aws_secretsmanager_secret_version" "db_pass" {
-  secret_id     = aws_secretsmanager_secret.db_pass.id
-  secret_string = var.db_pass_value
+data "aws_secretsmanager_secret_version" "oauth_client_id" {
+  count     = var.oauth_client_id != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oauth_client_id[0].id
+}
+
+data "aws_secretsmanager_secret_version" "oauth_client_secret" {
+  count     = var.oauth_client_secret != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
+}
+
+# Local variable to store secrets
+locals {
+  secrets = {
+    TRACECAT__DB_PASSWORD      = data.aws_secretsmanager_secret_version.tracecat_db_password.secret_string
+    TEMPORAL__DB_PASSWORD      = data.aws_secretsmanager_secret_version.temporal_db_password.secret_string
+    TRACECAT__DB_ENCRYPTION_KEY = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.secret_string
+    TRACECAT__SERVICE_KEY      = data.aws_secretsmanager_secret_version.tracecat_service_key.secret_string
+    TRACECAT__SIGNING_SECRET   = data.aws_secretsmanager_secret_version.tracecat_signing_secret.secret_string
+    OAUTH_CLIENT_ID            = var.oauth_client_id != null ? data.aws_secretsmanager_secret_version.oauth_client_id[0].secret_string : null
+    OAUTH_CLIENT_SECRET        = var.oauth_client_secret != null ? data.aws_secretsmanager_secret_version.oauth_client_secret[0].secret_string : null
+  }
 }
