@@ -72,6 +72,7 @@ export function WorkflowExecutionEventDetailView({
               <div className="my-4 flex flex-col space-y-8 px-4">
                 <div className="rounded-md border p-4 shadow-md">
                   <JsonView
+                    collapsed
                     displaySize
                     enableClipboard
                     src={event.failure}
@@ -95,6 +96,7 @@ export function WorkflowExecutionEventDetailView({
               <div className="my-4 flex flex-col space-y-8 px-4">
                 <div className="rounded-md border p-4 shadow-md">
                   <JsonView
+                    collapsed
                     displaySize
                     enableClipboard
                     src={(event.result as Record<string, unknown>) ?? {}}
@@ -118,6 +120,7 @@ export function WorkflowExecutionEventDetailView({
               <div className="my-4 flex flex-col space-y-8 px-4">
                 <div className="rounded-md border p-4 shadow-md">
                   <JsonView
+                    collapsed
                     displaySize
                     enableClipboard
                     src={event?.event_group?.action_input}
@@ -142,6 +145,7 @@ export function WorkflowExecutionEventDetailView({
                 <div className="my-4 flex flex-col space-y-8 px-4">
                   <div className="rounded-md border p-4 shadow-md">
                     <JsonView
+                      collapsed
                       displaySize
                       enableClipboard
                       src={event.event_group.action_input}
