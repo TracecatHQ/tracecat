@@ -24,8 +24,8 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
       image = "${var.tracecat_ui_image}:${var.tracecat_ui_image_tag}"
       portMappings = [
         {
-          containerPort = var.app_port 
-          hostPort      = var.app_port 
+          containerPort = 3000 
+          hostPort      = 3000 
           name          = "ui"
           appProtocol   = "http"
         }
@@ -38,8 +38,7 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
           awslogs-stream-prefix = "ui"
         }
       }
-      environment = local.tracecat_ui_environment 
-      secrets = local.tracecat_ui_secrets 
+      environment = local.ui_env 
     }
   ])
 }
@@ -62,7 +61,7 @@ resource "aws_ecs_service" "tracecat_ui" {
   load_balancer {
         target_group_arn = aws_alb_target_group.tracecat_ui.id
         container_name  = "TracecatUiContainer"
-        container_port   = var.app_port
+        container_port   = 3000
   }
 
   service_connect_configuration {
