@@ -315,7 +315,7 @@ export function useWorkflowManager() {
         case 400:
           toast({
             title: "Cannot create workflow",
-            description: "The uploaded workflow definition is invalid.",
+            description: "The uploaded workflow YAML / JSON is invalid.",
           })
           break
         case 409:
