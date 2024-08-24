@@ -1,54 +1,55 @@
-title: Update SentinelOne alerts via Slack
-description: |
-  Receives a Slack action and updates SentinelOne alerts based on
-  `alert_ids` and `status` provided in the Slack action payload.
-entrypoint:
-  ref: extract_slack_payload
-triggers:
-  - type: webhook
-    ref: slack_actions_webhook
-    entrypoint: receive_slack_action
+definition:
+  title: Update SentinelOne alerts via Slack
+  description: |
+    Receives a Slack action and updates SentinelOne alerts based on
+    `alert_ids` and `status` provided in the Slack action payload.
+  entrypoint:
+    ref: extract_slack_payload
+  triggers:
+    - type: webhook
+      ref: slack_actions_webhook
+      entrypoint: receive_slack_action
 
-actions:
-  - ref: extract_slack_payload
-    action: core.transform.reshape
-    # Check if action received is as expected
-    run_if: ${{ FN.is_equal(TRIGGER.action.action_id, 'update_sentinelone_alert') }}
-    args:
-      value:
-        username: ${{ TRIGGER.user.username }}
-        alert_id: ${{ TRIGGER.action.value.alert_id }}
-        old_status: ${{ TRIGGER.action.value.old_status }}
-        new_status: ${{ TRIGGER.action.value.new_status }}
+  actions:
+    - ref: extract_slack_payload
+      action: core.transform.reshape
+      # Check if action received is as expected
+      run_if: ${{ FN.is_equal(TRIGGER.action.action_id, 'update_sentinelone_alert') }}
+      args:
+        value:
+          username: ${{ TRIGGER.user.username }}
+          alert_id: ${{ TRIGGER.action.value.alert_id }}
+          old_status: ${{ TRIGGER.action.value.old_status }}
+          new_status: ${{ TRIGGER.action.value.new_status }}
 
-  - ref: update_sentinelone_alerts
-    action: integrations.sentinelone.update_sentinelone_alert_status
-    depends_on:
-      - extract_slack_payload
-    args:
-      alert_ids:
-        - ${{ ACTIONS.extract_slack_payload.result.alert_id }}
-      status: ${{ ACTIONS.extract_slack_payload.result.new_status }}
+    - ref: update_sentinelone_alerts
+      action: integrations.sentinelone.update_sentinelone_alert_status
+      depends_on:
+        - extract_slack_payload
+      args:
+        alert_ids:
+          - ${{ ACTIONS.extract_slack_payload.result.alert_id }}
+        status: ${{ ACTIONS.extract_slack_payload.result.new_status }}
 
-  # Send Slack notification after updating SentinelOne alerts
-  - ref: send_slack_notification
-    action: integrations.chat.slack.post_slack_message
-    depends_on:
-      - update_sentinelone_alerts
-    args:
-      channel: ${{ SECRETS.slack_channel.SLACK_CHANNEL }}
-      text: SentinelOne alerts updated
-      blocks:
-        - type: header
-          text:
-            type: plain_text
-            text: ${{ ACTIONS.extract_slack_payload.result.username }} changed status of alert
-            emoji: true
-        - type: section
-          fields:
-            - type: mrkdwn
-              text: "*Alert ID:* ${{ ACTIONS.extract_slack_payload.result.alert_id }}"
-            - type: mrkdwn
-              text: "*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}"
-            - type: mrkdwn
-              text: "*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}"
+    # Send Slack notification after updating SentinelOne alerts
+    - ref: send_slack_notification
+      action: integrations.chat.slack.post_slack_message
+      depends_on:
+        - update_sentinelone_alerts
+      args:
+        channel: ${{ SECRETS.slack_channel.SLACK_CHANNEL }}
+        text: SentinelOne alerts updated
+        blocks:
+          - type: header
+            text:
+              type: plain_text
+              text: ${{ ACTIONS.extract_slack_payload.result.username }} changed status of alert
+              emoji: true
+          - type: section
+            fields:
+              - type: mrkdwn
+                text: "*Alert ID:* ${{ ACTIONS.extract_slack_payload.result.alert_id }}"
+              - type: mrkdwn
+                text: "*Old status:* ${{ ACTIONS.extract_slack_payload.result.old_status }}"
+              - type: mrkdwn
+                text: "*New status:* ${{ ACTIONS.extract_slack_payload.result.new_status }}"

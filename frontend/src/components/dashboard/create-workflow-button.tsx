@@ -1,13 +1,17 @@
 "use client"
 
+import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { workflowsCreateWorkflow } from "@/client"
+import { ApiError } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { BracesIcon, ChevronDownIcon, PlusCircleIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
+import YAML from "yaml"
 import { z } from "zod"
 
+import { TracecatApiError } from "@/lib/errors"
+import { useWorkflowManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,6 +39,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
 
 const formSchema = z.object({
   file: z.instanceof(File).refine((file) => file.size <= 5000000, {
@@ -46,13 +51,15 @@ type FormValues = z.infer<typeof formSchema>
 export function CreateWorkflowButton() {
   const router = useRouter()
   const { workspaceId } = useWorkspace()
+  const { createWorkflow } = useWorkflowManager()
+  const [validationErrors, setValidationErrors] = useState<string | null>(null)
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
   })
   const workspaceUrl = `/workspaces/${workspaceId}/workflows`
   const handleCreateWorkflow = async () => {
     try {
-      const response = await workflowsCreateWorkflow({ workspaceId })
+      const response = await createWorkflow({ workspaceId })
       router.push(`${workspaceUrl}/${response.id}`)
     } catch (error) {
       console.error("Error creating workflow:", error)
@@ -61,15 +68,42 @@ export function CreateWorkflowButton() {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      const response = await workflowsCreateWorkflow({
+      const { file } = data
+      const contentType = file.type
+      const response = await createWorkflow({
         workspaceId,
         formData: {
-          file: new Blob([data.file], { type: "application/yaml" }),
+          file: new Blob([file], { type: contentType }),
         },
       })
       router.push(`${workspaceUrl}/${response.id}`)
     } catch (error) {
-      console.error("Error creating workflow:", error)
+      if (error instanceof ApiError) {
+        const apiError = error as TracecatApiError
+        switch (apiError.status) {
+          case 400:
+            console.error("Bad request:", apiError)
+            form.setError("file", {
+              message: "The uploaded workflow YAML / JSON is invalid.",
+            })
+
+            setValidationErrors(
+              YAML.stringify(YAML.parse(apiError.body.detail))
+            )
+            break
+          case 409:
+            console.error("Conflict:", apiError)
+            form.setError("file", {
+              message: `A workflow with this workflow ID already exists.
+              Please either delete the existing workflow, remove the ID from the file, or upload a file with a different ID.`,
+            })
+            break
+          default:
+            console.error("Unexpected error:", apiError)
+        }
+      } else {
+        console.error("Unexpected error:", error)
+      }
     }
   }
 
@@ -85,7 +119,7 @@ export function CreateWorkflowButton() {
             <ChevronDownIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-48 text-xs" align="end">
+        <DropdownMenuContent className="w-48" align="end">
           <DropdownMenuGroup>
             <DropdownMenuItem
               onClick={async () => await handleCreateWorkflow()}
@@ -97,7 +131,7 @@ export function CreateWorkflowButton() {
             </DropdownMenuItem>
             <DialogTrigger asChild>
               <DropdownMenuItem>
-                From YAML
+                From YAML / JSON
                 <DropdownMenuShortcut>
                   <BracesIcon className="size-4" />
                 </DropdownMenuShortcut>
@@ -106,11 +140,11 @@ export function CreateWorkflowButton() {
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>
-            Import a workflow from either a YAML file.
+            Import a workflow from either a YAML or JSON file.
           </DialogDescription>
         </DialogHeader>
 
@@ -121,7 +155,7 @@ export function CreateWorkflowButton() {
               name="file"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>File</FormLabel>
+                  <FormLabel>File Upload</FormLabel>
                   <FormControl>
                     <Input
                       type="file"
@@ -141,6 +175,13 @@ export function CreateWorkflowButton() {
             <Button type="submit">Upload</Button>
           </form>
         </Form>
+        {validationErrors && (
+          <div className="flex h-72 flex-col space-y-2 overflow-auto rounded-md border border-rose-500 bg-rose-100 p-2 font-mono text-xs text-rose-600">
+            <span className="font-semibold">Validation errors</span>
+            <Separator className="bg-rose-400" />
+            <pre>{validationErrors}</pre>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

@@ -16,75 +16,76 @@
 # - start_time: ISO8601 string
 # - end_time: ISO8601 string
 
-title: Fetch Crowdstrike alerts and open cases.
-description: Pulls Crowdstrike alerts and opens cases in Tracecat.
-config:
-  # NOTE: Setting `enable_runtime_tests` to `true` here will override all other
-  # runtime configuration for this flag i.e. tracecat workflow run --test flag).
-  enable_runtime_tests: true
+definition:
+  title: Fetch Crowdstrike alerts and open cases.
+  description: Pulls Crowdstrike alerts and opens cases in Tracecat.
+  config:
+    # NOTE: Setting `enable_runtime_tests` to `true` here will override all other
+    # runtime configuration for this flag i.e. tracecat workflow run --test flag).
+    enable_runtime_tests: true
 
-entrypoint:
-  ref: pull_crowdstrike_alerts
-  expects:
-    start_time: str
-    end_time: str
+  entrypoint:
+    ref: pull_crowdstrike_alerts
+    expects:
+      start_time: str
+      end_time: str
 
-triggers:
-  - type: webhook
-    ref: crowdstrike_alerts_webhook
-    entrypoint: pull_crowdstrike_alerts
+  triggers:
+    - type: webhook
+      ref: crowdstrike_alerts_webhook
+      entrypoint: pull_crowdstrike_alerts
 
-actions:
-  # Mocked
-  - ref: pull_crowdstrike_alerts
-    action: integrations.crowdstrike.list_crowdstrike_alerts
-    args:
-      start_time: ${{ TRIGGER.start_time }}
-      end_time: ${{ TRIGGER.end_time }}
+  actions:
+    # Mocked
+    - ref: pull_crowdstrike_alerts
+      action: integrations.crowdstrike.list_crowdstrike_alerts
+      args:
+        start_time: ${{ TRIGGER.start_time }}
+        end_time: ${{ TRIGGER.end_time }}
 
-  - ref: reshape_alerts_into_smac
-    action: core.transform.reshape
-    depends_on:
-      - pull_crowdstrike_alerts
-    for_each: ${{ for var.alert in ACTIONS.pull_crowdstrike_alerts.result }}
-    args:
-      value:
-        title: ${{ var.alert.name }} # Name of the detection
-        description: ${{ var.alert.description }} # Description of the detected file or activity
-        payload:
-          rule: ${{ var.alert.id }} # Identifier associated with the alert
-          severity: ${{ var.alert.severity }} # Severity level associated with the detection
-        status: ${{ 'closed' if FN.is_equal(var.alert.status, 'resolved') else 'open' }} # Status of the alert
-        malice: ${{ 'malicious' if FN.greater_than(var.alert.severity, 0) else 'benign' }} # Determines malice based on severity
-        action: quarantine
-        context:
-          filepath: ${{ var.alert.filepath }}
-          cid: ${{ var.alert.cid }} # CrowdStrike identifier associated with the device
-          parent_user_id: ${{ var.alert.parent_details.user_id -> str }}
-          parent_user_name: ${{ var.alert.parent_details.user_name -> str }}
-          grandparent_user_id: ${{ var.alert.grandparent_details.user_id -> str }}
-          grandparent_user_name: ${{ var.alert.grandparent_details.user_name -> str }}
-          resource_type: ${{ 'device' }} # Assuming resource type is 'device'
-          context_timestamp: ${{ var.alert.context_timestamp -> str }}
-          updated_at: ${{ var.alert.updated_timestamp -> str }} # Timestamp indicating when the alert was last updated
-          created_at: ${{ var.alert.created_timestamp -> str }} # Timestamp indicating when the alert was created
-          user_name: ${{ var.alert.user_name }}
+    - ref: reshape_alerts_into_smac
+      action: core.transform.reshape
+      depends_on:
+        - pull_crowdstrike_alerts
+      for_each: ${{ for var.alert in ACTIONS.pull_crowdstrike_alerts.result }}
+      args:
+        value:
+          title: ${{ var.alert.name }} # Name of the detection
+          description: ${{ var.alert.description }} # Description of the detected file or activity
+          payload:
+            rule: ${{ var.alert.id }} # Identifier associated with the alert
+            severity: ${{ var.alert.severity }} # Severity level associated with the detection
+          status: ${{ 'closed' if FN.is_equal(var.alert.status, 'resolved') else 'open' }} # Status of the alert
+          malice: ${{ 'malicious' if FN.greater_than(var.alert.severity, 0) else 'benign' }} # Determines malice based on severity
+          action: quarantine
+          context:
+            filepath: ${{ var.alert.filepath }}
+            cid: ${{ var.alert.cid }} # CrowdStrike identifier associated with the device
+            parent_user_id: ${{ var.alert.parent_details.user_id -> str }}
+            parent_user_name: ${{ var.alert.parent_details.user_name -> str }}
+            grandparent_user_id: ${{ var.alert.grandparent_details.user_id -> str }}
+            grandparent_user_name: ${{ var.alert.grandparent_details.user_name -> str }}
+            resource_type: ${{ 'device' }} # Assuming resource type is 'device'
+            context_timestamp: ${{ var.alert.context_timestamp -> str }}
+            updated_at: ${{ var.alert.updated_timestamp -> str }} # Timestamp indicating when the alert was last updated
+            created_at: ${{ var.alert.created_timestamp -> str }} # Timestamp indicating when the alert was created
+            user_name: ${{ var.alert.user_name }}
 
-  - ref: open_cases
-    action: core.open_case
-    depends_on:
-      - reshape_alerts_into_smac
-    for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
-    args:
-      case_title: ${{ var.smac.title }}
-      status: ${{ var.smac.status }}
-      malice: ${{ var.smac.malice }}
-      action: ${{ var.smac.action }}
-      context: ${{ var.smac.context }}
-      payload: ${{ var.smac.payload }}
-      priority: ${{ 'high' if FN.greater_than(var.smac.payload.severity, 50) else 'low' }}
+    - ref: open_cases
+      action: core.open_case
+      depends_on:
+        - reshape_alerts_into_smac
+      for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
+      args:
+        case_title: ${{ var.smac.title }}
+        status: ${{ var.smac.status }}
+        malice: ${{ var.smac.malice }}
+        action: ${{ var.smac.action }}
+        context: ${{ var.smac.context }}
+        payload: ${{ var.smac.payload }}
+        priority: ${{ 'high' if FN.greater_than(var.smac.payload.severity, 50) else 'low' }}
 
-tests:
-  - ref: pull_crowdstrike_alerts
-    success:
-      - https://raw.githubusercontent.com/TracecatHQ/tracecat/main/tests/data/log_samples/crowdstrike/alert.json
+  tests:
+    - ref: pull_crowdstrike_alerts
+      success:
+        - https://raw.githubusercontent.com/TracecatHQ/tracecat/main/tests/data/log_samples/crowdstrike/alert.json

@@ -1,98 +1,99 @@
-title: Extract IoCs from alert, enrich using VirusTotal, and investigate using AI.
-description: |
-  Given a security alert, this playbook extracts URLs and IP addresses from the alert
-  enriches them using VirusTotal, and provides triage advice for further investigation.
+definition:
+  title: Extract IoCs from alert, enrich using VirusTotal, and investigate using AI.
+  description: |
+    Given a security alert, this playbook extracts URLs and IP addresses from the alert
+    enriches them using VirusTotal, and provides triage advice for further investigation.
 
-entrypoint:
-  ref: receive_alert
-triggers:
-  - type: webhook
-    ref: alert_webhook
-    entrypoint: receive_alert
+  entrypoint:
+    ref: receive_alert
+  triggers:
+    - type: webhook
+      ref: alert_webhook
+      entrypoint: receive_alert
 
-actions:
-  - ref: receive_alert
-    action: core.io.receive_webhook
-    args:
-      webhook: ${{ TRIGGER.webhook }}
+  actions:
+    - ref: receive_alert
+      action: core.io.receive_webhook
+      args:
+        webhook: ${{ TRIGGER.webhook }}
 
-  - ref: extract_ip_addresses
-    action: integrations.extraction.extract_ipv4_addresses
-    depends_on:
-      - receive_alert
-    args:
-      text: ${{ ACTIONS.receive_alert.result.text }}
+    - ref: extract_ip_addresses
+      action: integrations.extraction.extract_ipv4_addresses
+      depends_on:
+        - receive_alert
+      args:
+        text: ${{ ACTIONS.receive_alert.result.text }}
 
-  - ref: extract_urls
-    action: integrations.extraction.extract_urls
-    depends_on:
-      - receive_alert
-    args:
-      text: ${{ ACTIONS.receive_alert.result.text }}
+    - ref: extract_urls
+      action: integrations.extraction.extract_urls
+      depends_on:
+        - receive_alert
+      args:
+        text: ${{ ACTIONS.receive_alert.result.text }}
 
-  - ref: enrich_ip_addresses
-    action: integrations.virustotal.analyze_ip_address
-    for_each: ${{ for var.ip_address in ACTIONS.extract_iocs.result.ip_addresses }}
-    depends_on:
-      - extract_ip_addresses
-    args:
-      ip_address: ${{ var.ip_address }}
+    - ref: enrich_ip_addresses
+      action: integrations.virustotal.analyze_ip_address
+      for_each: ${{ for var.ip_address in ACTIONS.extract_iocs.result.ip_addresses }}
+      depends_on:
+        - extract_ip_addresses
+      args:
+        ip_address: ${{ var.ip_address }}
 
-  - ref: enrich_urls
-    action: integrations.virustotal.analyze_url
-    for_each: ${{ for var.url in ACTIONS.extract_iocs.result.urls }}
-    depends_on:
-      - extract_urls
-    args:
-      url: ${{ var.url }}
+    - ref: enrich_urls
+      action: integrations.virustotal.analyze_url
+      for_each: ${{ for var.url in ACTIONS.extract_iocs.result.urls }}
+      depends_on:
+        - extract_urls
+      args:
+        url: ${{ var.url }}
 
-  - ref: triage_alert
-    action: core.ai_action
-    depends_on:
-      - enrich_ip_addresses
-      - enrich_urls
-    args:
-      prompt: |
-        You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
+    - ref: triage_alert
+      action: core.ai_action
+      depends_on:
+        - enrich_ip_addresses
+        - enrich_urls
+      args:
+        prompt: |
+          You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IP Addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
-        URLs: ${{ ACTIONS.enrich_urls.result }}
+          IP Addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
+          URLs: ${{ ACTIONS.enrich_urls.result }}
 
-        Task
-        ----
-        Answer the following questions:
-        - Are any of the provided IP addresses associated with known malicious activities or threat actors?
-        - What is the reputation of the provided URLs according to threat intelligence sources?
-        - What specific threats or vulnerabilities are associated with these IP addresses and URLs?
+          Task
+          ----
+          Answer the following questions:
+          - Are any of the provided IP addresses associated with known malicious activities or threat actors?
+          - What is the reputation of the provided URLs according to threat intelligence sources?
+          - What specific threats or vulnerabilities are associated with these IP addresses and URLs?
 
-        Give your response as a list of bullet points:
-        ```json
-        - <response 1>
-        - <response 2>
-        - <response 3>
-        ```
+          Give your response as a list of bullet points:
+          ```json
+          - <response 1>
+          - <response 2>
+          - <response 3>
+          ```
 
-  - ref: estimate_confidence
-    action: core.ai_action
-    depends_on:
-      - extract_ip_addresses
-      - extract_urls
-    args:
-      prompt: |
-        You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
+    - ref: estimate_confidence
+      action: core.ai_action
+      depends_on:
+        - extract_ip_addresses
+        - extract_urls
+      args:
+        prompt: |
+          You are an expert security analyst. You have all the context of the alert and the enriched IOCs:
 
-        IP Addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
-        URLs: ${{ ACTIONS.enrich_urls.result }}
+          IP Addresses: ${{ ACTIONS.enrich_ip_addresses.result }}
+          URLs: ${{ ACTIONS.enrich_urls.result }}
 
-        Task
-        ----
-        - Score this alert between 0-100 for the likelihood of this alert being a False Positive.
-        - Score this alert between 0-100 for the likelihood of this alert being a True Positive.
+          Task
+          ----
+          - Score this alert between 0-100 for the likelihood of this alert being a False Positive.
+          - Score this alert between 0-100 for the likelihood of this alert being a True Positive.
 
-        Give your response as a JSON:
-        ```json
-        {
-          "false_positive": <score>,
-          "true_legitimate": <score>
-        }
-        ```
+          Give your response as a JSON:
+          ```json
+          {
+            "false_positive": <score>,
+            "true_legitimate": <score>
+          }
+          ```

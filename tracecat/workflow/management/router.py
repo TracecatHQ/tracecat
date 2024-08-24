@@ -1,4 +1,4 @@
-from datetime import datetime
+import json
 from typing import Annotated, Literal
 
 import orjson
@@ -15,7 +15,8 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError
-from sqlalchemy.exc import NoResultFound
+from slugify import slugify
+from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -23,7 +24,6 @@ from tracecat import validation
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
-from tracecat.dsl.graph import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logging import logger
 from tracecat.types.api import (
@@ -38,6 +38,8 @@ from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
+    CreateWorkflowParams,
+    ExternalWorkflowDefinition,
     UpdateWorkflowParams,
     WorkflowMetadataResponse,
     WorkflowResponse,
@@ -82,67 +84,65 @@ async def create_workflow(
     Optionally, you can provide a YAML file to create a workflow.
     You can also provide a title and description to create a blank workflow."""
 
+    service = WorkflowsManagementService(session, role=role)
     if file:
-        try:
-            data = await file.read()
-            if file.content_type in ("application/yaml", "text/yaml"):
-                dsl_data = yaml.safe_load(data)
-            elif file.content_type == "application/json":
-                dsl_data = orjson.loads(data)
-            else:
+        raw_data = await file.read()
+        match file.content_type:
+            case "application/yaml" | "text/yaml" | "application/x-yaml":
+                logger.info("Parsing YAML file", file=file.filename)
+                try:
+                    external_defn_data = yaml.safe_load(raw_data)
+                except yaml.YAMLError as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Error parsing YAML file: {e!r}",
+                    ) from e
+            case "application/json":
+                logger.info("Parsing JSON file", file=file.filename)
+                try:
+                    external_defn_data = orjson.loads(raw_data)
+                except orjson.JSONDecodeError as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Error parsing JSON file: {e!r}",
+                    ) from e
+            case None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Content-Type header is required for file uploads.",
+                )
+            case _:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid file type {file.content_type}. Only YAML and JSON files are supported.",
                 )
-        except (yaml.YAMLError, orjson.JSONDecodeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Error parsing file: {str(e)}",
-            ) from e
 
-        service = WorkflowsManagementService(session, role=role)
-        result = await service.create_workflow_from_dsl(
-            dsl_data, skip_secret_validation=True
-        )
-        if result.errors:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": "failure",
-                    "message": f"Workflow definition construction failed with {len(result.errors)} errors",
-                    "errors": [e.model_dump() for e in result.errors],
-                },
+        logger.info("Importing workflow", external_defn_data=external_defn_data)
+        try:
+            workflow = await service.create_workflow_from_external_definition(
+                external_defn_data
             )
-        workflow = result.workflow
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=json.dumps(
+                    {
+                        "status": "failure",
+                        "message": "Error validating external workflow definition",
+                        "errors": e.errors(),
+                    },
+                    indent=2,
+                ),
+            ) from e
+        except IntegrityError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Workflow already exists",
+            ) from e
     else:
-        now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
-        title = title or now
-        description = description or f"New workflow created {now}"
-
-        workflow = Workflow(
-            title=title, description=description, owner_id=role.workspace_id
+        workflow = await service.create_workflow(
+            CreateWorkflowParams(title=title, description=description)
         )
-        # When we create a workflow, we automatically create a webhook
-        # Add the Workflow to the session first to generate an ID
-        session.add(workflow)
-        await session.flush()  # Flush to generate workflow.id
-        await session.refresh(workflow)
-
-        # Create and associate Webhook with the Workflow
-        webhook = Webhook(
-            owner_id=role.workspace_id,
-            workflow_id=workflow.id,
-        )
-        session.add(webhook)
-        workflow.webhook = webhook
-
-        graph = RFGraph.with_defaults(workflow)
-        workflow.object = graph.model_dump(by_alias=True, mode="json")
-        workflow.entrypoint = graph.entrypoint.id if graph.entrypoint else None
-        session.add(workflow)
-        await session.commit()
-        await session.refresh(workflow)
-
     return WorkflowMetadataResponse(
         id=workflow.id,
         title=workflow.title,
@@ -345,16 +345,24 @@ async def export_workflow(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow definition not found",
         )
+    external_defn = ExternalWorkflowDefinition.from_database(defn)
+    filename = f"{external_defn.workflow_id}__{slugify(external_defn.definition.title)}.{format}"
     if format == "json":
         return Response(
-            content=defn.model_dump_json(indent=2),
+            content=external_defn.model_dump_json(indent=2),
             media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename={workflow_id}.json"},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    elif format == "yaml":
+        return Response(
+            content=yaml.dump(external_defn.model_dump(mode="json"), indent=2),
+            media_type="application/yaml",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only JSON format is supported",
+            detail=f"{format!r} is not a supported export format",
         )
 
 

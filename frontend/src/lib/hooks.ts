@@ -39,6 +39,8 @@ import {
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
   WorkflowMetadataResponse,
+  workflowsCreateWorkflow,
+  WorkflowsCreateWorkflowData,
   workflowsDeleteWorkflow,
   workflowsListWorkflows,
   workspacesCreateWorkspace,
@@ -297,6 +299,42 @@ export function useWorkflowManager() {
     retry: retryHandler,
   })
 
+  // Create workflow
+  const { mutateAsync: createWorkflow } = useMutation({
+    mutationFn: async (params: WorkflowsCreateWorkflowData) =>
+      await workflowsCreateWorkflow(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
+      toast({
+        title: "Created workflow",
+        description: "Your workflow has been created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot create workflow",
+            description: "The uploaded workflow YAML / JSON is invalid.",
+          })
+          break
+        case 409:
+          toast({
+            title: "Workflow already exists",
+            description: "A workflow with the same ID already exists.",
+          })
+          break
+        default:
+          console.error("Failed to create workflow:", error)
+          toast({
+            title: "Error creating workflow",
+            description: error.body.detail + ". Please try again.",
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
   // Delete workflow
   const { mutateAsync: deleteWorkflow } = useMutation({
     mutationFn: async (workflowId: string) =>
@@ -333,6 +371,7 @@ export function useWorkflowManager() {
     workflows,
     workflowsLoading,
     workflowsError,
+    createWorkflow,
     deleteWorkflow,
   }
 }
@@ -401,7 +440,7 @@ export function useWorkspaceManager() {
         case 400:
           toast({
             title: "Cannot delete workspace",
-            description: error.body.detail,
+            description: JSON.stringify(error.body.detail),
           })
           break
         default:

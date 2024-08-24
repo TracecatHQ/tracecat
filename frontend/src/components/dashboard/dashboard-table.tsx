@@ -7,7 +7,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 
-import { exportWorkflowJson } from "@/lib/export"
+import { exportWorkflow, handleExportError } from "@/lib/export"
 import { useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -170,7 +170,7 @@ export function WorkflowsDashboardTable() {
                         e.stopPropagation() // Prevent row click
 
                         try {
-                          await exportWorkflowJson({
+                          await exportWorkflow({
                             workspaceId,
                             workflowId: row.original.id,
                             format: "json",
@@ -180,15 +180,33 @@ export function WorkflowsDashboardTable() {
                             "Failed to download workflow definition:",
                             error
                           )
-                          toast({
-                            title: "Error exporting workflow",
-                            description:
-                              "Could not export workflow. Please try again.",
-                          })
+                          toast(handleExportError(error as Error))
                         }
                       }}
                     >
                       Export to JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-xs"
+                      onClick={async (e) => {
+                        e.stopPropagation() // Prevent row click
+
+                        try {
+                          await exportWorkflow({
+                            workspaceId,
+                            workflowId: row.original.id,
+                            format: "yaml",
+                          })
+                        } catch (error) {
+                          console.error(
+                            "Failed to download workflow definition:",
+                            error
+                          )
+                          toast(handleExportError(error as Error))
+                        }
+                      }}
+                    >
+                      Export to YAML
                     </DropdownMenuItem>
 
                     <DeleteWorkflowAlertDialogTrigger asChild>

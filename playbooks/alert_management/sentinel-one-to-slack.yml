@@ -1,113 +1,114 @@
-title: Send Slack notifications for SentinelOne alerts
-description: |
-  Pulls SentinelOne alerts and sends them to Slack.
-  Also sends a message if no alerts available.
-entrypoint:
-  ref: pull_sentinelone_alerts
-triggers:
-  - type: webhook
-    ref: sentinelone_alerts_webhook
-    entrypoint: pull_sentinelone_alerts
+definition:
+  title: Send Slack notifications for SentinelOne alerts
+  description: |
+    Pulls SentinelOne alerts and sends them to Slack.
+    Also sends a message if no alerts available.
+  entrypoint:
+    ref: pull_sentinelone_alerts
+  triggers:
+    - type: webhook
+      ref: sentinelone_alerts_webhook
+      entrypoint: pull_sentinelone_alerts
 
-actions:
-  - ref: pull_sentinelone_alerts
-    action: integrations.sentinelone.list_sentinelone_alerts
-    args:
-      start_time: ${{ TRIGGER.start_time }}
-      end_time: ${{ TRIGGER.end_time }}
-      limit: 10
+  actions:
+    - ref: pull_sentinelone_alerts
+      action: integrations.sentinel_one.list_sentinelone_alerts
+      args:
+        start_time: ${{ TRIGGER.start_time }}
+        end_time: ${{ TRIGGER.end_time }}
+        limit: 10
 
-  - ref: report_no_alerts
-    action: core.http_request
-    depends_on:
-      - pull_sentinelone_alerts
-    run_if: ${{ FN.is_empty(ACTIONS.pull_sentinelone_alerts.result) }}
-    args:
-      url: ${{ SECRETS.slack_channel.SLACK_WEBHOOK }}
-      method: POST
-      headers:
-        Content-Type: application/json
-      payload:
-        text: Tracecat ran workflow for SentinelOne alerts, but no alerts were found
-
-  - ref: reshape_alerts_into_smac
-    action: core.transform.reshape
-    depends_on:
-      - pull_sentinelone_alerts
-    run_if: ${{ FN.not_empty(ACTIONS.pull_sentinelone_alerts.result) }}
-    for_each: ${{ for var.alert in ACTIONS.pull_sentinelone_alerts.result }}
-    args:
-      value:
-        title: ${{ var.alert.info.event_type }}
-        description: ${{ var.alert.info.hit.type }}
+    - ref: report_no_alerts
+      action: core.http_request
+      depends_on:
+        - pull_sentinelone_alerts
+      run_if: ${{ FN.is_empty(ACTIONS.pull_sentinelone_alerts.result) }}
+      args:
+        url: ${{ SECRETS.slack_channel.SLACK_WEBHOOK }}
+        method: POST
+        headers:
+          Content-Type: application/json
         payload:
-          rule: ${{ var.alert.rule.scope_level }}
-          severity: ${{ var.alert.rule.severity }}
-        status: ${{ var.alert.info.status }}
-        malice: ${{ 'malicious' if FN.greater_than(var.alert.rule.severity, 0) else 'benign' }}
-        action: Investigate and remediate
-        context:
-          account_id: ${{ var.alert.agent.site_id }}
-          updated_at: ${{ var.alert.info.updated_at }}
-          created_at: ${{ var.alert.info.reported_at }}
+          text: Tracecat ran workflow for SentinelOne alerts, but no alerts were found
 
-  - ref: send_slack_notifications
-    action: integrations.chat.slack.post_slack_message
-    depends_on:
-      - reshape_alerts_into_smac
-    for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
-    args:
-      channel: ${{ SECRETS.slack_channel.SLACK_CHANNEL }}
-      text: SentinelOne alerts
-      blocks:
-        - type: header
-          text:
-            type: plain_text
-            text: ${{ var.smac.title }}
-            emoji: true
-        - type: section
-          text:
-            type: mrkdwn
-            text: ${{ var.smac.description }}
-        - type: section
-          fields:
-            - type: mrkdwn
-              text: "*Status:* ${{ var.smac.status }}"
-            - type: mrkdwn
-              text: "*Malice:* ${{ var.smac.malice }}"
-            - type: mrkdwn
-              text: "*Action:* ${{ var.smac.action }}"
-            - type: mrkdwn
-              text: "*Context:* ${{ var.smac.context }}"
-        - type: section
-          text:
-            type: mrkdwn
-            text: "Select an option to update the alert:"
-          accessory:
-            type: static_select
-            action_id: update_sentinelone_alert
-            options:
-              - text:
-                  type: plain_text
-                  text: False Positive
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: FALSE_POSITIVE
-              - text:
-                  type: plain_text
-                  text: Suspicious
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: SUSPICIOUS
-              - text:
-                  type: plain_text
-                  text: True Positive
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: TRUE_POSITIVE
-              - text:
-                  type: plain_text
-                  text: Undefined
-                value:
-                  old_status: ${{ var.smac.status }}
-                  new_status: UNDEFINED
+    - ref: reshape_alerts_into_smac
+      action: core.transform.reshape
+      depends_on:
+        - pull_sentinelone_alerts
+      run_if: ${{ FN.not_empty(ACTIONS.pull_sentinelone_alerts.result) }}
+      for_each: ${{ for var.alert in ACTIONS.pull_sentinelone_alerts.result }}
+      args:
+        value:
+          title: ${{ var.alert.info.event_type }}
+          description: ${{ var.alert.info.hit.type }}
+          payload:
+            rule: ${{ var.alert.rule.scope_level }}
+            severity: ${{ var.alert.rule.severity }}
+          status: ${{ var.alert.info.status }}
+          malice: ${{ 'malicious' if FN.greater_than(var.alert.rule.severity, 0) else 'benign' }}
+          action: Investigate and remediate
+          context:
+            account_id: ${{ var.alert.agent.site_id }}
+            updated_at: ${{ var.alert.info.updated_at }}
+            created_at: ${{ var.alert.info.reported_at }}
+
+    - ref: send_slack_notifications
+      action: integrations.chat.slack.post_slack_message
+      depends_on:
+        - reshape_alerts_into_smac
+      for_each: ${{ for var.smac in ACTIONS.reshape_alerts_into_smac.result }}
+      args:
+        channel: ${{ SECRETS.slack_channel.SLACK_CHANNEL }}
+        text: SentinelOne alerts
+        blocks:
+          - type: header
+            text:
+              type: plain_text
+              text: ${{ var.smac.title }}
+              emoji: true
+          - type: section
+            text:
+              type: mrkdwn
+              text: ${{ var.smac.description }}
+          - type: section
+            fields:
+              - type: mrkdwn
+                text: "*Status:* ${{ var.smac.status }}"
+              - type: mrkdwn
+                text: "*Malice:* ${{ var.smac.malice }}"
+              - type: mrkdwn
+                text: "*Action:* ${{ var.smac.action }}"
+              - type: mrkdwn
+                text: "*Context:* ${{ var.smac.context }}"
+          - type: section
+            text:
+              type: mrkdwn
+              text: "Select an option to update the alert:"
+            accessory:
+              type: static_select
+              action_id: update_sentinelone_alert
+              options:
+                - text:
+                    type: plain_text
+                    text: False Positive
+                  value:
+                    old_status: ${{ var.smac.status }}
+                    new_status: FALSE_POSITIVE
+                - text:
+                    type: plain_text
+                    text: Suspicious
+                  value:
+                    old_status: ${{ var.smac.status }}
+                    new_status: SUSPICIOUS
+                - text:
+                    type: plain_text
+                    text: True Positive
+                  value:
+                    old_status: ${{ var.smac.status }}
+                    new_status: TRUE_POSITIVE
+                - text:
+                    type: plain_text
+                    text: Undefined
+                  value:
+                    old_status: ${{ var.smac.status }}
+                    new_status: UNDEFINED

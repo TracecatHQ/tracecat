@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -21,6 +22,8 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.models import (
     CreateWorkflowFromDSLResponse,
+    CreateWorkflowParams,
+    ExternalWorkflowDefinition,
     UpdateWorkflowParams,
 )
 
@@ -83,6 +86,38 @@ class WorkflowsManagementService:
         await self.session.delete(workflow)
         await self.session.commit()
 
+    async def create_workflow(self, params: CreateWorkflowParams) -> Workflow:
+        """Create a new workflow."""
+
+        now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
+        title = params.title or now
+        description = params.description or f"New workflow created {now}"
+
+        workflow = Workflow(
+            title=title, description=description, owner_id=self.role.workspace_id
+        )
+        # When we create a workflow, we automatically create a webhook
+        # Add the Workflow to the session first to generate an ID
+        self.session.add(workflow)
+        await self.session.flush()  # Flush to generate workflow.id
+        await self.session.refresh(workflow)
+
+        # Create and associate Webhook with the Workflow
+        webhook = Webhook(
+            owner_id=self.role.workspace_id,
+            workflow_id=workflow.id,
+        )
+        self.session.add(webhook)
+        workflow.webhook = webhook
+
+        graph = RFGraph.with_defaults(workflow)
+        workflow.object = graph.model_dump(by_alias=True, mode="json")
+        workflow.entrypoint = graph.entrypoint.id if graph.entrypoint else None
+        self.session.add(workflow)
+        await self.session.commit()
+        await self.session.refresh(workflow)
+        return workflow
+
     async def create_workflow_from_dsl(
         self, dsl_data: dict[str, Any], *, skip_secret_validation: bool = False
     ) -> CreateWorkflowFromDSLResponse:
@@ -121,59 +156,8 @@ class WorkflowsManagementService:
 
         logger.warning("Creating workflow from DSL", dsl=dsl)
         try:
-            workflow = Workflow(
-                title=dsl.title,
-                description=dsl.description,
-                owner_id=self.role.workspace_id,
-                static_inputs=dsl.inputs,
-                returns=dsl.returns,
-            )
-
-            # Add the Workflow to the session first to generate an ID
-            self.session.add(workflow)
-
-            # Create and associate Webhook with the Workflow
-            webhook = Webhook(
-                owner_id=self.role.workspace_id,
-                workflow_id=workflow.id,
-            )
-            self.session.add(webhook)
-            workflow.webhook = webhook
-
-            # Create and associate Actions with the Workflow
-            actions: list[Action] = []
-            for act_stmt in dsl.actions:
-                new_action = Action(
-                    owner_id=self.role.workspace_id,
-                    workflow_id=workflow.id,
-                    type=act_stmt.action,
-                    inputs=act_stmt.args,
-                    title=act_stmt.title,
-                    description=act_stmt.description,
-                )
-                actions.append(new_action)
-                self.session.add(new_action)
-
-            workflow.actions = actions  # Associate actions with the workflow
-
-            # Create and set the graph for the Workflow
-            base_graph = RFGraph.with_defaults(workflow)
-            logger.info("Creating graph for workflow", graph=base_graph)
-
-            # Add DSL contents to the Workflow
-            ref2id = {act.ref: act.id for act in actions}
-            updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
-            workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
-            workflow.entrypoint = (
-                updated_graph.entrypoint.id if updated_graph.entrypoint else None
-            )
-
-            # Commit the transaction
-            await self.session.commit()
-            await self.session.refresh(workflow)
-
+            workflow = await self._create_db_workflow_from_dsl(dsl)
             return CreateWorkflowFromDSLResponse(workflow=workflow)
-
         except Exception as e:
             # Rollback the transaction on error
             logger.error(f"Error creating workflow: {e}")
@@ -229,6 +213,101 @@ class WorkflowsManagementService:
             returns=workflow.returns,
             # triggers=workflow.triggers,
         )
+
+    async def create_workflow_from_external_definition(
+        self, import_data: dict[str, Any]
+    ) -> Workflow:
+        """Import an external workflow definition into the current workspace.
+
+        Optionally validate the workflow definition before importing. (Default: False)
+        """
+
+        external_defn = ExternalWorkflowDefinition.model_validate(import_data)
+        # NOTE: We do not support adding invalid workflows
+
+        dsl = external_defn.definition
+        self.logger.info("Constructed DSL from external definition", dsl=dsl)
+        # We need to be able to control:
+        # 1. The workspace the workflow is imported into
+        # 2. The owner of the workflow
+        # 3. The ID of the workflow
+
+        workflow = await self._create_db_workflow_from_dsl(
+            dsl,
+            workflow_id=external_defn.workflow_id,
+            created_at=external_defn.created_at,
+            updated_at=external_defn.updated_at,
+        )
+        return workflow
+
+    async def _create_db_workflow_from_dsl(
+        self,
+        dsl: DSLInput,
+        *,
+        workflow_id: WorkflowID | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> Workflow:
+        """Create a new workflow and associated actions in the database from a DSLInput."""
+        logger.info("Creating workflow from DSL", dsl=dsl)
+        workflow_kwargs = {
+            "title": dsl.title,
+            "description": dsl.description,
+            "owner_id": self.role.workspace_id,
+            "static_inputs": dsl.inputs,
+            "returns": dsl.returns,
+        }
+        if workflow_id:
+            workflow_kwargs["id"] = workflow_id
+        if created_at:
+            workflow_kwargs["created_at"] = created_at
+        if updated_at:
+            workflow_kwargs["updated_at"] = updated_at
+        workflow = Workflow(**workflow_kwargs)
+
+        # Add the Workflow to the session first to generate an ID
+        self.session.add(workflow)
+
+        # Create and associate Webhook with the Workflow
+        webhook = Webhook(
+            owner_id=self.role.workspace_id,
+            workflow_id=workflow.id,
+        )
+        self.session.add(webhook)
+        workflow.webhook = webhook
+
+        # Create and associate Actions with the Workflow
+        actions: list[Action] = []
+        for act_stmt in dsl.actions:
+            new_action = Action(
+                owner_id=self.role.workspace_id,
+                workflow_id=workflow.id,
+                type=act_stmt.action,
+                inputs=act_stmt.args,
+                title=act_stmt.title,
+                description=act_stmt.description,
+            )
+            actions.append(new_action)
+            self.session.add(new_action)
+
+        workflow.actions = actions  # Associate actions with the workflow
+
+        # Create and set the graph for the Workflow
+        base_graph = RFGraph.with_defaults(workflow)
+        logger.info("Creating graph for workflow", graph=base_graph)
+
+        # Add DSL contents to the Workflow
+        ref2id = {act.ref: act.id for act in actions}
+        updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
+        workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
+        workflow.entrypoint = (
+            updated_graph.entrypoint.id if updated_graph.entrypoint else None
+        )
+
+        # Commit the transaction
+        await self.session.commit()
+        await self.session.refresh(workflow)
+        return workflow
 
     async def _synchronize_graph_with_db_actions(
         self, actions: list[Action], graph: RFGraph
