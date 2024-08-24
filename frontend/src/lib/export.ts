@@ -52,7 +52,7 @@ function filenameFromHeader(contentDisposition: string): string | null {
 }
 
 export function handleExportError(error: Error) {
-  console.error("Failed to download workflow definition:", error)
+  console.error("Failed to download workflow YAML / JSON:", error)
   const toastData = {
     title: "Error exporting workflow",
     description: "Could not export workflow. Please try again.",
