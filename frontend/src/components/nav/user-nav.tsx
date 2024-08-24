@@ -98,10 +98,15 @@ export default function UserNav() {
               <span>Credentials</span>
             </DropdownMenuItem>
           </Link>
-          <DropdownMenuItem className="text-xs" disabled>
-            <UsersRound className="mr-2 size-4" />
-            <span>Manage users</span>
-          </DropdownMenuItem>
+          <Link
+            href={`${workspaceUrl}/settings/members`}
+            className="my-2 w-full"
+          >
+            <DropdownMenuItem className="text-xs">
+              <UsersRound className="mr-2 size-4" />
+              <span>Manage members</span>
+            </DropdownMenuItem>
+          </Link>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem
