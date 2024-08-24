@@ -12,10 +12,15 @@ import {
 } from "@/components/ui/table"
 
 function displayValue(value: unknown): string {
-  if (typeof value === "object") {
+  console.log("displayValue", value)
+  if (value === null || value === undefined) {
+    return "-"
+  } else if (typeof value === "object") {
     return (
       Object.entries(value as Record<string, unknown>)
-        .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+        .map(
+          ([key, value]) => `${key}=${value ? JSON.stringify(value) : "null"}`
+        )
         .join(" ") || "-"
     )
   }
