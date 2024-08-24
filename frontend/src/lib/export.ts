@@ -59,7 +59,7 @@ export function handleExportError(error: Error) {
   }
 
   if (error instanceof AxiosError && error.response?.status === 404) {
-    toastData.title = "No workflow definition"
+    toastData.title = "No workflow version found"
     toastData.description =
       "Cannot export workflow without a definition. Please commit changes to create a definition."
   } else {
