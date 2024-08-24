@@ -144,7 +144,7 @@ export function CreateWorkflowButton() {
         <DialogHeader>
           <DialogTitle>Import workflow from definition file</DialogTitle>
           <DialogDescription>
-            Import a workflow from either a YAML or JSON definition file.
+            Import a workflow from either a YAML or JSON file.
           </DialogDescription>
         </DialogHeader>
 
