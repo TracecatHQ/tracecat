@@ -157,40 +157,32 @@ resource "aws_iam_instance_profile" "this" {
   tags = local.project_tags
 }
 
-# Create EBS volumes for databases
-resource "aws_ebs_volume" "core_db" {
-  availability_zone = var.aws_availability_zone
-  size              = var.core_db_volume_size
-  type              = "gp3"
+# Security group for EFS
+resource "aws_security_group" "efs" {
+  name        = "${var.project_name}-efs-sg"
+  description = "Allow EFS access from EC2 instances"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port       = 2049
+    to_port         = 2049
+    protocol        = "tcp"
+    security_groups = [aws_security_group.this.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = merge(local.project_tags, {
-    Name = "${var.project_name}-core-db-volume"
+    Name = "${var.project_name}-efs-sg"
   })
 }
 
-resource "aws_ebs_volume" "temporal_db" {
-  availability_zone = var.aws_availability_zone
-  size              = var.temporal_db_volume_size
-  type              = "gp3"
-
-  tags = merge(local.project_tags, {
-    Name = "${var.project_name}-temporal-db-volume"
-  })
-}
-
-# Attach EBS volumes to the EC2 instance
-resource "aws_volume_attachment" "core_db" {
-  device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.core_db.id
-  instance_id = aws_instance.this.id
-}
-
-resource "aws_volume_attachment" "temporal_db" {
-  device_name = "/dev/sdg"
-  volume_id   = aws_ebs_volume.temporal_db.id
-  instance_id = aws_instance.this.id
-}
-
+# EC2 instance
 resource "aws_instance" "this" {
   ami                    = data.aws_ami.this.id
   instance_type          = var.instance_type
@@ -207,8 +199,7 @@ resource "aws_instance" "this" {
 
   user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
     tracecat_version = var.tracecat_version
-    core_db_device   = "/dev/sdf"
-    temporal_db_device = "/dev/sdg"
+    efs_id           = aws_efs_file_system.tracecat_data.id
   }))
 
   provisioner "local-exec" {
@@ -241,5 +232,25 @@ resource "aws_instance" "this" {
 
   tags = merge(local.project_tags, {
     Name = "${var.project_name}-instance"
+  })
+}
+
+# Update IAM role to allow EFS access
+resource "aws_iam_role_policy" "efs_access" {
+  name = "efs_access"
+  role = aws_iam_role.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:ClientMount",
+          "elasticfilesystem:ClientWrite"
+        ]
+        Resource = aws_efs_file_system.tracecat_data.arn
+      }
+    ]
   })
 }
