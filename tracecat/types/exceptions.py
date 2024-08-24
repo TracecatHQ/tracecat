@@ -7,11 +7,13 @@ meant to be displayed to the user in a user-friendly way. We expose these
 through FastAPI exception handlers, which match the exception type.
 """
 
+from typing import Any
+
 
 class TracecatException(Exception):
     """Tracecat generic user-facing exception"""
 
-    def __init__(self, *args, detail=None, **kwargs):
+    def __init__(self, *args, detail: Any | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.detail = detail
 

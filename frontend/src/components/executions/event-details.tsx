@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 
 /**
@@ -70,16 +71,11 @@ export function WorkflowExecutionEventDetailView({
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <div className="rounded-md border p-4 shadow-md">
-                  <JsonView
-                    collapsed
-                    displaySize
-                    enableClipboard
-                    src={event.failure}
-                    className="text-sm"
-                    theme="atom"
-                  />
-                </div>
+                <CodeBlock title="Message">{event.failure.message}</CodeBlock>
+                <CodeBlock title="Stack Trace">
+                  {event.failure.stack_trace}
+                </CodeBlock>
+                <JsonViewWithControls src={event.failure} />
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -94,16 +90,9 @@ export function WorkflowExecutionEventDetailView({
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <div className="rounded-md border p-4 shadow-md">
-                  <JsonView
-                    collapsed
-                    displaySize
-                    enableClipboard
-                    src={(event.result as Record<string, unknown>) ?? {}}
-                    className="text-sm"
-                    theme="atom"
-                  />
-                </div>
+                <JsonViewWithControls
+                  src={(event.result as Record<string, unknown>) ?? {}}
+                />
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -118,16 +107,7 @@ export function WorkflowExecutionEventDetailView({
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <div className="rounded-md border p-4 shadow-md">
-                  <JsonView
-                    collapsed
-                    displaySize
-                    enableClipboard
-                    src={event?.event_group?.action_input}
-                    className="text-sm"
-                    theme="atom"
-                  />
-                </div>
+                <JsonViewWithControls src={event?.event_group?.action_input} />
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -143,16 +123,7 @@ export function WorkflowExecutionEventDetailView({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="my-4 flex flex-col space-y-8 px-4">
-                  <div className="rounded-md border p-4 shadow-md">
-                    <JsonView
-                      collapsed
-                      displaySize
-                      enableClipboard
-                      src={event.event_group.action_input}
-                      className="text-sm"
-                      theme="atom"
-                    />
-                  </div>
+                  <JsonViewWithControls src={event.event_group.action_input} />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -373,5 +344,65 @@ function isDSLRunArgs(actionInput: unknown): actionInput is DSLRunArgs {
     // Check specific properties of DSLRunArgs
     typeof (actionInput as DSLRunArgs).dsl === "object" &&
     (actionInput as DSLRunArgs).wf_id !== undefined
+  )
+}
+
+function CodeBlock({
+  title,
+  children,
+}: {
+  title?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-2">
+      {title && (
+        <span className="text-xs font-semibold text-foreground/50">
+          {title}
+        </span>
+      )}
+      <pre className="flex flex-col rounded-md border bg-muted-foreground/5 p-4 font-mono text-foreground/70">
+        {children}
+      </pre>
+    </div>
+  )
+}
+
+function JsonViewWithControls({
+  src,
+  title = "JSON",
+}: {
+  src: unknown
+  title?: string
+}): JSX.Element {
+  const [isExpanded, setIsExpanded] = React.useState(false)
+  return (
+    <div className="space-y-2">
+      <div className="flex w-full items-center gap-4">
+        <span className="text-xs font-semibold text-foreground/50">
+          {title}
+        </span>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={isExpanded}
+            onCheckedChange={setIsExpanded}
+            className="data-[state=checked]:bg-muted-foreground"
+          />
+          <p className="text-xs text-foreground/70">
+            {isExpanded ? "Collapse" : "Expand"}
+          </p>
+        </div>
+      </div>
+      <div className="rounded-md border bg-muted-foreground/5 p-4">
+        <JsonView
+          collapsed={!isExpanded}
+          displaySize
+          enableClipboard
+          src={src}
+          className="text-sm"
+          theme="atom"
+        />
+      </div>
+    </div>
   )
 }

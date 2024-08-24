@@ -7,7 +7,6 @@ import { ImperativePanelHandle } from "react-resizable-panels"
 
 import { useWorkflowExecutions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -19,6 +18,8 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
 import "react18-json-view/src/style.css"
+
+import { History, ListVideoIcon } from "lucide-react"
 
 import { WorkflowExecutionEventDetailView } from "@/components/executions/event-details"
 import { WorkflowExecutionEventHistory } from "@/components/executions/event-history"
@@ -113,7 +114,10 @@ function WorkflowExecutionsViewLayout({
           className={cn("flex h-full flex-col p-2", isCollapsed && "min-w-14")}
         >
           <ScrollArea className="overflow-auto">
-            <SectionHead text="Workflow Executions" />
+            <SectionHead
+              text="Workflow Runs"
+              icon={<ListVideoIcon className="mr-2 size-4" strokeWidth={2} />}
+            />
             <WorkflowExecutionNav
               executions={workflowExecutions}
               executionId={executionId}
@@ -131,7 +135,10 @@ function WorkflowExecutionsViewLayout({
           className={cn("flex h-full flex-col p-2", isCollapsed && "min-w-14")}
         >
           <ScrollArea className="overflow-auto">
-            <SectionHead text="Event History" />
+            <SectionHead
+              text="Event History"
+              icon={<History className="mr-2 size-4" strokeWidth={2} />}
+            />
             {executionId ? (
               <WorkflowExecutionEventHistory
                 executionId={executionId}
@@ -162,10 +169,11 @@ function WorkflowExecutionsViewLayout({
   )
 }
 
-function SectionHead({ text }: { text: string }) {
+function SectionHead({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
-    <span className="flex w-full justify-start px-2 py-1 text-center text-xs font-normal text-muted-foreground/80">
-      <Badge variant="secondary">{text}</Badge>
-    </span>
+    <div className="flex w-full justify-start p-2 text-center text-xs font-semibold">
+      {icon}
+      <span>{text}</span>
+    </div>
   )
 }

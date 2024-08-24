@@ -43,7 +43,7 @@ export default function WorkspaceLayout({
         <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
           {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
           <DynamicNavbar />
-          <div className="flex-grow overflow-auto">{children}</div>
+          <div className="grow overflow-auto">{children}</div>
         </div>
       </WorkflowProvider>
     </WorkspaceProvider>
