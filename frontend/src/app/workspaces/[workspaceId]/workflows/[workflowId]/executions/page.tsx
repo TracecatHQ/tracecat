@@ -7,7 +7,6 @@ import { ImperativePanelHandle } from "react-resizable-panels"
 
 import { useWorkflowExecutions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import {
   ResizableHandle,
   ResizablePanel,
