@@ -157,12 +157,47 @@ resource "aws_iam_instance_profile" "this" {
   tags = local.project_tags
 }
 
+# Create EBS volumes for databases
+resource "aws_ebs_volume" "core_db" {
+  availability_zone = var.aws_availability_zone
+  size              = var.core_db_volume_size
+  type              = "gp3"
+
+  tags = merge(local.project_tags, {
+    Name = "${var.project_name}-core-db-volume"
+  })
+}
+
+resource "aws_ebs_volume" "temporal_db" {
+  availability_zone = var.aws_availability_zone
+  size              = var.temporal_db_volume_size
+  type              = "gp3"
+
+  tags = merge(local.project_tags, {
+    Name = "${var.project_name}-temporal-db-volume"
+  })
+}
+
+# Attach EBS volumes to the EC2 instance
+resource "aws_volume_attachment" "core_db" {
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.core_db.id
+  instance_id = aws_instance.this.id
+}
+
+resource "aws_volume_attachment" "temporal_db" {
+  device_name = "/dev/sdg"
+  volume_id   = aws_ebs_volume.temporal_db.id
+  instance_id = aws_instance.this.id
+}
+
 resource "aws_instance" "this" {
   ami                    = data.aws_ami.this.id
   instance_type          = var.instance_type
   subnet_id              = module.vpc.private_subnets[0]
   vpc_security_group_ids = [aws_security_group.this.id]
   iam_instance_profile   = aws_iam_instance_profile.this.name
+  availability_zone      = var.aws_availability_zone
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -172,6 +207,8 @@ resource "aws_instance" "this" {
 
   user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
     tracecat_version = var.tracecat_version
+    core_db_device   = "/dev/sdf"
+    temporal_db_device = "/dev/sdg"
   }))
 
   provisioner "local-exec" {

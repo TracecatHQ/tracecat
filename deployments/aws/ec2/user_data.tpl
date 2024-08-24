@@ -36,4 +36,15 @@ if [ ! -f .env ]; then
     printf "y\nlocalhost:8080\nn\n" | ./env.sh
 fi
 
+# Create Docker volumes from EBS volumes
+docker volume create --driver local \
+  --opt type=ext4 \
+  --opt device=${core_db_device} \
+  core-db
+
+docker volume create --driver local \
+  --opt type=ext4 \
+  --opt device=${temporal_db_device} \
+  temporal-db
+
 docker-compose up -d
