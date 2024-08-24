@@ -142,7 +142,7 @@ export function CreateWorkflowButton() {
       </DropdownMenu>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Import workflow from definition file</DialogTitle>
+          <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>
             Import a workflow from either a YAML or JSON file.
           </DialogDescription>
