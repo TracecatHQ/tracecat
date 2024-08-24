@@ -4,6 +4,8 @@ import React, { createContext, ReactNode, useContext } from "react"
 import {
   ApiError,
   UpdateWorkspaceParams,
+  usersUsersPatchUser,
+  UsersUsersPatchUserData,
   WorkspaceResponse,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
@@ -12,7 +14,7 @@ import {
 } from "@/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { retryHandler } from "@/lib/errors"
+import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
 
 type WorkspaceContextType = {
@@ -22,6 +24,7 @@ type WorkspaceContextType = {
   workspaceError: ApiError | null
   addWorkspaceMember: (userId: string) => Promise<unknown>
   removeWorkspaceMember: (userId: string) => Promise<unknown>
+  updateWorkspaceMember: (params: UsersUsersPatchUserData) => Promise<unknown>
   updateWorkspace: (params: UpdateWorkspaceParams) => Promise<unknown>
 }
 
@@ -83,7 +86,7 @@ export function WorkspaceProvider({
     },
   })
 
-  // Add meber to workspace
+  // Add member to workspace
   const { mutateAsync: addWorkspaceMember } = useMutation<
     unknown,
     ApiError,
@@ -157,6 +160,43 @@ export function WorkspaceProvider({
     },
   })
 
+  // Update a user (admin)
+  const { mutateAsync: updateWorkspaceMember } = useMutation({
+    mutationFn: async (params: UsersUsersPatchUserData) =>
+      await usersUsersPatchUser(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user"] })
+      queryClient.invalidateQueries({ queryKey: ["auth"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      toast({
+        title: "Updated workspace member",
+        description: "Workspace member updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          console.error("Error updating user", error)
+          toast({
+            title: "Error updating user",
+            description: error.body.detail,
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update user", error)
+          toast({
+            title: "Failed to update user",
+            description: `An error occurred while updating the user: ${error.body.detail}`,
+          })
+      }
+    },
+  })
   return (
     <WorkspaceContext.Provider
       value={{
@@ -166,6 +206,7 @@ export function WorkspaceProvider({
         workspaceError,
         addWorkspaceMember,
         removeWorkspaceMember,
+        updateWorkspaceMember,
         updateWorkspace,
       }}
     >
