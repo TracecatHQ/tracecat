@@ -31,8 +31,9 @@ curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_versio
 
 chmod +x env.sh
 
-# Run the env.sh script in production mode
-# and replace http://localhost with http://localhost:8080
-printf "y\nlocalhost:8080\nn\n" | ./env.sh
+# Run env.sh only if .env doesn't exist
+if [ ! -f .env ]; then
+    printf "y\nlocalhost:8080\nn\n" | ./env.sh
+fi
 
 docker-compose up -d
