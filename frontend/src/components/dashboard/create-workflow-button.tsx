@@ -84,7 +84,7 @@ export function CreateWorkflowButton() {
           case 400:
             console.error("Bad request:", apiError)
             form.setError("file", {
-              message: "The uploaded workflow Definition is invalid.",
+              message: "The uploaded workflow YAML / JSON is invalid.",
             })
 
             setValidationErrors(
