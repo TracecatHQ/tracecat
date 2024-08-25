@@ -182,6 +182,23 @@ resource "aws_security_group" "efs" {
   })
 }
 
+# Add EFS File System
+resource "aws_efs_file_system" "this" {
+  creation_token = "${var.project_name}-efs"
+  encrypted      = true
+
+  tags = merge(local.project_tags, {
+    Name = "${var.project_name}-efs"
+  })
+}
+
+# Add EFS Mount Target
+resource "aws_efs_mount_target" "this" {
+  file_system_id  = aws_efs_file_system.this.id
+  subnet_id       = module.vpc.private_subnets[0]
+  security_groups = [aws_security_group.efs.id]
+}
+
 # EC2 instance
 resource "aws_instance" "this" {
   ami                    = data.aws_ami.this.id
@@ -199,7 +216,7 @@ resource "aws_instance" "this" {
 
   user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
     tracecat_version = var.tracecat_version
-    efs_id           = aws_efs_file_system.tracecat_data.id
+    efs_id           = aws_efs_file_system.this.id
   }))
 
   provisioner "local-exec" {
@@ -249,7 +266,7 @@ resource "aws_iam_role_policy" "efs_access" {
           "elasticfilesystem:ClientMount",
           "elasticfilesystem:ClientWrite"
         ]
-        Resource = aws_efs_file_system.tracecat_data.arn
+        Resource = aws_efs_file_system.this.arn
       }
     ]
   })
