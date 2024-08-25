@@ -176,7 +176,7 @@ export function CreateWorkflowButton() {
           </form>
         </Form>
         {validationErrors && (
-          <div className="flex h-72 flex-col space-y-2 overflow-auto rounded-md border border-rose-500 bg-rose-100 p-2 font-mono text-xs text-rose-600">
+          <div className="flex h-36 flex-col space-y-2 overflow-auto rounded-md border border-rose-500 bg-rose-100 p-2 font-mono text-xs text-rose-600">
             <span className="font-semibold">Validation errors</span>
             <Separator className="bg-rose-400" />
             <pre>{validationErrors}</pre>
