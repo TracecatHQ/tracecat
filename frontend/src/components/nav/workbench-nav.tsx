@@ -279,7 +279,9 @@ function ErrorMessage({
   ))
 
   return (
-    <pre className={cn("whitespace-pre-wrap text-wrap", className)}>
+    <pre
+      className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
+    >
       {formattedMessage}
     </pre>
   )
