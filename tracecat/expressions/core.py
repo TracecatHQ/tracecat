@@ -38,7 +38,7 @@ class Expression:
             parse_tree = self._parser.parse(self._expr)
         except TracecatExpressionError as e:
             raise TracecatExpressionError(
-                f"[parser] Error evaluating expression `{self._expr}`\n\n{e}",
+                f"[parser] Error parsing expression `{self._expr}`\n\n{e}",
                 detail=str(e),
             ) from e
 
