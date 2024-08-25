@@ -731,7 +731,7 @@ class DSLActivities:
                     logger.error("Error resolving expressions", errors=errors)
                     raise TracecatException(
                         (
-                            f"[{task.ref}/for_each]"
+                            f"[{context_locator(task, 'for_each')}]"
                             "\n\nError in loop:"
                             f"\n\n{'\n\n'.join(errors)}"
                         ),
