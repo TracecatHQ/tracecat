@@ -37,7 +37,7 @@ with workflow.unsafe.imports_passed_through():
         extract_templated_secrets,
         get_iterables_from_expression,
     )
-    from tracecat.expressions.shared import ExprContext
+    from tracecat.expressions.shared import ExprContext, context_locator
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.types.auth import Role
@@ -782,9 +782,9 @@ class DSLActivities:
 
 
 def _contextualize_message(
-    task: ActionStatement, msg: str | BaseException, *, loc: str = "run"
+    task: ActionStatement, msg: str | BaseException, *, loc: str = "run_udf"
 ) -> str:
-    return f"[{task.ref}/{loc}]\n\n{msg}"
+    return f"[{context_locator(task, loc)}]\n\n{msg}"
 
 
 def iter_for_each(

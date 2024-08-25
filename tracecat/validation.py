@@ -51,7 +51,7 @@ from tracecat.expressions.parser.validator import (
     ExprValidationResult,
     ExprValidator,
 )
-from tracecat.expressions.shared import ExprType
+from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.service import SecretsService
@@ -82,14 +82,15 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
         # We store the DSL as is to ensure compatibility with with string reprs
         result = vadliate_udf_args(act_stmt.action, act_stmt.args)
         if result.status == "error":
-            result.msg = f"[{act_stmt.ref}/inputs]\n\n{result.msg}"
+            result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
             val_res.append(result)
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             val_res.append(
                 ValidationResult(
                     status="error",
-                    msg=f"[{act_stmt.ref}/run_if]\n\n`run_if` must only contain an expression.",
+                    msg=f"[{context_locator(act_stmt, "run_if")}]\n\n"
+                    "`run_if` must only contain an expression.",
                 )
             )
         # Validate `for_each`
@@ -100,7 +101,8 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
                     val_res.append(
                         ValidationResult(
                             status="error",
-                            msg=f"[{act_stmt.ref}/for_each]\n\n`for_each` must be an expression or list of expressions.",
+                            msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                            "`for_each` must be an expression or list of expressions.",
                         )
                     )
             case list():
@@ -109,7 +111,8 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
                         val_res.append(
                             ValidationResult(
                                 status="error",
-                                msg=f"[{act_stmt.ref}/for_each]\n\n`for_each` must be an expression or list of expressions.",
+                                msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                                "`for_each` must be an expression or list of expressions.",
                             )
                         )
             case None:
@@ -118,7 +121,8 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
                 val_res.append(
                     ValidationResult(
                         status="error",
-                        msg=f"[{act_stmt.ref}]\n\nInvalid `for_each` of type {type(act_stmt.for_each)}.",
+                        msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                        "Invalid `for_each` of type {type(act_stmt.for_each)}.",
                     )
                 )
 
@@ -197,13 +201,13 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
         for act_stmt in dsl.actions:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
-                expr.validate(visitor, origin=f"{act_stmt.ref}/inputs")
+                expr.validate(visitor, loc=context_locator(act_stmt, "inputs"))
 
             # Validate `run_if`
             if act_stmt.run_if:
                 # At this point the structure should be correct
                 for expr in extract_expressions(act_stmt.run_if):
-                    expr.validate(visitor, origin=f"{act_stmt.ref}/run_if")
+                    expr.validate(visitor, loc=context_locator(act_stmt, "run_if"))
 
             # Validate `for_each`
             if act_stmt.for_each:
@@ -212,7 +216,9 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
                     stmts = [act_stmt.for_each]
                 for for_each_stmt in stmts:
                     for expr in extract_expressions(for_each_stmt):
-                        expr.validate(visitor, origin=f"{act_stmt.ref}/for_each")
+                        expr.validate(
+                            visitor, loc=context_locator(act_stmt, "for_each")
+                        )
     return visitor.errors()
 
 

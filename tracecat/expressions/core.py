@@ -51,7 +51,7 @@ class Expression:
                 detail=str(e),
             ) from e
 
-    def validate(self, visitor: ExprValidator, *, origin: str | None = None) -> None:
+    def validate(self, visitor: ExprValidator, *, loc: str | None = None) -> None:
         """Validate the expression."""
         # 1) Parse the expression into AST
         try:
@@ -59,7 +59,7 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"[{origin or "parser"}]\n\nError parsing expression `{self._expr}`\n\n{e}",
+                msg=f"[{loc or "parser"}]\n\nError parsing expression `{self._expr}`\n\n{e}",
             )
 
         # 2) Validate the AST
@@ -68,7 +68,7 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"[{origin or "validator"}]\n\nError validating expression `{self._expr}`\n\n{e}",
+                msg=f"[{loc or "validator"}]\n\nError validating expression `{self._expr}`\n\n{e}",
             )
 
 
