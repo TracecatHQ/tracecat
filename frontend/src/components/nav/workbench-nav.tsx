@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useCallback } from "react"
+import React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
