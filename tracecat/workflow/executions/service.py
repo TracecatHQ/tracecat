@@ -394,11 +394,11 @@ class WorkflowExecutionsService:
                 **kwargs,
             )
         except WorkflowFailureError as e:
-            logger.exception(str(e), role=self.role, wf_exec_id=wf_exec_id, e=e)
+            self.logger.error(str(e), role=self.role, wf_exec_id=wf_exec_id, e=e)
             raise e
         except Exception as e:
-            logger.exception(
-                "Workflow exception", role=self.role, wf_exec_id=wf_exec_id, e=e
+            self.logger.exception(
+                "Unexpected workflow error", role=self.role, wf_exec_id=wf_exec_id, e=e
             )
             raise e
         # Write result to file for debugging
@@ -408,7 +408,7 @@ class WorkflowExecutionsService:
             with path.open("w") as f:
                 json.dump(result, f, indent=2)
         else:
-            logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
+            self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
 
     def cancel_workflow_execution(
