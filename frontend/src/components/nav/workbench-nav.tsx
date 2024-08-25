@@ -75,6 +75,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
@@ -200,17 +201,18 @@ export function WorkbenchNav() {
               className="max-w-72 space-y-2 border bg-background p-0 text-xs text-muted-foreground shadow-lg"
             >
               {commitErrors ? (
-                <div className="rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
+                <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
                   <span className="text-xs font-bold text-rose-500">
                     Validation errors:
                   </span>
-                  <ul className="mt-1 space-y-1">
+                  <div className="mt-1 space-y-1">
                     {commitErrors.map((error, index) => (
-                      <li key={index} className="text-xs">
-                        {error.message}
-                      </li>
+                      <div className="space-y-2">
+                        <Separator className="bg-rose-400" />
+                        <ErrorMessage key={index} message={error.message} />
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               ) : (
                 <div className="p-2">
@@ -285,6 +287,18 @@ export function WorkbenchNav() {
       </div>
     </div>
   )
+}
+
+function ErrorMessage({ message }: { message: string }) {
+  // Replace newline characters with <br /> tags
+  const formattedMessage = message.split("\n").map((line, index) => (
+    <React.Fragment key={index}>
+      {line}
+      <br />
+    </React.Fragment>
+  ))
+
+  return <pre className="whitespace-pre-wrap text-wrap">{formattedMessage}</pre>
 }
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
