@@ -34,6 +34,6 @@ resource "aws_db_subnet_group" "tracecat_db_subnet" {
 }
 
 locals {
-  core_db_hostname = split(":", aws_db_instance.core_database.endpoint)[0]
-  temp_db_hostname = split(":", aws_db_instance.temporal_database.endpoint)[0]
+  core_db_hostname = sensitive(split(":", aws_db_instance.core_database.endpoint)[0])
+  temp_db_hostname = sensitive(split(":", aws_db_instance.temporal_database.endpoint)[0])
 }
