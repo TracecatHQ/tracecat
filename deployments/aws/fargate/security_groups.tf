@@ -20,7 +20,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "caddy" {
     name        = "caddy-security-group"
-    description = "Allow inbound acces from the ALB to port 80 (Caddy) only"
+    description = "Allow inbound access from the ALB to port 80 (Caddy) only"
     vpc_id      = aws_vpc.tracecat.id
 
     ingress {

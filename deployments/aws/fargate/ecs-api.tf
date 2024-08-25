@@ -53,10 +53,8 @@ resource "aws_ecs_service" "tracecat_api" {
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [
-      aws_security_group.ecs_tasks.id,
-      aws_security_group.core_security.id,
-      aws_security_group.temporal_security.id,
-      aws_security_group.core_db_security.id
+      aws_security_group.core.id,
+      aws_security_group.core_db.id,
     ]
   }
 

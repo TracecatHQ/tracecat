@@ -59,7 +59,8 @@ resource "aws_ecs_service" "temporal_service" {
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [
-      aws_security_group.core_security.id
+      aws_security_group.core.id,
+      aws_security_group.temporal_db.id
     ]
   }
 
