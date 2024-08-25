@@ -9,6 +9,19 @@ yum install -y amazon-ssm-agent
 systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent
 
+# Install EFS utils
+yum install -y amazon-efs-utils
+
+# Mount EFS
+mkdir -p /mnt/efs
+mount -t efs -o tls ${efs_id}:/ /mnt/efs
+
+# Add EFS mount to /etc/fstab for persistence across reboots
+echo "${efs_id}:/ /mnt/efs efs defaults,_netdev 0 0" >> /etc/fstab
+
+# Create directories for data and config
+mkdir -p /mnt/efs/core-db /mnt/efs/temporal-db /mnt/efs/config
+
 # Default branch/tag
 echo "Starting user data script execution"
 echo "Using Tracecat version: ${tracecat_version}"
@@ -31,8 +44,18 @@ curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_versio
 
 chmod +x env.sh
 
-# Run the env.sh script in production mode
-# and replace http://localhost with http://localhost:8080
-printf "y\nlocalhost:8080\nn\n" | ./env.sh
+# Run env.sh only if .env doesn't exist in EFS
+if [ ! -f /mnt/efs/config/.env ]; then
+    printf "y\nlocalhost:8080\nn\n" | ./env.sh
+    mv .env /mnt/efs/config/.env
+fi
 
+# Create symlink to .env in EFS
+ln -sf /mnt/efs/config/.env /home/ec2-user/.env
+
+# Update docker-compose.yml to use EFS paths
+sed -i 's|- core-db:/var/lib/postgresql/data|- /mnt/efs/core-db:/var/lib/postgresql/data|g' docker-compose.yml
+sed -i 's|- temporal-db:/var/lib/postgresql/data|- /mnt/efs/temporal-db:/var/lib/postgresql/data|g' docker-compose.yml
+
+# Start Docker Compose
 docker-compose up -d

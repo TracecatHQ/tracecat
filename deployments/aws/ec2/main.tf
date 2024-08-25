@@ -157,12 +157,56 @@ resource "aws_iam_instance_profile" "this" {
   tags = local.project_tags
 }
 
+# Security group for EFS
+resource "aws_security_group" "efs" {
+  name        = "${var.project_name}-efs-sg"
+  description = "Allow EFS access from EC2 instances"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port       = 2049
+    to_port         = 2049
+    protocol        = "tcp"
+    security_groups = [aws_security_group.this.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(local.project_tags, {
+    Name = "${var.project_name}-efs-sg"
+  })
+}
+
+# Add EFS File System
+resource "aws_efs_file_system" "this" {
+  creation_token = "${var.project_name}-efs"
+  encrypted      = true
+
+  tags = merge(local.project_tags, {
+    Name = "${var.project_name}-efs"
+  })
+}
+
+# Add EFS Mount Target
+resource "aws_efs_mount_target" "this" {
+  file_system_id  = aws_efs_file_system.this.id
+  subnet_id       = module.vpc.private_subnets[0]
+  security_groups = [aws_security_group.efs.id]
+}
+
+# EC2 instance
 resource "aws_instance" "this" {
   ami                    = data.aws_ami.this.id
   instance_type          = var.instance_type
   subnet_id              = module.vpc.private_subnets[0]
   vpc_security_group_ids = [aws_security_group.this.id]
   iam_instance_profile   = aws_iam_instance_profile.this.name
+  availability_zone      = var.aws_availability_zone
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -172,6 +216,7 @@ resource "aws_instance" "this" {
 
   user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
     tracecat_version = var.tracecat_version
+    efs_id           = aws_efs_file_system.this.id
   }))
 
   provisioner "local-exec" {
@@ -204,5 +249,25 @@ resource "aws_instance" "this" {
 
   tags = merge(local.project_tags, {
     Name = "${var.project_name}-instance"
+  })
+}
+
+# Update IAM role to allow EFS access
+resource "aws_iam_role_policy" "efs_access" {
+  name = "efs_access"
+  role = aws_iam_role.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:ClientMount",
+          "elasticfilesystem:ClientWrite"
+        ]
+        Resource = aws_efs_file_system.this.arn
+      }
+    ]
   })
 }

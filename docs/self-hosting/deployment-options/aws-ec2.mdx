@@ -7,6 +7,8 @@ description: Use Terraform to deploy Tracecat onto an EC2 instance.
 This deployment is isolated to a private network.
 Secure access to the EC2 instance is enabled via [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html),
 which comes preconfigured with Tracecat's AWS EC2 Terraform stack.
+
+Data persistence is enabled via a mounted [EFS file system](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_file_system).
 </Info>
 
 ## Prerequisites
