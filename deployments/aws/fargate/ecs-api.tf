@@ -3,8 +3,8 @@ resource "aws_ecs_task_definition" "api_task_definition" {
   family                   = "TracecatApiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.fargate_cpu 
-  memory                   = var.fargate_memory 
+  cpu                      = var.api_cpu 
+  memory                   = var.api_memory 
   execution_role_arn       = aws_iam_role.ecs_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
@@ -28,8 +28,13 @@ resource "aws_ecs_task_definition" "api_task_definition" {
           awslogs-stream-prefix = "api"
         }
       }
-      environment = local.tracecat_environment 
-      secrets = local.tracecat_secrets 
+      environment = concat(local.api_env, [
+        {
+          name  = "TRACECAT__DB_ENDPOINT"
+          value = local.core_db_hostname
+        }
+      ])
+      secrets = local.tracecat_secrets
     }
   ])
 

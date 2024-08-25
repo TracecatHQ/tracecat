@@ -28,8 +28,18 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
           awslogs-stream-prefix = "temporal"
         }
       }
-      environment = local.temporal_environment 
-      secrets = local.temporal_secrets 
+      environment = concat(local.temporal_env, [
+        {
+          name  = "POSTGRES_SEEDS"
+          value = local.temp_db_hostname
+        }
+      ])
+      secrets = [
+        {
+          name      = "POSTGRES_PWD"
+          valueFrom = data.aws_secretsmanager_secret_version.temporal_db_password.arn
+        }
+      ]
 
       runtime_platform = {
         cpu_architecture        = "ARM64"

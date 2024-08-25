@@ -72,15 +72,45 @@ data "aws_secretsmanager_secret_version" "oauth_client_secret" {
   secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
 }
 
-# Local variable to store secrets
 locals {
-  secrets = {
-    TRACECAT__DB_PASSWORD      = data.aws_secretsmanager_secret_version.tracecat_db_password.secret_string
-    TEMPORAL__DB_PASSWORD      = data.aws_secretsmanager_secret_version.temporal_db_password.secret_string
-    TRACECAT__DB_ENCRYPTION_KEY = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.secret_string
-    TRACECAT__SERVICE_KEY      = data.aws_secretsmanager_secret_version.tracecat_service_key.secret_string
-    TRACECAT__SIGNING_SECRET   = data.aws_secretsmanager_secret_version.tracecat_signing_secret.secret_string
-    OAUTH_CLIENT_ID            = var.oauth_client_id != null ? data.aws_secretsmanager_secret_version.oauth_client_id[0].secret_string : null
-    OAUTH_CLIENT_SECRET        = var.oauth_client_secret != null ? data.aws_secretsmanager_secret_version.oauth_client_secret[0].secret_string : null
-  }
+  base_secrets = [
+    {
+      name      = "TRACECAT__DB_PASS"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_password.arn
+    },
+    {
+      name      = "TRACECAT__SERVICE_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.arn
+    },
+    {
+      name      = "TRACECAT__SIGNING_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_signing_secret.arn
+    },
+    {
+      name      = "TRACECAT__DB_ENCRYPTION_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.arn
+    },
+  ]
+
+  oauth_client_id_secret = var.oauth_client_id != null ? [
+    {
+      name      = "OAUTH_CLIENT_ID"
+      valueFrom = data.aws_secretsmanager_secret_version.oauth_client_id[0].arn
+    }
+  ] : []
+
+  oauth_client_secret_secret = var.oauth_client_secret != null ? [
+    {
+      name      = "OAUTH_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.oauth_client_secret[0].arn
+    }
+  ] : []
+
+  tracecat_secrets = concat(local.base_secrets, local.oauth_client_id_secret, local.oauth_client_secret_secret)
+  temporal_secrets = [
+    {
+      name      = "POSTGRES_PWD"
+      valueFrom = data.aws_secretsmanager_secret_version.temporal_db_password.arn
+    }
+  ]
 }

@@ -13,7 +13,7 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TracecatWorkerContainer"
-      image = "${var.tracecat_image_worker}:${var.tracecat_image_worker_tag}"
+      image = "${var.tracecat_image_api}:${var.tracecat_image_api_tag}"
       command = ["python", "tracecat/dsl/worker.py"]
       portMappings = [
         {
@@ -31,8 +31,13 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
           awslogs-stream-prefix = "worker"
         }
       }
-      environment = local.tracecat_environment 
-      secrets = local.tracecat_secrets 
+      environment = concat(local.api_env, [
+        {
+          name  = "TRACECAT__DB_ENDPOINT"
+          value = local.core_db_hostname
+        }
+      ])
+      secrets = local.tracecat_secrets
     }
   ])
 
