@@ -61,7 +61,7 @@ def eval_templated_object(
         Case B - Template only: "${{42}}"
 
         """
-        if _is_template_only(line) and len(pattern.findall(line)) == 1:
+        if is_template_only(line) and len(pattern.findall(line)) == 1:
             # Non-inline template
             # If the template expression isn't given a reolve type, its underlying
             # value is returned as is.
@@ -75,7 +75,7 @@ def eval_templated_object(
     return processed_kwargs
 
 
-def _is_template_only(template: str) -> bool:
+def is_template_only(template: str) -> bool:
     return template.startswith("${{") and template.endswith("}}")
 
 
