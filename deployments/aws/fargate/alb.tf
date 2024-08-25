@@ -2,7 +2,7 @@
 resource "aws_alb" "this" {
   name               = "tracecat-alb"
   subnets            = aws_subnet.public[*].id
-  security_groups    = [aws_security_group.ui_lb.id]
+  security_groups    = [aws_security_group.alb.id]
 }
 
 # Target Group for Caddy
