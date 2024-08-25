@@ -34,20 +34,42 @@ class Expression:
     def result(self) -> Any:
         """Evaluate the expression and return the result."""
 
-        parse_tree = self._parser.parse(self._expr)
-        visitor = ExprEvaluator(self._operand)
-        return visitor.evaluate(parse_tree)
+        try:
+            parse_tree = self._parser.parse(self._expr)
+        except TracecatExpressionError as e:
+            raise TracecatExpressionError(
+                f"[parser] Error parsing expression `{self._expr}`\n\n{e}",
+                detail=str(e),
+            ) from e
 
-    def validate(self, visitor: ExprValidator) -> None:
+        try:
+            visitor = ExprEvaluator(self._operand)
+            return visitor.evaluate(parse_tree)
+        except TracecatExpressionError as e:
+            raise TracecatExpressionError(
+                f"[evaluator] Error evaluating expression `{self._expr}`\n\n{e}",
+                detail=str(e),
+            ) from e
+
+    def validate(self, visitor: ExprValidator, *, loc: str | None = None) -> None:
         """Validate the expression."""
+        # 1) Parse the expression into AST
         try:
             parse_tree = self._parser.parse(self._expr)
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"Encountered syntax error during parsing: {e}",
+                msg=f"[{loc or "parser"}]\n\nError parsing expression `{self._expr}`\n\n{e}",
             )
-        return visitor.visit(parse_tree)
+
+        # 2) Validate the AST
+        try:
+            return visitor.visit(parse_tree)
+        except TracecatExpressionError as e:
+            return visitor.add(
+                status="error",
+                msg=f"[{loc or "validator"}]\n\nError validating expression `{self._expr}`\n\n{e}",
+            )
 
 
 class TemplateExpression:

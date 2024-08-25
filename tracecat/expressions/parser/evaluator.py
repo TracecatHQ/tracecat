@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Any, TypeVar
+from typing import Any, TypeVar, override
 
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
@@ -13,24 +13,29 @@ LiteralT = TypeVar("LiteralT", int, float, str, bool)
 T = TypeVar("T")
 
 
-class TracecatTransformer(Transformer):
-    def evaluate(self, tree: Tree):
-        try:
-            return self.transform(tree)
-        except VisitError as e:
-            logger.error(e)
-            raise TracecatExpressionError(
-                f"Failed to evaluate expression: {e}", detail=str(e)
-            ) from e
-
-
-class ExprEvaluator(TracecatTransformer):
-    _visitor_name = "ExprEvaluator"
+class ExprEvaluator(Transformer):
+    _visitor_name: str = "ExprEvaluator"
 
     def __init__(self, context: ExprContextType, strict: bool = False) -> None:
         self._context = context
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
+
+    @override
+    def evaluate(self, tree: Tree) -> Any:
+        try:
+            return self.transform(tree)
+        except VisitError as e:
+            logger.error(e)
+            node = tree.children[0] if tree.children else tree
+            raise TracecatExpressionError(
+                (
+                    "[evaluator] Evaluation failed at node:"
+                    f"\n{node.pretty()}"
+                    f"\nReason: {e}"
+                ),
+                detail=str(e),
+            ) from e
 
     @v_args(inline=True)
     def root(self, node: Tree):

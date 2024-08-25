@@ -241,10 +241,7 @@ export function UDFActionPanel({
           {/* Metadata */}
           <Accordion
             type="multiple"
-            defaultValue={[
-              "action-schema",
-              "action-inputs"
-            ]}
+            defaultValue={["action-schema", "action-inputs"]}
             className="pb-10"
           >
             <AccordionItem value="action-settings">
@@ -400,7 +397,7 @@ export function UDFActionPanel({
                     )}
                   />
                   {validationErrors && (
-                    <div className="rounded-md border-2 border-rose-500 bg-rose-100 p-4 font-mono text-xs text-rose-600">
+                    <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
                       <span className="font-bold">Validation Errors</span>
                       <Separator className="my-2 bg-rose-400" />
                       <span>{validationErrors.message}</span>
@@ -438,7 +435,8 @@ export function UDFActionPanel({
                     </HoverCard>
 
                     <span className="text-xs text-muted-foreground">
-                      Define a conditional expression that determines if the action executes.
+                      Define a conditional expression that determines if the
+                      action executes.
                     </span>
                   </div>
 
@@ -475,7 +473,8 @@ export function UDFActionPanel({
                     </HoverCard>
 
                     <span className="text-xs text-muted-foreground">
-                      Define one or more loop expressions for the action to iterate over.
+                      Define one or more loop expressions for the action to
+                      iterate over.
                     </span>
                   </div>
 
@@ -510,7 +509,8 @@ function RunIfTooltip() {
       </div>
       <div className="flex w-full items-center justify-between text-muted-foreground ">
         <span>
-          A run-if expression is a conditional expression that evaluates to a truthy or falsy value:
+          A run-if expression is a conditional expression that evaluates to a
+          truthy or falsy value:
         </span>
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">

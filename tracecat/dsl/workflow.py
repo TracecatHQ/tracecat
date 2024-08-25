@@ -37,7 +37,7 @@ with workflow.unsafe.imports_passed_through():
         extract_templated_secrets,
         get_iterables_from_expression,
     )
-    from tracecat.expressions.shared import ExprContext
+    from tracecat.expressions.shared import ExprContext, context_locator
     from tracecat.logging import logger
     from tracecat.registry import registry
     from tracecat.types.auth import Role
@@ -244,6 +244,14 @@ class DSLScheduler:
                 task_ref=task_ref,
                 msg=e.message,
                 retry_state=e.retry_state,
+            )
+            self.task_exceptions[task_ref] = e
+        except ApplicationError as e:
+            self.logger.error(
+                "Application error in DSLScheduler",
+                task_ref=task_ref,
+                msg=e.message,
+                non_retryable=e.non_retryable,
             )
             self.task_exceptions[task_ref] = e
         except Exception as e:
@@ -722,7 +730,11 @@ class DSLActivities:
                     errors = [str(x) for x in eg.exceptions]
                     logger.error("Error resolving expressions", errors=errors)
                     raise TracecatException(
-                        f"Error resolving expressions: {errors}",
+                        (
+                            f"[{task.ref}/for_each]"
+                            "\n\nError in loop:"
+                            f"\n\n{'\n\n'.join(errors)}"
+                        ),
                         detail={"errors": errors},
                     ) from eg
 
@@ -735,30 +747,44 @@ class DSLActivities:
 
         except TracecatException as e:
             err_type = e.__class__.__name__
-            msg = str(e)
+            msg = _contextualize_message(task, e)
             act_logger.error(
                 "Application exception occurred", error=msg, detail=e.detail
             )
             raise ApplicationError(
                 msg, e.detail, non_retryable=True, type=err_type
             ) from e
-        except ApplicationError as e:
-            act_logger.error("ApplicationError occurred", error=e)
-            raise
         except httpx.HTTPStatusError as e:
             act_logger.error("HTTP status error occurred", error=e)
             raise ApplicationError(
-                f"HTTP status error {e.response.status_code}",
+                _contextualize_message(
+                    task, f"HTTP status error {e.response.status_code}"
+                ),
                 non_retryable=True,
                 type=e.__class__.__name__,
+            ) from e
+        except ApplicationError as e:
+            act_logger.error("ApplicationError occurred", error=e)
+            raise ApplicationError(
+                _contextualize_message(task, e.message),
+                non_retryable=e.non_retryable,
+                type=e.type,
             ) from e
         except Exception as e:
             act_logger.error("Unexpected error occurred", error=e)
             raise ApplicationError(
-                f"Unexpected error {e.__class__.__name__}",
+                _contextualize_message(
+                    task, f"Unexpected error {e.__class__.__name__}: {e}"
+                ),
                 non_retryable=True,
                 type=e.__class__.__name__,
             ) from e
+
+
+def _contextualize_message(
+    task: ActionStatement, msg: str | BaseException, *, loc: str = "run_udf"
+) -> str:
+    return f"[{context_locator(task, loc)}]\n\n{msg}"
 
 
 def iter_for_each(

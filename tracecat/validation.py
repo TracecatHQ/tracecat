@@ -45,13 +45,13 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.expressions.eval import extract_expressions
+from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import (
     ExprValidationContext,
     ExprValidationResult,
     ExprValidator,
 )
-from tracecat.expressions.shared import ExprType
+from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.service import SecretsService
@@ -69,20 +69,66 @@ def get_validators():
     return {ExprType.SECRET: secret_validator}
 
 
-def validate_dsl_args(dsl: DSLInput) -> list[RegistryValidationResult]:
+def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
     """Validate arguemnts to the DSLInput.
 
     Check if the input arguemnts are either a templated expression or the correct type.
     """
-    error_responses: list[RegistryValidationResult] = []
+    val_res: list[ValidationResult] = []
+    # Validate the actions
     for act_stmt in dsl.actions:
         # We validate the action args, but keep them as is
         # These will be coerced properly when the workflow is run
         # We store the DSL as is to ensure compatibility with with string reprs
         result = vadliate_udf_args(act_stmt.action, act_stmt.args)
         if result.status == "error":
-            error_responses.append(result)
-    return error_responses
+            result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
+            val_res.append(result)
+        # Validate `run_if`
+        if act_stmt.run_if and not is_template_only(act_stmt.run_if):
+            val_res.append(
+                ValidationResult(
+                    status="error",
+                    msg=f"[{context_locator(act_stmt, "run_if")}]\n\n"
+                    "`run_if` must only contain an expression.",
+                )
+            )
+        # Validate `for_each`
+        # Check that it's an expr or a list of exprs, and that
+        match act_stmt.for_each:
+            case str():
+                if not is_template_only(act_stmt.for_each):
+                    val_res.append(
+                        ValidationResult(
+                            status="error",
+                            msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                            "`for_each` must be an expression or list of expressions.",
+                        )
+                    )
+            case list():
+                for expr in act_stmt.for_each:
+                    if not is_template_only(expr) or not isinstance(expr, str):
+                        val_res.append(
+                            ValidationResult(
+                                status="error",
+                                msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                                "`for_each` must be an expression or list of expressions.",
+                            )
+                        )
+            case None:
+                pass
+            case _:
+                val_res.append(
+                    ValidationResult(
+                        status="error",
+                        msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                        "Invalid `for_each` of type {type(act_stmt.for_each)}.",
+                    )
+                )
+
+    # Validate `returns`
+
+    return val_res
 
 
 def vadliate_udf_args(udf_key: str, args: dict[str, Any]) -> RegistryValidationResult:
@@ -146,15 +192,33 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
     )
 
     validators = {ExprType.SECRET: secret_validator}
+    # This batches all the coros inside the taskgroup
+    # and launches them concurrently on __aexit__
     async with GatheringTaskGroup() as tg:
         visitor = ExprValidator(
             task_group=tg, validation_context=validation_context, validators=validators
         )
         for act_stmt in dsl.actions:
-            # This batches all the coros inside the taskgroup
-            # and launches them concurrently on __aexit__
+            # Validate action args
             for expr in extract_expressions(act_stmt.args):
-                expr.validate(visitor)
+                expr.validate(visitor, loc=context_locator(act_stmt, "inputs"))
+
+            # Validate `run_if`
+            if act_stmt.run_if:
+                # At this point the structure should be correct
+                for expr in extract_expressions(act_stmt.run_if):
+                    expr.validate(visitor, loc=context_locator(act_stmt, "run_if"))
+
+            # Validate `for_each`
+            if act_stmt.for_each:
+                stmts = act_stmt.for_each
+                if isinstance(act_stmt.for_each, str):
+                    stmts = [act_stmt.for_each]
+                for for_each_stmt in stmts:
+                    for expr in extract_expressions(for_each_stmt):
+                        expr.validate(
+                            visitor, loc=context_locator(act_stmt, "for_each")
+                        )
     return visitor.errors()
 
 
