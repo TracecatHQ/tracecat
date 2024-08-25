@@ -143,37 +143,10 @@ export function WorkbenchNav() {
         {/* Workflow tabs */}
         <TabSwitcher workflowId={workflow.id} />
         {/* Workflow manual trigger */}
-        <Popover>
-          <Tooltip>
-            <PopoverTrigger asChild>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
-                    disabled={manualTriggerDisabled}
-                  >
-                    <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
-                    <span>Run</span>
-                  </Button>
-                </span>
-              </TooltipTrigger>
-            </PopoverTrigger>
-            <TooltipContent
-              side="bottom"
-              className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
-            >
-              {manualTriggerDisabled
-                ? "Please commit changes to enable manual trigger."
-                : "Run the workflow manually without a webhook. Click to configure inputs."}
-            </TooltipContent>
-            <PopoverContent className="w-96 p-3">
-              <WorkflowExecutionControls workflowId={workflow.id} />
-            </PopoverContent>
-          </Tooltip>
-        </Popover>
-
+        <WorkflowManualTrigger
+          disabled={manualTriggerDisabled}
+          workflowId={workflow.id}
+        />
         {/* Commit button */}
         <div className="flex items-center space-x-2">
           <Tooltip>
@@ -203,13 +176,17 @@ export function WorkbenchNav() {
               {commitErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
                   <span className="text-xs font-bold text-rose-500">
-                    Validation errors:
+                    Validation Errors
                   </span>
                   <div className="mt-1 space-y-1">
                     {commitErrors.map((error, index) => (
                       <div className="space-y-2">
                         <Separator className="bg-rose-400" />
-                        <ErrorMessage key={index} message={error.message} />
+                        <ErrorMessage
+                          key={index}
+                          message={error.message}
+                          className="text-rose-500"
+                        />
                       </div>
                     ))}
                   </div>
@@ -289,7 +266,10 @@ export function WorkbenchNav() {
   )
 }
 
-function ErrorMessage({ message }: { message: string }) {
+function ErrorMessage({
+  message,
+  className,
+}: { message: string } & React.HTMLAttributes<HTMLPreElement>) {
   // Replace newline characters with <br /> tags
   const formattedMessage = message.split("\n").map((line, index) => (
     <React.Fragment key={index}>
@@ -298,7 +278,11 @@ function ErrorMessage({ message }: { message: string }) {
     </React.Fragment>
   ))
 
-  return <pre className="whitespace-pre-wrap text-wrap">{formattedMessage}</pre>
+  return (
+    <pre className={cn("whitespace-pre-wrap text-wrap", className)}>
+      {formattedMessage}
+    </pre>
+  )
 }
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
@@ -336,27 +320,43 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
 }
 
 const workflowControlsFormSchema = z.object({
-  payload: z.string().refine((val) => {
+  payload: z.string().superRefine((val, ctx) => {
     try {
       JSON.parse(val)
-      return true
-    } catch {
-      return false
+    } catch (error) {
+      if (error instanceof Error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Invalid JSON format: ${error.message}`,
+        })
+      } else {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid JSON format: Unknown error occurred",
+        })
+      }
     }
-  }, "Invalid JSON format"),
+  }),
 })
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
-function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
+function WorkflowManualTrigger({
+  disabled = true,
+  workflowId,
+}: {
+  disabled: boolean
+  workflowId: string
+}) {
+  const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: { payload: '{"sampleWebhookParam": "sampleValue"}' },
   })
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = async (values: TWorkflowControlsForm) => {
     // Make the API call to start the workflow
-    const { payload } = form.getValues()
+    const { payload } = values
     try {
       const response = await workflowExecutionsCreateWorkflowExecution({
         workspaceId,
@@ -370,6 +370,7 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
         title: `Workflow run started`,
         description: `${response.wf_exec_id} ${response.message}`,
       })
+      setOpen(false)
     } catch (error) {
       if (error instanceof ApiError) {
         console.error("Error details", error.body)
@@ -387,44 +388,72 @@ function WorkflowExecutionControls({ workflowId }: { workflowId: string }) {
         })
       }
     }
-  }, [workflowId, form])
+  }
 
   return (
     <Form {...form}>
-      <form>
-        <div className="flex flex-col space-y-2">
-          <span className="text-xs text-muted-foreground">
-            Edit the JSON payload below.
-          </span>
-          <FormField
-            control={form.control}
-            name="payload"
-            render={({ field }) => (
-              <FormItem>
-                <FormControl>
-                  <CustomEditor
-                    className="size-full h-36"
-                    defaultLanguage="yaml"
-                    value={field.value}
-                    onChange={field.onChange}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <Button
-            type="button"
-            variant="default"
-            onClick={handleSubmit}
-            className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+      <Popover open={open} onOpenChange={setOpen}>
+        <Tooltip>
+          <PopoverTrigger asChild>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+                  disabled={disabled}
+                >
+                  <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
+                  <span>Run</span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+          </PopoverTrigger>
+          <TooltipContent
+            side="bottom"
+            className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
           >
-            <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
-            <span>Run</span>
-          </Button>
-        </div>
-      </form>
+            {disabled
+              ? "Please commit changes to enable manual trigger."
+              : "Run the workflow manually without a webhook. Click to configure inputs."}
+          </TooltipContent>
+          <PopoverContent className="w-96 p-3">
+            <form onSubmit={form.handleSubmit(handleSubmit)}>
+              <div className="flex flex-col space-y-2">
+                <span className="text-xs text-muted-foreground">
+                  Edit the JSON payload below.
+                </span>
+                <FormField
+                  control={form.control}
+                  name="payload"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <CustomEditor
+                          className="size-full h-36"
+                          defaultLanguage="yaml"
+                          value={field.value}
+                          onChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <Button
+                  type="submit"
+                  variant="default"
+                  className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                >
+                  <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
+                  <span>Run</span>
+                </Button>
+              </div>
+            </form>
+          </PopoverContent>
+        </Tooltip>
+      </Popover>
     </Form>
   )
 }
