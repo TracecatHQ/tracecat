@@ -1,4 +1,4 @@
-## Top-level variables
+## AWS provider variables
 
 variable "aws_region" {
   default = "us-east-2"
@@ -7,16 +7,6 @@ variable "aws_region" {
 variable "az_count" {
   description = "Number of AZs to cover in a given region"
   default     = "2"
-}
-
-variable "log_level" {
-  type    = string
-  default = "INFO"
-}
-
-variable "tracecat_app_env" {
-  type    = string
-  default = "production"
 }
 
 ### Images and Versions
