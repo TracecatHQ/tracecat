@@ -27,9 +27,13 @@ class ExprEvaluator(Transformer):
             return self.transform(tree)
         except VisitError as e:
             logger.error(e)
-            # Which is the current expr?
+            node = tree.children[0] if tree.children else tree
             raise TracecatExpressionError(
-                f"Failed to evaluate expression:\n\nExpression Tree:\n{tree.pretty()}.\n{e}",
+                (
+                    "[evaluator] Evaluation failed at node:"
+                    f"\n{node.pretty()}"
+                    f"\nReason: {e}"
+                ),
                 detail=str(e),
             ) from e
 
