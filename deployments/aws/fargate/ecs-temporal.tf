@@ -86,14 +86,3 @@ resource "aws_ecs_service" "temporal_service" {
   }
 
 }
-
-/*resource "aws_cloudwatch_log_group" "tracecat_log_group" {
-  name              = "/ecs/tracecat"
-  retention_in_days = 30
-}*/
-
-/*Service Discovery Namespace
-resource "aws_service_discovery_http_namespace" "namespace" {
-  name        = "tracecat-namespace"
-  description = "Namespace for Tracecat services"
-}*/

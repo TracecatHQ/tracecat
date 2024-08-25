@@ -87,28 +87,5 @@ resource "aws_ecs_service" "tracecat_worker" {
 
   depends_on = [
     aws_ecs_service.temporal_service,
-    aws_ecs_task_definition.temporal_task_definition,
   ]
-
-  # Capacity Provider Strategy
-  #capacity_provider_strategy {
-  #  capacity_provider = "FARGATE_SPOT"
-  #  weight            = 1
-  #}
-
-  #capacity_provider_strategy {
-  #  capacity_provider = "FARGATE"
-  #  weight            = 1
-  #}
 }
-
-/*resource "aws_cloudwatch_log_group" "tracecat_log_group" {
-  name              = "/ecs/tracecat"
-  retention_in_days = 30
-}*/
-
-/*Service Discovery Namespace
-resource "aws_service_discovery_http_namespace" "namespace" {
-  name        = "tracecat-namespace"
-  description = "Namespace for Tracecat services"
-}*/
