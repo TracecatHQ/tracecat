@@ -36,7 +36,12 @@ class Expression:
 
         parse_tree = self._parser.parse(self._expr)
         visitor = ExprEvaluator(self._operand)
-        return visitor.evaluate(parse_tree)
+        try:
+            return visitor.evaluate(parse_tree)
+        except TracecatExpressionError as e:
+            raise TracecatExpressionError(
+                f"Error parsing expression `{self._expr}`\n\n{e}", detail=str(e)
+            ) from e
 
     def validate(self, visitor: ExprValidator) -> None:
         """Validate the expression."""
@@ -45,7 +50,7 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"Encountered syntax error during parsing: {e}",
+                msg=f"Got error parsing expression: {e}",
             )
         return visitor.visit(parse_tree)
 

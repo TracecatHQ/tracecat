@@ -1,4 +1,5 @@
-from lark import Lark, LarkError, Tree
+from lark import Lark, Tree
+from lark.exceptions import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
 from tracecat.expressions.parser.grammar import grammar
 from tracecat.logging import logger
@@ -12,10 +13,19 @@ class ExprParser:
     def parse(self, expression: str) -> Tree | None:
         try:
             return self.parser.parse(expression)
-        except LarkError as e:
-            logger.error(e)
+        except (UnexpectedCharacters, UnexpectedEOF, UnexpectedInput) as e:
+            logger.error(
+                "Failed to parse expression",
+                kind=e.__class__.__name__,
+                detail=str(e),
+            )
             raise TracecatExpressionError(
                 f"Failed to parse expression: {e}", detail=str(e)
+            ) from e
+        except Exception as e:
+            logger.error(e)
+            raise TracecatExpressionError(
+                f"Unexpected error when parsing expression: {e!r}"
             ) from e
 
 
