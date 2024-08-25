@@ -64,4 +64,9 @@ resource "aws_ecs_service" "tracecat_caddy" {
     container_name   = "TracecatCaddyContainer"
     container_port   = 80
   }
+
+  depends_on = [
+    aws_ecs_service.tracecat_api,
+    aws_ecs_service.tracecat_ui
+  ]
 }
