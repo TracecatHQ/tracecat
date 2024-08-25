@@ -55,13 +55,6 @@ resource "aws_ecs_service" "tracecat_ui" {
     security_groups = [
       aws_security_group.ecs_tasks.id
     ]
-    assign_public_ip = true
-  }
-
-  load_balancer {
-        target_group_arn = aws_alb_target_group.tracecat_ui.id
-        container_name  = "TracecatUiContainer"
-        container_port   = 3000
   }
 
   service_connect_configuration {
@@ -90,14 +83,3 @@ resource "aws_ecs_service" "tracecat_ui" {
     aws_ecs_service.tracecat_api
   ]
 }
-
-/*resource "aws_cloudwatch_log_group" "tracecat_log_group" {
-  name              = "/ecs/tracecat"
-  retention_in_days = 30
-}*/
-
-/*Service Discovery Namespace
-resource "aws_service_discovery_http_namespace" "namespace" {
-  name        = "tracecat-namespace"
-  description = "Namespace for Tracecat services"
-}*/

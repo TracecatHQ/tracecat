@@ -58,13 +58,6 @@ resource "aws_ecs_service" "tracecat_api" {
       aws_security_group.temporal_security.id,
       aws_security_group.core_db_security.id
     ]
-    assign_public_ip = true
-  }
-
-  load_balancer {
-        target_group_arn = aws_alb_target_group.tracecat_api.id
-        container_name  = "TracecatApiContainer"
-        container_port  = "8000" 
   }
 
   service_connect_configuration {
@@ -103,10 +96,4 @@ resource "aws_cloudwatch_log_group" "tracecat_log_group" {
 resource "aws_cloudwatch_log_stream" "tracecat_log_stream" {
   name           = "tc-log-stream"
   log_group_name = aws_cloudwatch_log_group.tracecat_log_group.name
-}
-
-# Service Discovery Namespace
-resource "aws_service_discovery_http_namespace" "namespace" {
-  name        = "tracecat-namespace"
-  description = "Namespace for Tracecat services"
 }
