@@ -63,4 +63,31 @@ locals {
     TEMPORAL_BROADCAST_ADDRESS = "0.0.0.0"
     BIND_ON_IP                 = "0.0.0.0"
   }
+
+  tracecat_secrets = [
+    {
+      name = "TRACECAT__DB_PASS"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_password.secret_string
+    },
+    {
+      name = "TRACECAT__DB_ENCRYPTION_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.secret_string
+    },
+    {
+      name = "TRACECAT__SERVICE_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.secret_string
+    },
+    {
+      name = "TRACECAT__SIGNING_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_signing_secret.secret_string
+    },
+    {
+      name = "OAUTH_CLIENT_ID"
+      valueFrom = data.aws_secretsmanager_secret_version.oauth_client_id.secret_string
+    },
+    {
+      name = "OAUTH_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.oauth_client_secret.secret_string
+    }
+  ]
 }
