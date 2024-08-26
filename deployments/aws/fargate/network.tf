@@ -9,13 +9,6 @@ resource "aws_vpc" "tracecat" {
   }
 }
 
-# CloudMap Namespace for Service Connect
-resource "aws_service_discovery_private_dns_namespace" "namespace" {
-  name        = "tracecat.local"
-  description = "Private DNS namespace for ECS services"
-  vpc         = aws_vpc.tracecat.id
-}
-
 data "aws_availability_zones" "available" {}
 
 resource "aws_subnet" "public" {
