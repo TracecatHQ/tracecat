@@ -24,7 +24,7 @@ resource "aws_db_instance" "temporal_database" {
   manage_master_user_password = true
   multi_az                    = true
   db_subnet_group_name        = aws_db_subnet_group.tracecat_db_subnet.name
-  vpc_security_group_ids      = [aws_security_group.core_db]
+  vpc_security_group_ids      = [aws_security_group.temporal_db.id]
   skip_final_snapshot         = true
 }
 
