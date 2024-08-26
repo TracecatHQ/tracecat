@@ -33,6 +33,7 @@ resource "aws_iam_policy" "ecs_poll" {
   })
 }
 
+
 # Secrets access policy
 resource "aws_iam_policy" "secrets_access" {
   name        = "TracecatSecretsAccessPolicy"
@@ -42,21 +43,21 @@ resource "aws_iam_policy" "secrets_access" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
-        Resource = [
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = compact([
           aws_db_instance.core_database.master_user_secret[0].secret_arn,
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn
-        ]
+        ])
       }
     ]
   })
 
-  depends_on = [ aws_db_instance.core_database ]
+  depends_on = [aws_db_instance.core_database]
 }
 
 resource "aws_iam_policy" "temporal_secrets_access" {
