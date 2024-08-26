@@ -85,13 +85,3 @@ resource "aws_ecs_service" "tracecat_api" {
   ]
 
 }
-
-resource "aws_cloudwatch_log_group" "tracecat_log_group" {
-  name              = "/ecs/tracecat"
-  retention_in_days = 30
-}
-
-resource "aws_cloudwatch_log_stream" "tracecat_log_stream" {
-  name           = "tc-log-stream"
-  log_group_name = aws_cloudwatch_log_group.tracecat_log_group.name
-}
