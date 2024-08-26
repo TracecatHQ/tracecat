@@ -9,7 +9,7 @@ resource "aws_db_instance" "core_database" {
   multi_az              = true
   password = local.secrets.TRACECAT__DB_PASSWORD
   db_subnet_group_name = aws_db_subnet_group.tracecat_db_subnet.name
-  vpc_security_group_ids = [aws_security_group.core_db_security.id]
+  vpc_security_group_ids = [aws_security_group.core_db.id]
   skip_final_snapshot  = true
 }
 
@@ -24,7 +24,7 @@ resource "aws_db_instance" "temporal_database" {
   password = local.secrets.TEMPORAL__DB_PASSWORD
   multi_az              = true
   db_subnet_group_name = aws_db_subnet_group.tracecat_db_subnet.name
-  vpc_security_group_ids = [aws_security_group.core_db_security.id]
+  vpc_security_group_ids = [aws_security_group.core_db]
   skip_final_snapshot  = true
 }
 
