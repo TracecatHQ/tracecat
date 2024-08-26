@@ -134,6 +134,11 @@ resource "aws_iam_role_policy_attachment" "temporal_execution_ecs_poll" {
   role       = aws_iam_role.temporal_execution.name
 }
 
+resource "aws_iam_role_policy_attachment" "temporal_execution_secrets" {
+  policy_arn = aws_iam_policy.temporal_secrets_access.arn
+  role       = aws_iam_role.temporal_execution.name
+}
+
 # API and Worker task role
 resource "aws_iam_role" "api_worker_task" {
   name               = "TracecatAPIWorkerTaskRole"
