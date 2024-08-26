@@ -62,6 +62,28 @@ resource "aws_ecs_service" "tracecat_caddy" {
     ]
   }
 
+  service_connect_configuration {
+    enabled   = true
+    namespace = local.local_dns_namespace
+    service {
+      port_name      = "caddy"
+      discovery_name = "caddy-service"
+      client_alias {
+        port     = 80
+        dns_name = "caddy-service"
+      }
+    }
+
+    log_configuration {
+      log_driver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
+        awslogs-region        = var.aws_region 
+        awslogs-stream-prefix = "service-connect-caddy"
+      }
+    }
+  }
+
   load_balancer {
     target_group_arn = aws_alb_target_group.caddy.id
     container_name   = "TracecatCaddyContainer"
