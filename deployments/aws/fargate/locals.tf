@@ -3,9 +3,10 @@ locals {
 
   public_app_url         = "https://${var.domain_name}"
   public_api_url         = "https://${var.domain_name}/api"
-  internal_api_url       = "http://api-service:8000" # Service connect DNS name
+  internal_api_url       = "http://api-service:8000"  # Service connect DNS name
   temporal_cluster_url   = "temporal-service:7233"
   temporal_cluster_queue = "tracecat-task-queue"
+  allow_origins          = "http://ui-service:3000" + "," + var.domain_name  # Allow api service and public app to access the API
 
   # Tracecat postgres env vars
   # See: https://github.com/TracecatHQ/tracecat/blob/abd5ff/tracecat/db/engine.py#L21
@@ -24,8 +25,8 @@ locals {
     TRACECAT__API_ROOT_PATH     = "/api"
     TRACECAT__APP_ENV           = var.tracecat_app_env    
     TRACECAT__PUBLIC_RUNNER_URL = local.public_api_url
-    TRACECAT__PUBLIC_APP_URL    = var.tracecat_public_app_url
-    TRACECAT__ALLOW_ORIGINS     = var.tracecat_allow_origins
+    TRACECAT__PUBLIC_APP_URL    = local.public_app_url
+    TRACECAT__ALLOW_ORIGINS     = local.allow_origins
     TRACECAT__AUTH_TYPES        = var.auth_types
     TEMPORAL__CLUSTER_URL       = local.temporal_cluster_url
     TEMPORAL__CLUSTER_QUEUE     = local.temporal_cluster_queue
@@ -44,7 +45,7 @@ locals {
   ui_env = {
     NEXT_PUBLIC_API_URL    = local.public_api_url
     NEXT_PUBLIC_APP_ENV    = var.tracecat_app_env
-    NEXT_PUBLIC_APP_URL    = var.tracecat_public_app_url
+    NEXT_PUBLIC_APP_URL    = local.public_app_url
     NEXT_PUBLIC_AUTH_TYPES = var.auth_types
     NEXT_SERVER_API_URL    = local.internal_api_url
     NODE_ENV               = var.tracecat_app_env

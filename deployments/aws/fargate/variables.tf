@@ -135,36 +135,19 @@ variable "db_instance_size" {
 variable "log_level" {
   type        = string
   description = "Log level for the application"
+  default     = "INFO"
 }
 
 variable "tracecat_app_env" {
   type        = string
   description = "The environment of the Tracecat application"
+  default     = "production"
 }
 
 variable "tracecat_db_sslmode" {
   type        = string
   description = "SSL mode for the database connection"
-}
-
-variable "tracecat_db_uri" {
-  type        = string
-  description = "Database URI"
-}
-
-variable "tracecat_public_runner_url" {
-  type        = string
-  description = "Public URL for the runner"
-}
-
-variable "tracecat_public_app_url" {
-  type        = string
-  description = "Public URL for the application"
-}
-
-variable "tracecat_allow_origins" {
-  type        = string
-  description = "Allowed origins for CORS"
+  default     = "require"
 }
 
 # UI
