@@ -44,12 +44,30 @@ resource "aws_iam_policy" "secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          var.tracecat_db_password_arn,
+          aws_db_instance.core_database.master_user_secret.secret_arn,
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "temporal_secrets_access" {
+  name        = "TracecatTemporalSecretsAccessPolicy"
+  description = "Policy for accessing Temporal secrets"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [
+          aws_db_instance.temporal_database.master_user_secret.secret_arn
         ]
       }
     ]

@@ -31,16 +31,6 @@ variable "tracecat_image_api_tag" {
 
 ### Secret ARNs
 
-variable "tracecat_db_password_arn" {
-  type        = string
-  description = "The ARN of the secret containing the Tracecat database password"
-}
-
-variable "temporal_db_password_arn" {
-  type        = string
-  description = "The ARN of the secret containing the Temporal database password"
-}
-
 variable "tracecat_db_encryption_key_arn" {
   type        = string
   description = "The ARN of the secret containing the Tracecat database encryption key"

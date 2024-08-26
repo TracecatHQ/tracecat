@@ -11,11 +11,8 @@
 
 # Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_password" {
-  arn = var.tracecat_db_password_arn
-}
-
-data "aws_secretsmanager_secret" "temporal_db_password" {
-  arn = var.temporal_db_password_arn
+  arn        = aws_db_instance.core_database.master_user_secret.secret_arn
+  depends_on = [aws_db_instance.core_database]
 }
 
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
@@ -41,13 +38,16 @@ data "aws_secretsmanager_secret" "oauth_client_secret" {
   arn   = var.oauth_client_secret_arn
 }
 
+# Temporal secrets
+
+data "aws_secretsmanager_secret" "temporal_db_password" {
+  arn        = aws_db_instance.temporal_database.master_user_secret.secret_arn
+  depends_on = [aws_db_instance.temporal_database]
+}
+
 # Retrieve secret values
 data "aws_secretsmanager_secret_version" "tracecat_db_password" {
   secret_id = data.aws_secretsmanager_secret.tracecat_db_password.id
-}
-
-data "aws_secretsmanager_secret_version" "temporal_db_password" {
-  secret_id = data.aws_secretsmanager_secret.temporal_db_password.id
 }
 
 data "aws_secretsmanager_secret_version" "tracecat_db_encryption_key" {
@@ -70,6 +70,10 @@ data "aws_secretsmanager_secret_version" "oauth_client_id" {
 data "aws_secretsmanager_secret_version" "oauth_client_secret" {
   count     = var.oauth_client_secret_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "temporal_db_password" {
+  secret_id = data.aws_secretsmanager_secret.temporal_db_password.id
 }
 
 locals {
