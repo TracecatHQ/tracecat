@@ -1,5 +1,6 @@
-# Get current caller identity
+# Get current caller identity and region
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 # Common assume role policy document
 data "aws_iam_policy_document" "assume_role" {
@@ -44,7 +45,7 @@ resource "aws_iam_policy" "secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          locals.core_db_password_arn,
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
@@ -54,6 +55,8 @@ resource "aws_iam_policy" "secrets_access" {
       }
     ]
   })
+
+  depends_on = [ aws_db_instance.core_database ]
 }
 
 resource "aws_iam_policy" "temporal_secrets_access" {
@@ -67,11 +70,13 @@ resource "aws_iam_policy" "temporal_secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          locals.temporal_db_password_arn
+          aws_db_instance.temporal_database.master_user_secret[0].secret_arn
         ]
       }
     ]
   })
+
+  depends_on = [ aws_db_instance.temporal_database ]
 }
 
 # API execution role

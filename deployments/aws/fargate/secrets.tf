@@ -11,7 +11,7 @@
 
 # Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_password" {
-  arn        = locals.core_db_password_arn
+  arn        = aws_db_instance.core_database.master_user_secret[0].secret_arn
   depends_on = [aws_db_instance.core_database]
 }
 
@@ -41,7 +41,7 @@ data "aws_secretsmanager_secret" "oauth_client_secret" {
 # Temporal secrets
 
 data "aws_secretsmanager_secret" "temporal_db_password" {
-  arn        = locals.temporal_db_password_arn
+  arn        = aws_db_instance.temporal_database.master_user_secret[0].secret_arn
   depends_on = [aws_db_instance.temporal_database]
 }
 
