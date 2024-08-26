@@ -1,3 +1,4 @@
+# network.tf
 resource "aws_vpc" "tracecat" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -15,10 +16,13 @@ resource "aws_service_discovery_private_dns_namespace" "namespace" {
   vpc         = aws_vpc.tracecat.id
 }
 
+data "aws_availability_zones" "available" {}
+
 resource "aws_subnet" "public" {
-  count             = var.az_count 
-  vpc_id            = aws_vpc.tracecat.id
-  cidr_block        = "10.0.${count.index + 1}.0/24"
+  count                   = var.az_count
+  vpc_id                  = aws_vpc.tracecat.id
+  cidr_block              = "10.0.${count.index + 1}.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
 
   tags = {
@@ -27,51 +31,52 @@ resource "aws_subnet" "public" {
 }
 
 resource "aws_internet_gateway" "gw" {
-    vpc_id = aws_vpc.tracecat.id
+  vpc_id = aws_vpc.tracecat.id
 }
 
 resource "aws_route" "internet_access" {
-    route_table_id         = aws_vpc.tracecat.main_route_table_id
-    destination_cidr_block = "0.0.0.0/0"
-    gateway_id             = aws_internet_gateway.gw.id
+  route_table_id         = aws_vpc.tracecat.main_route_table_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.gw.id
 }
 
 resource "aws_eip" "gw" {
-    count      = var.az_count
-    domain = "vpc"
-    depends_on = [aws_internet_gateway.gw]
+  count      = var.az_count
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.gw]
 }
 
 resource "aws_nat_gateway" "gw" {
-    count         = var.az_count
-    subnet_id     = element(aws_subnet.public.*.id, count.index)
-    allocation_id = element(aws_eip.gw.*.id, count.index)
-}
-
-resource "aws_route_table" "private" {
-    count  = var.az_count
-    vpc_id = aws_vpc.tracecat.id
-
-    route {
-        cidr_block     = "0.0.0.0/0"
-        nat_gateway_id = element(aws_nat_gateway.gw.*.id, count.index)
-    }
-}
-
-resource "aws_route_table_association" "private" {
-    count          = var.az_count
-    subnet_id      = element(aws_subnet.private.*.id, count.index)
-    route_table_id = element(aws_route_table.private.*.id, count.index)
+  count         = var.az_count
+  subnet_id     = element(aws_subnet.public.*.id, count.index)
+  allocation_id = element(aws_eip.gw.*.id, count.index)
 }
 
 resource "aws_subnet" "private" {
-  count             = 2
+  count             = var.az_count
   vpc_id            = aws_vpc.tracecat.id
   cidr_block        = "10.0.${count.index + 10}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
     Name = "tracecat-private-subnet-${count.index + 1}"
   }
+}
+
+resource "aws_route_table" "private" {
+  count  = var.az_count
+  vpc_id = aws_vpc.tracecat.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = element(aws_nat_gateway.gw.*.id, count.index)
+  }
+}
+
+resource "aws_route_table_association" "private" {
+  count          = var.az_count
+  subnet_id      = element(aws_subnet.private.*.id, count.index)
+  route_table_id = element(aws_route_table.private.*.id, count.index)
 }
 
 resource "aws_route_table" "public_rt" {
@@ -88,9 +93,7 @@ resource "aws_route_table" "public_rt" {
 }
 
 resource "aws_route_table_association" "public_subnet_routes" {
-  count          = length(aws_subnet.public)
+  count          = var.az_count
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public_rt.id
 }
-
-# 

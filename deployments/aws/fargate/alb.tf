@@ -1,8 +1,14 @@
 # Application Load Balancer
 resource "aws_alb" "this" {
   name               = "tracecat-alb"
+  internal           = false
+  load_balancer_type = "application"
   subnets            = aws_subnet.public[*].id
   security_groups    = [aws_security_group.alb.id]
+
+  tags = {
+    Name = "tracecat-alb"
+  }
 }
 
 # Target Group for Caddy
