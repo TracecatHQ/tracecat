@@ -56,13 +56,13 @@ variable "tracecat_signing_secret_arn" {
   description = "The ARN of the secret containing the Tracecat signing secret"
 }
 
-variable "oauth_client_id" {
+variable "oauth_client_id_arn" {
   type        = string
   description = "The OAuth client ID (optional)"
   default     = null
 }
 
-variable "oauth_client_secret" {
+variable "oauth_client_secret_arn" {
   type        = string
   description = "The OAuth client secret (optional)"
   default     = null

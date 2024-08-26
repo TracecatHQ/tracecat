@@ -32,13 +32,13 @@ data "aws_secretsmanager_secret" "tracecat_signing_secret" {
 
 # Optional secrets
 data "aws_secretsmanager_secret" "oauth_client_id" {
-  count = var.oauth_client_id != null ? 1 : 0
-  arn   = var.oauth_client_id
+  count = var.oauth_client_id_arn != null ? 1 : 0
+  arn   = var.oauth_client_id_arn
 }
 
 data "aws_secretsmanager_secret" "oauth_client_secret" {
-  count = var.oauth_client_secret != null ? 1 : 0
-  arn   = var.oauth_client_secret
+  count = var.oauth_client_secret_arn != null ? 1 : 0
+  arn   = var.oauth_client_secret_arn
 }
 
 # Retrieve secret values
@@ -63,12 +63,12 @@ data "aws_secretsmanager_secret_version" "tracecat_signing_secret" {
 }
 
 data "aws_secretsmanager_secret_version" "oauth_client_id" {
-  count     = var.oauth_client_id != null ? 1 : 0
+  count     = var.oauth_client_id_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oauth_client_id[0].id
 }
 
 data "aws_secretsmanager_secret_version" "oauth_client_secret" {
-  count     = var.oauth_client_secret != null ? 1 : 0
+  count     = var.oauth_client_secret_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
 }
 
@@ -92,14 +92,14 @@ locals {
     },
   ]
 
-  oauth_client_id_secret = var.oauth_client_id != null ? [
+  oauth_client_id_secret = var.oauth_client_id_arn != null ? [
     {
       name      = "OAUTH_CLIENT_ID"
       valueFrom = data.aws_secretsmanager_secret_version.oauth_client_id[0].arn
     }
   ] : []
 
-  oauth_client_secret_secret = var.oauth_client_secret != null ? [
+  oauth_client_secret_secret = var.oauth_client_secret_arn != null ? [
     {
       name      = "OAUTH_CLIENT_SECRET"
       valueFrom = data.aws_secretsmanager_secret_version.oauth_client_secret[0].arn
