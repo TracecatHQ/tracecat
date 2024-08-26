@@ -58,7 +58,7 @@ resource "aws_ecs_service" "tracecat_ui" {
 
   service_connect_configuration {
     enabled   = true
-    namespace = aws_service_discovery_private_dns_namespace.namespace.id
+    namespace = local.local_dns_namespace
     service {
       port_name      = "ui"
       discovery_name = "ui-service"
