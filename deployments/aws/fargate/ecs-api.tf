@@ -3,8 +3,8 @@ resource "aws_ecs_task_definition" "api_task_definition" {
   family                   = "TracecatApiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.api_cpu 
-  memory                   = var.api_memory 
+  cpu                      = var.api_cpu
+  memory                   = var.api_memory
   execution_role_arn       = aws_iam_role.api_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
@@ -24,7 +24,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-          awslogs-region        = var.aws_region 
+          awslogs-region        = var.aws_region
           awslogs-stream-prefix = "api"
         }
       }
@@ -51,7 +51,7 @@ resource "aws_ecs_service" "tracecat_api" {
   desired_count   = 1
 
   network_configuration {
-    subnets         = aws_subnet.private[*].id
+    subnets = aws_subnet.private[*].id
     security_groups = [
       aws_security_group.core.id,
       aws_security_group.core_db.id,
@@ -60,7 +60,7 @@ resource "aws_ecs_service" "tracecat_api" {
 
   service_connect_configuration {
     enabled   = true
-    namespace = aws_service_discovery_http_namespace.namespace.arn
+    namespace = aws_service_discovery_private_dns_namespace.namespace.id
     service {
       port_name      = "api"
       discovery_name = "api-service"
@@ -74,7 +74,7 @@ resource "aws_ecs_service" "tracecat_api" {
       log_driver = "awslogs"
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-        awslogs-region        = var.aws_region 
+        awslogs-region        = var.aws_region
         awslogs-stream-prefix = "service-connect-api"
       }
     }

@@ -63,7 +63,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
   }
 
   load_balancer {
-    target_group_arn = aws_alb_target_group.tracecat_caddy.id
+    target_group_arn = aws_alb_target_group.caddy.id
     container_name   = "TracecatCaddyContainer"
     container_port   = 80
   }

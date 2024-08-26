@@ -12,6 +12,13 @@ resource "aws_vpc" "tracecat" {
   }
 }
 
+# CloudMap Namespace for Service Connect
+resource "aws_service_discovery_private_dns_namespace" "namespace" {
+  name        = "tracecat.local"
+  description = "Private DNS namespace for ECS services"
+  vpc         = aws_vpc.tracecat.id
+}
+
 resource "aws_subnet" "public" {
   count             = var.az_count 
   vpc_id            = aws_vpc.tracecat.id
@@ -91,3 +98,5 @@ resource "aws_route_table_association" "public_subnet_routes" {
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public_rt.id
 }
+
+# 
