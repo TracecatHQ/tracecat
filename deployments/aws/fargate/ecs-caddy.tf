@@ -16,7 +16,8 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         {
           containerPort = 80
           hostPort      = 80
-          protocol      = "tcp"
+          name          = "caddy"
+          appProtocol   = "http"
         }
       ]
       command = [
@@ -65,6 +66,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
   service_connect_configuration {
     enabled   = true
     namespace = local.local_dns_namespace
+    
     service {
       port_name      = "caddy"
       discovery_name = "caddy-service"
