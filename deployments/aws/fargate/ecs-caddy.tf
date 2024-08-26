@@ -5,8 +5,8 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_role.arn
+  execution_role_arn       = aws_iam_role.caddy_execution.arn
+  task_role_arn            = aws_iam_role.caddy_task.arn
 
   container_definitions = jsonencode([
     {

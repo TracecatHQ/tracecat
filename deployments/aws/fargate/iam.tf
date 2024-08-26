@@ -158,3 +158,66 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
     ]
   })
 }
+
+
+# Caddy execution role
+resource "aws_iam_role" "caddy_execution" {
+  name               = "TracecatCaddyExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "caddy_execution_ecs_poll" {
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.caddy_execution.name
+}
+
+# Caddy task role (minimal permissions)
+resource "aws_iam_role" "caddy_task" {
+  name               = "TracecatCaddyTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+# Add CloudWatch Logs policy
+resource "aws_iam_policy" "cloudwatch_logs" {
+  name        = "TracecatCloudWatchLogsPolicy"
+  description = "Policy for writing to CloudWatch Logs"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "${aws_cloudwatch_log_group.tracecat_log_group.arn}:*"
+      }
+    ]
+  })
+}
+
+# Attach CloudWatch Logs policy to every task role
+
+# Caddy task role
+resource "aws_iam_role_policy_attachment" "caddy_task_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.caddy_task.name
+}
+
+# API and Worker task role
+resource "aws_iam_role_policy_attachment" "api_worker_task_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.api_worker_task.name
+}
+
+resource "aws_iam_role_policy_attachment" "ui_task_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.ui_task.name
+}
+
+# Temporal task role
+resource "aws_iam_role_policy_attachment" "temporal_task_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.temporal_task.name
+}
