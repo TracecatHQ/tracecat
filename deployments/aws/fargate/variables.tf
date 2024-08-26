@@ -25,8 +25,7 @@ variable "tracecat_image_api" {
 }
 
 variable "tracecat_image_api_tag" {
-  #default = "latest"
-  default = "0.5.2"
+  default = "0.8.0"
 }
 
 ### Secret ARNs
