@@ -6,7 +6,7 @@ locals {
   internal_api_url       = "http://api-service:8000"  # Service connect DNS name
   temporal_cluster_url   = "temporal-service:7233"
   temporal_cluster_queue = "tracecat-task-queue"
-  allow_origins          = "http://ui-service:3000" + "," + var.domain_name  # Allow api service and public app to access the API
+  allow_origins          = "${var.domain_name},http://ui-service:3000"  # Allow api service and public app to access the API
 
   # Tracecat postgres env vars
   # See: https://github.com/TracecatHQ/tracecat/blob/abd5ff/tracecat/db/engine.py#L21
