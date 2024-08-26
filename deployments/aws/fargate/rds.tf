@@ -33,7 +33,12 @@ resource "aws_db_subnet_group" "tracecat_db_subnet" {
   subnet_ids = aws_subnet.private[*].id
 }
 
+# Local variables for database hostnames
 locals {
   core_db_hostname = sensitive(split(":", aws_db_instance.core_database.endpoint)[0])
   temp_db_hostname = sensitive(split(":", aws_db_instance.temporal_database.endpoint)[0])
+  
+  # New locals for password ARNs
+  core_db_password_arn = sensitive(aws_db_instance.core_database.master_user_secret[0].secret_arn)
+  temporal_db_password_arn = sensitive(aws_db_instance.temporal_database.master_user_secret[0].secret_arn)
 }

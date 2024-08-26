@@ -44,7 +44,7 @@ resource "aws_iam_policy" "secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          aws_db_instance.core_database.master_user_secret.secret_arn,
+          locals.core_db_password_arn,
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
@@ -67,7 +67,7 @@ resource "aws_iam_policy" "temporal_secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          aws_db_instance.temporal_database.master_user_secret.secret_arn
+          locals.temporal_db_password_arn
         ]
       }
     ]
