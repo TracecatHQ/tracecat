@@ -1,3 +1,6 @@
+# Get current caller identity
+data "aws_caller_identity" "current" {}
+
 # Common assume role policy document
 data "aws_iam_policy_document" "assume_role" {
   statement {
@@ -197,27 +200,29 @@ resource "aws_iam_policy" "cloudwatch_logs" {
   })
 }
 
-# Attach CloudWatch Logs policy to every task role
+# Attach CloudWatch Logs policy to execution roles
 
-# Caddy task role
-resource "aws_iam_role_policy_attachment" "caddy_task_cloudwatch_logs" {
+resource "aws_iam_role_policy_attachment" "api_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.caddy_task.name
+  role       = aws_iam_role.api_execution.name
 }
 
-# API and Worker task role
-resource "aws_iam_role_policy_attachment" "api_worker_task_cloudwatch_logs" {
+resource "aws_iam_role_policy_attachment" "worker_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.api_worker_task.name
+  role       = aws_iam_role.worker_execution.name
 }
 
-resource "aws_iam_role_policy_attachment" "ui_task_cloudwatch_logs" {
+resource "aws_iam_role_policy_attachment" "ui_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.ui_task.name
+  role       = aws_iam_role.ui_execution.name
 }
 
-# Temporal task role
-resource "aws_iam_role_policy_attachment" "temporal_task_cloudwatch_logs" {
+resource "aws_iam_role_policy_attachment" "temporal_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.temporal_task.name
+  role       = aws_iam_role.temporal_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "caddy_execution_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.caddy_execution.name
 }
