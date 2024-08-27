@@ -80,7 +80,7 @@ locals {
   base_secrets = [
     {
       name      = "TRACECAT__DB_PASS"
-      valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_password.arn
+      valueFrom = "${data.aws_secretsmanager_secret_version.tracecat_db_password.arn}:password::"
     },
     {
       name      = "TRACECAT__SERVICE_KEY"
@@ -114,7 +114,7 @@ locals {
   temporal_secrets = [
     {
       name      = "POSTGRES_PWD"
-      valueFrom = data.aws_secretsmanager_secret_version.temporal_db_password.arn
+      valueFrom = "${data.aws_secretsmanager_secret_version.temporal_db_password.arn}:password::"
     }
   ]
 }
