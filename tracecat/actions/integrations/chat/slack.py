@@ -73,10 +73,9 @@ async def post_slack_message(
     thread_ts: Annotated[
         str | None,
         Field(
-            default=None,
             description="The timestamp of the parent message. Used to create a thread.",
         ),
-    ],
+    ] = None,
     text: Annotated[str | None, Field(description="The message text")] = None,
     blocks: Annotated[
         list[dict[str, Any]] | None, Field(description="Slack blocks definition")
