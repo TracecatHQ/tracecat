@@ -159,7 +159,7 @@ async def _authenticate_user_for_workspace(
 
     `ctx_role` ContextVar is set here.
     """
-    if not user.is_superuser or not user.role == UserRole.ADMIN:
+    if not user.is_superuser and user.role != UserRole.ADMIN:
         # Check if non-admin user is a member of the workspace
         authz_service = AuthorizationService(session)
         if not await authz_service.user_is_workspace_member(
