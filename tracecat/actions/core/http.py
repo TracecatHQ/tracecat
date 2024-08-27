@@ -17,7 +17,7 @@ JSONObjectOrArray = dict[str, Any] | list[Any]
 class HTTPResponse(TypedDict):
     status_code: int
     headers: dict[str, str]
-    data: str | dict[str, Any] | list[Any] | None  # Updated to include None
+    data: str | dict[str, Any] | list[Any] | None
 
 
 @registry.register(
