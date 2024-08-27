@@ -34,7 +34,7 @@ Secret
 ------
 - name: `emailrep`
 - keys:
-    - `EMAILREP_API_KEY`
+    - `EMAILREP_API_KEY` = 'free' to use 10/day limit
 
 Example Usage
 -------------
@@ -48,9 +48,11 @@ Expression:
 
 def create_emailrep_client() -> httpx.AsyncClient:
     EMAILREP_API_KEY = os.getenv("EMAILREP_API_KEY")
-    if EMAILREP_API_KEY is None:
-        raise ValueError("EMAILREP_API_KEY is not set")
-    headers = {"User-Agent": "tracecat-client", "Key": EMAILREP_API_KEY}
+    if EMAILREP_API_KEY == 'free':
+      raise Warning("EMAILREP_API_KEY is not set - using free 10/day limit")
+      headers = {"User-Agent": "tracecat-client"}
+    else: 
+      headers = {"User-Agent": "tracecat-client", "Key": EMAILREP_API_KEY}
     return httpx.AsyncClient(base_url=EMAILREP_BASE_URL, headers=headers)
 
 
@@ -65,6 +67,6 @@ async def analyze_email(
     email: Annotated[str, Field(..., description="The email address to analyze")],
 ) -> dict[str, Any]:
     async with create_emailrep_client() as client:
-        response = await client.get(f"/email/{email}")
+        response = await client.get(f"/email/{email}?summary=true")
         response.raise_for_status()
         return response.json()
