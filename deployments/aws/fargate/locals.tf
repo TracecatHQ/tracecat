@@ -31,6 +31,7 @@ locals {
       TRACECAT__AUTH_TYPES        = var.auth_types
       TEMPORAL__CLUSTER_URL       = local.temporal_cluster_url
       TEMPORAL__CLUSTER_QUEUE     = local.temporal_cluster_queue
+      RUN_MIGRATIONS              = "true"
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
