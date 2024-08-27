@@ -64,7 +64,7 @@ class Expression:
 
         # 2) Validate the AST
         try:
-            return visitor.visit(parse_tree)
+            return visitor.visit_with_locator(parse_tree, loc=loc)
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
