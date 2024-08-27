@@ -1,10 +1,10 @@
-created_at: '2024-08-27T17:16:16.707488Z'
+created_at: '2024-08-27T21:38:27.063035Z'
 definition:
   actions:
   - action: core.ai_action
     args:
       model: gpt-4o
-      prompt: ${{ FN.concat(FN.serialize_json(ACTIONS.get_sublime_message_data_model.result),FN.serialize_json(ACTIONS.get_sublime_message_attack_score.result))}}
+      prompt: ${{ FN.concat(FN.serialize_json(ACTIONS.get_sublime_message_data_model.result),FN.serialize_json(ACTIONS.get_sublime_message_attack_score.result)) }}
       system_context: You are a SOC analyst tasked to analyze the entire email data
         model (in JSON format) of a potentially suspicious email. You are provided
         information called "attack score" which provides a heuristic between 1-100
@@ -29,8 +29,7 @@ definition:
   - action: core.open_case
     args:
       action: informational
-      case_title: New Alert - Score - ${{ ACTIONS.get_sublime_message_attack_score.result.score}} 
-        - ACTIONS.slack_forward_alert_details.result.messages[0].sender.email }}
+      case_title: New Alert - Score - ${{ ACTIONS.get_sublime_message_attack_score.result.score }} - ACTIONS.slack_forward_alert_details.result.messages[0].sender.email }}
       context: ${{ ACTIONS.parse_slack_alert.result }}
       malice: ${{ 'malicious' if FN.regex_match('"Classification"\s*:\s*"malicious"',ACTIONS.determine_classification.result)
         else 'benign' }}
@@ -138,16 +137,17 @@ definition:
   - action: etl.extraction.extract_emails
     args:
       normalize: true
-      texts: ${{var.result.sender.email }}
+      texts:
+      - ${{ var.message.sender.email }}
     depends_on:
     - get_sublime_message_data_model
     description: ''
-    for_each: ${{ for var.result in ACTIONS.get_sublime_message_data_model.result }}
+    for_each: ${{ for var.message in ACTIONS.parse_slack_alert.result.messages }}
     ref: extract_emails
     run_if: null
   - action: integrations.emailrep.analyze_email
     args:
-      email: ${{ var.emails }}
+      email: ${{ var.emails.email }}
     depends_on:
     - extract_emails
     description: ''
@@ -166,7 +166,7 @@ definition:
   tests: []
   title: Sublime Response
   triggers: []
-updated_at: '2024-08-27T17:16:16.707488Z'
-version: 74
+updated_at: '2024-08-27T21:38:27.063035Z'
+version: 1
 workflow_id: wf-dac83732537e454e86ebc3958b112e33
 workspace_id: 75086913-56ce-4893-a3c8-4d1a7eda9945
