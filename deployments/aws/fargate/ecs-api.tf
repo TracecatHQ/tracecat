@@ -11,7 +11,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TracecatApiContainer"
-      image = "${var.tracecat_image_api}:${var.tracecat_image_api_tag}"
+      image = "${var.tracecat_image}:${var.tracecat_image_tag}"
       portMappings = [
         {
           containerPort = 8000
@@ -49,6 +49,7 @@ resource "aws_ecs_service" "tracecat_api" {
   task_definition = aws_ecs_task_definition.api_task_definition.arn
   launch_type     = "FARGATE"
   desired_count   = 1
+  force_new_deployment = var.force_new_deployment
 
   network_configuration {
     subnets = aws_subnet.private[*].id

@@ -13,7 +13,7 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TracecatWorkerContainer"
-      image = "${var.tracecat_image_api}:${var.tracecat_image_api_tag}"
+      image = "${var.tracecat_image}:${var.tracecat_image_tag}"
       command = ["python", "tracecat/dsl/worker.py"]
       portMappings = [
         {
@@ -53,6 +53,7 @@ resource "aws_ecs_service" "tracecat_worker" {
   task_definition = aws_ecs_task_definition.worker_task_definition.arn
   launch_type     = "FARGATE"
   desired_count   = 1
+  force_new_deployment = var.force_new_deployment
 
   network_configuration {
     subnets         = aws_subnet.private[*].id

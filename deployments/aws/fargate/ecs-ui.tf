@@ -1,13 +1,3 @@
-# UI Service resources for Tracecat
-variable "tracecat_ui_image" {
-  default = "ghcr.io/tracecathq/tracecat-ui"
-}
-
-variable "tracecat_ui_image_tag" {
-  #default = "latest"
-  default = "0.5.2"
-}
-
 # ECS Task Definition for UI Service
 resource "aws_ecs_task_definition" "ui_task_definition" {
   family                   = "TracecatUiTaskDefinition"
@@ -20,7 +10,7 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TracecatUiContainer"
-      image = "${var.tracecat_ui_image}:${var.tracecat_ui_image_tag}"
+      image = "${var.tracecat_ui_image}:${var.tracecat_image_tag}"
       portMappings = [
         {
           containerPort = 3000 
@@ -48,6 +38,7 @@ resource "aws_ecs_service" "tracecat_ui" {
   task_definition = aws_ecs_task_definition.ui_task_definition.arn
   launch_type     = "FARGATE"
   desired_count   = 1
+  force_new_deployment = var.force_new_deployment
 
   network_configuration {
     subnets         = aws_subnet.private.*.id

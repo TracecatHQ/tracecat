@@ -20,12 +20,22 @@ variable "temporal_server_image_tag" {
   default = "1.24.2"
 }
 
-variable "tracecat_image_api" {
+variable "tracecat_image" {
   default = "ghcr.io/tracecathq/tracecat"
 }
 
-variable "tracecat_image_api_tag" {
+variable "tracecat_ui_image" {
+  default = "ghcr.io/tracecathq/tracecat-ui"
+}
+
+variable "tracecat_image_tag" {
   default = "0.8.0"
+}
+
+variable "force_new_deployment" {
+  description = "Force a new deployment of Tracecat services. Used to update services with new images."
+  type    = bool
+  default = false
 }
 
 ### Secret ARNs
