@@ -17,7 +17,7 @@ JSONObjectOrArray = dict[str, Any] | list[Any]
 class HTTPResponse(TypedDict):
     status_code: int
     headers: dict[str, str]
-    data: str | dict[str, Any] | list[Any]
+    data: str | dict[str, Any] | list[Any] | None  # Updated to include None
 
 
 @registry.register(
@@ -46,7 +46,7 @@ async def http_request(
     ] = None,
     method: Annotated[
         RequestMethods,
-        Field(description="HTTP reqest method"),
+        Field(description="HTTP request method"),
     ] = "GET",
 ) -> HTTPResponse:
     try:
@@ -63,6 +63,14 @@ async def http_request(
         logger.error(f"HTTP request failed with status {e.response.status_code}.")
         logger.error(e.response.text)
         raise e
+
+    # Handle 204 No Content
+    if response.status_code == 204:
+        return HTTPResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers.items()),
+            data=None,  # No content
+        )
 
     # TODO: Better parsing logic
     content_type = response.headers.get("Content-Type")
