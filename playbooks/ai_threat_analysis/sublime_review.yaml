@@ -1,0 +1,172 @@
+created_at: '2024-08-27T17:16:16.707488Z'
+definition:
+  actions:
+  - action: core.ai_action
+    args:
+      model: gpt-4o
+      prompt: ${{ FN.concat(FN.serialize_json(ACTIONS.get_sublime_message_data_model.result),FN.serialize_json(ACTIONS.get_sublime_message_attack_score.result))}}
+      system_context: You are a SOC analyst tasked to analyze the entire email data
+        model (in JSON format) of a potentially suspicious email. You are provided
+        information called "attack score" which provides a heuristic between 1-100
+        for malicious score. Do not solely use this score for your analysis. Use what
+        you know about emails written for Spam, phishing, malware, benign false positives
+        based on the html within the data model. and provide analysis on the email
+        data model and make a determination. Output only one JSON with no new lines
+        object containing two keys; 1. 'classification' - A single string of either
+        ['benign', 'malicious', 'unwanted'] 2. 'justification' - The justification
+        of making to your classification choice. Make this as long as you want with
+        as much relevant detail as possible.
+    depends_on:
+    - analyze_email
+    - analyze_link
+    - get_sublime_message_attack_score
+    - get_sublime_message_data_model
+    - upload_malware_sample
+    description: ''
+    for_each: null
+    ref: determine_classification
+    run_if: null
+  - action: core.open_case
+    args:
+      action: informational
+      case_title: New Alert - Score - ${{ ACTIONS.get_sublime_message_attack_score.result.score}} 
+        - ACTIONS.slack_forward_alert_details.result.messages[0].sender.email }}
+      context: ${{ ACTIONS.parse_slack_alert.result }}
+      malice: ${{ 'malicious' if FN.regex_match('"Classification"\s*:\s*"malicious"',ACTIONS.determine_classification.result)
+        else 'benign' }}
+      payload:
+        Classification: ${{ FN.regex_extract('"Classification"\s*:\s*"((?:[^"\\]|\\.)*)"',ACTIONS.determine_classification.result) }}
+        Justification: ${{ FN.regex_extract('"Justification"\s*:\s*"((?:[^"\\]|\\.)*)"',ACTIONS.determine_classification.result) }}
+      priority: ${{ 'high' if FN.greater_than(ACTIONS.get_sublime_message_attack_score.result.score,
+        70) else 'low' }}
+      status: in_progress
+      tags: ${{ ACTIONS.get_sublime_message_attack_score.result.top_signals.category }}
+    depends_on:
+    - review_sublime_message_group
+    description: ''
+    for_each: null
+    ref: open_case
+    run_if: null
+  - action: core.transform.reshape
+    args:
+      value:
+        json: ${{FN.deserialize_json(FN.regex_extract('\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',ACTIONS.determine_classification.result))}}
+    depends_on:
+    - determine_classification
+    description: ''
+    for_each: null
+    ref: determination
+    run_if: null
+  - action: integrations.sublime.sublime_message_attack_score
+    args:
+      message_id: ${{ var.message.id }}
+    depends_on:
+    - parse_slack_alert
+    description: ''
+    for_each: ${{ for var.message in ACTIONS.parse_slack_alert.result.messages }}
+    ref: get_sublime_message_attack_score
+    run_if: null
+  - action: integrations.sublime.sublime_message_group
+    args:
+      canonical_id: ${{ FN.regex_extract('(?<=\/messages\/)[a-f0-9]{64}(?=\|)', TRIGGER.text) }}
+    depends_on: []
+    description: ''
+    for_each: null
+    ref: parse_slack_alert
+    run_if: ${{ FN.not_null(TRIGGER.text) }}
+  - action: integrations.sublime.sublime_message_data_model
+    args:
+      message_id: ${{ var.message.id }}
+    depends_on:
+    - parse_slack_alert
+    description: ''
+    for_each: ${{ for var.message in ACTIONS.parse_slack_alert.result.messages }}
+    ref: get_sublime_message_data_model
+    run_if: null
+  - action: integrations.sublime.sublime_review_message_group
+    args:
+      action: ${{ 'trash' if FN.is_equal( ACTIONS.determination.result.json.classification,
+        'malicious') else 'move_to_spam' }}
+      classification: ${{ ACTIONS.determination.result.json.classification }}
+      message_group_ids:
+      - ${{ ACTIONS.parse_slack_alert.result.id }}
+      review_comment: ${{ ACTIONS.determination.result.json.classification }}
+    depends_on:
+    - determination
+    description: ''
+    for_each: null
+    ref: review_sublime_message_group
+    run_if: null
+  - action: etl.extraction.extract_urls
+    args:
+      texts:
+      - ${{ var.result.body.html.raw }}
+    depends_on:
+    - get_sublime_message_data_model
+    description: ''
+    for_each:
+    - ${{ for var.result in ACTIONS.get_sublime_message_data_model.result }}
+    ref: extract_urls
+    run_if: null
+  - action: integrations.virustotal.upload_malware_sample
+    args:
+      file_raw: ${{ var.attachment.attachments[0].raw }}
+    depends_on:
+    - analyze_malware_sample
+    description: ''
+    for_each: ${{ for var.attachment in ACTIONS.get_sublime_message_data_model.result }}
+    ref: upload_malware_sample
+    run_if: null
+  - action: integrations.virustotal.analyze_malware_sample
+    args:
+      file_hash: ${{ var.attachment.attachments[0].sha256 }}
+    depends_on:
+    - get_sublime_message_data_model
+    description: ''
+    for_each: ${{ for var.attachment in ACTIONS.get_sublime_message_data_model.result }}
+    ref: analyze_malware_sample
+    run_if: null
+  - action: integrations.sublime.sublime_analyze_link
+    args:
+      url: ${{ var.urls }}
+    depends_on:
+    - extract_urls
+    description: ''
+    for_each: ${{ for var.urls in ACTIONS.extract_urls.result }}
+    ref: analyze_link
+    run_if: null
+  - action: etl.extraction.extract_emails
+    args:
+      normalize: true
+      texts: ${{var.result.sender.email }}
+    depends_on:
+    - get_sublime_message_data_model
+    description: ''
+    for_each: ${{ for var.result in ACTIONS.get_sublime_message_data_model.result }}
+    ref: extract_emails
+    run_if: null
+  - action: integrations.emailrep.analyze_email
+    args:
+      email: ${{ var.emails }}
+    depends_on:
+    - extract_emails
+    description: ''
+    for_each: ${{ for var.emails in ACTIONS.extract_emails.result }}
+    ref: analyze_email
+    run_if: null
+  config:
+    enable_runtime_tests: false
+    scheduler: dynamic
+  description: New workflow created Aug 27, 2024, 05:26:54
+  entrypoint:
+    expects: {}
+    ref: parse_slack_alert
+  inputs: {}
+  returns: null
+  tests: []
+  title: Sublime Response
+  triggers: []
+updated_at: '2024-08-27T17:16:16.707488Z'
+version: 74
+workflow_id: wf-dac83732537e454e86ebc3958b112e33
+workspace_id: 75086913-56ce-4893-a3c8-4d1a7eda9945
