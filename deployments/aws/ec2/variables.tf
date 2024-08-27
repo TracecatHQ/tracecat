@@ -49,7 +49,7 @@ variable "instance_type" {
 variable "tracecat_version" {
   description = "The version of Tracecat to use"
   type        = string
-  default     = "0.8.1"
+  default     = "0.8.2"
 }
 
 variable "core_db_volume_size" {
