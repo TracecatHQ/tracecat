@@ -4,12 +4,14 @@ description: Learn how to safely update versions and run data migrations.
 ---
 
 <Note>
-Updates and data migrations can be tricky business. We'd love to help on [Discord](https://discord.gg/n3GF4qxFU8).
+  Updates and data migrations can be tricky business. We'd love to help on
+  [Discord](https://discord.gg/n3GF4qxFU8).
 </Note>
 
 <Warning>
-If you want to migrate secrets, please make sure to save your database encryption / decryption Fernet key.
-You can find this key in your `.env` file assigned to the environment variable: `TRACECAT__DB_ENCRYPTION_KEY`.
+  If you want to migrate secrets, please make sure to save your database
+  encryption / decryption Fernet key. You can find this key in your `.env` file
+  assigned to the environment variable: `TRACECAT__DB_ENCRYPTION_KEY`.
 </Warning>
 
 ## Docker Compose
@@ -17,22 +19,20 @@ You can find this key in your `.env` file assigned to the environment variable: 
 <Steps>
   <Step title="Download latest environment variables migration script and template">
     Fetch the latest environment variables migration script `env-migration.sh`
-    and template `.env.example` to ensure compatibility with the new Tracecat version.
-    ```
-    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.8.2/env-migration.sh
-    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.8.2/.env.example
-    ```
+    and template `.env.example` to ensure compatibility with the new Tracecat
+    version. ``` curl -o env-migration.sh
+    https://raw.githubusercontent.com/TracecatHQ/tracecat/0.8.3/env-migration.sh
+    curl -o .env.example
+    https://raw.githubusercontent.com/TracecatHQ/tracecat/0.8.3/.env.example ```
   </Step>
   <Step title="Execute environment variables migration">
-    Run the environment variables migration script to update your existing `.env` file with any new or changed variables.
-    ```
-    chmod +x env-migration.sh && ./env-migration.sh
-    ```
+    Run the environment variables migration script to update your existing
+    `.env` file with any new or changed variables. ``` chmod +x env-migration.sh
+    && ./env-migration.sh ```
   </Step>
   <Step title="Update Docker Compose Configuration">
-    Download the latest Docker Compose file.
-    ```
-    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.8.2/docker-compose.yml
+    Download the latest Docker Compose file. ``` curl -o docker-compose.yml
+    https://raw.githubusercontent.com/TracecatHQ/tracecat/0.8.3/docker-compose.yml
     ```
   </Step>
   <Step title="Restart Tracecat">
@@ -62,4 +62,5 @@ Then contact us on [Discord](https://discord.gg/n3GF4qxFU8) or email [founders@t
 
 We're releasing a self-serve guide for manual migration in the coming months.
 For the time being, however, we recommend contacting us for one-on-one help!
+
 </Note>
