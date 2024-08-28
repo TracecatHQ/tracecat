@@ -16,11 +16,10 @@ from typing import Any
 import pytest
 import yaml
 from loguru import logger
-from slugify import slugify
-from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
+from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.client import get_temporal_client
@@ -33,7 +32,6 @@ from tracecat.dsl.workflow import (
     retry_policies,
 )
 from tracecat.expressions.shared import ExprContext
-from tracecat.identifiers.resource import ResourcePrefix
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.workflow.management.definitions import (
     WorkflowDefinitionsService,
@@ -46,15 +44,38 @@ SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
 ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
 
 
-TEST_WF_ID = "wf-00000000000000000000000000000000"
+@pytest.fixture
+def dsl(request: pytest.FixtureRequest) -> DSLInput:
+    path: list[Path] = request.param
+    dsl = DSLInput.from_yaml(path)
+    return dsl
 
 
-def generate_test_exec_id(name: str) -> str:
-    return (
-        TEST_WF_ID
-        + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
-        + slugify(name, separator="_")
-    )
+# Fixture to load yaml files from name
+@pytest.fixture
+def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
+    path: Path = request.param
+    with path.open() as f:
+        yaml_data = f.read()
+    data = yaml.safe_load(yaml_data)
+    return {key: (value or {}) for key, value in data.items()}
+
+
+@pytest.fixture
+def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
+    test_name = request.param
+    data_path = DATA_PATH / f"{test_name}.yml"
+    expected_path = DATA_PATH / f"{test_name}_expected.yml"
+    dsl = DSLInput.from_yaml(data_path)
+    expected = load_expected_dsl_output(expected_path)
+    return dsl, expected
+
+
+def load_expected_dsl_output(path: Path) -> dict[str, Any]:
+    with path.open() as f:
+        yaml_data = f.read()
+    data = yaml.safe_load(yaml_data)
+    return {key: (value or {}) for key, value in data.items()}
 
 
 @pytest.fixture
@@ -104,24 +125,6 @@ def mock_registry():
     registry.init()
     yield registry
     counter_gen = counter()  # Reset the counter generator
-
-
-# Fixture to load workflow DSLs from YAML files
-@pytest.fixture
-def dsl(request: pytest.FixtureRequest) -> DSLInput:
-    path: list[Path] = request.param
-    dsl = DSLInput.from_yaml(path)
-    return dsl
-
-
-# Fixture to load yaml files from name
-@pytest.fixture
-def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
-    path: Path = request.param
-    with path.open() as f:
-        yaml_data = f.read()
-    data = yaml.safe_load(yaml_data)
-    return {key: (value or {}) for key, value in data.items()}
 
 
 @pytest.mark.parametrize("dsl", SHARED_TEST_DEFNS, indirect=True)
@@ -215,24 +218,7 @@ async def test_workflow_ordering_is_correct(dsl, temporal_cluster, test_role):
     assert_respectful_exec_order(dsl, result)
 
 
-def _get_expected(path: Path) -> dict[str, Any]:
-    with path.open() as f:
-        yaml_data = f.read()
-    data = yaml.safe_load(yaml_data)
-    return {key: (value or {}) for key, value in data.items()}
-
-
 # Get the paths from the test name
-@pytest.fixture
-def dsl_with_expected(request: pytest.FixtureRequest) -> DSLInput:
-    test_name = request.param
-    data_path = DATA_PATH / f"{test_name}.yml"
-    expected_path = DATA_PATH / f"{test_name}_expected.yml"
-    dsl = DSLInput.from_yaml(data_path)
-    expected = _get_expected(expected_path)
-    return dsl, expected
-
-
 correctness_test_cases = [
     "unit_conditional_adder_tree_skips",
     "unit_conditional_adder_tree_continues",
@@ -368,34 +354,6 @@ async def test_conditional_execution_fails(dsl, temporal_cluster, test_role):
         assert "Operand has no path" in str(e)
 
 
-@pytest.mark.parametrize(
-    "dsl",
-    [DATA_PATH / "unit_error_fatal.yml"],
-    indirect=True,
-)
-@pytest.mark.asyncio
-async def test_execution_fails(dsl, temporal_cluster, test_role):
-    test_name = f"test_fatal_execution-{dsl.title}"
-    wf_exec_id = generate_test_exec_id(test_name)
-    client = await get_temporal_client()
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
-        with pytest.raises(WorkflowFailureError) as e:
-            await client.execute_workflow(
-                DSLWorkflow.run,
-                DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-                id=wf_exec_id,
-                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                retry_policy=retry_policies["workflow:fail_fast"],
-            )
-            assert "Couldn't resolve expression 'ACTIONS.a.result.invalid'" in str(e)
-
-
 @pytest.mark.asyncio
 async def test_child_workflow_success(temporal_cluster, test_role):
     test_name = "unit_child_workflow_parent"
@@ -434,7 +392,7 @@ async def test_child_workflow_success(temporal_cluster, test_role):
     parent_dsl.actions[0].args["workflow_id"] = child_workflow.id
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    expected = _get_expected(expected_path)
+    expected = load_expected_dsl_output(expected_path)
     client = await get_temporal_client()
     async with Worker(
         client,
