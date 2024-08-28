@@ -36,6 +36,22 @@ class ExprType(TracecatEnum):
     TRIGGER = auto()
 
 
+VISITOR_NODE_TO_EXPR_TYPE = {
+    "expression": ExprType.GENERIC,
+    "actions": ExprType.ACTION,
+    "secrets": ExprType.SECRET,
+    "function": ExprType.FUNCTION,
+    "inputs": ExprType.INPUT,
+    "env": ExprType.ENV,
+    "local_vars": ExprType.LOCAL_VARS,
+    "literal": ExprType.LITERAL,
+    "typecast": ExprType.TYPECAST,
+    "iterator": ExprType.ITERATOR,
+    "ternary": ExprType.TERNARY,
+    "trigger": ExprType.TRIGGER,
+}
+
+
 ExprContextType = dict[ExprContext, Any]
 
 

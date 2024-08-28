@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions import functions
-from tracecat.expressions.shared import ExprContext, ExprType
+from tracecat.expressions.shared import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.validation import ExprValidationResult
@@ -75,13 +75,19 @@ class ExprValidator(Visitor):
         """Return all validation errors."""
         return [res for res in self.results() if res.status == "error"]
 
-    def visit_with_locator(self, tree: Tree, loc: str):
+    def visit_with_locator(
+        self, tree: Tree, loc: str, exclude: set[ExprType] | None = None
+    ) -> Any:
         self._loc = loc
+        self._exclude = exclude or set()
         return self.visit(tree)
 
     @override
     def visit(self, tree: Tree) -> Any:
         try:
+            if VISITOR_NODE_TO_EXPR_TYPE.get(tree.data) in self._exclude:
+                logger.trace("Skipping node", node=tree.data)
+                return
             return super().visit(tree)
         except VisitError as e:
             self.handle_error(str(e))

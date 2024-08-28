@@ -185,7 +185,9 @@ async def secret_validator(name: str, key: str) -> ExprValidationResult:
     return ExprValidationResult(status="success", expression_type=ExprType.SECRET)
 
 
-async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
+async def validate_dsl_expressions(
+    dsl: DSLInput, exclude: set[ExprType] | None = None
+) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
         action_refs={a.ref for a in dsl.actions}, inputs_context=dsl.inputs
@@ -201,13 +203,21 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
         for act_stmt in dsl.actions:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
-                expr.validate(visitor, loc=context_locator(act_stmt, "inputs"))
+                expr.validate(
+                    visitor,
+                    loc=context_locator(act_stmt, "inputs"),
+                    exclude=exclude,
+                )
 
             # Validate `run_if`
             if act_stmt.run_if:
                 # At this point the structure should be correct
                 for expr in extract_expressions(act_stmt.run_if):
-                    expr.validate(visitor, loc=context_locator(act_stmt, "run_if"))
+                    expr.validate(
+                        visitor,
+                        loc=context_locator(act_stmt, "run_if"),
+                        exclude=exclude,
+                    )
 
             # Validate `for_each`
             if act_stmt.for_each:
@@ -217,7 +227,9 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
                 for for_each_stmt in stmts:
                     for expr in extract_expressions(for_each_stmt):
                         expr.validate(
-                            visitor, loc=context_locator(act_stmt, "for_each")
+                            visitor,
+                            loc=context_locator(act_stmt, "for_each"),
+                            exclude=exclude,
                         )
     return visitor.errors()
 
@@ -286,6 +298,7 @@ async def validate_dsl(
     validate_args: bool = True,
     validate_expressions: bool = True,
     validate_secrets: bool = True,
+    exclude_exprs: set[ExprType] | None = None,
 ) -> set[ValidationResult]:
     """Validate the DSL at commit time.
 
@@ -309,7 +322,7 @@ async def validate_dsl(
     # 2. For each expression context, cross-reference the expressions API and udf registry
 
     if validate_expressions:
-        expr_errs = await validate_dsl_expressions(dsl)
+        expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
         logger.debug("DSL expression validation errors", errs=expr_errs)
         iterables.append(expr_errs)
 
