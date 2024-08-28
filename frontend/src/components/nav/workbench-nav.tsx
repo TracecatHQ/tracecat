@@ -394,68 +394,72 @@ function WorkflowManualTrigger({
 
   return (
     <Form {...form}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <Tooltip>
-          <PopoverTrigger asChild>
-            <TooltipTrigger asChild>
-              <span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span>
+            <Popover
+              open={open && !disabled}
+              onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
+            >
+              <PopoverTrigger asChild>
                 <Button
                   type="button"
                   variant="outline"
-                  className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+                  className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white disabled:pointer-events-none"
                   disabled={disabled}
+                  onClick={() => !disabled && setOpen(true)}
                 >
                   <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
                   <span>Run</span>
                 </Button>
-              </span>
-            </TooltipTrigger>
-          </PopoverTrigger>
-          <TooltipContent
-            side="bottom"
-            className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
-          >
-            {disabled
-              ? "Please commit changes to enable manual trigger."
-              : "Run the workflow manually without a webhook. Click to configure inputs."}
-          </TooltipContent>
-          <PopoverContent className="w-96 p-3">
-            <form onSubmit={form.handleSubmit(handleSubmit)}>
-              <div className="flex flex-col space-y-2">
-                <span className="text-xs text-muted-foreground">
-                  Edit the JSON payload below.
-                </span>
-                <FormField
-                  control={form.control}
-                  name="payload"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <CustomEditor
-                          className="size-full h-36"
-                          defaultLanguage="yaml"
-                          value={field.value}
-                          onChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              </PopoverTrigger>
+              <PopoverContent className="w-96 p-3">
+                <form onSubmit={form.handleSubmit(handleSubmit)}>
+                  <div className="flex flex-col space-y-2">
+                    <span className="text-xs text-muted-foreground">
+                      Edit the JSON payload below.
+                    </span>
+                    <FormField
+                      control={form.control}
+                      name="payload"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <CustomEditor
+                              className="size-full h-36"
+                              defaultLanguage="yaml"
+                              value={field.value}
+                              onChange={field.onChange}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                <Button
-                  type="submit"
-                  variant="default"
-                  className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
-                >
-                  <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
-                  <span>Run</span>
-                </Button>
-              </div>
-            </form>
-          </PopoverContent>
-        </Tooltip>
-      </Popover>
+                    <Button
+                      type="submit"
+                      variant="default"
+                      className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                    >
+                      <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
+                      <span>Run</span>
+                    </Button>
+                  </div>
+                </form>
+              </PopoverContent>
+            </Popover>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
+        >
+          {disabled
+            ? "Please commit changes to enable manual trigger."
+            : "Run the workflow manually without a webhook. Click to configure inputs."}
+        </TooltipContent>
+      </Tooltip>
     </Form>
   )
 }

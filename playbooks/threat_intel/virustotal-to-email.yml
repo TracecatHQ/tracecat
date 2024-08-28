@@ -20,7 +20,7 @@ definition:
     # Grab the results from the Virustotal API call and send
     # them to an email address
     - ref: send_email_with_virustotal_results
-      action: core.send_email
+      action: core.send_email_smtp
       depends_on:
         - call_virustotal
       args:

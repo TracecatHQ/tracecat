@@ -23,7 +23,7 @@ definition:
           new_status: ${{ TRIGGER.action.value.new_status }}
 
     - ref: update_sentinelone_alerts
-      action: integrations.sentinelone.update_sentinelone_alert_status
+      action: integrations.sentinel_one.update_sentinelone_alert_status
       depends_on:
         - extract_slack_payload
       args:

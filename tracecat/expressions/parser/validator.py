@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions import functions
-from tracecat.expressions.shared import ExprContext, ExprType
+from tracecat.expressions.shared import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logging import logger
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.validation import ExprValidationResult
@@ -46,6 +46,7 @@ class ExprValidator(Visitor):
         self._context = validation_context
         self._results: list[ExprValidationResult] = []
         self._strict = strict
+        self._loc: str = "expression"  # default locator
 
         # External validators
         self._validators = validators or {}
@@ -61,7 +62,9 @@ class ExprValidator(Visitor):
         type: ExprType = ExprType.GENERIC,
     ) -> None:
         self._results.append(
-            ExprValidationResult(status=status, msg=msg, expression_type=type)
+            ExprValidationResult(
+                status=status, msg=f"[{self._loc}]\n\n{msg}", expression_type=type
+            )
         )
 
     def results(self) -> Iterator[ExprValidationResult]:
@@ -72,9 +75,19 @@ class ExprValidator(Visitor):
         """Return all validation errors."""
         return [res for res in self.results() if res.status == "error"]
 
+    def visit_with_locator(
+        self, tree: Tree, loc: str, exclude: set[ExprType] | None = None
+    ) -> Any:
+        self._loc = loc
+        self._exclude = exclude or set()
+        return self.visit(tree)
+
     @override
     def visit(self, tree: Tree) -> Any:
         try:
+            if VISITOR_NODE_TO_EXPR_TYPE.get(tree.data) in self._exclude:
+                logger.trace("Skipping node", node=tree.data)
+                return
             return super().visit(tree)
         except VisitError as e:
             self.handle_error(str(e))
@@ -193,27 +206,26 @@ class ExprValidator(Visitor):
             self.add(status="success", type=ExprType.FUNCTION)
 
     def iterator(self, node: Tree):
-        iter_var_expr, collection, *_ = node.children
+        iter_var_assign_expr, collection, *_ = node.children
         self.logger.trace(
             "Visit iterator expression",
-            iter_var_expr=iter_var_expr,
+            iter_var_expr=iter_var_assign_expr,
             collection=collection,
         )
-        if not re.match(r"^var\.", iter_var_expr):
+        if iter_var_assign_expr.data != "local_vars_assignment":
             self.add(
                 status="error",
-                msg=f"Invalid iterator variable: {iter_var_expr!r}."
-                " Please use `var.your.variable`",
+                msg="Invalid variable assignment in `for_each`."
+                " Please use `var.my_variable`",
                 type=ExprType.ITERATOR,
             )
-        elif not hasattr(collection, "__iter__"):
+        blacklist = ("local_vars", "local_vars_assignment")
+        if collection.data in blacklist:
             self.add(
                 status="error",
-                msg=f"Invalid iterator collection: {collection!r}. Must be an iterable.",
+                msg=f"You cannot use {", ".join(repr(e) for e in blacklist)} expressions in the `for_each` collection.",
                 type=ExprType.ITERATOR,
             )
-        else:
-            self.add(status="success", type=ExprType.ITERATOR)
 
     def ternary(self, node: Tree):
         cond_expr, true_expr, false_expr = node.children
