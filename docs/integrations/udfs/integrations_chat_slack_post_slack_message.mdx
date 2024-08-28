@@ -63,13 +63,13 @@ This is the [JSONSchema7](https://json-schema.org/draft-07/json-schema-release-n
                     "type": "null"
                 }
             ],
+            "default": null,
             "description": "The timestamp of the parent message. Used to create a thread.",
             "title": "Thread Ts"
         }
     },
     "required": [
-        "channel",
-        "thread_ts"
+        "channel"
     ],
     "title": "IntegrationsChatSlackPostSlackMessage",
     "type": "object"

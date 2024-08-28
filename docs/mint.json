@@ -286,14 +286,6 @@
           "group": "core",
           "pages": [
             "integrations/udfs/core_ai_action",
-            {
-              "group": "condition",
-              "pages": [
-                "integrations/udfs/core_condition_compare",
-                "integrations/udfs/core_condition_membership",
-                "integrations/udfs/core_condition_regex"
-              ]
-            },
             "integrations/udfs/core_http_request",
             "integrations/udfs/core_open_case",
             "integrations/udfs/core_send_email_smtp",
@@ -324,6 +316,15 @@
                 "integrations/udfs/etl_extraction_extract_urls"
               ]
             }
+          ]
+        },
+        {
+          "group": "example",
+          "pages": [
+            "integrations/udfs/example_add",
+            "integrations/udfs/example_another_function",
+            "integrations/udfs/example_my_function",
+            "integrations/udfs/example_passthrough"
           ]
         },
         {
