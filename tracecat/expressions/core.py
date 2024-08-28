@@ -5,7 +5,7 @@ from tracecat.expressions import patterns
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidator
-from tracecat.expressions.shared import ExprContext
+from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.types.exceptions import TracecatExpressionError
 
 OperandType = dict[str, Any]
@@ -51,7 +51,13 @@ class Expression:
                 detail=str(e),
             ) from e
 
-    def validate(self, visitor: ExprValidator, *, loc: str | None = None) -> None:
+    def validate(
+        self,
+        visitor: ExprValidator,
+        *,
+        loc: str | None = None,
+        exclude: set[ExprType] | None = None,
+    ) -> None:
         """Validate the expression."""
         # 1) Parse the expression into AST
         try:
@@ -64,7 +70,7 @@ class Expression:
 
         # 2) Validate the AST
         try:
-            return visitor.visit_with_locator(parse_tree, loc=loc)
+            return visitor.visit_with_locator(parse_tree, loc=loc, exclude=exclude)
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",

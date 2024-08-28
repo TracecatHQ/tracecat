@@ -1,5 +1,5 @@
 grammar = r"""
-root: expression
+?root: expression
         | trailing_typecast_expression
         | iterator
 

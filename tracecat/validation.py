@@ -185,7 +185,9 @@ async def secret_validator(name: str, key: str) -> ExprValidationResult:
     return ExprValidationResult(status="success", expression_type=ExprType.SECRET)
 
 
-async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
+async def validate_dsl_expressions(
+    dsl: DSLInput, exclude: set[ExprType] | None = None
+) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
         action_refs={a.ref for a in dsl.actions}, inputs_context=dsl.inputs
@@ -201,13 +203,21 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
         for act_stmt in dsl.actions:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
-                expr.validate(visitor, loc=context_locator(act_stmt, "inputs"))
+                expr.validate(
+                    visitor,
+                    loc=context_locator(act_stmt, "inputs"),
+                    exclude=exclude,
+                )
 
             # Validate `run_if`
             if act_stmt.run_if:
                 # At this point the structure should be correct
                 for expr in extract_expressions(act_stmt.run_if):
-                    expr.validate(visitor, loc=context_locator(act_stmt, "run_if"))
+                    expr.validate(
+                        visitor,
+                        loc=context_locator(act_stmt, "run_if"),
+                        exclude=exclude,
+                    )
 
             # Validate `for_each`
             if act_stmt.for_each:
@@ -217,7 +227,9 @@ async def validate_dsl_expressions(dsl: DSLInput) -> list[ExprValidationResult]:
                 for for_each_stmt in stmts:
                     for expr in extract_expressions(for_each_stmt):
                         expr.validate(
-                            visitor, loc=context_locator(act_stmt, "for_each")
+                            visitor,
+                            loc=context_locator(act_stmt, "for_each"),
+                            exclude=exclude,
                         )
     return visitor.errors()
 
@@ -280,16 +292,28 @@ async def validate_actions_have_defined_secrets(
     return list(chain.from_iterable(tg.results()))
 
 
-async def validate_dsl(dsl: DSLInput) -> set[ValidationResult]:
+async def validate_dsl(
+    dsl: DSLInput,
+    *,
+    validate_args: bool = True,
+    validate_expressions: bool = True,
+    validate_secrets: bool = True,
+    exclude_exprs: set[ExprType] | None = None,
+) -> set[ValidationResult]:
     """Validate the DSL at commit time.
 
     This function calls and combines all results from each validation tier.
     """
-    # Tier 1: Done by pydantic model
+    if not any((validate_args, validate_expressions, validate_secrets)):
+        return set()
+
+    iterables = []
 
     # Tier 2: UDF Args validation
-    dsl_args_errs = validate_dsl_args(dsl)
-    logger.debug("DSL args validation errors", errs=dsl_args_errs)
+    if validate_args:
+        dsl_args_errs = validate_dsl_args(dsl)
+        logger.debug("DSL args validation errors", errs=dsl_args_errs)
+        iterables.append(dsl_args_errs)
 
     # Tier 3: Expression validation
     # When we reach this point, the inputs have been validated properly (ignoring templated expressions)
@@ -297,9 +321,15 @@ async def validate_dsl(dsl: DSLInput) -> set[ValidationResult]:
     # 1. Find all expressions in the inputs
     # 2. For each expression context, cross-reference the expressions API and udf registry
 
-    expr_errs = await validate_dsl_expressions(dsl)
-    logger.debug("DSL expression validation errors", errs=expr_errs)
+    if validate_expressions:
+        expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
+        logger.debug("DSL expression validation errors", errs=expr_errs)
+        iterables.append(expr_errs)
 
     # For secrets we also need to check if any used actions have undefined secrets
-    udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
-    return set(chain(dsl_args_errs, expr_errs, udf_missing_secrets))
+    if validate_secrets:
+        udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
+        logger.debug("DSL secret validation errors", errs=expr_errs)
+        iterables.append(udf_missing_secrets)
+
+    return set(chain(*iterables))

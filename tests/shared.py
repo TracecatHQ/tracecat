@@ -7,8 +7,10 @@ import os
 from pathlib import Path
 
 import httpx
+from slugify import slugify
 
 from tracecat.db.schemas import Secret
+from tracecat.identifiers.resource import ResourcePrefix
 
 
 def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
@@ -116,3 +118,14 @@ def handle_response(res: httpx.Response):
         return res.json()
     except json.JSONDecodeError:
         return res.text
+
+
+TEST_WF_ID = "wf-00000000000000000000000000000000"
+
+
+def generate_test_exec_id(name: str) -> str:
+    return (
+        TEST_WF_ID
+        + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
+        + slugify(name, separator="_")
+    )
