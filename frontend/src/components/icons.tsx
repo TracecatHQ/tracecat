@@ -229,21 +229,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Blend {...rest} />
       </div>
     ),
-    "core.condition.compare": ({ className, ...rest }) => (
-      <div className={cn("bg-orange-100", basicIconsCommon, className)}>
-        <GitCompareArrows {...rest} />
-      </div>
-    ),
-    "core.condition.regex": ({ className, ...rest }) => (
-      <div className={cn("bg-orange-100", basicIconsCommon, className)}>
-        <Regex {...rest} />
-      </div>
-    ),
-    "core.condition.membership": ({ className, ...rest }) => (
-      <div className={cn("bg-orange-100", basicIconsCommon, className)}>
-        <Container {...rest} />
-      </div>
-    ),
     "core.open_case": ({ className, ...rest }) => (
       <div className={cn("bg-rose-100", basicIconsCommon, className)}>
         <ShieldAlert {...rest} />
