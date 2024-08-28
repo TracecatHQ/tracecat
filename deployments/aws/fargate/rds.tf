@@ -16,7 +16,7 @@ resource "aws_db_instance" "core_database" {
 resource "aws_db_instance" "temporal_database" {
   identifier                  = "temporal-database"
   engine                      = "postgres"
-  engine_version              = "13.11"
+  engine_version              = "13.13"
   instance_class              = "${var.db_instance_class}.${var.db_instance_size}"
   allocated_storage           = 5
   storage_type                = "gp2"
