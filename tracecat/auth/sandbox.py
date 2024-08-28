@@ -7,7 +7,7 @@ import os
 from collections.abc import Iterator
 from typing import Literal, Self
 
-from httpx import HTTPStatusError
+import httpx
 from loguru import logger
 
 from tracecat.clients import AuthenticatedAPIClient
@@ -16,6 +16,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
 from tracecat.secrets.encryption import decrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
+from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
 
@@ -103,10 +104,19 @@ class AuthSandbox:
                 if kv.key in os.environ:
                     del os.environ[kv.key]
 
-    async def _get_secrets(self) -> list[Secret]:
+    async def _get_secrets(
+        self, how: Literal["api", "service"] = "service"
+    ) -> list[Secret]:
+        if how == "service":
+            return await self._get_secrets_from_service()
+        if how == "api":
+            return await self._get_secrets_from_api()
+        raise ValueError(f"Invalid value for how: {how}")
+
+    async def _get_secrets_from_api(self) -> list[Secret]:
         """Retrieve secrets from the secrets API."""
 
-        logger.info(
+        logger.debug(
             "Retrieving secrets from the secrets API",
             secret_names=self._secret_paths,
             role=self._role,
@@ -127,7 +137,13 @@ class AuthSandbox:
                             res = await client.get(f"/secrets/{name}")
                             res.raise_for_status()  # Raise an exception for HTTP error codes
                             return res
-                        except HTTPStatusError as e:
+                        except httpx.ConnectError as e:
+                            msg = f"Failed to connect to the secrets API: {e}"
+                            logger.error(msg, detail=str(e), request=e.request)
+                            raise TracecatCredentialsError(
+                                msg, detail={"request": str(e.request)}
+                            ) from e
+                        except httpx.HTTPStatusError as e:
                             msg = (
                                 f"Failed to retrieve secret {name!r}."
                                 f" Please ensure you have set all required secrets: {self._secret_paths}"
@@ -159,3 +175,26 @@ class AuthSandbox:
             Secret.model_validate_json(secret_bytes.content)
             for secret_bytes in tg.results()
         ]
+
+    async def _get_secrets_from_service(self) -> list[Secret]:
+        """Retrieve secrets from the secrets service."""
+        logger.debug(
+            "Retrieving secrets directly from db",
+            secret_names=self._secret_paths,
+            role=self._role,
+        )
+
+        async with SecretsService.with_session(role=self._role) as service:
+            secrets: dict[str, Secret | None] = {}
+            for path in self._secret_paths:
+                name = path.split(".")[0]
+                secrets[name] = await service.get_secret_by_name(name)
+        missing_secret_names = [name for name, secret in secrets.items() if not secret]
+        if missing_secret_names:
+            raise TracecatCredentialsError(
+                "Failed to retrieve secrets", detail=missing_secret_names
+            )
+
+        res = [secret for secret in secrets.values() if secret]
+        logger.info("Retrieved secrets", secrets=res)
+        return res
