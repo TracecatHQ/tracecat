@@ -35,6 +35,10 @@ resource "aws_ecs_task_definition" "api_task_definition" {
         }
       ])
       secrets = local.tracecat_secrets
+      dockerPullConfig = {
+        maxAttempts = 3
+        backoffTime = 10
+      }
     }
   ])
 

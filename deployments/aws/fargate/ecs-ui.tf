@@ -28,6 +28,10 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
         }
       }
       environment = local.ui_env 
+      dockerPullConfig = {
+        maxAttempts = 3
+        backoffTime = 30
+      }
     }
   ])
 }

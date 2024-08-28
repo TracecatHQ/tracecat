@@ -44,6 +44,10 @@ EOT
           awslogs-stream-prefix = "caddy"
         }
       }
+      dockerPullConfig = {
+        maxAttempts = 3
+        backoffTime = 10
+      }
     }
   ])
 }
