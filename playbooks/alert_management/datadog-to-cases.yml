@@ -13,7 +13,7 @@ definition:
   triggers:
     - type: webhook
       ref: datadog_webhook
-      entrypoint: pull_datadog_siem_signals
+      entrypoint: pull_datadog_signals
 
   actions:
     - ref: pull_datadog_signals
@@ -26,9 +26,9 @@ definition:
     - ref: reshape_signals
       action: core.transform.reshape
       depends_on:
-        - pull_datadog_siem_signals
-      run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_siem_signals.result) }}
-      for_each: ${{ for var.signal in ACTIONS.pull_datadog_siem_signals.result }}
+        - pull_datadog_signals
+      run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result) }}
+      for_each: ${{ for var.signal in ACTIONS.pull_datadog_signals.result }}
       args:
         value:
           title: ${{ var.signal.attributes.attributes.title }}
@@ -77,7 +77,7 @@ definition:
       action: core.transform.reshape
       depends_on:
         - pull_datadog_signals
-      run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result) }}
+      run_if: ${{ FN.not_empty(ACTIONS.pull_datadog_signals.result || []) }}
       for_each: ${{ for var.signal in ACTIONS.pull_datadog_signals.result }}
       args:
         value:
@@ -109,4 +109,4 @@ definition:
         # Datadog: critical, high, medium, low, info
         # Tracecat: critical, high, medium, low
         # NOTE: 'info' in Datadog is considered as 'low' in Tracecat
-        priority: ${{ 'low' if FN.equals(var.smac.status, 'info') else var.smac.status }}
+        priority: ${{ 'low' if var.smac.status == 'info' else var.smac.status }}

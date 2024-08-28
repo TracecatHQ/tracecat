@@ -13,23 +13,26 @@ definition:
 
   actions:
     - ref: receive_alert
-      action: core.io.receive_webhook
+      action: core.transform.reshape
       args:
-        webhook: ${{ TRIGGER.webhook }}
+        value:
+          text: ${{ TRIGGER.text }}
 
     - ref: extract_ip_addresses
-      action: integrations.extraction.extract_ipv4_addresses
+      action: etl.extraction.extract_ipv4_addresses
       depends_on:
         - receive_alert
       args:
-        text: ${{ ACTIONS.receive_alert.result.text }}
+        texts:
+          - ${{ ACTIONS.receive_alert.result.text }}
 
     - ref: extract_urls
-      action: integrations.extraction.extract_urls
+      action: etl.extraction.extract_urls
       depends_on:
         - receive_alert
       args:
-        text: ${{ ACTIONS.receive_alert.result.text }}
+        texts:
+          - ${{ ACTIONS.receive_alert.result.text }}
 
     - ref: enrich_ip_addresses
       action: integrations.virustotal.analyze_ip_address
