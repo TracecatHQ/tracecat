@@ -13,6 +13,7 @@ from tracecat.db.schemas import User
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
+from tracecat.expressions.shared import ExprType
 from tracecat.logging import logger
 from tracecat.validation import validate_dsl
 from tracecat.workflow.management.definitions import (
@@ -98,9 +99,23 @@ def create_integrations_secrets(session, test_role):
 @pytest.mark.parametrize(
     "filename",
     [
+        # Alert Management
         "alert_management/aws-guardduty-to-cases.yml",
+        "alert_management/aws-guardduty-to-slack.yml",
+        "alert_management/crowdstrike-to-cases-no-slack.yml",
+        "alert_management/crowdstrike-to-cases.yml",
+        "alert_management/datadog-to-cases.yml",
+        "alert_management/sentinel-one-to-slack.yml",
+        "alert_management/slack-to-crowdstrike-update.yml",
+        "alert_management/slack-to-sentinel-one-update.yml",
+        # Enrichment
+        "enrichment/tag-user-in-slack-scheduled.yml",
+        "enrichment/tag-user-in-slack.yml",
+        "enrichment/triage-using-llms.yml",
+        # Threat Intel
+        "threat_intel/virustotal-to-email.yml",
     ],
-    ids=lambda x: x[0],
+    ids=lambda x: x,
 )
 @pytest.mark.asyncio
 async def test_playbook_validation(session, playbooks_path, filename, test_role):
@@ -112,7 +127,9 @@ async def test_playbook_validation(session, playbooks_path, filename, test_role)
         playbook_defn_data
     )
     dsl = await mgmt_service.build_dsl_from_workflow(workflow)
-    validation_results = await validate_dsl(dsl, validate_secrets=False)
+    validation_results = await validate_dsl(
+        dsl, validate_secrets=False, exclude_exprs={ExprType.SECRET}
+    )
     assert len(validation_results) == 0
 
 
