@@ -34,12 +34,7 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
           value = local.temp_db_hostname
         }
       ])
-      secrets = [
-        {
-          name      = "POSTGRES_PWD"
-          valueFrom = data.aws_secretsmanager_secret_version.temporal_db_password.arn
-        }
-      ]
+      secrets = local.temporal_secrets
 
       runtime_platform = {
         cpu_architecture        = "ARM64"
