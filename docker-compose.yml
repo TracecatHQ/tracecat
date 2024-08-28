@@ -20,7 +20,6 @@ services:
     networks:
       - core
       - core-db
-      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -49,7 +48,6 @@ services:
     networks:
       - core
       - core-db
-      - temporal
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -118,7 +116,7 @@ services:
       - temporal-db
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
-      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}  # Sensitive
     volumes:
       - temporal-db:/var/lib/postgresql/data
 
@@ -127,13 +125,13 @@ services:
     container_name: temporal
     restart: always
     networks:
-      - temporal
+      - core
       - temporal-db
     environment:
       - DB=postgres12
       - DB_PORT=5432
       - POSTGRES_USER=${TEMPORAL__POSTGRES_USER}
-      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}
+      - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD}  # Sensitive
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
     depends_on:
@@ -147,6 +145,5 @@ networks:
   core:
   core-db:
     internal: true
-  temporal:
   temporal-db:
     internal: true
