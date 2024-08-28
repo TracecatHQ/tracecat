@@ -8,6 +8,17 @@ from sqlmodel import SQLModel
 from alembic import context
 from tracecat.db import schemas  # noqa: F401
 
+
+TRACECAT__DB_URI = os.getenv("TRACECAT__DB_URI")
+if not TRACECAT__DB_URI:
+    username = os.getenv("TRACECAT__DB_USER", "postgres")
+    password = os.getenv("TRACECAT__DB_PASS")
+    host = os.getenv("TRACECAT__DB_ENDPOINT")
+    port = os.getenv("TRACECAT__DB_PORT", 5432)
+    database = os.getenv("TRACECAT__DB_NAME", "postgres")
+    TRACECAT__DB_URI = f"postgresql+psycopg://{username}:{password}@{host}:{port!s}/{database}"
+
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -31,9 +42,8 @@ target_metadata = SQLModel.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = os.environ["TRACECAT__DB_URI"]
     context.configure(
-        url=url,
+        url=TRACECAT__DB_URI,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -49,7 +59,7 @@ def run_migrations_online() -> None:
         configuration=config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        url=os.environ["TRACECAT__DB_URI"],
+        url=TRACECAT__DB_URI
     )
 
     with connectable.connect() as connection:
