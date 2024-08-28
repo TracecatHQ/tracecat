@@ -80,4 +80,5 @@ jobs:
       - name: Run tests (headless mode)
         env:
           LOG_LEVEL: WARNING
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: pytest tests/unit tests/playbooks --temporal-no-restart --tracecat-no-restart
