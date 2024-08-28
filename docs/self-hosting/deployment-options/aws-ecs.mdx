@@ -7,9 +7,110 @@ description: Use Terraform to deploy Tracecat into ECS Fargate.
 
 - [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
 - AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
-- A Route53 hosted zone (can be public or private)
+- A public Route53 hosted zone (save the hosted zone's domain name and ID)
+- To create secrets in Secrets Manager, either:
+  - AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
+  - Access to the AWS Management Console.
+
+<Note>
+The open source Terraform stack deploys Tracecat into AWS with a
+public facing application load balancer (ALB) and public hosted zone.
+
+Internal services (e.g. API, worker, databases) are segregrated via private security groups.
+If your security model requires an internal facing ALB and private hosted zone,
+please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for help!
+</Note>
 
 ## Instructions
 
-This Terraform stack is under construction 🚧.
-You can track our progress here in Tracecat's GitHub repo: [pull request #299](https://github.com/TracecatHQ/tracecat/pull/299)
+<Steps>
+  <Step title="Download Terraform stack">
+    Download installation files from the Tracecat GitHub repo: https://github.com/TracecatHQ/tracecat/tree/main/deployments/aws/fargate
+  </Step>
+  <Step title="Create encryption secrets for Tracecat">
+    Tracecat relies on three symmetric encryption keys (`TRACECAT__DB_ENCRYPTION_KEY`, `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`)
+    to sign and encrypt secrets within the application.
+
+    <Tabs>
+      <Tab title="Option 1. Use bash script (recommended)">
+        Download and execute the secrets creation bash script.
+        ```bash
+        curl -o create-aws-secrets.sh https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/fargate/scripts/create-aws-secrets.sh
+        chmod +x create-aws-secrets.sh && ./create-aws-secrets.sh
+        ```
+        View [`create-aws-secrets.sh` file on GitHub](https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/fargate/scripts/create-aws-secrets.sh).
+      </Tab>
+      <Tab title="Option 2. Manual creation">
+        First use the `env.sh` and `.env.example` files to generate the keys:
+        ```bash
+        # Download env installation files from Tracecat repo
+        curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/env.sh
+        curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/.env.example
+        chmod +x env.sh && ./env.sh
+
+        # Extract keys from .env file
+        DB_ENCRYPTION_KEY=$(grep TRACECAT__DB_ENCRYPTION_KEY .env | cut -d '=' -f2)
+        SERVICE_KEY=$(grep TRACECAT__SERVICE_KEY .env | cut -d '=' -f2)
+        SIGNING_SECRET=$(grep TRACECAT__SIGNING_SECRET .env | cut -d '=' -f2)
+        ```
+
+        Then add the created secrets into Secret Manager via AWS CLI or web console:
+        ```
+        # Set default KEY_NAMES if not provided
+        DB_ENCRYPTION_KEY_NAME=${DB_ENCRYPTION_KEY_NAME:-"${APP_ENV:-production}/tracecat/db-encryption-key"}
+        SERVICE_KEY_NAME=${SERVICE_KEY_NAME:-"${APP_ENV:-production}/tracecat/service-key"}
+        SIGNING_SECRET_NAME=${SIGNING_SECRET_NAME:-"${APP_ENV:-production}/tracecat/signing-secret"}
+
+        # Add secrets
+        aws secretsmanager create-secret --name "$DB_ENCRYPTION_KEY_NAME" --secret-string "$DB_ENCRYPTION_KEY" --region "$AWS_DEFAULT_REGION"
+        aws secretsmanager create-secret --name "$SERVICE_KEY_NAME" --secret-string "$SERVICE_KEY" --region "$AWS_DEFAULT_REGION"
+        aws secretsmanager create-secret --name "$SIGNING_SECRET_NAME" --secret-string "$SIGNING_SECRET" --region "$AWS_DEFAULT_REGION"
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Retrieve secret ARNs">
+    Get and store the ARNs of the three created secrets in a secure place.
+    You will need these ARNs to pass into the Terraform stack as variables.
+    
+    You can find the ARNs in the web console:
+    ![secret-arn](/img/fargate-secret-arn.png)
+  </Step>
+  <Step title="Deploy stack">
+    Initialize Terraform and deploy the stack by running the following commands:
+
+    ```bash
+    # Initialize Terraform directory
+    terraform init
+
+    # (Optional) Set Terraform variables via env vars
+    export TF_VAR_domain_name=<your-hosted-zone-domain-name>
+    export TF_VAR_hosted_zone_id=<your-hosted-zone-id>
+    export TF_VAR_tracecat_db_encryption_key_arn=<secret-arn>
+    export TF_VAR_tracecat_service_key_arn=<secret-arn>
+    export TF_VAR_tracecat_signing_secret_arn=<secret-arn>
+
+    # Create Terraform stack
+    terraform apply
+    ```
+    Wait for the Terraform stack to deploy.
+    This can take up to 10 minutes as spinning up new RDS databases can be slow.
+
+    <Tip>
+      You can configure the Tracecat Fargate deployment via Terraform variables.
+      View available configs in the [`variables.tf` file on GitHub](https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/fargate/variables.tf).
+    </Tip>
+
+  </Step>
+  <Step title="Access Tracecat UI">
+    Access the Tracecat UI via `https://<your-hosted-zone-domain-name>`.
+    You can also view Tracecat's API docs via `https://<your-hosted-zone-domain-name>/api/docs`.
+  </Step>
+</Steps>
+
+## Next Steps
+
+- Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
+- Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/introduction).
+- Read `variables.tf` and `locals.tf` files to better understand Tracecat's configurations.
+- (Optional) Configure external-facing webhooks. [View docs](/self-hosting/webhooks).

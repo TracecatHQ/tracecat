@@ -15,7 +15,7 @@ cleanup() {
 # Set up trap to ensure cleanup happens on exit
 trap cleanup EXIT
 
-# Download .env file from tracecat repo
+# Download env installation files from tracecat repo
 curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/env.sh
 curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/.env.example
 chmod +x env.sh && ./env.sh
