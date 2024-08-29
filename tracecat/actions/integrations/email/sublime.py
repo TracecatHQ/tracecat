@@ -58,7 +58,7 @@ async def sublime_analyze_link(
 
 # Message Data / Enrichment Information
 @registry.register(
-    default_title="Get Sublime Alert Details",
+    default_title="Get Alert Details",
     description="Get a Sublime message group (triggered alert) details from canonical (alert) id. This provides you all information in the alert detail, to then run further analysis through ref: https://docs.sublime.security/reference/getmessagegroup",
     display_group="Sublime Security",
     namespace="integrations.sublime",
@@ -73,7 +73,7 @@ async def sublime_message_group(
         return response.json()
 
 @registry.register(
-    default_title="Get Sublime Message Data Model",
+    default_title="Get Message Data Model",
     description="Get a Sublime Email Security message's data model from message_id. This is best ran through your LLM for FULL analysis / determination (at your own risk). ref: https://docs.sublime.security/reference/getmessagedatamodel-1",
     display_group="Sublime Security",
     namespace="integrations.sublime",
@@ -88,7 +88,7 @@ async def sublime_message_data_model(
         return response.json()
 
 @registry.register(
-    default_title="Get Sublime Message Attack Score",
+    default_title="Get Message Attack Score",
     description="Get a Sublime Email Security message's attack score (beta) by message_id. ref: https://docs.sublime.security/reference/getmessagedatamodel-1",
     display_group="Sublime Security",
     namespace="integrations.sublime",
@@ -102,12 +102,26 @@ async def sublime_message_attack_score(
         response.raise_for_status()
         return response.json()
 
+@registry.register(
+    default_title="Search Emails",
+    description="Search a Sublime Email Security message's by identifiers. ref: https://docs.sublime.security/reference/searchmessagegroups-1",
+    display_group="Sublime Security",
+    namespace="integrations.sublime",
+    secrets=[sublime_secret],
+)
+async def sublime_message_search(
+    query: Annotated[str, Field(..., description="The query formatted as 'message_id=...&sender=")] 
+) -> dict[str, Any]:
+    async with create_sublime_client() as client:
+        response = await client.get(MESSAGE_GROUP_ENDPOINT + 'search?' + query)
+        response.raise_for_status()
+        return response.json()
 
 classificationTypes = Literal['malicious', 'benign', 'unwanted', 'simulation', 'skip']
 actionTypes = Literal['restore', 'trash', 'move_to_spam', 'quarantine', 'warning_banner']
 
 @registry.register(
-    default_title="Review Sublime Message Group",
+    default_title="Review Message Group",
     description="Get a Sublime Email Security message's attack score (beta) by message_id. ref: https://docs.sublime.security/reference/getmessagedatamodel-1",
     display_group="Sublime Security",
     namespace="integrations.sublime",
