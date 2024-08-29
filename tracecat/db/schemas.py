@@ -156,6 +156,7 @@ class Secret(Resource, table=True):
     description: str | None = Field(default=None, max_length=255)
     # We store this object as encrypted bytes, but first validate that it's the correct type
     encrypted_keys: bytes
+    environment: str | None = None
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
     owner_id: OwnerID = Field(
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
