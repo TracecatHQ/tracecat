@@ -13,6 +13,12 @@ on:
       - tracecat/**
       - pyproject.toml
       - .github/workflows/test.yml
+  workflow_dispatch:
+    inputs:
+      git-ref:
+        description: "Git Ref (Optional)"
+        required: false
+        default: "main"
 
 permissions:
   contents: read
@@ -22,6 +28,7 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    environment: QA
     steps:
       - uses: actions/checkout@v4
 
@@ -73,4 +80,5 @@ jobs:
       - name: Run tests (headless mode)
         env:
           LOG_LEVEL: WARNING
-        run: pytest tests/unit --temporal-no-restart --tracecat-no-restart
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: pytest tests/unit tests/playbooks --temporal-no-restart --tracecat-no-restart

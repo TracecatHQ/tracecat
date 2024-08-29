@@ -9,7 +9,6 @@ Do not add `from __future__ import annotations` to any action module. This will 
 from tracecat.actions import integrations
 from tracecat.actions.core import (
     cases,
-    condition,
     email,
     example,
     http,
@@ -24,7 +23,6 @@ __all__ = [
     "http",
     "email",
     "llm",
-    "condition",
     "cases",
     "transform",
     "integrations",

@@ -18,6 +18,19 @@ _engine: Engine | None = None
 _async_engine: AsyncEngine | None = None
 
 
+def get_connection_string(
+    *,
+    username: str,
+    password: str,
+    host: str = "postgres_db",
+    port: int | str = 5432,
+    database: str = "postgres",
+    scheme: str = "postgresql",
+    driver: Literal["asyncpg", "psycopg"] = "asyncpg",
+) -> str:
+    return f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
+
+
 def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
     if config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS:
         uri = get_connection_string(
@@ -106,16 +119,3 @@ def get_async_session_context_manager() -> (
     contextlib.AbstractAsyncContextManager[AsyncSession]
 ):
     return contextlib.asynccontextmanager(get_async_session)()
-
-
-def get_connection_string(
-    *,
-    username: str,
-    password: str,
-    host: str = "postgres_db",
-    port: int | str = 5432,
-    database: str = "postgres",
-    scheme: str = "postgresql",
-    driver: Literal["asyncpg", "psycopg"] = "asyncpg",
-) -> str:
-    return f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"

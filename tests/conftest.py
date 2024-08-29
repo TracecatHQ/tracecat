@@ -3,15 +3,20 @@ import os
 import subprocess
 import time
 import uuid
+from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import httpx
 import pytest
+import pytest_asyncio
 from cryptography.fernet import Fernet
 from pytest_mock import MockerFixture
+from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_cli.config import Config, ConfigFileManager
 
-from cli.tracecat_cli.config import Config, ConfigFileManager
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logging import logger
 from tracecat.types.auth import Role
@@ -48,7 +53,18 @@ def check_disable_fixture(request):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureRequest):
+def event_loop():
+    logger.info("Creating event loop")
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def env_sandbox(
+    monkeysession: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+):
     logger.info("Setting up environment variables")
     temporal_compose_file = request.config.getoption("--temporal-compose-file")
 
@@ -78,13 +94,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch, request: pytest.FixtureReques
     yield
     # Cleanup is automatic with monkeypatch
     logger.info("Environment variables cleaned up")
-
-
-@pytest.fixture(autouse=True, scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -231,6 +240,14 @@ def authed_test_client(test_config_manager: ConfigFileManager):
 
 
 @pytest.fixture(autouse=True, scope="session")
+def registry():
+    from tracecat.registry import registry
+
+    registry.init()
+    return registry
+
+
+@pytest.fixture(autouse=True, scope="session")
 def test_admin_user(
     env_sandbox, test_config_manager: ConfigFileManager, authed_test_client
 ):
@@ -300,3 +317,25 @@ def test_workspace(
             with authed_test_client() as client:
                 response = client.delete(f"/workspaces/{workspace.id}")
                 response.raise_for_status()
+
+
+@pytest_asyncio.fixture
+async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
+    """Test session that connexts to a live database."""
+    logger.info("Creating test session")
+    async with get_async_session_context_manager() as session:
+        yield session
+
+
+@pytest.fixture
+def test_workflows_path():
+    return Path(__file__).parent.joinpath("data/workflows")
+
+
+@pytest.fixture(scope="session")
+def temporal_client():
+    from tracecat.dsl.client import get_temporal_client
+
+    loop = asyncio.get_event_loop()
+    client = loop.run_until_complete(get_temporal_client())
+    return client
