@@ -1,13 +1,13 @@
 "use client"
 
-import React, { PropsWithChildren } from "react"
+import React, { PropsWithChildren, useCallback } from "react"
 import { SecretResponse, UpdateSecretParams } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
-import { KeyRoundIcon, PlusCircle, Trash2Icon } from "lucide-react"
-import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
+import { PlusCircle, SaveIcon, Trash2Icon } from "lucide-react"
+import { useFieldArray, useForm } from "react-hook-form"
+import { z } from "zod"
 
-import { createSecretSchema } from "@/types/schemas"
 import { useSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,79 +40,88 @@ interface EditCredentialsDialogProps
   setSelectedSecret: (selectedSecret: SecretResponse | null) => void
 }
 
+export const updateSecretSchema = z.object({
+  name: z.string().optional(),
+  description: z.string().max(255).optional(),
+  keys: z.array(
+    z.object({
+      key: z.string(),
+      value: z.string(),
+    })
+  ),
+})
+
 export function EditCredentialsDialog({
   selectedSecret,
   setSelectedSecret,
   children,
   className,
+  ...props
 }: EditCredentialsDialogProps) {
-  const [showDialog, setShowDialog] = React.useState(false)
   const { updateSecretById } = useSecrets()
-  console.log("EDIT SECRET DIALOG", selectedSecret)
 
   const methods = useForm<UpdateSecretParams>({
-    resolver: zodResolver(createSecretSchema),
-    values: {
-      name: selectedSecret?.name ?? undefined,
-      description: selectedSecret?.description ?? undefined,
-      type: "custom",
-      keys: selectedSecret?.keys.map((key) => ({
-        key,
-        value: "",
-      })) || [{ key: "", value: "" }],
+    resolver: zodResolver(updateSecretSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      keys: [],
     },
   })
   const { control, register } = methods
 
-  const onSubmit = async (values: UpdateSecretParams) => {
-    if (!selectedSecret) {
-      console.error("No secret selected")
-      return
-    }
-    console.log("Submitting edit secret")
-    try {
-      await updateSecretById({
-        secretId: selectedSecret.id,
-        params: values,
-      })
-    } catch (error) {
-      console.error(error)
-    }
-    methods.reset()
-  }
+  const onSubmit = useCallback(
+    async (values: UpdateSecretParams) => {
+      if (!selectedSecret) {
+        console.error("No secret selected")
+        return
+      }
+      // Remove unset values from the params object
+      // We consider empty strings as unset values
+      const params = {
+        name: values.name || undefined,
+        description: values.description || undefined,
+        keys: values.keys || undefined,
+      }
+      console.log("Submitting edit secret", params)
+      try {
+        await updateSecretById({
+          secretId: selectedSecret.id,
+          params,
+        })
+      } catch (error) {
+        console.error(error)
+      }
+      methods.reset()
+      setSelectedSecret(null) // Only unset the selected secret after the form has been submitted
+    },
+    [selectedSecret, setSelectedSecret]
+  )
 
-  const onValidationFailed = () => {
-    console.error("Form validation failed")
+  const onValidationFailed = (errors: unknown) => {
+    console.error("Form validation failed", errors)
     toast({
       title: "Form validation failed",
       description: "A validation error occurred while editing the secret.",
     })
   }
 
-  const inputKey = "keys"
-  const typedKey = inputKey as FieldPath<UpdateSecretParams>
   const { fields, append, remove } = useFieldArray<UpdateSecretParams>({
     control,
-    name: inputKey as ArrayPath<UpdateSecretParams>,
+    name: "keys",
   })
 
   return (
-    <Dialog
-      open={showDialog}
-      onOpenChange={(open) => {
-        if (!open) {
-          setSelectedSecret(null)
-        }
-        setShowDialog(open)
-      }}
-    >
+    <Dialog {...props}>
       {children}
       <DialogContent className={className}>
         <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
-          <DialogDescription>
-            <b className="inline-block">NOTE</b>: This feature is a work in
-            progress.
+          <DialogDescription className="flex flex-col">
+            <span>
+              Leave a field blank to keep its existing value. You must update
+              all keys at once.
+            </span>
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
@@ -125,14 +134,18 @@ export function EditCredentialsDialog({
                 render={() => (
                   <FormItem>
                     <FormLabel className="text-sm">Name</FormLabel>
+
                     <FormControl>
                       <Input
                         className="text-sm"
-                        placeholder="Name (snake case)"
+                        placeholder={selectedSecret?.name || "Name"}
                         {...register("name")}
                       />
                     </FormControl>
                     <FormMessage />
+                    <span className="text-xs text-foreground/50">
+                      {!methods.watch("name") && "Name will be left unchanged."}
+                    </span>
                   </FormItem>
                 )}
               />
@@ -143,92 +156,101 @@ export function EditCredentialsDialog({
                 render={() => (
                   <FormItem>
                     <FormLabel className="text-sm">Description</FormLabel>
-                    <FormDescription className="text-sm">
-                      A description for this secret.
-                    </FormDescription>
                     <FormControl>
                       <Input
                         className="text-sm"
-                        placeholder="Description"
+                        placeholder={
+                          selectedSecret?.description || "Description"
+                        }
                         {...register("description")}
                       />
                     </FormControl>
                     <FormMessage />
+                    <span className="text-xs text-foreground/50">
+                      {!methods.watch("description") &&
+                        "Description will be left unchanged."}
+                    </span>
                   </FormItem>
                 )}
               />
-              <FormField
-                key={inputKey}
-                control={control}
-                name={typedKey}
-                render={() => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Keys</FormLabel>
-                    <div className="flex flex-col space-y-2">
-                      {fields.map((field, index) => {
-                        return (
-                          <div
-                            key={`${field.id}.${index}`}
-                            className="flex w-full items-center gap-2"
-                          >
+              <FormItem>
+                <FormLabel className="text-sm">Keys</FormLabel>
+
+                {fields.length > 0 &&
+                  fields.map((keysItem, index) => (
+                    <div
+                      key={keysItem.id}
+                      className="flex items-center justify-between"
+                    >
+                      <FormField
+                        key={`keys.${index}.key`}
+                        control={control}
+                        name={`keys.${index}.key`}
+                        render={({ field }) => (
+                          <FormItem>
                             <FormControl>
                               <Input
                                 id={`key-${index}`}
                                 className="text-sm"
-                                {...register(
-                                  `${inputKey}.${index}.key` as const,
-                                  {
-                                    required: true,
-                                  }
-                                )}
-                                placeholder="Key"
+                                placeholder={"Key"}
+                                {...field}
                               />
                             </FormControl>
-                            <FormControl>
-                              <Input
-                                id={`value-${index}`}
-                                className="text-sm"
-                                {...register(
-                                  `${inputKey}.${index}.value` as const,
-                                  {
-                                    required: true,
-                                  }
-                                )}
-                                placeholder="••••••••••••••••"
-                                type="password"
-                              />
-                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => remove(index)}
-                              disabled={fields.length === 1}
-                            >
-                              <Trash2Icon className="size-3.5" />
-                            </Button>
-                          </div>
-                        )
-                      })}
+                      <FormField
+                        key={`keys.${index}.value`}
+                        control={control}
+                        name={`keys.${index}.value`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="flex flex-col space-y-2">
+                              <FormControl>
+                                <Input
+                                  id={`value-${index}`}
+                                  className="text-sm"
+                                  placeholder="••••••••••••••••"
+                                  type="password"
+                                  {...field}
+                                />
+                              </FormControl>
+                            </div>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                       <Button
                         type="button"
-                        variant="outline"
-                        onClick={() => append({ key: "", value: "" })}
-                        className="space-x-2 text-xs"
+                        variant="ghost"
+                        onClick={() => remove(index)}
                       >
-                        <PlusCircle className="mr-2 size-4" />
-                        Add Item
+                        <Trash2Icon className="size-3.5" />
                       </Button>
                     </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  ))}
+              </FormItem>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => append({ key: "", value: "" })}
+                className="w-full space-x-2 text-xs text-foreground/80"
+              >
+                <PlusCircle className="mr-2 size-4" />
+                Add Item
+              </Button>
+              {fields.length === 0 && (
+                <span className="text-xs text-foreground/50">
+                  Secrets will be left unchanged.
+                </span>
+              )}
               <DialogFooter>
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
-                    <KeyRoundIcon className="mr-2 size-4" />
-                    Create Secret
+                    <SaveIcon className="mr-2 size-4" />
+                    Save
                   </Button>
                 </DialogClose>
               </DialogFooter>
