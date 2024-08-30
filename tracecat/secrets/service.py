@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Secret
+from tracecat.identifiers import SecretID
 from tracecat.logging import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import (
@@ -76,7 +77,7 @@ class SecretsService:
     ) -> Secret | None: ...
 
     async def get_secret_by_id(
-        self, secret_id: str, raise_on_none: bool = False
+        self, secret_id: SecretID, raise_on_none: bool = False
     ) -> Secret | None:
         statement = select(Secret).where(
             Secret.owner_id == self.role.workspace_id, Secret.id == secret_id
@@ -128,16 +129,16 @@ class SecretsService:
         await self._update_secret(secret=secret, params=params)
 
     async def update_secret_by_id(
-        self, secret_id: str, params: UpdateSecretParams
+        self, secret_id: SecretID, params: UpdateSecretParams
     ) -> None:
-        secret = await self.get_secret_by_name(secret_id, raise_on_none=True)
+        secret = await self.get_secret_by_id(secret_id, raise_on_none=True)
         await self._update_secret(secret=secret, params=params)
 
     async def delete_secret_by_name(self, secret_name: str) -> None:
         secret = await self.get_secret_by_name(secret_name, raise_on_none=True)
         await self._delete_secret(secret)
 
-    async def delete_secret_by_id(self, secret_id: str) -> None:
+    async def delete_secret_by_id(self, secret_id: SecretID) -> None:
         secret = await self.get_secret_by_id(secret_id, raise_on_none=True)
         await self._delete_secret(secret)
 
