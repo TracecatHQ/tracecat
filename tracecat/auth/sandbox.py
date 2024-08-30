@@ -8,12 +8,12 @@ from collections.abc import Iterator
 from typing import Literal, Self
 
 import httpx
-from loguru import logger
 
 from tracecat.clients import AuthenticatedAPIClient
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
+from tracecat.logging import logger
 from tracecat.secrets.encryption import decrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -88,7 +88,9 @@ class AuthSandbox:
                 objs=self._secret_objs,
             )
             for name, kv in self._iter_secrets():
-                self._context[name] = {kv.key: kv.value.get_secret_value()}
+                if name not in self._context:
+                    self._context[name] = {}
+                self._context[name][kv.key] = kv.value.get_secret_value()
         else:
             logger.info("Setting secrets in the environment", paths=self._secret_paths)
             for _, kv in self._iter_secrets():
@@ -186,9 +188,11 @@ class AuthSandbox:
 
         async with SecretsService.with_session(role=self._role) as service:
             secrets: dict[str, Secret | None] = {}
+            logger.info("Retrieving secrets", secret_names=self._secret_paths)
             for path in self._secret_paths:
                 name = path.split(".")[0]
                 secrets[name] = await service.get_secret_by_name(name)
+        logger.info("Retrieved secrets", secrets=secrets)
         missing_secret_names = [name for name, secret in secrets.items() if not secret]
         if missing_secret_names:
             raise TracecatCredentialsError(
