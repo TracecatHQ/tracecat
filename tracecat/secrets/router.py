@@ -46,7 +46,7 @@ async def list_secrets(
 
 
 @router.get("/{secret_name}", tags=["secrets"])
-async def get_secret(
+async def get_secret_by_name(
     # NOTE(auth): Worker service can also access secrets
     role: Annotated[Role, Depends(authenticate_user_or_service_for_workspace)],
     secret_name: str,
@@ -112,12 +112,14 @@ async def update_secret_by_id(
     """Update a secret by ID."""
     service = SecretsService(session, role)
     try:
-        await service.update_secret_by_name(secret_id=secret_id, params=params)
+        await service.update_secret_by_id(secret_id=secret_id, params=params)
     except NoResultFound as e:
+        logger.error("Secret not found", secret_id=secret_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
         ) from e
     except IntegrityError as e:
+        logger.info("Secret already exists", secret_id=secret_id)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         ) from e
