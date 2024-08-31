@@ -1,11 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.api.dependencies import (
-    AsyncDBSession,
-    WorkspaceUserOrServiceRole,
-    WorkspaceUserRole,
-)
+from tracecat.auth.dependencies import WorkspaceUserOrServiceRole, WorkspaceUserRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Secret
 from tracecat.identifiers import SecretID
 from tracecat.logging import logger

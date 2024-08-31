@@ -1,13 +1,10 @@
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 
-from tracecat.api.dependencies import (
-    AsyncDBSession,
-    WorkspaceUserOrServiceRole,
-    WorkspaceUserRole,
-)
+from tracecat.auth.dependencies import WorkspaceUserOrServiceRole, WorkspaceUserRole
 from tracecat.cases.models import CaseCreate, CaseEventCreate, CaseRead, CaseUpdate
 from tracecat.cases.service import CaseEventsService, CaseManagementService
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import CaseEvent
 from tracecat.identifiers import CaseEventID, CaseID, WorkflowID
 
