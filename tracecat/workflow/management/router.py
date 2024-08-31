@@ -47,11 +47,14 @@ from tracecat.workflow.management.models import (
 
 router = APIRouter(prefix="/workflows")
 
+WorkspaceUserRole = Annotated[Role, Depends(authenticate_user_for_workspace)]
+AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
+
 
 @router.get("", tags=["workflows"])
 async def list_workflows(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    session: AsyncSession = Depends(get_async_session),
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
 ) -> list[WorkflowMetadataResponse]:
     """List workflows."""
     service = WorkflowsManagementService(session, role=role)
@@ -73,11 +76,11 @@ async def list_workflows(
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 async def create_workflow(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     title: str | None = Form(None),
     description: str | None = Form(None),
     file: UploadFile | None = File(None),
-    session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowMetadataResponse:
     """Create a new Workflow.
 
@@ -157,9 +160,9 @@ async def create_workflow(
 
 @router.get("/{workflow_id}", tags=["workflows"])
 async def get_workflow(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowResponse:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     # Get Workflow given workflow_id
@@ -167,7 +170,7 @@ async def get_workflow(
     workflow = await service.get_workflow(workflow_id)
     if not workflow:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
         )
 
     actions = workflow.actions or []
@@ -175,6 +178,7 @@ async def get_workflow(
         action.id: ActionResponse(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
+    logger.info("Getting workflow", workflow=workflow)
     return WorkflowResponse(
         **workflow.model_dump(),
         actions=actions_responses,
@@ -189,14 +193,15 @@ async def get_workflow(
     tags=["workflows"],
 )
 async def update_workflow(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
     params: UpdateWorkflowParams,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Update a workflow."""
     service = WorkflowsManagementService(session, role=role)
     try:
+        logger.info("Updating workflow", workflow_id=workflow_id, params=params)
         await service.update_wrkflow(workflow_id, params=params)
     except NoResultFound as e:
         raise HTTPException(
@@ -210,9 +215,9 @@ async def update_workflow(
     tags=["workflows"],
 )
 async def delete_workflow(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a workflow."""
 
@@ -227,9 +232,9 @@ async def delete_workflow(
 
 @router.post("/{workflow_id}/commit", tags=["workflows"])
 async def commit_workflow(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> CommitWorkflowResponse:
     """Commit a workflow.
 
@@ -319,7 +324,8 @@ async def commit_workflow(
 
 @router.get("/{workflow_id}/export", tags=["workflows"])
 async def export_workflow(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
     format: Literal["json", "yaml"] = Query(
         default="json", description="Export format: 'json' or 'yaml'"
@@ -328,7 +334,6 @@ async def export_workflow(
         default=None,
         description="Workflow definition version. If not provided, the latest version is exported.",
     ),
-    session: AsyncSession = Depends(get_async_session),
 ):
     """
     Export a workflow's current state and optionally its definitions and logs.
@@ -371,9 +376,9 @@ async def export_workflow(
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 async def list_workflow_definitions(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> list[WorkflowDefinition]:
     """List all workflow definitions for a Workflow."""
     service = WorkflowDefinitionsService(session, role=role)
@@ -382,10 +387,10 @@ async def list_workflow_definitions(
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 async def get_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
     version: int | None = None,
-    session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
     service = WorkflowDefinitionsService(session, role=role)
@@ -401,9 +406,9 @@ async def get_workflow_definition(
 
 @router.post("/{workflow_id}/definition", tags=["workflows"])
 async def create_workflow_definition(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
     service = WorkflowDefinitionsService(session, role=role)
@@ -419,10 +424,10 @@ async def create_workflow_definition(
     tags=["triggers"],
 )
 async def create_webhook(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
     params: UpsertWebhookParams,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Create a webhook for a workflow."""
 
@@ -439,9 +444,9 @@ async def create_webhook(
 
 @router.get("/{workflow_id}/webhook", tags=["triggers"])
 async def get_webhook(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> WebhookResponse:
     """Get the webhook from a workflow."""
     statement = select(Webhook).where(
@@ -464,10 +469,10 @@ async def get_webhook(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def update_webhook(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     workflow_id: WorkflowID,
     params: UpsertWebhookParams,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     result = await session.exec(
