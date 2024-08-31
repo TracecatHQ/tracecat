@@ -90,20 +90,31 @@ class SecretsService:
 
     @overload
     async def get_secret_by_name(
-        self, secret_name: str, raise_on_none: Literal[True]
+        self,
+        secret_name: str,
+        raise_on_none: Literal[True],
+        environment: str | None = None,
     ) -> Secret: ...
 
     @overload
     async def get_secret_by_name(
-        self, secret_name: str, raise_on_none: Literal[False]
+        self,
+        secret_name: str,
+        raise_on_none: Literal[False],
+        environment: str | None = None,
     ) -> Secret | None: ...
 
     async def get_secret_by_name(
-        self, secret_name: str, raise_on_none: bool = False
+        self,
+        secret_name: str,
+        raise_on_none: bool = False,
+        environment: str | None = None,
     ) -> Secret | None:
         statement = select(Secret).where(
             Secret.owner_id == self.role.workspace_id, Secret.name == secret_name
         )
+        if environment:
+            statement = statement.where(Secret.environment == environment)
         result = await self.session.exec(statement)
         secret = result.one_or_none()
         if not secret and raise_on_none:

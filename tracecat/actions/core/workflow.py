@@ -35,6 +35,12 @@ async def execute(
             description="The inputs to pass to the child workflow.",
         ),
     ],
+    env: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="The environment variables to pass to the child workflow.",
+        ),
+    ] = None,
     version: Annotated[
         int | None,
         Field(..., description="The version of the child workflow definition, if any."),

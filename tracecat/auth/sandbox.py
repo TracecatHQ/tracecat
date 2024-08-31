@@ -35,12 +35,14 @@ class AuthSandbox:
         role: Role | None = None,
         secrets: list[str] | None = None,
         target: Literal["env", "context"] = "env",
+        environment: str | None = None,
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
         self._secret_objs: list[Secret] = []
         self._target = target
         self._context = {}
+        self._environment = environment
         self._encryption_key = os.getenv("TRACECAT__DB_ENCRYPTION_KEY")
         if not self._encryption_key:
             raise ValueError("TRACECAT__DB_ENCRYPTION_KEY is not set")
@@ -191,8 +193,9 @@ class AuthSandbox:
             logger.info("Retrieving secrets", secret_names=self._secret_paths)
             for path in self._secret_paths:
                 name = path.split(".")[0]
-                secrets[name] = await service.get_secret_by_name(name)
-        logger.info("Retrieved secrets", secrets=secrets)
+                secrets[name] = await service.get_secret_by_name(
+                    name, environment=self._environment
+                )
         missing_secret_names = [name for name, secret in secrets.items() if not secret]
         if missing_secret_names:
             raise TracecatCredentialsError(
