@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Literal, overload
 
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -108,6 +108,7 @@ class SecretsService:
         self,
         secret_name: str,
         raise_on_none: bool = False,
+        raise_on_multiple: bool = False,
         environment: str | None = None,
     ) -> Secret | None:
         statement = select(Secret).where(
@@ -116,9 +117,16 @@ class SecretsService:
         if environment:
             statement = statement.where(Secret.environment == environment)
         result = await self.session.exec(statement)
-        secret = result.one_or_none()
-        if not secret and raise_on_none:
-            raise NoResultFound("Secret not found when searching by name")
+        try:
+            secret = result.one()
+        except MultipleResultsFound as e:
+            if raise_on_multiple:
+                raise MultipleResultsFound(
+                    "Multiple secrets found when searching by name"
+                ) from e
+        except NoResultFound as e:
+            if raise_on_none:
+                raise NoResultFound("Secret not found when searching by name") from e
         return secret
 
     async def create_secret(self, params: CreateSecretParams) -> None:
