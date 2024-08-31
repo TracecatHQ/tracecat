@@ -60,11 +60,28 @@ class ActionStatement(BaseModel):
 
 
 class DSLConfig(BaseModel):
-    scheduler: Literal["static", "dynamic"] = "dynamic"
+    scheduler: Literal["static", "dynamic"] = Field(
+        default="dynamic",
+        description="The type of scheduler to use.",
+        exclude=True,  # Exclude from serialization
+    )
     enable_runtime_tests: bool = Field(
         default=False,
         description="Enable runtime action tests. This is dynamically set on workflow entry.",
+        exclude=True,  # Exclude from serialization
     )
+    environment: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "The workflow's target execution environment. "
+                "This is used as an isolation boundary for credentials and other secrets."
+                "If not provided, the default environment is used. "
+            ),
+        ),
+        TemplateValidator(),
+    ]
 
 
 class Trigger(BaseModel):

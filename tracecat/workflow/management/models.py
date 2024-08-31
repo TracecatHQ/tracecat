@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Schedule, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.types.api import (
     ActionResponse,
@@ -37,7 +37,7 @@ class WorkflowResponse(BaseModel):
     entrypoint: str | None
     static_inputs: dict[str, Any]
     returns: Any
-    config: dict[str, Any] | None
+    config: DSLConfig | None
 
 
 class UpdateWorkflowParams(BaseModel):
@@ -50,6 +50,7 @@ class UpdateWorkflowParams(BaseModel):
     icon_url: str | None = None
     static_inputs: dict[str, Any] | None = None
     returns: Any | None = None
+    config: DSLConfig | None = None
 
 
 class WorkflowMetadataResponse(BaseModel):

@@ -35,10 +35,14 @@ async def execute(
             description="The inputs to pass to the child workflow.",
         ),
     ],
-    env: Annotated[
-        dict[str, Any] | None,
+    environment: Annotated[
+        str | None,
         Field(
-            description="The environment variables to pass to the child workflow.",
+            description=(
+                "The child workflow's target execution environment. "
+                "This is used as an isolation boundary for credentials and other secrets."
+                "If not provided, the default environment is used. "
+            ),
         ),
     ] = None,
     version: Annotated[

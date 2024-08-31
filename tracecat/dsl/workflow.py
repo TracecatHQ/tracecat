@@ -64,7 +64,7 @@ class DSLContext(TypedDict, total=False):
     TRIGGER: dict[str, Any]
     """DSL Trigger dynamic inputs context"""
 
-    ENV: dict[str, Any]
+    ENV: DSLEnvironment
     """DSL Environment context. Has metadata about the workflow."""
 
     @staticmethod
@@ -80,6 +80,19 @@ class DSLContext(TypedDict, total=False):
             TRIGGER=TRIGGER or {},
             ENV=ENV or {},
         )
+
+
+class DSLEnvironment(TypedDict, total=False):
+    """DSL Environment context. Has metadata about the workflow."""
+
+    workflow: dict[str, Any]
+    """Metadata about the workflow."""
+
+    environment: str | None
+    """Target environment for the workflow."""
+
+    variables: dict[str, Any]
+    """Environment variables."""
 
 
 class DSLExecutionError(TypedDict, total=False):
@@ -343,11 +356,19 @@ class DSLWorkflow:
         ctx_logger.set(self.logger)
 
         self.dsl = args.dsl
+        # XXX: We need to set the ENV context here.
+        # Likely need an activity that sets the ENV context
         self.context = DSLContext(
             ACTIONS={},
             INPUTS=self.dsl.inputs,
             TRIGGER=args.trigger_inputs or {},
-            ENV={"workflow": {"start_time": wf_info.start_time}},
+            ENV=DSLEnvironment(
+                workflow={
+                    "start_time": wf_info.start_time,
+                },
+                environment=self.dsl.config.environment,
+                variables={},
+            ),
         )
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
