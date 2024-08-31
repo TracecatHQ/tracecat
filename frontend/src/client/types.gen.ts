@@ -252,6 +252,10 @@ export type DSLConfig = {
      * Enable runtime action tests. This is dynamically set on workflow entry.
      */
     enable_runtime_tests?: boolean;
+    /**
+     * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used.
+     */
+    environment?: string | null;
 };
 
 export type scheduler = 'static' | 'dynamic';
@@ -532,6 +536,7 @@ export type Secret = {
     name: string;
     description?: string | null;
     encrypted_keys: (Blob | File);
+    environment?: string | null;
     tags: {
     [key: string]: (string);
 } | null;
@@ -654,6 +659,7 @@ export type UpdateWorkflowParams = {
     [key: string]: unknown;
 } | null;
     returns?: unknown | null;
+    config?: DSLConfig | null;
 };
 
 export type UpdateWorkspaceParams = {
@@ -832,9 +838,7 @@ export type WorkflowResponse = {
         [key: string]: unknown;
     };
     returns: unknown;
-    config: {
-    [key: string]: unknown;
-} | null;
+    config: DSLConfig | null;
 };
 
 export type WorkspaceMember = {

@@ -10,6 +10,7 @@ import { ApiError, WorkflowResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
   FileInputIcon,
+  FileSliders,
   Info,
   SaveIcon,
   Settings2Icon,
@@ -55,6 +56,17 @@ import { CustomEditor } from "@/components/editor"
 const workflowConfigFormSchema = z.object({
   title: z.string(),
   description: z.string(),
+  config: z.string().transform((val, ctx) => {
+    try {
+      return YAML.parse(val) || {}
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid YAML format",
+      })
+      return z.NEVER
+    }
+  }),
   static_inputs: z.string().transform((val, ctx) => {
     try {
       return YAML.parse(val) || {}
@@ -88,11 +100,17 @@ export function WorkflowForm({
 }): React.JSX.Element {
   const router = useRouter()
   const { updateWorkflow: update } = useWorkflow()
+  console.log("workflow", workflow)
   const form = useForm<WorkflowConfigForm>({
     resolver: zodResolver(workflowConfigFormSchema),
     defaultValues: {
       title: workflow.title || "",
       description: workflow.description || "",
+      config: isEmptyObjectOrNullish(workflow.config)
+        ? YAML.stringify({
+            environment: null,
+          })
+        : YAML.stringify(workflow.config),
       static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
         ? ""
         : YAML.stringify(workflow.static_inputs),
@@ -142,6 +160,7 @@ export function WorkflowForm({
           type="multiple"
           defaultValue={[
             "workflow-settings",
+            "workflow-config",
             "workflow-static-inputs",
             "workflow-returns",
           ]}
@@ -190,7 +209,7 @@ export function WorkflowForm({
                   )}
                 />
                 <div className="space-y-2">
-                  <FormLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <FormLabel className="flex items-center gap-2 text-xs">
                     <span>Workflow ID</span>
                     <CopyButton
                       value={workflow.id}
@@ -209,13 +228,76 @@ export function WorkflowForm({
               </div>
             </AccordionContent>
           </AccordionItem>
+          <AccordionItem value="workflow-config">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-center">
+                <FileSliders className="mr-3 size-4" />
+                <span>Configuration</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="flex flex-col space-y-4 px-4">
+                <div className="flex items-center">
+                  <HoverCard openDelay={100} closeDelay={100}>
+                    <HoverCardTrigger asChild className="hover:border-none">
+                      <Info className="mr-1 size-3 stroke-muted-foreground" />
+                    </HoverCardTrigger>
+                    {/* Config tooltip */}
+                    <HoverCardContent
+                      className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                      side="left"
+                      sideOffset={20}
+                    >
+                      <div className="w-full space-y-4">
+                        <div className="flex w-full items-center justify-between text-muted-foreground ">
+                          <span className="font-mono text-sm font-semibold">
+                            Runtime configuration
+                          </span>
+                          <span className="text-xs text-muted-foreground/80">
+                            (optional)
+                          </span>
+                        </div>
+                        <div className="flex w-full flex-col items-center justify-between space-y-4 text-muted-foreground">
+                          <span>
+                            Configuration that modifies the runtime behavior of
+                            services.
+                          </span>
+                          <span className="w-full text-muted-foreground">
+                            Usage example in expressions:
+                          </span>
+                        </div>
+                        <div className="rounded-md border bg-muted-foreground/10 p-2">
+                          <pre className="text-xs text-foreground/70">
+                            {"${{ INPUTS.my_static_key }}"}
+                          </pre>
+                        </div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+                  <span className="text-xs text-muted-foreground">
+                    Define runtime configuration for the workflow.
+                  </span>
+                </div>
+                <Controller
+                  name="config"
+                  control={form.control}
+                  render={({ field }) => (
+                    <CustomEditor
+                      className="h-48 w-full"
+                      defaultLanguage="yaml"
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
           <AccordionItem value="workflow-static-inputs">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
                 <Undo2Icon className="mr-3 size-4" />
-                <span className="capitalize">
-                  Output Schema
-                </span>
+                <span className="capitalize">Output Schema</span>
               </div>
             </AccordionTrigger>
             <AccordionContent>
@@ -238,8 +320,8 @@ export function WorkflowForm({
                   </span>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                    If undefined, the entire workflow run context is returned.
-                  </span>
+                  If undefined, the entire workflow run context is returned.
+                </span>
                 <Controller
                   name="returns"
                   control={form.control}
@@ -255,6 +337,7 @@ export function WorkflowForm({
               </div>
             </AccordionContent>
           </AccordionItem>
+
           <AccordionItem value="workflow-returns">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
@@ -330,15 +413,12 @@ function WorkflowReturnValueTooltip() {
   return (
     <div className="flex w-full flex-col space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground">
-        <span className="font-mono text-sm font-semibold">
-          Output Schema
-        </span>
+        <span className="font-mono text-sm font-semibold">Output Schema</span>
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <span className="w-full text-muted-foreground">
-        Define the data returned by the workflow.
-        Accepts static values and expressions.
-        Use expressions to reference specific action outputs.
+        Define the data returned by the workflow. Accepts static values and
+        expressions. Use expressions to reference specific action outputs.
       </span>
       <span className="w-full text-muted-foreground">
         Usage example in expressions:

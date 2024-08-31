@@ -861,6 +861,18 @@ export const $DSLConfig = {
             title: 'Enable Runtime Tests',
             description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
             default: false
+        },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment',
+            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used. "
         }
     },
     type: 'object',
@@ -1779,6 +1791,17 @@ export const $Secret = {
             format: 'binary',
             title: 'Encrypted Keys'
         },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment'
+        },
         tags: {
             anyOf: [
                 {
@@ -2282,6 +2305,16 @@ export const $UpdateWorkflowParams = {
                 }
             ],
             title: 'Returns'
+        },
+        config: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/DSLConfig'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',
@@ -2977,13 +3010,12 @@ export const $WorkflowResponse = {
         config: {
             anyOf: [
                 {
-                    type: 'object'
+                    '$ref': '#/components/schemas/DSLConfig'
                 },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Config'
+            ]
         }
     },
     type: 'object',
