@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from typing import Literal, overload
 
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.contexts import ctx_role
@@ -168,3 +168,23 @@ class SecretsService:
     def encrypt_keys(self, keys: list[SecretKeyValue]) -> bytes:
         """Encrypt and return the keys for a secret."""
         return encrypt_keyvalues(keys, key=self._encryption_key)
+
+    async def search_secrets(
+        self,
+        *,
+        ids: Sequence[SecretID] | None = None,
+        names: Sequence[str] | None = None,
+        environment: Sequence[str] | None = None,
+    ) -> Sequence[Secret]:
+        """Search secrets by name."""
+        if not any((ids, names, environment)):
+            return []
+        statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
+        if ids:
+            statement = statement.where(col(Secret.id).in_(ids))
+        if names:
+            statement = statement.where(col(Secret.name).in_(names))
+        if environment:
+            statement = statement.where(col(Secret.environment).in_(environment))
+        result = await self.session.exec(statement)
+        return result.all()
