@@ -36,7 +36,7 @@ definition:
 
     - ref: enrich_ip_addresses
       action: integrations.virustotal.analyze_ip_address
-      for_each: ${{ for var.ip_address in ACTIONS.extract_iocs.result.ip_addresses }}
+      for_each: ${{ for var.ip_address in ACTIONS.extract_ip_addresses.result }}
       depends_on:
         - extract_ip_addresses
       args:
@@ -44,7 +44,7 @@ definition:
 
     - ref: enrich_urls
       action: integrations.virustotal.analyze_url
-      for_each: ${{ for var.url in ACTIONS.extract_iocs.result.urls }}
+      for_each: ${{ for var.url in ACTIONS.extract_urls.result }}
       depends_on:
         - extract_urls
       args:

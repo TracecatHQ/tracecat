@@ -286,6 +286,10 @@ class WorkflowsManagementService:
                 inputs=act_stmt.args,
                 title=act_stmt.title,
                 description=act_stmt.description,
+                control_flow={
+                    "run_if": act_stmt.run_if,
+                    "for_each": act_stmt.for_each,
+                },
             )
             actions.append(new_action)
             self.session.add(new_action)
