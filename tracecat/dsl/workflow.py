@@ -432,46 +432,9 @@ class DSLWorkflow:
                     child_run_args = DSLRunArgs.model_validate(child_run_args_data)
 
                     if task.for_each:
-                        loop_strategy = LoopStrategy(
-                            task.args.get("loop_strategy", "parallel")
+                        action_result = await self._execute_child_workflow_loop(
+                            task=task, child_run_args=child_run_args
                         )
-                        logger.trace(
-                            "Executing child workflow in loop",
-                            dsl_run_args=child_run_args,
-                            loop_strategy=loop_strategy,
-                        )
-
-                        iterator = iter_for_each(task=task, context=self.context)
-                        if loop_strategy == LoopStrategy.PARALLEL:
-                            action_result = await self._execute_workflow_batch(
-                                batch=iterator,
-                                run_args=child_run_args,
-                                fail_strategy=task.args.get(
-                                    "fail_strategy", "isolated"
-                                ),
-                            )
-
-                        elif loop_strategy == LoopStrategy.BATCH:
-                            action_result = []
-                            batch_size = task.args.get("batch_size", 16)
-                            for batch in itertools.batched(iterator, batch_size):
-                                results = await self._execute_workflow_batch(
-                                    batch=batch,
-                                    run_args=child_run_args,
-                                    fail_strategy=task.args.get(
-                                        "fail_strategy", "isolated"
-                                    ),
-                                )
-                                action_result.extend(results)
-                        else:
-                            # Sequential
-                            action_result = []
-                            for patched_args in iterator:
-                                child_run_args.trigger_inputs = patched_args.get(
-                                    "trigger_inputs", {}
-                                )
-                                result = await self._run_child_workflow(child_run_args)
-                                action_result.append(result)
                     else:
                         logger.trace(
                             "Executing child workflow",
@@ -522,6 +485,43 @@ class DSLWorkflow:
                 raise ApplicationError(
                     msg, non_retryable=True, type=e.__class__.__name__
                 ) from e
+
+    async def _execute_child_workflow_loop(
+        self, *, task: ActionStatement, child_run_args: DSLRunArgs
+    ) -> list[Any]:
+        loop_strategy = LoopStrategy(task.args.get("loop_strategy", "parallel"))
+        self.logger.trace(
+            "Executing child workflow in loop",
+            dsl_run_args=child_run_args,
+            loop_strategy=loop_strategy,
+        )
+
+        iterator = iter_for_each(task=task, context=self.context)
+        if loop_strategy == LoopStrategy.PARALLEL:
+            action_result = await self._execute_workflow_batch(
+                batch=iterator,
+                run_args=child_run_args,
+                fail_strategy=task.args.get("fail_strategy", "isolated"),
+            )
+
+        elif loop_strategy == LoopStrategy.BATCH:
+            action_result = []
+            batch_size = task.args.get("batch_size", 16)
+            for batch in itertools.batched(iterator, batch_size):
+                results = await self._execute_workflow_batch(
+                    batch=batch,
+                    run_args=child_run_args,
+                    fail_strategy=task.args.get("fail_strategy", "isolated"),
+                )
+                action_result.extend(results)
+        else:
+            # Sequential
+            action_result = []
+            for patched_args in iterator:
+                child_run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
+                result = await self._run_child_workflow(child_run_args)
+                action_result.append(result)
+        return action_result
 
     async def _execute_workflow_batch(
         self,
