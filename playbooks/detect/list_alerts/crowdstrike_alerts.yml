@@ -1,0 +1,23 @@
+definition:
+  title: List and normalize Crowdstrike alerts
+  description: Pulls Crowdstrike alerts and normalizes alerts into ECS format.
+  entrypoint:
+    ref: list_crowdstrike_alerts
+  triggers:
+    - type: webhook
+      ref: crowdstrike_alerts_webhook
+      entrypoint: list_crowdstrike_alerts
+
+  actions:
+    - ref: list_crowdstrike_alerts
+      action: integrations.crowdstrike.list_crowdstrike_alerts
+      args:
+        start_time: ${{ TRIGGER.start_time }}
+        end_time: ${{ TRIGGER.end_time }}
+        filter: ${{ TRIGGER.filter }}
+        limit: ${{ TRIGGER.limit }}
+
+    - ref: normalize_crowdstrike_alert
+      action: etl.normalization.ecs
+      args:
+        
