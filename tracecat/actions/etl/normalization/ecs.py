@@ -41,6 +41,7 @@ Expression:
 """
 
 import os
+import orjson
 from typing import Annotated, Any
 
 
@@ -56,7 +57,7 @@ async def normalize_outputs(
         str | dict[str, Any],
         Field(..., description="Ingest pipeline definition. Can be a dictionary or URL to a YAML definition file."),
     ],
-    docs: Annotated[
+    data: Annotated[
         list[dict[str, Any]],
         Field(..., description="List of JSON objects to normalize into ECS format."),
     ],
@@ -75,9 +76,13 @@ async def normalize_outputs(
             response.raise_for_status()
             pipeline = safe_load(response.text)
 
+    docs = [{"_source": doc} for doc in data]
     query = {"pipeline": pipeline, "docs": docs}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=query)
         response.raise_for_status()  # Raise an exception for HTTP errors
-        return response.json()
+        normalized_docs = orjson.loads(response.text).get("docs", [])
+
+    # Return the normalized data only
+    return [doc.get("doc", {}).get("_source") for doc in normalized_docs]
