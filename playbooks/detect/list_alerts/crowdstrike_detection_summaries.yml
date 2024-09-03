@@ -56,5 +56,5 @@ definition:
         fail_strategy: isolated
         batch_size: ${{ INPUTS.batch_size }}
         trigger_inputs:
-          detection: ${{ var.detection }}
+          alert: ${{ var.detection }}
           event_key: crowdstrike
