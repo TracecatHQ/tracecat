@@ -137,9 +137,25 @@ services:
     depends_on:
       - temporal_postgres_db
 
+  # Tracecat uses Elasticsearch for event normalization
+  # Disable this if you don't intend to use Tracecat's ECS normalization action
+  # or have your own Elasticsearch instance
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    container_name: elasticsearch
+    restart: unless-stopped
+    networks:
+      - core
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
 volumes:
   core-db:
   temporal-db:
+  elasticsearch-data:
 
 networks:
   core:

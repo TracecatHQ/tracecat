@@ -63,7 +63,7 @@ async def normalize_events(
     ],
 ) -> list[dict[str, Any]]:
     api_key = os.getenv("ELASTIC_API_KEY")
-    api_url = os.getenv("ELASTIC_API_URL", "http://localhost:9200")
+    api_url = os.getenv("ELASTIC_API_URL", "http://elasticsearch:9200")
 
     url = f"{api_url}/_ingest/pipeline/_simulate"
     headers={"Content-Type": "application/json"}
