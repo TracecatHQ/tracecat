@@ -12,11 +12,14 @@ References
 - https://www.elastic.co/guide/en/elasticsearch/reference/current/simulate-pipeline-api.html
 """
 
+import os
+from typing import Annotated, Any
+
 import httpx
-
+import orjson
 from yaml import safe_load
-from tracecat.registry import Field, RegistrySecret, registry
 
+from tracecat.registry import Field, RegistrySecret, registry
 
 elastic_secret = RegistrySecret(
     name="elastic",
@@ -40,10 +43,6 @@ Expression:
 >>> ${{ SECRETS.elastic.ELASTIC_API_KEY }}
 """
 
-import os
-import orjson
-from typing import Annotated, Any
-
 
 @registry.register(
     default_title="Normalize events (ECS)",
@@ -55,7 +54,10 @@ from typing import Annotated, Any
 async def normalize_events_to_ecs(
     pipeline: Annotated[
         str | dict[str, Any],
-        Field(..., description="Ingest pipeline definition. Can be a dictionary or URL to a YAML definition file."),
+        Field(
+            ...,
+            description="Ingest pipeline definition. Can be a dictionary or URL to a YAML definition file.",
+        ),
     ],
     data: Annotated[
         list[dict[str, Any]],
@@ -66,7 +68,7 @@ async def normalize_events_to_ecs(
     api_url = os.getenv("ELASTIC_API_URL", "http://elasticsearch:9200")
 
     url = f"{api_url}/_ingest/pipeline/_simulate"
-    headers={"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
     if api_key is not None:
         headers["Authorization"] = f"ApiKey {api_key}"
 
