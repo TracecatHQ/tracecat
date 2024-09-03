@@ -1,7 +1,7 @@
-"""Action that uses Elasticsearch to normalize data into ECS format.
+"""Action that uses Elasticsearch to normalize data to ECS format.
 
 We use the Elasticsearch's REST API and ingest endpoints.
-In particular, we use the `simulate` pipeline API to normalize data into ECS format without storing it.
+In particular, we use the `simulate` pipeline API to normalize data to ECS format without storing it.
 
 Authentication (in order of precedence):
 1. Connect to Elasticsearch in the local environment (port 9200).
@@ -47,19 +47,19 @@ from typing import Annotated, Any
 
 @registry.register(
     default_title="Normalize events (ECS)",
-    description="Normalize JSON objects into ECS format using an ingest pipeline.",
+    description="Normalize JSON objects to ECS format using an Elastic ingest pipeline.",
     display_group="Normalization",
-    namespace="etl.normalization.ecs",
+    namespace="etl.normalization",
     secrets=[elastic_secret],
 )
-async def normalize_events(
+async def normalize_events_to_ecs(
     pipeline: Annotated[
         str | dict[str, Any],
         Field(..., description="Ingest pipeline definition. Can be a dictionary or URL to a YAML definition file."),
     ],
     data: Annotated[
         list[dict[str, Any]],
-        Field(..., description="List of JSON objects to normalize into ECS format."),
+        Field(..., description="List of JSON objects."),
     ],
 ) -> list[dict[str, Any]]:
     api_key = os.getenv("ELASTIC_API_KEY")
