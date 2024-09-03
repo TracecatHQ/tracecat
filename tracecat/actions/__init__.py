@@ -7,7 +7,6 @@ Do not add `from __future__ import annotations` to any action module. This will 
 # Bring all actions into the namespace to be registered
 
 from tracecat.actions import integrations
-from tracecat.actions.etl import extraction, normalization
 from tracecat.actions.core import (
     cases,
     email,
@@ -17,6 +16,7 @@ from tracecat.actions.core import (
     transform,
     workflow,
 )
+from tracecat.actions.etl import extraction, normalization
 
 __all__ = [
     "cases",
