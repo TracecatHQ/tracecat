@@ -127,7 +127,21 @@ export function UDFActionPanel({
         return
       }
       const { inputs, title, description, control_flow } = values
-      const actionInputs = inputs ? YAML.parse(inputs) : {}
+      let actionInputs: Record<string, unknown>
+      try {
+        actionInputs = inputs ? YAML.parse(inputs) : {}
+      } catch (error) {
+        console.error("Failed to parse inputs", error)
+        setValidationErrors({
+          ok: false,
+          message: "Failed to parse action inputs",
+          detail: String(error),
+        })
+        return toast({
+          title: "Couldn't parse action inputs",
+          description: "Please see the error window for more details",
+        })
+      }
       const actionControlFlow = {
         for_each: control_flow.for_each
           ? YAML.parse(control_flow.for_each)
