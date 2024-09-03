@@ -65,23 +65,12 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 @pytest.mark.parametrize(
     "filename",
     [
-        # Alert Management
-        "alert_management/aws-guardduty-to-cases.yml",
-        "alert_management/aws-guardduty-to-slack.yml",
-        "alert_management/crowdstrike-to-cases-no-slack.yml",
-        "alert_management/crowdstrike-to-cases.yml",
-        "alert_management/datadog-to-cases.yml",
-        "alert_management/sentinel-one-to-slack.yml",
-        "alert_management/slack-to-crowdstrike-update.yml",
-        "alert_management/slack-to-sentinel-one-update.yml",
-        # Enrichment
-        "enrichment/tag-user-in-slack-scheduled.yml",
-        "enrichment/tag-user-in-slack.yml",
-        "enrichment/triage-using-llms.yml",
-        # Threat Intel
-        "threat_intel/virustotal-to-email.yml",
+        # Detect
+        "detect/list_alerts/crowdstrike_alerts.yml",
+        "detect/list_alerts/crowdstrike_detection_summaries.yml",
+        # Respond
         # Quickstart
-        "virustotal-quickstart.yml",
+        "tutorials/virustotal_quickstart.yml",
     ],
     ids=lambda x: x,
 )
@@ -108,7 +97,7 @@ async def test_playbook_validation(
     "filename, trigger_inputs, expected_actions",
     [
         (
-            "virustotal-quickstart.yml",
+            "virustotal_quickstart.yml",
             {
                 "url_input": "crowdstrikebluescreen.com",
             },
