@@ -46,13 +46,13 @@ from typing import Annotated, Any
 
 
 @registry.register(
-    default_title="Normalize outputs (ECS)",
+    default_title="Normalize events (ECS)",
     description="Normalize JSON objects into ECS format using an ingest pipeline.",
     display_group="Normalization",
     namespace="etl.normalization.ecs",
     secrets=[elastic_secret],
 )
-async def normalize_outputs(
+async def normalize_events(
     pipeline: Annotated[
         str | dict[str, Any],
         Field(..., description="Ingest pipeline definition. Can be a dictionary or URL to a YAML definition file."),
