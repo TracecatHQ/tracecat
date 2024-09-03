@@ -2,7 +2,7 @@ definition:
   title: List, normalize, and redirect Crowdstrike detection summaries
   description: |
     Pulls Crowdstrike detection summaries, normalizes detections into ECS format
-    and triggers a child workflow for each alert.
+    and triggers a child workflow for each detection.
 
   entrypoint:
     ref: list_crowdstrike_detections
@@ -13,8 +13,8 @@ definition:
       child_workflow_id: str
   triggers:
     - type: webhook
-      ref: crowdstrike_alerts_webhook
-      entrypoint: list_crowdstrike_alerts
+      ref: crowdstrike_detections_webhook
+      entrypoint: list_crowdstrike_detections
   inputs:
     limit: 10
     batch_size: 10
