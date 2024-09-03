@@ -32,14 +32,13 @@ definition:
         - list_crowdstrike_alerts
       run_if: ${{ FN.not_empty(ACTIONS.list_crowdstrike_alerts.result) }}
       args:
-        pipeline: https://github.com/elastic/integrations/blob/main/packages/crowdstrike/data_stream/alert/elasticsearch/ingest_pipeline/default.yml
+        pipeline: https://github.com/elastic/integrations/raw/main/packages/crowdstrike/data_stream/alert/elasticsearch/ingest_pipeline/default.yml
         data: ${{ ACTION.list_crowdstrike_alerts.result }}
 
     - ref: redirect_crowdstrike_alerts
       action: core.workflow.execute
       depends_on:
         - normalize_crowdstrike_alerts
-      run_if: ${{ FN.not_empty(ACTIONS.normalize_crowdstrike_alerts.result) }}
       for_each: ${{ for var.alert in ACTIONS.normalize_crowdstrike_alerts.result }}
       args:
         workflow_id: ${{ TRIGGER.child_workflow_id }}
