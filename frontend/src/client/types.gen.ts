@@ -3,203 +3,239 @@
 /**
  * Access control levels for roles.
  */
-export type AccessLevel = 0 | 999;
+export type AccessLevel = 0 | 999
 
 export type ActionControlFlow = {
-    run_if?: string | null;
-    for_each?: string | Array<(string)> | null;
-};
+  run_if?: string | null
+  for_each?: string | Array<string> | null
+}
 
 export type ActionMetadataResponse = {
-    id: string;
-    workflow_id: string;
-    type: string;
-    title: string;
-    description: string;
-    status: string;
-    key: string;
-};
+  id: string
+  workflow_id: string
+  type: string
+  title: string
+  description: string
+  status: string
+  key: string
+}
 
 export type ActionResponse = {
-    id: string;
-    type: string;
-    title: string;
-    description: string;
-    status: string;
-    inputs: {
-        [key: string]: unknown;
-    };
-    key: string;
-    control_flow?: ActionControlFlow;
-};
+  id: string
+  type: string
+  title: string
+  description: string
+  status: string
+  inputs: {
+    [key: string]: unknown
+  }
+  key: string
+  control_flow?: ActionControlFlow
+}
 
 export type ActionStatement = {
-    /**
-     * Unique reference for the task
-     */
-    ref: string;
-    description?: string;
-    /**
-     * Action type. Equivalent to the UDF key.
-     */
-    action: string;
-    /**
-     * Arguments for the action
-     */
-    args?: {
-        [key: string]: unknown;
-    };
-    /**
-     * Task dependencies
-     */
-    depends_on?: Array<(string)>;
-    /**
-     * Condition to run the task
-     */
-    run_if?: string | null;
-    /**
-     * Iterate over a list of items and run the task for each item.
-     */
-    for_each?: string | Array<(string)> | null;
-};
+  /**
+   * Unique reference for the task
+   */
+  ref: string
+  description?: string
+  /**
+   * Action type. Equivalent to the UDF key.
+   */
+  action: string
+  /**
+   * Arguments for the action
+   */
+  args?: {
+    [key: string]: unknown
+  }
+  /**
+   * Task dependencies
+   */
+  depends_on?: Array<string>
+  /**
+   * Condition to run the task
+   */
+  run_if?: string | null
+  /**
+   * Iterate over a list of items and run the task for each item.
+   */
+  for_each?: string | Array<string> | null
+}
 
 export type ActionTest = {
-    /**
-     * Action reference
-     */
-    ref: string;
-    enable?: boolean;
-    validate_args?: boolean;
-    /**
-     * Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used.
-     */
-    success: unknown;
-    /**
-     * Patched failure output
-     */
-    failure?: unknown;
-};
+  /**
+   * Action reference
+   */
+  ref: string
+  enable?: boolean
+  validate_args?: boolean
+  /**
+   * Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used.
+   */
+  success: unknown
+  /**
+   * Patched failure output
+   */
+  failure?: unknown
+}
 
 export type Body_auth_reset_forgot_password = {
-    email: string;
-};
+  email: string
+}
 
 export type Body_auth_reset_reset_password = {
-    token: string;
-    password: string;
-};
+  token: string
+  password: string
+}
 
 export type Body_auth_verify_request_token = {
-    email: string;
-};
+  email: string
+}
 
 export type Body_auth_verify_verify = {
-    token: string;
-};
+  token: string
+}
 
 export type Body_validation_validate_workflow = {
-    definition: (Blob | File);
-    payload?: (Blob | File);
-};
+  definition: Blob | File
+  payload?: Blob | File
+}
 
 export type Body_workflows_create_workflow = {
-    title?: string | null;
-    description?: string | null;
-    file?: (Blob | File) | null;
-};
+  title?: string | null
+  description?: string | null
+  file?: (Blob | File) | null
+}
 
 export type CaseContext = {
-    key: string;
-    value: string;
-};
+  key: string
+  value: string
+}
 
 export type CaseCreate = {
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-};
+  owner_id: string
+  workflow_id: string
+  case_title: string
+  payload: {
+    [key: string]: unknown
+  }
+  context: Array<CaseContext>
+  tags: Array<Tag>
+  malice: "malicious" | "benign"
+  status: "open" | "closed" | "in_progress" | "reported" | "escalated"
+  priority: "low" | "medium" | "high" | "critical"
+  action:
+    | "ignore"
+    | "quarantine"
+    | "informational"
+    | "sinkhole"
+    | "active_compromise"
+}
 
-export type malice = 'malicious' | 'benign';
+export type malice = "malicious" | "benign"
 
-export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
+export type status =
+  | "open"
+  | "closed"
+  | "in_progress"
+  | "reported"
+  | "escalated"
 
-export type priority = 'low' | 'medium' | 'high' | 'critical';
+export type priority = "low" | "medium" | "high" | "critical"
 
-export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
+export type action =
+  | "ignore"
+  | "quarantine"
+  | "informational"
+  | "sinkhole"
+  | "active_compromise"
 
 export type CaseEvent = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    type: string;
-    case_id: string;
-    initiator_role: string;
-    data: {
-    [key: string]: (string | null);
-} | null;
-};
+  owner_id: string
+  created_at: string
+  updated_at: string
+  id?: string
+  type: string
+  case_id: string
+  initiator_role: string
+  data: {
+    [key: string]: string | null
+  } | null
+}
 
 export type CaseEventCreate = {
-    type: 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
-    data: {
-    [key: string]: (string | null);
-} | null;
-};
+  type:
+    | "status_changed"
+    | "priority_changed"
+    | "comment_created"
+    | "case_opened"
+    | "case_closed"
+  data: {
+    [key: string]: string | null
+  } | null
+}
 
-export type type = 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
+export type type =
+  | "status_changed"
+  | "priority_changed"
+  | "comment_created"
+  | "case_opened"
+  | "case_closed"
 
 export type CaseRead = {
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    id: string;
-    created_at: string;
-    updated_at: string;
-};
+  owner_id: string
+  workflow_id: string
+  case_title: string
+  payload: {
+    [key: string]: unknown
+  }
+  context: Array<CaseContext>
+  tags: Array<Tag>
+  malice: "malicious" | "benign"
+  status: "open" | "closed" | "in_progress" | "reported" | "escalated"
+  priority: "low" | "medium" | "high" | "critical"
+  action:
+    | "ignore"
+    | "quarantine"
+    | "informational"
+    | "sinkhole"
+    | "active_compromise"
+  id: string
+  created_at: string
+  updated_at: string
+}
 
 export type CaseUpdate = {
-    malice?: 'malicious' | 'benign' | null;
-    status?: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated' | null;
-    priority?: 'low' | 'medium' | 'high' | 'critical' | null;
-    action?: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise' | null;
-};
+  malice?: "malicious" | "benign" | null
+  status?: "open" | "closed" | "in_progress" | "reported" | "escalated" | null
+  priority?: "low" | "medium" | "high" | "critical" | null
+  action?:
+    | "ignore"
+    | "quarantine"
+    | "informational"
+    | "sinkhole"
+    | "active_compromise"
+    | null
+}
 
 export type CommitWorkflowResponse = {
-    workflow_id: string;
-    status: 'success' | 'failure';
-    message: string;
-    errors?: Array<UDFArgsValidationResponse> | null;
-    metadata?: {
-    [key: string]: unknown;
-} | null;
-};
+  workflow_id: string
+  status: "success" | "failure"
+  message: string
+  errors?: Array<UDFArgsValidationResponse> | null
+  metadata?: {
+    [key: string]: unknown
+  } | null
+}
 
-export type status2 = 'success' | 'failure';
+export type status2 = "success" | "failure"
 
 export type CreateActionParams = {
-    workflow_id: string;
-    type: string;
-    title: string;
-};
+  workflow_id: string
+  type: string
+  title: string
+}
 
 /**
  * Create a new secret.
@@ -211,65 +247,79 @@ export type CreateActionParams = {
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  */
 export type CreateSecretParams = {
-    type?: "custom";
-    name: string;
-    description?: string | null;
-    keys: Array<SecretKeyValue>;
-    tags?: {
-    [key: string]: (string);
-} | null;
-};
+  type?: "custom"
+  name: string
+  description?: string | null
+  keys: Array<SecretKeyValue>
+  tags?: {
+    [key: string]: string
+  } | null
+  environment?: string
+}
 
 export type CreateWorkflowExecutionParams = {
-    workflow_id: string;
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    enable_runtime_tests?: boolean;
-};
+  workflow_id: string
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  enable_runtime_tests?: boolean
+}
 
 export type CreateWorkflowExecutionResponse = {
-    message: string;
-    wf_id: string;
-    wf_exec_id: string;
-};
+  message: string
+  wf_id: string
+  wf_exec_id: string
+}
 
 export type CreateWorkspaceMembershipParams = {
-    user_id: string;
-};
+  user_id: string
+}
 
 export type CreateWorkspaceParams = {
-    name: string;
-    settings?: {
-    [key: string]: (string);
-} | null;
-    owner_id?: string;
-};
+  name: string
+  settings?: {
+    [key: string]: string
+  } | null
+  owner_id?: string
+}
 
-export type DSLConfig = {
-    scheduler?: 'static' | 'dynamic';
-    /**
-     * Enable runtime action tests. This is dynamically set on workflow entry.
-     */
-    enable_runtime_tests?: boolean;
-    /**
-     * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used.
-     */
-    environment?: string | null;
-};
+export type DSLConfig_Input = {
+  /**
+   * The type of scheduler to use.
+   */
+  scheduler?: "static" | "dynamic"
+  /**
+   * Enable runtime action tests. This is dynamically set on workflow entry.
+   */
+  enable_runtime_tests?: boolean
+  /**
+   * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used.
+   */
+  environment?: string | null
+}
 
-export type scheduler = 'static' | 'dynamic';
+/**
+ * The type of scheduler to use.
+ */
+export type scheduler = "static" | "dynamic"
+
+export type DSLConfig_Output = {
+  /**
+   * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used.
+   */
+  environment?: string | null
+}
 
 export type DSLEntrypoint = {
-    /**
-     * The entrypoint action ref
-     */
-    ref: string;
-    /**
-     * Expected trigger input shape
-     */
-    expects?: unknown | null;
-};
+  /**
+   * The entrypoint action ref
+   */
+  ref: string
+  /**
+   * Expected trigger input shape
+   */
+  expects?: unknown | null
+}
 
 /**
  * DSL definition for a workflow.
@@ -282,110 +332,141 @@ export type DSLEntrypoint = {
  * This allows the execution of the workflow to be fully deterministic.
  */
 export type DSLInput = {
-    title: string;
-    description: string;
-    entrypoint: DSLEntrypoint;
-    actions: Array<ActionStatement>;
-    config?: DSLConfig;
-    triggers?: Array<Trigger>;
-    /**
-     * Static input parameters
-     */
-    inputs?: {
-        [key: string]: unknown;
-    };
-    /**
-     * Action tests
-     */
-    tests?: Array<ActionTest>;
-    /**
-     * The action ref or value to return.
-     */
-    returns?: unknown | null;
-};
+  title: string
+  description: string
+  entrypoint: DSLEntrypoint
+  actions: Array<ActionStatement>
+  config?: DSLConfig_Output
+  triggers?: Array<Trigger>
+  /**
+   * Static input parameters
+   */
+  inputs?: {
+    [key: string]: unknown
+  }
+  /**
+   * Action tests
+   */
+  tests?: Array<ActionTest>
+  /**
+   * The action ref or value to return.
+   */
+  returns?: unknown | null
+}
 
 export type DSLRunArgs = {
-    role: Role;
-    dsl: DSLInput;
-    wf_id: string;
-    trigger_inputs?: {
-    [key: string]: unknown;
-} | null;
-    parent_run_context?: RunContext | null;
-    run_config?: {
-        [key: string]: unknown;
-    };
-};
+  role: Role
+  dsl: DSLInput
+  wf_id: string
+  trigger_inputs?: {
+    [key: string]: unknown
+  } | null
+  parent_run_context?: RunContext | null
+  /**
+   * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
+   */
+  runtime_config?: DSLConfig_Output
+  /**
+   * The maximum time to wait for the workflow to complete.
+   */
+  timeout?: string
+}
 
 export type ErrorModel = {
-    detail: string | {
-    [key: string]: (string);
-};
-};
+  detail:
+    | string
+    | {
+        [key: string]: string
+      }
+}
 
 export type EventFailure = {
-    message: string;
-    stack_trace: string;
-    cause?: {
-    [key: string]: unknown;
-} | null;
-    application_failure_info?: {
-        [key: string]: unknown;
-    };
-};
+  message: string
+  stack_trace: string
+  cause?: {
+    [key: string]: unknown
+  } | null
+  application_failure_info?: {
+    [key: string]: unknown
+  }
+}
 
 export type EventGroup = {
-    event_id: number;
-    udf_namespace: string;
-    udf_name: string;
-    udf_key: string;
-    action_id: string | null;
-    action_ref: string;
-    action_title: string;
-    action_description: string;
-    action_input: UDFActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
-    action_result?: unknown | null;
-};
+  event_id: number
+  udf_namespace: string
+  udf_name: string
+  udf_key: string
+  action_id: string | null
+  action_ref: string
+  action_title: string
+  action_description: string
+  action_input:
+    | UDFActionInput
+    | DSLRunArgs
+    | GetWorkflowDefinitionActivityInputs
+  action_result?: unknown | null
+}
 
 export type EventHistoryResponse = {
-    event_id: number;
-    event_time: string;
-    event_type: EventHistoryType;
-    task_id: number;
-    /**
-     * The action group of the event. We use this to keep track of what events are related to each other.
-     */
-    event_group?: EventGroup | null;
-    failure?: EventFailure | null;
-    result?: unknown | null;
-    role?: Role | null;
-};
+  event_id: number
+  event_time: string
+  event_type: EventHistoryType
+  task_id: number
+  /**
+   * The action group of the event. We use this to keep track of what events are related to each other.
+   */
+  event_group?: EventGroup | null
+  failure?: EventFailure | null
+  result?: unknown | null
+  role?: Role | null
+}
 
 /**
  * The event types we care about.
  */
-export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
+export type EventHistoryType =
+  | "WORKFLOW_EXECUTION_STARTED"
+  | "WORKFLOW_EXECUTION_COMPLETED"
+  | "WORKFLOW_EXECUTION_FAILED"
+  | "WORKFLOW_EXECUTION_TERMINATED"
+  | "WORKFLOW_EXECUTION_CANCELED"
+  | "ACTIVITY_TASK_SCHEDULED"
+  | "ACTIVITY_TASK_STARTED"
+  | "ACTIVITY_TASK_COMPLETED"
+  | "ACTIVITY_TASK_FAILED"
+  | "CHILD_WORKFLOW_EXECUTION_STARTED"
+  | "CHILD_WORKFLOW_EXECUTION_COMPLETED"
+  | "CHILD_WORKFLOW_EXECUTION_FAILED"
+  | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
 
-export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
+export type ExprContext =
+  | "ACTIONS"
+  | "SECRETS"
+  | "FN"
+  | "INPUTS"
+  | "ENV"
+  | "TRIGGER"
+  | "var"
 
 export type GetWorkflowDefinitionActivityInputs = {
-    role: Role;
-    task: ActionStatement;
-    workflow_id: string;
-    trigger_inputs: {
-        [key: string]: unknown;
-    };
-    version?: number | null;
-    run_context: RunContext;
-};
+  role: Role
+  task: ActionStatement
+  workflow_id: string
+  trigger_inputs: {
+    [key: string]: unknown
+  }
+  runtime_config: DSLConfig_Output
+  version?: number | null
+  run_context: RunContext
+}
 
 export type HTTPValidationError = {
-    detail?: Array<ValidationError>;
-};
+  detail?: Array<ValidationError>
+}
 
 export type OAuth2AuthorizeResponse = {
-    authorization_url: string;
-};
+  authorization_url: string
+}
 
 /**
  * The identity and authorization of a user or service.
@@ -414,183 +495,194 @@ export type OAuth2AuthorizeResponse = {
  * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
  */
 export type Role = {
-    type: 'user' | 'service';
-    workspace_id?: string | null;
-    user_id?: string | null;
-    access_level?: AccessLevel;
-    service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
-};
+  type: "user" | "service"
+  workspace_id?: string | null
+  user_id?: string | null
+  access_level?: AccessLevel
+  service_id:
+    | "tracecat-runner"
+    | "tracecat-api"
+    | "tracecat-cli"
+    | "tracecat-schedule-runner"
+    | "tracecat-service"
+}
 
-export type type2 = 'user' | 'service';
+export type type2 = "user" | "service"
 
-export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
+export type service_id =
+  | "tracecat-runner"
+  | "tracecat-api"
+  | "tracecat-cli"
+  | "tracecat-schedule-runner"
+  | "tracecat-service"
 
 export type RunContext = {
-    wf_id: string;
-    wf_exec_id: string;
-    wf_run_id: string;
-};
+  wf_id: string
+  wf_exec_id: string
+  wf_run_id: string
+}
 
 export type Schedule = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    status?: string;
-    cron?: string | null;
-    inputs?: {
-        [key: string]: unknown;
-    };
-    /**
-     * ISO 8601 duration string
-     */
-    every: string;
-    /**
-     * ISO 8601 duration string
-     */
-    offset?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    start_at?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    end_at?: string | null;
-    workflow_id: string | null;
-};
+  owner_id: string
+  created_at: string
+  updated_at: string
+  id?: string
+  status?: string
+  cron?: string | null
+  inputs?: {
+    [key: string]: unknown
+  }
+  /**
+   * ISO 8601 duration string
+   */
+  every: string
+  /**
+   * ISO 8601 duration string
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime string
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime string
+   */
+  end_at?: string | null
+  workflow_id: string | null
+}
 
 export type ScheduleCreate = {
-    workflow_id: string;
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    cron?: string | null;
-    /**
-     * ISO 8601 duration string
-     */
-    every: string;
-    /**
-     * ISO 8601 duration string
-     */
-    offset?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    start_at?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    end_at?: string | null;
-    status?: 'online' | 'offline';
-};
+  workflow_id: string
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  /**
+   * ISO 8601 duration string
+   */
+  every: string
+  /**
+   * ISO 8601 duration string
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime string
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime string
+   */
+  end_at?: string | null
+  status?: "online" | "offline"
+}
 
-export type status3 = 'online' | 'offline';
+export type status3 = "online" | "offline"
 
 export type ScheduleSearch = {
-    workflow_id?: string | null;
-    limit?: number;
-    order_by?: string;
-    query?: string | null;
-    group_by?: Array<(string)> | null;
-    agg?: string | null;
-};
+  workflow_id?: string | null
+  limit?: number
+  order_by?: string
+  query?: string | null
+  group_by?: Array<string> | null
+  agg?: string | null
+}
 
 export type ScheduleUpdate = {
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    cron?: string | null;
-    /**
-     * ISO 8601 duration string
-     */
-    every?: string | null;
-    /**
-     * ISO 8601 duration string
-     */
-    offset?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    start_at?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    end_at?: string | null;
-    status?: 'online' | 'offline' | null;
-};
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  /**
+   * ISO 8601 duration string
+   */
+  every?: string | null
+  /**
+   * ISO 8601 duration string
+   */
+  offset?: string | null
+  /**
+   * ISO 8601 datetime string
+   */
+  start_at?: string | null
+  /**
+   * ISO 8601 datetime string
+   */
+  end_at?: string | null
+  status?: "online" | "offline" | null
+}
 
 export type SearchSecretsParams = {
-    names: Array<(string)>;
-};
+  names: Array<string>
+}
 
 export type Secret = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    type?: string;
-    /**
-     * Secret names should be unique within a user's scope.
-     */
-    name: string;
-    description?: string | null;
-    encrypted_keys: (Blob | File);
-    environment?: string | null;
-    tags: {
-    [key: string]: (string);
-} | null;
-};
+  owner_id: string
+  created_at: string
+  updated_at: string
+  id?: string
+  type?: string
+  /**
+   * Secret names should be unique within a user's scope.
+   */
+  name: string
+  description?: string | null
+  encrypted_keys: Blob | File
+  environment?: string
+  tags: {
+    [key: string]: string
+  } | null
+}
 
 export type SecretKeyValue = {
-    key: string;
-    value: string;
-};
+  key: string
+  value: string
+}
 
 export type SecretResponse = {
-    id: string;
-    type: "custom";
-    name: string;
-    description?: string | null;
-    keys: Array<(string)>;
-};
+  id: string
+  type: "custom"
+  name: string
+  description?: string | null
+  keys: Array<string>
+  environment?: string | null
+}
 
 export type Tag = {
-    tag: string;
-    value: string;
-};
+  tag: string
+  value: string
+}
 
 export type TerminateWorkflowExecutionParams = {
-    reason?: string | null;
-};
+  reason?: string | null
+}
 
 export type Trigger = {
-    type: 'schedule' | 'webhook';
-    ref: string;
-    args?: {
-        [key: string]: unknown;
-    };
-};
+  type: "schedule" | "webhook"
+  ref: string
+  args?: {
+    [key: string]: unknown
+  }
+}
 
-export type type3 = 'schedule' | 'webhook';
+export type type3 = "schedule" | "webhook"
 
 export type UDFActionInput = {
-    task: ActionStatement;
-    role: Role;
-    exec_context: {
-        [key: string]: {
-            [key: string]: unknown;
-        };
-    };
-    run_context: RunContext;
-    action_test?: ActionTest | null;
-};
+  task: ActionStatement
+  role: Role
+  exec_context: {
+    [key: string]: {
+      [key: string]: unknown
+    }
+  }
+  run_context: RunContext
+  action_test?: ActionTest | null
+}
 
 export type UDFArgsValidationResponse = {
-    ok: boolean;
-    message: string;
-    detail?: unknown | null;
-};
+  ok: boolean
+  message: string
+  detail?: unknown | null
+}
 
 /**
  * UDF spec.
@@ -600,31 +692,31 @@ export type UDFArgsValidationResponse = {
  * 2. Frontend integration action form
  */
 export type UDFSpec = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    description: string;
-    namespace: string;
-    key: string;
-    version?: string | null;
-    json_schema: {
-    [key: string]: unknown;
-} | null;
-    meta: {
-    [key: string]: unknown;
-} | null;
-};
+  owner_id: string
+  created_at: string
+  updated_at: string
+  id?: string
+  description: string
+  namespace: string
+  key: string
+  version?: string | null
+  json_schema: {
+    [key: string]: unknown
+  } | null
+  meta: {
+    [key: string]: unknown
+  } | null
+}
 
 export type UpdateActionParams = {
-    title?: string | null;
-    description?: string | null;
-    status?: string | null;
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    control_flow?: ActionControlFlow | null;
-};
+  title?: string | null
+  description?: string | null
+  status?: string | null
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  control_flow?: ActionControlFlow | null
+}
 
 /**
  * Create a new secret.
@@ -636,109 +728,110 @@ export type UpdateActionParams = {
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  */
 export type UpdateSecretParams = {
-    type?: "custom" | null;
-    name?: string | null;
-    description?: string | null;
-    keys?: Array<SecretKeyValue> | null;
-    tags?: {
-    [key: string]: (string);
-} | null;
-};
+  type?: "custom" | null
+  name?: string | null
+  description?: string | null
+  keys?: Array<SecretKeyValue> | null
+  tags?: {
+    [key: string]: string
+  } | null
+  environment?: string | null
+}
 
 export type UpdateWorkflowParams = {
-    title?: string | null;
-    description?: string | null;
-    status?: 'online' | 'offline' | null;
-    object?: {
-    [key: string]: unknown;
-} | null;
-    version?: number | null;
-    entrypoint?: string | null;
-    icon_url?: string | null;
-    static_inputs?: {
-    [key: string]: unknown;
-} | null;
-    returns?: unknown | null;
-    config?: DSLConfig | null;
-};
+  title?: string | null
+  description?: string | null
+  status?: "online" | "offline" | null
+  object?: {
+    [key: string]: unknown
+  } | null
+  version?: number | null
+  entrypoint?: string | null
+  icon_url?: string | null
+  static_inputs?: {
+    [key: string]: unknown
+  } | null
+  returns?: unknown | null
+  config?: DSLConfig_Input | null
+}
 
 export type UpdateWorkspaceParams = {
-    name?: string | null;
-    settings?: {
-    [key: string]: (string);
-} | null;
-};
+  name?: string | null
+  settings?: {
+    [key: string]: string
+  } | null
+}
 
 export type UpsertWebhookParams = {
-    status?: 'online' | 'offline' | null;
-    entrypoint_ref?: string | null;
-    method?: 'GET' | 'POST' | null;
-};
+  status?: "online" | "offline" | null
+  entrypoint_ref?: string | null
+  method?: "GET" | "POST" | null
+}
 
 export type UserCreate = {
-    email: string;
-    password: string;
-    is_active?: boolean | null;
-    is_superuser?: boolean | null;
-    is_verified?: boolean | null;
-    role?: UserRole;
-    first_name?: string | null;
-    last_name?: string | null;
-};
+  email: string
+  password: string
+  is_active?: boolean | null
+  is_superuser?: boolean | null
+  is_verified?: boolean | null
+  role?: UserRole
+  first_name?: string | null
+  last_name?: string | null
+}
 
 export type UserRead = {
-    id: string;
-    email: string;
-    is_active?: boolean;
-    is_superuser?: boolean;
-    is_verified?: boolean;
-    role: UserRole;
-    first_name?: string | null;
-    last_name?: string | null;
-    settings: {
-        [key: string]: unknown;
-    };
-};
+  id: string
+  email: string
+  is_active?: boolean
+  is_superuser?: boolean
+  is_verified?: boolean
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
+  settings: {
+    [key: string]: unknown
+  }
+}
 
-export type UserRole = 'basic' | 'admin';
+export type UserRole = "basic" | "admin"
 
 export type UserUpdate = {
-    password?: string | null;
-    email?: string | null;
-    is_active?: boolean | null;
-    is_superuser?: boolean | null;
-    is_verified?: boolean | null;
-    role?: UserRole | null;
-    first_name?: string | null;
-    last_name?: string | null;
-    settings?: {
-    [key: string]: unknown;
-} | null;
-};
+  password?: string | null
+  email?: string | null
+  is_active?: boolean | null
+  is_superuser?: boolean | null
+  is_verified?: boolean | null
+  role?: UserRole | null
+  first_name?: string | null
+  last_name?: string | null
+  settings?: {
+    [key: string]: unknown
+  } | null
+}
 
 export type ValidationError = {
-    loc: Array<(string | number)>;
-    msg: string;
-    type: string;
-};
+  loc: Array<string | number>
+  msg: string
+  type: string
+}
 
 export type WebhookResponse = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id: string;
-    secret: string;
-    status: 'online' | 'offline';
-    entrypoint_ref?: string | null;
-    filters: {
-        [key: string]: unknown;
-    };
-    method: 'GET' | 'POST';
-    workflow_id: string;
-    url: string;
-};
+  owner_id: string
+  created_at: string
+  updated_at: string
+  id: string
+  secret: string
+  status: "online" | "offline"
+  entrypoint_ref?: string | null
+  filters: {
+    [key: string]: unknown
+  }
+  method: "GET" | "POST"
+  workflow_id: string
+  url: string
+}
 
-export type method = 'GET' | 'POST';
+export type method = "GET" | "POST"
 
 /**
  * A workflow definition.
@@ -761,1817 +854,1841 @@ export type method = 'GET' | 'POST';
  * - 1 Workflow to many WorkflowDefinitions
  */
 export type WorkflowDefinition = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    /**
-     * DSL spec version
-     */
-    version: number;
-    workflow_id: string;
-    content: {
-        [key: string]: unknown;
-    };
-};
+  owner_id: string
+  created_at: string
+  updated_at: string
+  id?: string
+  /**
+   * DSL spec version
+   */
+  version: number
+  workflow_id: string
+  content: {
+    [key: string]: unknown
+  }
+}
 
 export type WorkflowExecutionResponse = {
-    /**
-     * The ID of the workflow execution
-     */
-    id: string;
-    /**
-     * The run ID of the workflow execution
-     */
-    run_id: string;
-    /**
-     * The start time of the workflow execution
-     */
-    start_time: string;
-    /**
-     * When this workflow run started or should start.
-     */
-    execution_time?: string | null;
-    /**
-     * When the workflow was closed if closed.
-     */
-    close_time?: string | null;
-    status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
-    workflow_type: string;
-    task_queue: string;
-    /**
-     * Number of events in the history
-     */
-    history_length: number;
-};
+  /**
+   * The ID of the workflow execution
+   */
+  id: string
+  /**
+   * The run ID of the workflow execution
+   */
+  run_id: string
+  /**
+   * The start time of the workflow execution
+   */
+  start_time: string
+  /**
+   * When this workflow run started or should start.
+   */
+  execution_time?: string | null
+  /**
+   * When the workflow was closed if closed.
+   */
+  close_time?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  workflow_type: string
+  task_queue: string
+  /**
+   * Number of events in the history
+   */
+  history_length: number
+}
 
-export type status4 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
+export type status4 =
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELED"
+  | "TERMINATED"
+  | "CONTINUED_AS_NEW"
+  | "TIMED_OUT"
 
 export type WorkflowMetadataResponse = {
-    id: string;
-    title: string;
-    description: string;
-    status: string;
-    icon_url: string | null;
-    created_at: string;
-    updated_at: string;
-    version: number | null;
-};
+  id: string
+  title: string
+  description: string
+  status: string
+  icon_url: string | null
+  created_at: string
+  updated_at: string
+  version: number | null
+}
 
 export type WorkflowResponse = {
-    id: string;
-    title: string;
-    description: string;
-    status: string;
-    actions: {
-        [key: string]: ActionResponse;
-    };
-    object: {
-    [key: string]: unknown;
-} | null;
-    owner_id: string;
-    version?: number | null;
-    webhook: WebhookResponse;
-    schedules: Array<Schedule>;
-    entrypoint: string | null;
-    static_inputs: {
-        [key: string]: unknown;
-    };
-    returns: unknown;
-    config: DSLConfig | null;
-};
+  id: string
+  title: string
+  description: string
+  status: string
+  actions: {
+    [key: string]: ActionResponse
+  }
+  object: {
+    [key: string]: unknown
+  } | null
+  owner_id: string
+  version?: number | null
+  webhook: WebhookResponse
+  schedules: Array<Schedule>
+  entrypoint: string | null
+  static_inputs: {
+    [key: string]: unknown
+  }
+  returns: unknown
+  config: DSLConfig_Output | null
+}
 
 export type WorkspaceMember = {
-    user_id: string;
-    first_name: string | null;
-    last_name: string | null;
-    email: string;
-    role: UserRole;
-};
+  user_id: string
+  first_name: string | null
+  last_name: string | null
+  email: string
+  role: UserRole
+}
 
 export type WorkspaceMembershipResponse = {
-    user_id: string;
-    workspace_id: string;
-};
+  user_id: string
+  workspace_id: string
+}
 
 export type WorkspaceMetadataResponse = {
-    id: string;
-    name: string;
-    n_members: number;
-};
+  id: string
+  name: string
+  n_members: number
+}
 
 export type WorkspaceResponse = {
-    id: string;
-    name: string;
-    settings?: {
-    [key: string]: (string);
-} | null;
-    owner_id: string;
-    n_members: number;
-    members: Array<WorkspaceMember>;
-};
+  id: string
+  name: string
+  settings?: {
+    [key: string]: string
+  } | null
+  owner_id: string
+  n_members: number
+  members: Array<WorkspaceMember>
+}
 
 export type login = {
-    grant_type?: string | null;
-    username: string;
-    password: string;
-    scope?: string;
-    client_id?: string | null;
-    client_secret?: string | null;
-};
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
+}
 
 export type PublicIncomingWebhookData = {
-    path: string;
-    requestBody?: {
-    [key: string]: unknown;
-} | null;
-    secret: string;
-    validateMethod?: boolean;
-    xTracecatEnableRuntimeTests?: string | null;
-};
+  path: string
+  requestBody?: {
+    [key: string]: unknown
+  } | null
+  secret: string
+  validateMethod?: boolean
+  xTracecatEnableRuntimeTests?: string | null
+}
 
-export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse;
+export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse
 
 export type PublicIncomingWebhookWaitData = {
-    path: string;
-    requestBody?: {
-    [key: string]: unknown;
-} | null;
-    secret: string;
-    validateMethod?: boolean;
-    xTracecatEnableRuntimeTests?: string | null;
-};
+  path: string
+  requestBody?: {
+    [key: string]: unknown
+  } | null
+  secret: string
+  validateMethod?: boolean
+  xTracecatEnableRuntimeTests?: string | null
+}
 
 export type PublicIncomingWebhookWaitResponse = {
-    [key: string]: unknown;
-};
+  [key: string]: unknown
+}
 
 export type PublicWebhookCallbackData = {
-    service: string;
-};
+  service: string
+}
 
 export type PublicWebhookCallbackResponse = {
-    [key: string]: (string);
-};
+  [key: string]: string
+}
 
-export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
+export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>
 
 export type WorkspacesCreateWorkspaceData = {
-    requestBody: CreateWorkspaceParams;
-};
+  requestBody: CreateWorkspaceParams
+}
 
-export type WorkspacesCreateWorkspaceResponse = WorkspaceMetadataResponse;
+export type WorkspacesCreateWorkspaceResponse = WorkspaceMetadataResponse
 
 export type WorkspacesSearchWorkspacesData = {
-    name?: string | null;
-};
+  name?: string | null
+}
 
-export type WorkspacesSearchWorkspacesResponse = Array<WorkspaceMetadataResponse>;
+export type WorkspacesSearchWorkspacesResponse =
+  Array<WorkspaceMetadataResponse>
 
 export type WorkspacesGetWorkspaceData = {
-    workspaceId: string;
-};
+  workspaceId: string
+}
 
-export type WorkspacesGetWorkspaceResponse = WorkspaceResponse;
+export type WorkspacesGetWorkspaceResponse = WorkspaceResponse
 
 export type WorkspacesUpdateWorkspaceData = {
-    requestBody: UpdateWorkspaceParams;
-    workspaceId: string;
-};
+  requestBody: UpdateWorkspaceParams
+  workspaceId: string
+}
 
-export type WorkspacesUpdateWorkspaceResponse = void;
+export type WorkspacesUpdateWorkspaceResponse = void
 
 export type WorkspacesDeleteWorkspaceData = {
-    workspaceId: string;
-};
+  workspaceId: string
+}
 
-export type WorkspacesDeleteWorkspaceResponse = void;
+export type WorkspacesDeleteWorkspaceResponse = void
 
 export type WorkspacesListWorkspaceMembershipsData = {
-    workspaceId: string;
-};
+  workspaceId: string
+}
 
-export type WorkspacesListWorkspaceMembershipsResponse = Array<WorkspaceMembershipResponse>;
+export type WorkspacesListWorkspaceMembershipsResponse =
+  Array<WorkspaceMembershipResponse>
 
 export type WorkspacesCreateWorkspaceMembershipData = {
-    requestBody: CreateWorkspaceMembershipParams;
-    workspaceId: string;
-};
+  requestBody: CreateWorkspaceMembershipParams
+  workspaceId: string
+}
 
-export type WorkspacesCreateWorkspaceMembershipResponse = unknown;
+export type WorkspacesCreateWorkspaceMembershipResponse = unknown
 
 export type WorkspacesGetWorkspaceMembershipData = {
-    userId: string;
-    workspaceId: string;
-};
+  userId: string
+  workspaceId: string
+}
 
-export type WorkspacesGetWorkspaceMembershipResponse = Array<WorkspaceMembershipResponse>;
+export type WorkspacesGetWorkspaceMembershipResponse =
+  Array<WorkspaceMembershipResponse>
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
-    userId: string;
-    workspaceId: string;
-};
+  userId: string
+  workspaceId: string
+}
 
-export type WorkspacesDeleteWorkspaceMembershipResponse = void;
+export type WorkspacesDeleteWorkspaceMembershipResponse = void
 
 export type WorkflowsListWorkflowsData = {
-    workspaceId: string;
-};
+  workspaceId: string
+}
 
-export type WorkflowsListWorkflowsResponse = Array<WorkflowMetadataResponse>;
+export type WorkflowsListWorkflowsResponse = Array<WorkflowMetadataResponse>
 
 export type WorkflowsCreateWorkflowData = {
-    formData?: Body_workflows_create_workflow;
-    workspaceId: string;
-};
+  formData?: Body_workflows_create_workflow
+  workspaceId: string
+}
 
-export type WorkflowsCreateWorkflowResponse = WorkflowMetadataResponse;
+export type WorkflowsCreateWorkflowResponse = WorkflowMetadataResponse
 
 export type WorkflowsGetWorkflowData = {
-    workflowId: string;
-    workspaceId: string;
-};
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsGetWorkflowResponse = WorkflowResponse;
+export type WorkflowsGetWorkflowResponse = WorkflowResponse
 
 export type WorkflowsUpdateWorkflowData = {
-    requestBody: UpdateWorkflowParams;
-    workflowId: string;
-    workspaceId: string;
-};
+  requestBody: UpdateWorkflowParams
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsUpdateWorkflowResponse = void;
+export type WorkflowsUpdateWorkflowResponse = void
 
 export type WorkflowsDeleteWorkflowData = {
-    workflowId: string;
-    workspaceId: string;
-};
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsDeleteWorkflowResponse = void;
+export type WorkflowsDeleteWorkflowResponse = void
 
 export type WorkflowsCommitWorkflowData = {
-    workflowId: string;
-    workspaceId: string;
-};
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
+export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse
 
 export type WorkflowsExportWorkflowData = {
-    /**
-     * Export format: 'json' or 'yaml'
-     */
-    format?: 'json' | 'yaml';
-    /**
-     * Workflow definition version. If not provided, the latest version is exported.
-     */
-    version?: number | null;
-    workflowId: string;
-    workspaceId: string;
-};
+  /**
+   * Export format: 'json' or 'yaml'
+   */
+  format?: "json" | "yaml"
+  /**
+   * Workflow definition version. If not provided, the latest version is exported.
+   */
+  version?: number | null
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsExportWorkflowResponse = unknown;
+export type WorkflowsExportWorkflowResponse = unknown
 
 export type WorkflowsGetWorkflowDefinitionData = {
-    version?: number | null;
-    workflowId: string;
-    workspaceId: string;
-};
+  version?: number | null
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition;
+export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinition
 
 export type WorkflowsCreateWorkflowDefinitionData = {
-    workflowId: string;
-    workspaceId: string;
-};
+  workflowId: string
+  workspaceId: string
+}
 
-export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition;
+export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
 
 export type TriggersCreateWebhookData = {
-    requestBody: UpsertWebhookParams;
-    workflowId: string;
-    workspaceId: string;
-};
+  requestBody: UpsertWebhookParams
+  workflowId: string
+  workspaceId: string
+}
 
-export type TriggersCreateWebhookResponse = unknown;
+export type TriggersCreateWebhookResponse = unknown
 
 export type TriggersGetWebhookData = {
-    workflowId: string;
-    workspaceId: string;
-};
+  workflowId: string
+  workspaceId: string
+}
 
-export type TriggersGetWebhookResponse = WebhookResponse;
+export type TriggersGetWebhookResponse = WebhookResponse
 
 export type TriggersUpdateWebhookData = {
-    requestBody: UpsertWebhookParams;
-    workflowId: string;
-    workspaceId: string;
-};
+  requestBody: UpsertWebhookParams
+  workflowId: string
+  workspaceId: string
+}
 
-export type TriggersUpdateWebhookResponse = void;
+export type TriggersUpdateWebhookResponse = void
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
-    workflowId?: string | null;
-    workspaceId: string;
-};
+  workflowId?: string | null
+  workspaceId: string
+}
 
-export type WorkflowExecutionsListWorkflowExecutionsResponse = Array<WorkflowExecutionResponse>;
+export type WorkflowExecutionsListWorkflowExecutionsResponse =
+  Array<WorkflowExecutionResponse>
 
 export type WorkflowExecutionsCreateWorkflowExecutionData = {
-    requestBody: CreateWorkflowExecutionParams;
-    workspaceId: string;
-};
+  requestBody: CreateWorkflowExecutionParams
+  workspaceId: string
+}
 
-export type WorkflowExecutionsCreateWorkflowExecutionResponse = CreateWorkflowExecutionResponse;
+export type WorkflowExecutionsCreateWorkflowExecutionResponse =
+  CreateWorkflowExecutionResponse
 
 export type WorkflowExecutionsGetWorkflowExecutionData = {
-    executionId: string;
-    workspaceId: string;
-};
+  executionId: string
+  workspaceId: string
+}
 
-export type WorkflowExecutionsGetWorkflowExecutionResponse = WorkflowExecutionResponse;
+export type WorkflowExecutionsGetWorkflowExecutionResponse =
+  WorkflowExecutionResponse
 
 export type WorkflowExecutionsListWorkflowExecutionEventHistoryData = {
-    executionId: string;
-    workspaceId: string;
-};
+  executionId: string
+  workspaceId: string
+}
 
-export type WorkflowExecutionsListWorkflowExecutionEventHistoryResponse = Array<EventHistoryResponse>;
+export type WorkflowExecutionsListWorkflowExecutionEventHistoryResponse =
+  Array<EventHistoryResponse>
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
-    executionId: string;
-    workspaceId: string;
-};
+  executionId: string
+  workspaceId: string
+}
 
-export type WorkflowExecutionsCancelWorkflowExecutionResponse = void;
+export type WorkflowExecutionsCancelWorkflowExecutionResponse = void
 
 export type WorkflowExecutionsTerminateWorkflowExecutionData = {
-    executionId: string;
-    requestBody: TerminateWorkflowExecutionParams;
-    workspaceId: string;
-};
+  executionId: string
+  requestBody: TerminateWorkflowExecutionParams
+  workspaceId: string
+}
 
-export type WorkflowExecutionsTerminateWorkflowExecutionResponse = void;
+export type WorkflowExecutionsTerminateWorkflowExecutionResponse = void
 
 export type ActionsListActionsData = {
-    workflowId: string;
-    workspaceId: string;
-};
+  workflowId: string
+  workspaceId: string
+}
 
-export type ActionsListActionsResponse = Array<ActionMetadataResponse>;
+export type ActionsListActionsResponse = Array<ActionMetadataResponse>
 
 export type ActionsCreateActionData = {
-    requestBody: CreateActionParams;
-    workspaceId: string;
-};
+  requestBody: CreateActionParams
+  workspaceId: string
+}
 
-export type ActionsCreateActionResponse = ActionMetadataResponse;
+export type ActionsCreateActionResponse = ActionMetadataResponse
 
 export type ActionsGetActionData = {
-    actionId: string;
-    workflowId: string;
-    workspaceId: string;
-};
+  actionId: string
+  workflowId: string
+  workspaceId: string
+}
 
-export type ActionsGetActionResponse = ActionResponse;
+export type ActionsGetActionResponse = ActionResponse
 
 export type ActionsUpdateActionData = {
-    actionId: string;
-    requestBody: UpdateActionParams;
-    workspaceId: string;
-};
+  actionId: string
+  requestBody: UpdateActionParams
+  workspaceId: string
+}
 
-export type ActionsUpdateActionResponse = ActionResponse;
+export type ActionsUpdateActionResponse = ActionResponse
 
 export type ActionsDeleteActionData = {
-    actionId: string;
-    workspaceId: string;
-};
+  actionId: string
+  workspaceId: string
+}
 
-export type ActionsDeleteActionResponse = void;
+export type ActionsDeleteActionResponse = void
 
 export type UdfsListUdfsData = {
-    limit?: number | null;
-    ns?: Array<(string)> | null;
-    workspaceId: string;
-};
+  limit?: number | null
+  ns?: Array<string> | null
+  workspaceId: string
+}
 
-export type UdfsListUdfsResponse = Array<UDFSpec>;
+export type UdfsListUdfsResponse = Array<UDFSpec>
 
 export type UdfsGetUdfData = {
-    namespace?: string;
-    udfKey: string;
-    workspaceId: string;
-};
+  namespace?: string
+  udfKey: string
+  workspaceId: string
+}
 
-export type UdfsGetUdfResponse = UDFSpec;
+export type UdfsGetUdfResponse = UDFSpec
 
 export type UdfsCreateUdfData = {
-    udfKey: string;
-    workspaceId: string;
-};
+  udfKey: string
+  workspaceId: string
+}
 
-export type UdfsCreateUdfResponse = UDFSpec;
+export type UdfsCreateUdfResponse = UDFSpec
 
 export type UdfsValidateUdfArgsData = {
-    requestBody: {
-        [key: string]: unknown;
-    };
-    udfKey: string;
-    workspaceId: string;
-};
+  requestBody: {
+    [key: string]: unknown
+  }
+  udfKey: string
+  workspaceId: string
+}
 
-export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse;
+export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse
 
 export type CasesCreateCaseData = {
-    requestBody: CaseCreate;
-    workspaceId: string;
-};
+  requestBody: CaseCreate
+  workspaceId: string
+}
 
-export type CasesCreateCaseResponse = CaseRead;
+export type CasesCreateCaseResponse = CaseRead
 
 export type CasesListCasesData = {
-    limit?: number | null;
-    workflowId?: string | null;
-    workspaceId: string;
-};
+  limit?: number | null
+  workflowId?: string | null
+  workspaceId: string
+}
 
-export type CasesListCasesResponse = Array<CaseRead>;
+export type CasesListCasesResponse = Array<CaseRead>
 
 export type CasesGetCaseData = {
-    caseId: string;
-    workspaceId: string;
-};
+  caseId: string
+  workspaceId: string
+}
 
-export type CasesGetCaseResponse = CaseRead;
+export type CasesGetCaseResponse = CaseRead
 
 export type CasesUpdateCaseData = {
-    caseId: string;
-    requestBody: CaseUpdate;
-    workspaceId: string;
-};
+  caseId: string
+  requestBody: CaseUpdate
+  workspaceId: string
+}
 
-export type CasesUpdateCaseResponse = CaseRead;
+export type CasesUpdateCaseResponse = CaseRead
 
 export type CasesCreateCaseEventData = {
-    caseId: string;
-    requestBody: CaseEventCreate;
-    workspaceId: string;
-};
+  caseId: string
+  requestBody: CaseEventCreate
+  workspaceId: string
+}
 
-export type CasesCreateCaseEventResponse = unknown;
+export type CasesCreateCaseEventResponse = unknown
 
 export type CasesListCaseEventsData = {
-    caseId: string;
-    workspaceId: string;
-};
+  caseId: string
+  workspaceId: string
+}
 
-export type CasesListCaseEventsResponse = Array<CaseEvent>;
+export type CasesListCaseEventsResponse = Array<CaseEvent>
 
 export type CasesGetCaseEventData = {
-    caseId: string;
-    eventId: string;
-    workspaceId: string;
-};
+  caseId: string
+  eventId: string
+  workspaceId: string
+}
 
-export type CasesGetCaseEventResponse = unknown;
-
-export type SecretsListSecretsData = {
-    workspaceId: string;
-};
-
-export type SecretsListSecretsResponse = Array<SecretResponse>;
-
-export type SecretsCreateSecretData = {
-    requestBody: CreateSecretParams;
-    workspaceId: string;
-};
-
-export type SecretsCreateSecretResponse = unknown;
-
-export type SecretsGetSecretByNameData = {
-    secretName: string;
-    workspaceId: string;
-};
-
-export type SecretsGetSecretByNameResponse = Secret;
-
-export type SecretsUpdateSecretByIdData = {
-    requestBody: UpdateSecretParams;
-    secretId: string;
-    workspaceId: string;
-};
-
-export type SecretsUpdateSecretByIdResponse = void;
-
-export type SecretsDeleteSecretByIdData = {
-    secretId: string;
-    workspaceId: string;
-};
-
-export type SecretsDeleteSecretByIdResponse = void;
+export type CasesGetCaseEventResponse = unknown
 
 export type SecretsSearchSecretsData = {
-    requestBody: SearchSecretsParams;
-    workspaceId: string;
-};
+  environment?: string | null
+  id?: Array<string> | null
+  name?: Array<string> | null
+  workspaceId: string
+}
 
-export type SecretsSearchSecretsResponse = Array<Secret>;
+export type SecretsSearchSecretsResponse = Array<Secret>
+
+export type SecretsListSecretsData = {
+  workspaceId: string
+}
+
+export type SecretsListSecretsResponse = Array<SecretResponse>
+
+export type SecretsCreateSecretData = {
+  requestBody: CreateSecretParams
+  workspaceId: string
+}
+
+export type SecretsCreateSecretResponse = unknown
+
+export type SecretsGetSecretByNameData = {
+  secretName: string
+  workspaceId: string
+}
+
+export type SecretsGetSecretByNameResponse = Secret
+
+export type SecretsUpdateSecretByIdData = {
+  requestBody: UpdateSecretParams
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsUpdateSecretByIdResponse = void
+
+export type SecretsDeleteSecretByIdData = {
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsDeleteSecretByIdResponse = void
 
 export type SchedulesListSchedulesData = {
-    workflowId?: string | null;
-    workspaceId: string;
-};
+  workflowId?: string | null
+  workspaceId: string
+}
 
-export type SchedulesListSchedulesResponse = Array<Schedule>;
+export type SchedulesListSchedulesResponse = Array<Schedule>
 
 export type SchedulesCreateScheduleData = {
-    requestBody: ScheduleCreate;
-    workspaceId: string;
-};
+  requestBody: ScheduleCreate
+  workspaceId: string
+}
 
-export type SchedulesCreateScheduleResponse = Schedule;
+export type SchedulesCreateScheduleResponse = Schedule
 
 export type SchedulesGetScheduleData = {
-    scheduleId: string;
-    workspaceId: string;
-};
+  scheduleId: string
+  workspaceId: string
+}
 
-export type SchedulesGetScheduleResponse = Schedule;
+export type SchedulesGetScheduleResponse = Schedule
 
 export type SchedulesUpdateScheduleData = {
-    requestBody: ScheduleUpdate;
-    scheduleId: string;
-    workspaceId: string;
-};
+  requestBody: ScheduleUpdate
+  scheduleId: string
+  workspaceId: string
+}
 
-export type SchedulesUpdateScheduleResponse = Schedule;
+export type SchedulesUpdateScheduleResponse = Schedule
 
 export type SchedulesDeleteScheduleData = {
-    scheduleId: string;
-    workspaceId: string;
-};
+  scheduleId: string
+  workspaceId: string
+}
 
-export type SchedulesDeleteScheduleResponse = void;
+export type SchedulesDeleteScheduleResponse = void
 
 export type SchedulesSearchSchedulesData = {
-    requestBody: ScheduleSearch;
-    workspaceId: string;
-};
+  requestBody: ScheduleSearch
+  workspaceId: string
+}
 
-export type SchedulesSearchSchedulesResponse = Array<Schedule>;
+export type SchedulesSearchSchedulesResponse = Array<Schedule>
 
 export type ValidationValidateWorkflowData = {
-    formData: Body_validation_validate_workflow;
-    workspaceId: string;
-};
+  formData: Body_validation_validate_workflow
+  workspaceId: string
+}
 
-export type ValidationValidateWorkflowResponse = Array<UDFArgsValidationResponse>;
+export type ValidationValidateWorkflowResponse =
+  Array<UDFArgsValidationResponse>
 
 export type UsersSearchUserData = {
-    email?: string | null;
-};
+  email?: string | null
+}
 
-export type UsersSearchUserResponse = UserRead;
+export type UsersSearchUserResponse = UserRead
 
-export type UsersUsersCurrentUserResponse = UserRead;
+export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
-    requestBody: UserUpdate;
-};
+  requestBody: UserUpdate
+}
 
-export type UsersUsersPatchCurrentUserResponse = UserRead;
+export type UsersUsersPatchCurrentUserResponse = UserRead
 
 export type UsersUsersUserData = {
-    id: string;
-};
+  id: string
+}
 
-export type UsersUsersUserResponse = UserRead;
+export type UsersUsersUserResponse = UserRead
 
 export type UsersUsersPatchUserData = {
-    id: string;
-    requestBody: UserUpdate;
-};
+  id: string
+  requestBody: UserUpdate
+}
 
-export type UsersUsersPatchUserResponse = UserRead;
+export type UsersUsersPatchUserResponse = UserRead
 
 export type UsersUsersDeleteUserData = {
-    id: string;
-};
+  id: string
+}
 
-export type UsersUsersDeleteUserResponse = void;
+export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-    formData: login;
-};
+  formData: login
+}
 
-export type AuthAuthDatabaseLoginResponse = unknown | void;
+export type AuthAuthDatabaseLoginResponse = unknown | void
 
-export type AuthAuthDatabaseLogoutResponse = unknown | void;
+export type AuthAuthDatabaseLogoutResponse = unknown | void
 
 export type AuthRegisterRegisterData = {
-    requestBody: UserCreate;
-};
+  requestBody: UserCreate
+}
 
-export type AuthRegisterRegisterResponse = UserRead;
+export type AuthRegisterRegisterResponse = UserRead
 
 export type AuthResetForgotPasswordData = {
-    requestBody: Body_auth_reset_forgot_password;
-};
+  requestBody: Body_auth_reset_forgot_password
+}
 
-export type AuthResetForgotPasswordResponse = unknown;
+export type AuthResetForgotPasswordResponse = unknown
 
 export type AuthResetResetPasswordData = {
-    requestBody: Body_auth_reset_reset_password;
-};
+  requestBody: Body_auth_reset_reset_password
+}
 
-export type AuthResetResetPasswordResponse = unknown;
+export type AuthResetResetPasswordResponse = unknown
 
 export type AuthVerifyRequestTokenData = {
-    requestBody: Body_auth_verify_request_token;
-};
+  requestBody: Body_auth_verify_request_token
+}
 
-export type AuthVerifyRequestTokenResponse = unknown;
+export type AuthVerifyRequestTokenResponse = unknown
 
 export type AuthVerifyVerifyData = {
-    requestBody: Body_auth_verify_verify;
-};
+  requestBody: Body_auth_verify_verify
+}
 
-export type AuthVerifyVerifyResponse = UserRead;
+export type AuthVerifyVerifyResponse = UserRead
 
 export type AuthOauthGoogleDatabaseAuthorizeData = {
-    scopes?: Array<(string)>;
-};
+  scopes?: Array<string>
+}
 
-export type AuthOauthGoogleDatabaseAuthorizeResponse = OAuth2AuthorizeResponse;
+export type AuthOauthGoogleDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
 
 export type AuthOauthGoogleDatabaseCallbackData = {
-    code?: string | null;
-    codeVerifier?: string | null;
-    error?: string | null;
-    state?: string | null;
-};
+  code?: string | null
+  codeVerifier?: string | null
+  error?: string | null
+  state?: string | null
+}
 
-export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
+export type AuthOauthGoogleDatabaseCallbackResponse = unknown
 
 export type PublicCheckHealthResponse = {
-    [key: string]: (string);
-};
+  [key: string]: string
+}
 
 export type $OpenApiTs = {
-    '/webhooks/{path}/{secret}': {
-        post: {
-            req: PublicIncomingWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CreateWorkflowExecutionResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/webhooks/{path}/{secret}/wait': {
-        post: {
-            req: PublicIncomingWebhookWaitData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: unknown;
-                };
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/callback/{service}': {
-        post: {
-            req: PublicWebhookCallbackData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: (string);
-                };
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workspaces': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<WorkspaceMetadataResponse>;
-            };
-        };
-        post: {
-            req: WorkspacesCreateWorkspaceData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: WorkspaceMetadataResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workspaces/search': {
-        get: {
-            req: WorkspacesSearchWorkspacesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<WorkspaceMetadataResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workspaces/{workspace_id}': {
-        get: {
-            req: WorkspacesGetWorkspaceData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WorkspaceResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        patch: {
-            req: WorkspacesUpdateWorkspaceData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: WorkspacesDeleteWorkspaceData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workspaces/{workspace_id}/memberships': {
-        get: {
-            req: WorkspacesListWorkspaceMembershipsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<WorkspaceMembershipResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: WorkspacesCreateWorkspaceMembershipData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workspaces/{workspace_id}/memberships/{user_id}': {
-        get: {
-            req: WorkspacesGetWorkspaceMembershipData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<WorkspaceMembershipResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: WorkspacesDeleteWorkspaceMembershipData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows': {
-        get: {
-            req: WorkflowsListWorkflowsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<WorkflowMetadataResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: WorkflowsCreateWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: WorkflowMetadataResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}': {
-        get: {
-            req: WorkflowsGetWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WorkflowResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        patch: {
-            req: WorkflowsUpdateWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: WorkflowsDeleteWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/commit': {
-        post: {
-            req: WorkflowsCommitWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CommitWorkflowResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/export': {
-        get: {
-            req: WorkflowsExportWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/definition': {
-        get: {
-            req: WorkflowsGetWorkflowDefinitionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WorkflowDefinition;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: WorkflowsCreateWorkflowDefinitionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WorkflowDefinition;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflows/{workflow_id}/webhook': {
-        post: {
-            req: TriggersCreateWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: TriggersGetWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WebhookResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        patch: {
-            req: TriggersUpdateWebhookData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflow-executions': {
-        get: {
-            req: WorkflowExecutionsListWorkflowExecutionsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<WorkflowExecutionResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: WorkflowExecutionsCreateWorkflowExecutionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CreateWorkflowExecutionResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflow-executions/{execution_id}': {
-        get: {
-            req: WorkflowExecutionsGetWorkflowExecutionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: WorkflowExecutionResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflow-executions/{execution_id}/history': {
-        get: {
-            req: WorkflowExecutionsListWorkflowExecutionEventHistoryData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<EventHistoryResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflow-executions/{execution_id}/cancel': {
-        post: {
-            req: WorkflowExecutionsCancelWorkflowExecutionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/workflow-executions/{execution_id}/terminate': {
-        post: {
-            req: WorkflowExecutionsTerminateWorkflowExecutionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/actions': {
-        get: {
-            req: ActionsListActionsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<ActionMetadataResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: ActionsCreateActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: ActionMetadataResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/actions/{action_id}': {
-        get: {
-            req: ActionsGetActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: ActionResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: ActionsUpdateActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: ActionResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: ActionsDeleteActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs': {
-        get: {
-            req: UdfsListUdfsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<UDFSpec>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}': {
-        get: {
-            req: UdfsGetUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: UdfsCreateUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}/validate': {
-        post: {
-            req: UdfsValidateUdfArgsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFArgsValidationResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases': {
-        post: {
-            req: CasesCreateCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: CasesListCasesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseRead>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}': {
-        get: {
-            req: CasesGetCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: CasesUpdateCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}/events': {
-        post: {
-            req: CasesCreateCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: CasesListCaseEventsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseEvent>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}/events/{event_id}': {
-        get: {
-            req: CasesGetCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/secrets': {
-        get: {
-            req: SecretsListSecretsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<SecretResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: SecretsCreateSecretData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/secrets/{secret_name}': {
-        get: {
-            req: SecretsGetSecretByNameData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Secret;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/secrets/{secret_id}': {
-        post: {
-            req: SecretsUpdateSecretByIdData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: SecretsDeleteSecretByIdData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/secrets/search': {
-        post: {
-            req: SecretsSearchSecretsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Secret>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/schedules': {
-        get: {
-            req: SchedulesListSchedulesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Schedule>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: SchedulesCreateScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Schedule;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/schedules/{schedule_id}': {
-        get: {
-            req: SchedulesGetScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Schedule;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: SchedulesUpdateScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Schedule;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: SchedulesDeleteScheduleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/schedules/search': {
-        get: {
-            req: SchedulesSearchSchedulesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Schedule>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/validate-workflow': {
-        post: {
-            req: ValidationValidateWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<UDFArgsValidationResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/users/search': {
-        get: {
-            req: UsersSearchUserData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UserRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/users/me': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UserRead;
-                /**
-                 * Missing token or inactive user.
-                 */
-                401: unknown;
-            };
-        };
-        patch: {
-            req: UsersUsersPatchCurrentUserData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UserRead;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Missing token or inactive user.
-                 */
-                401: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/users/{id}': {
-        get: {
-            req: UsersUsersUserData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UserRead;
-                /**
-                 * Missing token or inactive user.
-                 */
-                401: unknown;
-                /**
-                 * Not a superuser.
-                 */
-                403: unknown;
-                /**
-                 * The user does not exist.
-                 */
-                404: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        patch: {
-            req: UsersUsersPatchUserData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UserRead;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Missing token or inactive user.
-                 */
-                401: unknown;
-                /**
-                 * Not a superuser.
-                 */
-                403: unknown;
-                /**
-                 * The user does not exist.
-                 */
-                404: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        delete: {
-            req: UsersUsersDeleteUserData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Missing token or inactive user.
-                 */
-                401: unknown;
-                /**
-                 * Not a superuser.
-                 */
-                403: unknown;
-                /**
-                 * The user does not exist.
-                 */
-                404: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/login': {
-        post: {
-            req: AuthAuthDatabaseLoginData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * No Content
-                 */
-                204: void;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/logout': {
-        post: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * No Content
-                 */
-                204: void;
-                /**
-                 * Missing token or inactive user.
-                 */
-                401: unknown;
-            };
-        };
-    };
-    '/auth/register': {
-        post: {
-            req: AuthRegisterRegisterData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: UserRead;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/forgot-password': {
-        post: {
-            req: AuthResetForgotPasswordData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                202: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/reset-password': {
-        post: {
-            req: AuthResetResetPasswordData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/request-verify-token': {
-        post: {
-            req: AuthVerifyRequestTokenData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                202: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/verify': {
-        post: {
-            req: AuthVerifyVerifyData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UserRead;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/oauth/authorize': {
-        get: {
-            req: AuthOauthGoogleDatabaseAuthorizeData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: OAuth2AuthorizeResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/auth/oauth/callback': {
-        get: {
-            req: AuthOauthGoogleDatabaseCallbackData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Bad Request
-                 */
-                400: ErrorModel;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/health': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: (string);
-                };
-            };
-        };
-    };
-};
+  "/webhooks/{path}/{secret}": {
+    post: {
+      req: PublicIncomingWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CreateWorkflowExecutionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/webhooks/{path}/{secret}/wait": {
+    post: {
+      req: PublicIncomingWebhookWaitData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: unknown
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/callback/{service}": {
+    post: {
+      req: PublicWebhookCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMetadataResponse>
+      }
+    }
+    post: {
+      req: WorkspacesCreateWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkspaceMetadataResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/search": {
+    get: {
+      req: WorkspacesSearchWorkspacesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMetadataResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}": {
+    get: {
+      req: WorkspacesGetWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: WorkspacesUpdateWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: WorkspacesDeleteWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/memberships": {
+    get: {
+      req: WorkspacesListWorkspaceMembershipsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMembershipResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: WorkspacesCreateWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/memberships/{user_id}": {
+    get: {
+      req: WorkspacesGetWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMembershipResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: WorkspacesDeleteWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows": {
+    get: {
+      req: WorkflowsListWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowMetadataResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: WorkflowsCreateWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkflowMetadataResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}": {
+    get: {
+      req: WorkflowsGetWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: WorkflowsUpdateWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: WorkflowsDeleteWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/commit": {
+    post: {
+      req: WorkflowsCommitWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CommitWorkflowResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/export": {
+    get: {
+      req: WorkflowsExportWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/definition": {
+    get: {
+      req: WorkflowsGetWorkflowDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowDefinition
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: WorkflowsCreateWorkflowDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowDefinition
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/webhook": {
+    post: {
+      req: TriggersCreateWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: TriggersGetWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebhookResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TriggersUpdateWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions": {
+    get: {
+      req: WorkflowExecutionsListWorkflowExecutionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowExecutionResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: WorkflowExecutionsCreateWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CreateWorkflowExecutionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}": {
+    get: {
+      req: WorkflowExecutionsGetWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/history": {
+    get: {
+      req: WorkflowExecutionsListWorkflowExecutionEventHistoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EventHistoryResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/cancel": {
+    post: {
+      req: WorkflowExecutionsCancelWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/terminate": {
+    post: {
+      req: WorkflowExecutionsTerminateWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/actions": {
+    get: {
+      req: ActionsListActionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ActionMetadataResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ActionsCreateActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ActionMetadataResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/actions/{action_id}": {
+    get: {
+      req: ActionsGetActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ActionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ActionsUpdateActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ActionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ActionsDeleteActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/udfs": {
+    get: {
+      req: UdfsListUdfsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<UDFSpec>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/udfs/{udf_key}": {
+    get: {
+      req: UdfsGetUdfData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UDFSpec
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: UdfsCreateUdfData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UDFSpec
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/udfs/{udf_key}/validate": {
+    post: {
+      req: UdfsValidateUdfArgsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UDFArgsValidationResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases": {
+    post: {
+      req: CasesCreateCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: CasesListCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}": {
+    get: {
+      req: CasesGetCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesUpdateCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/events": {
+    post: {
+      req: CasesCreateCaseEventData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: CasesListCaseEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseEvent>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/events/{event_id}": {
+    get: {
+      req: CasesGetCaseEventData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/secrets/search": {
+    get: {
+      req: SecretsSearchSecretsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<Secret>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/secrets": {
+    get: {
+      req: SecretsListSecretsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SecretResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SecretsCreateSecretData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/secrets/{secret_name}": {
+    get: {
+      req: SecretsGetSecretByNameData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Secret
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/secrets/{secret_id}": {
+    post: {
+      req: SecretsUpdateSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SecretsDeleteSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/schedules": {
+    get: {
+      req: SchedulesListSchedulesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<Schedule>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SchedulesCreateScheduleData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Schedule
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/schedules/{schedule_id}": {
+    get: {
+      req: SchedulesGetScheduleData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Schedule
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SchedulesUpdateScheduleData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Schedule
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SchedulesDeleteScheduleData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/schedules/search": {
+    get: {
+      req: SchedulesSearchSchedulesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<Schedule>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/validate-workflow": {
+    post: {
+      req: ValidationValidateWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<UDFArgsValidationResponse>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/search": {
+    get: {
+      req: UsersSearchUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+      }
+    }
+    patch: {
+      req: UsersUsersPatchCurrentUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/{id}": {
+    get: {
+      req: UsersUsersUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+        /**
+         * Not a superuser.
+         */
+        403: unknown
+        /**
+         * The user does not exist.
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: UsersUsersPatchUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+        /**
+         * Not a superuser.
+         */
+        403: unknown
+        /**
+         * The user does not exist.
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: UsersUsersDeleteUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+        /**
+         * Not a superuser.
+         */
+        403: unknown
+        /**
+         * The user does not exist.
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/login": {
+    post: {
+      req: AuthAuthDatabaseLoginData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * No Content
+         */
+        204: void
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/logout": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * No Content
+         */
+        204: void
+        /**
+         * Missing token or inactive user.
+         */
+        401: unknown
+      }
+    }
+  }
+  "/auth/register": {
+    post: {
+      req: AuthRegisterRegisterData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: UserRead
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/forgot-password": {
+    post: {
+      req: AuthResetForgotPasswordData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/reset-password": {
+    post: {
+      req: AuthResetResetPasswordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/request-verify-token": {
+    post: {
+      req: AuthVerifyRequestTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/verify": {
+    post: {
+      req: AuthVerifyVerifyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRead
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/oauth/authorize": {
+    get: {
+      req: AuthOauthGoogleDatabaseAuthorizeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OAuth2AuthorizeResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/oauth/callback": {
+    get: {
+      req: AuthOauthGoogleDatabaseCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/health": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+      }
+    }
+  }
+}

@@ -738,6 +738,11 @@ export const $CreateSecretParams = {
                 }
             ],
             title: 'Tags'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            default: 'default'
         }
     },
     type: 'object',
@@ -848,12 +853,13 @@ export const $CreateWorkspaceParams = {
     title: 'CreateWorkspaceParams'
 } as const;
 
-export const $DSLConfig = {
+export const $DSLConfig_Input = {
     properties: {
         scheduler: {
             type: 'string',
             enum: ['static', 'dynamic'],
             title: 'Scheduler',
+            description: 'The type of scheduler to use.',
             default: 'dynamic'
         },
         enable_runtime_tests: {
@@ -862,6 +868,25 @@ export const $DSLConfig = {
             description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
             default: false
         },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment',
+            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used. "
+        }
+    },
+    type: 'object',
+    title: 'DSLConfig'
+} as const;
+
+export const $DSLConfig_Output = {
+    properties: {
         environment: {
             anyOf: [
                 {
@@ -923,7 +948,7 @@ export const $DSLInput = {
             title: 'Actions'
         },
         config: {
-            '$ref': '#/components/schemas/DSLConfig'
+            '$ref': '#/components/schemas/DSLConfig-Output'
         },
         triggers: {
             items: {
@@ -1003,9 +1028,19 @@ export const $DSLRunArgs = {
                 }
             ]
         },
-        run_config: {
-            type: 'object',
-            title: 'Run Config'
+        runtime_config: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/DSLConfig-Output'
+                }
+            ],
+            description: 'Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.'
+        },
+        timeout: {
+            type: 'string',
+            format: 'duration',
+            title: 'Timeout',
+            description: 'The maximum time to wait for the workflow to complete.'
         }
     },
     type: 'object',
@@ -1230,6 +1265,9 @@ export const $GetWorkflowDefinitionActivityInputs = {
             type: 'object',
             title: 'Trigger Inputs'
         },
+        runtime_config: {
+            '$ref': '#/components/schemas/DSLConfig-Output'
+        },
         version: {
             anyOf: [
                 {
@@ -1246,7 +1284,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
         }
     },
     type: 'object',
-    required: ['role', 'task', 'workflow_id', 'trigger_inputs', 'run_context'],
+    required: ['role', 'task', 'workflow_id', 'trigger_inputs', 'runtime_config', 'run_context'],
     title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
@@ -1727,21 +1765,6 @@ export const $ScheduleUpdate = {
     title: 'ScheduleUpdate'
 } as const;
 
-export const $SearchSecretsParams = {
-    properties: {
-        names: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Names'
-        }
-    },
-    type: 'object',
-    required: ['names'],
-    title: 'SearchSecretsParams'
-} as const;
-
 export const $Secret = {
     properties: {
         owner_id: {
@@ -1792,15 +1815,9 @@ export const $Secret = {
             title: 'Encrypted Keys'
         },
         environment: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Environment'
+            type: 'string',
+            title: 'Environment',
+            default: 'default'
         },
         tags: {
             anyOf: [
@@ -1871,6 +1888,17 @@ export const $SecretResponse = {
             },
             type: 'array',
             title: 'Keys'
+        },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment'
         }
     },
     type: 'object',
@@ -2193,6 +2221,17 @@ export const $UpdateSecretParams = {
                 }
             ],
             title: 'Tags'
+        },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment'
         }
     },
     type: 'object',
@@ -2309,7 +2348,7 @@ export const $UpdateWorkflowParams = {
         config: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/DSLConfig'
+                    '$ref': '#/components/schemas/DSLConfig-Input'
                 },
                 {
                     type: 'null'
@@ -3010,7 +3049,7 @@ export const $WorkflowResponse = {
         config: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/DSLConfig'
+                    '$ref': '#/components/schemas/DSLConfig-Output'
                 },
                 {
                     type: 'null'
