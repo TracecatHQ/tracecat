@@ -8,6 +8,7 @@ from tracecat.identifiers import SecretID
 from tracecat.logging import logger
 from tracecat.secrets.models import (
     CreateSecretParams,
+    SearchSecretsParams,
     SecretResponse,
     UpdateSecretParams,
 )
@@ -20,13 +21,18 @@ router = APIRouter(prefix="/secrets")
 async def search_secrets(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    name: list[str] | None = Query(None),
-    id: list[SecretID] | None = Query(None),
-    env: list[str] | None = Query(None),
+    environment: str = Query(...),
+    names: list[str] | None = Query(None, alias="name"),
+    ids: list[SecretID] | None = Query(None, alias="id"),
 ) -> list[Secret]:
     """Search secrets."""
     service = SecretsService(session, role=role)
-    secrets = await service.search_secrets(names=name, ids=id, environment=env)
+    params = {"environment": environment}
+    if names:
+        params["names"] = names
+    if ids:
+        params["ids"] = ids
+    secrets = await service.search_secrets(SearchSecretsParams(**params))
     return secrets
 
 
@@ -45,6 +51,7 @@ async def list_secrets(
             name=secret.name,
             description=secret.description,
             keys=[kv.key for kv in service.decrypt_keys(secret.encrypted_keys)],
+            environment=secret.environment,
         )
         for secret in secrets
     ]
@@ -81,8 +88,10 @@ async def create_secret(
     try:
         await service.create_secret(params)
     except IntegrityError as e:
+        logger.error("Secret integrity error", e=str(e))
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Secret creation integrity error: {e!r}",
         ) from e
 
 

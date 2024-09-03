@@ -3,6 +3,7 @@ from typing import Annotated, Any, Literal, TypedDict
 from pydantic import BaseModel, Field
 
 from tracecat.expressions.validation import TemplateValidator
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -71,9 +72,9 @@ class DSLConfig(BaseModel):
         exclude=True,  # Exclude from serialization
     )
     environment: Annotated[
-        str | None,
+        str,
         Field(
-            default=None,
+            ...,
             description=(
                 "The workflow's target execution environment. "
                 "This is used as an isolation boundary for credentials and other secrets."
@@ -81,7 +82,7 @@ class DSLConfig(BaseModel):
             ),
         ),
         TemplateValidator(),
-    ]
+    ] = DEFAULT_SECRETS_ENVIRONMENT
 
 
 class Trigger(BaseModel):

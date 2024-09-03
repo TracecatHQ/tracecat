@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.registry import RegistryUDFError, registry
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 
 class ChildWorkflowExecutionOptions(BaseModel):
@@ -36,7 +37,7 @@ async def execute(
         ),
     ],
     environment: Annotated[
-        str | None,
+        str,
         Field(
             description=(
                 "The child workflow's target execution environment. "
@@ -44,7 +45,7 @@ async def execute(
                 "If not provided, the default environment is used. "
             ),
         ),
-    ] = None,
+    ] = DEFAULT_SECRETS_ENVIRONMENT,
     version: Annotated[
         int | None,
         Field(..., description="The version of the child workflow definition, if any."),

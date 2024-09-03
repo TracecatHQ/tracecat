@@ -17,6 +17,7 @@ from tracecat.logging import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import (
     CreateSecretParams,
+    SearchSecretsParams,
     SecretKeyValue,
     UpdateSecretParams,
 )
@@ -29,20 +30,21 @@ class SecretsService:
     def __init__(self, session: AsyncSession, role: Role | None = None):
         self.role = role or ctx_role.get()
         self.session = session
-        self._encryption_key = os.getenv("TRACECAT__DB_ENCRYPTION_KEY")
-        if not self._encryption_key:
-            raise ValueError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+        try:
+            self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+        except KeyError as e:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
         self.logger = logger.bind(service="secrets")
 
     @asynccontextmanager
     @staticmethod
     async def with_session(
         role: Role | None = None,
-    ) -> AsyncGenerator[SecretsService, None, None]:
+    ) -> AsyncGenerator[SecretsService, None]:
         async with get_async_session_context_manager() as session:
             yield SecretsService(session, role=role)
 
-    async def _update_secret(self, secret: Secret, params: UpdateSecretParams):
+    async def _update_secret(self, secret: Secret, params: UpdateSecretParams) -> None:
         set_fields = params.model_dump(exclude_unset=True)
         # Handle keys separately
         if keys := set_fields.pop("keys", None):
@@ -61,38 +63,45 @@ class SecretsService:
         await self.session.delete(secret)
         await self.session.commit()
 
-    async def list_secrets(self) -> list[Secret]:
+    async def list_secrets(self) -> Sequence[Secret]:
         statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
         result = await self.session.exec(statement)
         return result.all()
 
     @overload
     async def get_secret_by_id(
-        self, secret_id: str, raise_on_none: Literal[True]
+        self, secret_id: str, raise_on_error: Literal[True]
     ) -> Secret: ...
 
     @overload
     async def get_secret_by_id(
-        self, secret_id: str, raise_on_none: Literal[False]
+        self, secret_id: str, raise_on_error: Literal[False]
     ) -> Secret | None: ...
 
     async def get_secret_by_id(
-        self, secret_id: SecretID, raise_on_none: bool = False
+        self, secret_id: SecretID, raise_on_error: bool = False
     ) -> Secret | None:
         statement = select(Secret).where(
             Secret.owner_id == self.role.workspace_id, Secret.id == secret_id
         )
         result = await self.session.exec(statement)
-        secret = result.one_or_none()
-        if not secret and raise_on_none:
-            raise NoResultFound("Secret not found when searching by ID")
-        return secret
+        try:
+            return result.one()
+        except MultipleResultsFound as e:
+            if raise_on_error:
+                raise MultipleResultsFound(
+                    "Multiple secrets found when searching by ID"
+                ) from e
+        except NoResultFound as e:
+            if raise_on_error:
+                raise NoResultFound("Secret not found when searching by ID") from e
+        return None
 
     @overload
     async def get_secret_by_name(
         self,
         secret_name: str,
-        raise_on_none: Literal[True],
+        raise_on_error: Literal[True],
         environment: str | None = None,
     ) -> Secret: ...
 
@@ -100,15 +109,14 @@ class SecretsService:
     async def get_secret_by_name(
         self,
         secret_name: str,
-        raise_on_none: Literal[False],
+        raise_on_error: Literal[False],
         environment: str | None = None,
     ) -> Secret | None: ...
 
     async def get_secret_by_name(
         self,
         secret_name: str,
-        raise_on_none: bool = False,
-        raise_on_multiple: bool = False,
+        raise_on_error: bool = False,
         environment: str | None = None,
     ) -> Secret | None:
         statement = select(Secret).where(
@@ -118,16 +126,16 @@ class SecretsService:
             statement = statement.where(Secret.environment == environment)
         result = await self.session.exec(statement)
         try:
-            secret = result.one()
+            return result.one()
         except MultipleResultsFound as e:
-            if raise_on_multiple:
+            if raise_on_error:
                 raise MultipleResultsFound(
                     "Multiple secrets found when searching by name"
                 ) from e
         except NoResultFound as e:
-            if raise_on_none:
+            if raise_on_error:
                 raise NoResultFound("Secret not found when searching by name") from e
-        return secret
+        return None
 
     async def create_secret(self, params: CreateSecretParams) -> None:
         secret = Secret(
@@ -137,6 +145,7 @@ class SecretsService:
             description=params.description,
             tags=params.tags,
             encrypted_keys=self.encrypt_keys(params.keys),
+            environment=params.environment,
         )
         self.session.add(secret)
         await self.session.commit()
@@ -144,21 +153,21 @@ class SecretsService:
     async def update_secret_by_name(
         self, secret_name: str, params: UpdateSecretParams
     ) -> None:
-        secret = await self.get_secret_by_name(secret_name, raise_on_none=True)
+        secret = await self.get_secret_by_name(secret_name, raise_on_error=True)
         await self._update_secret(secret=secret, params=params)
 
     async def update_secret_by_id(
         self, secret_id: SecretID, params: UpdateSecretParams
     ) -> None:
-        secret = await self.get_secret_by_id(secret_id, raise_on_none=True)
+        secret = await self.get_secret_by_id(secret_id, raise_on_error=True)
         await self._update_secret(secret=secret, params=params)
 
     async def delete_secret_by_name(self, secret_name: str) -> None:
-        secret = await self.get_secret_by_name(secret_name, raise_on_none=True)
+        secret = await self.get_secret_by_name(secret_name, raise_on_error=True)
         await self._delete_secret(secret)
 
     async def delete_secret_by_id(self, secret_id: SecretID) -> None:
-        secret = await self.get_secret_by_id(secret_id, raise_on_none=True)
+        secret = await self.get_secret_by_id(secret_id, raise_on_error=True)
         await self._delete_secret(secret)
 
     def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
@@ -169,22 +178,21 @@ class SecretsService:
         """Encrypt and return the keys for a secret."""
         return encrypt_keyvalues(keys, key=self._encryption_key)
 
-    async def search_secrets(
-        self,
-        *,
-        ids: Sequence[SecretID] | None = None,
-        names: Sequence[str] | None = None,
-        environment: Sequence[str] | None = None,
-    ) -> Sequence[Secret]:
+    async def search_secrets(self, params: SearchSecretsParams) -> Sequence[Secret]:
         """Search secrets by name."""
-        if not any((ids, names, environment)):
+        if not any((params.ids, params.names, params.environment)):
             return []
+
         statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
-        if ids:
+        fields = params.model_dump(exclude_unset=True)
+        self.logger.info("Searching secrets", set_fields=fields)
+
+        if ids := fields.get("ids"):
             statement = statement.where(col(Secret.id).in_(ids))
-        if names:
+        if names := fields.get("names"):
             statement = statement.where(col(Secret.name).in_(names))
-        if environment:
-            statement = statement.where(col(Secret.environment).in_(environment))
+        if "environment" in fields:
+            statement = statement.where(Secret.environment == fields["environment"])
+
         result = await self.session.exec(statement)
         return result.all()

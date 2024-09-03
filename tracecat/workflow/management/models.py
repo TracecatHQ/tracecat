@@ -74,6 +74,7 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     task: ActionStatement
     workflow_id: WorkflowID
     trigger_inputs: dict[str, Any]
+    runtime_config: DSLConfig
     version: int | None = None
     run_context: RunContext
 

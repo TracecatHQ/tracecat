@@ -158,4 +158,5 @@ async def get_workflow_definition_activity(
         wf_id=defn.workflow_id,
         parent_run_context=parent_run_context,
         trigger_inputs=input.trigger_inputs,
+        runtime_config=input.runtime_config,
     )

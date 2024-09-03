@@ -88,7 +88,7 @@ class DSLEnvironment(TypedDict, total=False):
     workflow: dict[str, Any]
     """Metadata about the workflow."""
 
-    environment: str | None
+    environment: str
     """Target environment for the workflow."""
 
     variables: dict[str, Any]
@@ -335,13 +335,11 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
-        # Setup
+        # Setup general run context
         self.role = args.role
         ctx_role.set(self.role)
         wf_info = workflow.info()
-        self.start_to_close_timeout = args.run_config.get(
-            "timeout", timedelta(minutes=5)
-        )
+        self.start_to_close_timeout = timedelta(minutes=5)
 
         self.run_ctx = RunContext(
             wf_id=args.wf_id,
@@ -355,9 +353,11 @@ class DSLWorkflow:
         )
         ctx_logger.set(self.logger)
 
+        # Setup DSL context
         self.dsl = args.dsl
-        # XXX: We need to set the ENV context here.
-        # Likely need an activity that sets the ENV context
+
+        # Use dynamic_config if set, otherwise use the default config
+        environment = args.runtime_config.environment or self.dsl.config.environment
         self.context = DSLContext(
             ACTIONS={},
             INPUTS=self.dsl.inputs,
@@ -366,14 +366,15 @@ class DSLWorkflow:
                 workflow={
                     "start_time": wf_info.start_time,
                 },
-                environment=self.dsl.config.environment,
+                environment=environment,
                 variables={},
             ),
         )
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
-        self.logger.info("Running DSL task workflow")
+
+        self.logger.info("Running DSL task workflow", environment=environment)
 
         self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=self.dsl)
         try:
@@ -576,7 +577,12 @@ class DSLWorkflow:
                 role=self.role,
                 task=task,
                 run_context=self.run_ctx,
-                **validated_args,
+                workflow_id=validated_args["workflow_id"],
+                version=validated_args.get("version"),
+                trigger_inputs=validated_args["trigger_inputs"],
+                runtime_config={
+                    "environment": validated_args.get("environment"),
+                },
             ),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
@@ -686,6 +692,7 @@ class DSLActivities:
         act_logger = logger.bind(
             task_ref=task.ref, wf_id=input.run_context.wf_id, role=input.role
         )
+        env_context = DSLEnvironment(**input.exec_context[ExprContext.ENV])
 
         try:
             # Multi-phase expression resolution
@@ -705,7 +712,11 @@ class DSLActivities:
             # 3. Inject the secrets into the task arguments using an enriched context
             # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
             secret_refs = extract_templated_secrets(task.args)
-            async with AuthSandbox(secrets=secret_refs, target="context") as sandbox:
+            async with AuthSandbox(
+                secrets=secret_refs,
+                target="context",
+                environment=env_context["environment"],
+            ) as sandbox:
                 context_with_secrets = {
                     **input.exec_context,
                     ExprContext.SECRETS: sandbox.secrets.copy(),

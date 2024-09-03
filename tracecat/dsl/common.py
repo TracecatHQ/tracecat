@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import Any, Self
@@ -192,4 +193,14 @@ class DSLRunArgs(BaseModel):
     wf_id: WorkflowID
     trigger_inputs: dict[str, Any] | None = None
     parent_run_context: RunContext | None = None
-    run_config: dict[str, Any] = Field(default_factory=dict)
+    runtime_config: DSLConfig = Field(
+        default_factory=DSLConfig,
+        description=(
+            "Runtime configuration that can be set on workflow entry. "
+            "Note that this can override the default config in DSLInput."
+        ),
+    )
+    timeout: timedelta = Field(
+        default_factory=lambda: timedelta(minutes=5),
+        description="The maximum time to wait for the workflow to complete.",
+    )
