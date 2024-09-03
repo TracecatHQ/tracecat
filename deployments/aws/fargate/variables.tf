@@ -29,7 +29,7 @@ variable "tracecat_ui_image" {
 }
 
 variable "tracecat_image_tag" {
-  default = "0.8.4"
+  default = "0.8.5"
 }
 
 variable "force_new_deployment" {

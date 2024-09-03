@@ -193,3 +193,23 @@ async def update_crowdstrike_detect_status(
     )
 
     return response
+
+
+@registry.register(
+    default_title="Get Crowdstrike detect summaries",
+    description="Fetch the summaries of specific Crowdstrike detections by their IDs.",
+    display_group="Crowdstrike",
+    namespace="integrations.crowdstrike",
+    secrets=[crowdstrike_secret],
+)
+async def get_crowdstrike_detect_summaries(
+    detection_ids: Annotated[
+        list[str],
+        Field(..., description="List of detection IDs to fetch summaries for"),
+    ],
+) -> dict[str, Any]:
+    falcon = Detects(**get_crowdstrike_credentials())
+
+    response = falcon.get_detect_summaries(ids=detection_ids)
+
+    return response
