@@ -47,3 +47,4 @@ definition:
         batch_size: ${{ INPUTS.batch_size }}
         trigger_inputs:
           alert: ${{ var.alert }}
+          event_key: crowdstrike

@@ -1,5 +1,5 @@
 definition:
-  title: List, normalize, and redirect Sentinel One alerts
+  title: List, normalize, and redirect SentinelOne alerts
   description: |
     Pulls SentinelOne alerts, normalizes alerts into ECS format
     and triggers a child workflow for each alert.
@@ -45,3 +45,4 @@ definition:
         interval_minutes: ${{ TRIGGER.interval_minutes }}
         trigger_inputs:
           alert: ${{ var.alert }}
+          event_key: sentinel_one
