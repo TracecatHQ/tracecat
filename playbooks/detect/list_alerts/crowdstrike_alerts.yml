@@ -6,8 +6,7 @@ definition:
   entrypoint:
     ref: list_crowdstrike_alerts
     expects:
-      start_time: str
-      interval_minutes: str
+      interval_minutes: int
       filter: str
       child_workflow_id: str
   triggers:
@@ -22,8 +21,8 @@ definition:
     - ref: list_crowdstrike_alerts
       action: integrations.crowdstrike.list_crowdstrike_alerts
       args:
-        start_time: ${{ TRIGGER.start_time }}
-        end_time: ${{  }}
+        start_time: ${{ ENV.workflow.start_time }}
+        end_time: ${{ ENV.workflow.start_time + FN.minutes(TRIGGER.interval_minutes) }}
         filter: ${{ TRIGGER.filter }}
         limit: ${{ INPUTS.limit }}
 
