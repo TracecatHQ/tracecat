@@ -1,0 +1,59 @@
+definition:
+  title: List, normalize, and redirect Crowdstrike detection summaries
+  description: |
+    Pulls Crowdstrike detection summaries, normalizes detections into ECS format
+    and triggers a child workflow for each alert.
+
+  entrypoint:
+    ref: list_crowdstrike_detections
+    expects:
+      start_time: str
+      interval_minutes: str
+      filter: str
+      child_workflow_id: str
+  triggers:
+    - type: webhook
+      ref: crowdstrike_alerts_webhook
+      entrypoint: list_crowdstrike_alerts
+  inputs:
+    limit: 10
+    batch_size: 10
+
+  actions:
+    - ref: list_crowdstrike_detections
+      action: integrations.crowdstrike.list_crowdstrike_detections
+      args:
+        start_time: ${{ ENV.workflow.start_time }}
+        end_time: ${{ ENV.workflow.start_time + FN.minutes(TRIGGER.interval_minutes) }}
+        filter: ${{ TRIGGER.filter }}
+        limit: ${{ INPUTS.limit }}
+
+    - ref: get_crowdstrike_detection_summaries
+      action: integrations.crowdstrike.get_crowdstrike_detect_summaries
+      depends_on:
+        - list_crowdstrike_detections
+      run_if: ${{ FN.not_empty(ACTIONS.list_crowdstrike_detections.result) }}
+      args:
+        # NOTE: we use JSONPath list syntax to extract the ids from the list of detections
+        detection_ids: ${{ ACTIONS.list_crowdstrike_detections.result[*].id }}
+
+    - ref: normalize_crowdstrike_detections
+      action: etl.normalization.normalize_events_to_ecs
+      depends_on:
+        - get_crowdstrike_detection_summaries
+      args:
+        pipeline: https://github.com/elastic/integrations/raw/main/packages/crowdstrike/data_stream/falcon/elasticsearch/ingest_pipeline/detection_summary.yml
+        data: ${{ ACTIONS.get_crowdstrike_detection_summaries.result }}
+
+    - ref: redirect_crowdstrike_detection_summaries
+      action: core.workflow.execute
+      depends_on:
+        - normalize_crowdstrike_detections
+      for_each: ${{ for var.detection in ACTIONS.normalize_crowdstrike_detections.result }}
+      args:
+        workflow_id: ${{ TRIGGER.child_workflow_id }}
+        loop_strategy: parallel
+        fail_strategy: isolated
+        batch_size: ${{ INPUTS.batch_size }}
+        trigger_inputs:
+          detection: ${{ var.detection }}
