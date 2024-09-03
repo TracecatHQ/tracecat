@@ -165,6 +165,17 @@ services:
     depends_on:
       - temporal
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    container_name: elasticsearch
+    restart: unless-stopped
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
 volumes:
   core-db:
   temporal-db:
+  elasticsearch-data:
