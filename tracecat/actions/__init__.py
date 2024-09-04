@@ -16,15 +16,17 @@ from tracecat.actions.core import (
     transform,
     workflow,
 )
+from tracecat.actions.etl import extraction, normalization
 
 __all__ = [
-    # Core
-    "example",
-    "http",
-    "email",
-    "llm",
     "cases",
-    "transform",
+    "email",
+    "example",
+    "extraction",
+    "http",
     "integrations",
+    "llm",
+    "normalization",
+    "transform",
     "workflow",
 ]
