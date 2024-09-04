@@ -60,6 +60,8 @@ dependencies = [
     "tenacity==8.3.0",
     "types-aioboto3[guardduty]==13.0.1",
     "uvicorn==0.29.0",
+    "pymongo==4.8.0",
+    "dnspython==2.6.1",
 ]
 dynamic = ["version"]
 
