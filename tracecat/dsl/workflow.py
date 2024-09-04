@@ -3,7 +3,14 @@ from __future__ import annotations
 import asyncio
 import itertools
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Coroutine, Iterable, Iterator
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Coroutine,
+    Generator,
+    Iterable,
+    Iterator,
+)
 from datetime import timedelta
 from enum import StrEnum, auto
 from typing import Any, TypedDict
@@ -526,24 +533,39 @@ class DSLWorkflow:
 
     async def _execute_workflow_batch(
         self,
-        batch: Iterable[Any],
+        batch: Iterable[dict[str, Any]],
         run_args: DSLRunArgs,
         *,
         fail_strategy: FailStrategy = FailStrategy.ISOLATED,
     ) -> list[Any]:
+        def iter_patched_args() -> Generator[DSLRunArgs]:
+            for patched_args in batch:
+                cloned_args = run_args.model_copy()
+                cloned_args.trigger_inputs = patched_args.get("trigger_inputs", {})
+                cloned_args.runtime_config = run_args.runtime_config.model_copy()
+                cloned_args.runtime_config.environment = patched_args.get("environment")
+                yield cloned_args
+
         if fail_strategy == FailStrategy.ALL:
             async with GatheringTaskGroup() as tg:
-                for patched_args in batch:
-                    run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
-                    tg.create_task(self._run_child_workflow(run_args))
+                for patched_run_args in iter_patched_args():
+                    logger.trace(
+                        "Run child workflow batch",
+                        fail_strategy=fail_strategy,
+                        patched_run_args=patched_run_args,
+                    )
+                    tg.create_task(self._run_child_workflow(patched_run_args))
             return tg.results()
         else:
             # Isolated
             coros = []
-            for patched_args in batch:
-                run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
-                # Shallow copy here to avoid sharing the same model object for each execution
-                coro = self._run_child_workflow(run_args.model_copy())
+            for patched_run_args in iter_patched_args():
+                logger.trace(
+                    "Run child workflow batch",
+                    fail_strategy=fail_strategy,
+                    patched_run_args=patched_run_args,
+                )
+                coro = self._run_child_workflow(patched_run_args)
                 coros.append(coro)
             gather_result = await asyncio.gather(*coros, return_exceptions=True)
             result: list[DSLExecutionError | Any] = [
@@ -825,7 +847,7 @@ def iter_for_each(
     *,
     assign_context: ExprContext = ExprContext.LOCAL_VARS,
     patch: bool = True,
-) -> Iterator[Any]:
+) -> Iterator[dict[str, Any]]:
     """Yield patched contexts for each loop iteration."""
     # Evaluate the loop expression
     iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
