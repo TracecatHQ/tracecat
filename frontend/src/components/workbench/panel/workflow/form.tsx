@@ -262,20 +262,26 @@ export function WorkflowForm({
                             Configuration that modifies the runtime behavior of
                             services.
                           </span>
-                          <span className="w-full text-muted-foreground">
-                            Usage example in expressions:
-                          </span>
                         </div>
-                        <div className="rounded-md border bg-muted-foreground/10 p-2">
-                          <pre className="text-xs text-foreground/70">
-                            {"${{ INPUTS.my_static_key }}"}
+                        {/* Schema is hardcoded here for now */}
+                        <div className="space-y-2">
+                          <span className="w-full font-semibold text-muted-foreground">
+                            Fields
+                          </span>
+                          <pre className="space-y-2 text-wrap rounded-md border bg-muted-foreground/10 p-2 text-xs text-foreground/70">
+                            <b>environment</b>
+                            {": string | null"}
+                            <p className="text-muted-foreground">
+                              # The workflow&apos;s target execution
+                              environment. Defaults to null.
+                            </p>
                           </pre>
                         </div>
                       </div>
                     </HoverCardContent>
                   </HoverCard>
                   <span className="text-xs text-muted-foreground">
-                    Define runtime configuration for the workflow.
+                    Define the runtime configuration for the workflow.
                   </span>
                 </div>
                 <Controller

@@ -39,9 +39,10 @@ interface EditCredentialsDialogProps
   setSelectedSecret: (selectedSecret: SecretResponse | null) => void
 }
 
-export const updateSecretSchema = z.object({
+const updateSecretSchema = z.object({
   name: z.string().optional(),
   description: z.string().max(255).optional(),
+  environment: z.string().optional(),
   keys: z.array(
     z.object({
       key: z.string(),

@@ -633,12 +633,22 @@ export function useSecrets() {
       })
       queryClient.invalidateQueries({ queryKey: ["secrets"] })
     },
-    onError: (error) => {
-      console.error("Failed to add new credentials", error)
-      toast({
-        title: "Failed to add new secret",
-        description: "An error occurred while adding the new secret.",
-      })
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Secret already exists", error)
+          toast({
+            title: "Secret already exists",
+            description: "A secret with matching name and environment exists.",
+          })
+          break
+        default:
+          console.error("Failed to create secret", error)
+          toast({
+            title: "Failed to add new secret",
+            description: "An error occurred while adding the new secret.",
+          })
+      }
     },
   })
 
