@@ -45,4 +45,4 @@ definition:
         interval_minutes: ${{ TRIGGER.interval_minutes }}
         trigger_inputs:
           alert: ${{ var.alert }}
-          event_key: sentinel_one
+          severity: ${{ var.detection.sentinel_one.alert.rule.severity }}
