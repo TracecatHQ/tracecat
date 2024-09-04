@@ -65,6 +65,7 @@ export function EditCredentialsDialog({
     defaultValues: {
       name: "",
       description: "",
+      environment: "",
       keys: [],
     },
   })
@@ -81,6 +82,7 @@ export function EditCredentialsDialog({
       const params = {
         name: values.name || undefined,
         description: values.description || undefined,
+        environment: values.environment || undefined,
         keys: values.keys || undefined,
       }
       console.log("Submitting edit secret", params)
@@ -169,6 +171,30 @@ export function EditCredentialsDialog({
                     <span className="text-xs text-foreground/50">
                       {!methods.watch("description") &&
                         "Description will be left unchanged."}
+                    </span>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                key="environment"
+                control={control}
+                name="environment"
+                render={() => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Description</FormLabel>
+                    <FormControl>
+                      <Input
+                        className="text-sm"
+                        placeholder={
+                          selectedSecret?.environment || "Environment"
+                        }
+                        {...register("environment")}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                    <span className="text-xs text-foreground/50">
+                      {!methods.watch("environment") &&
+                        "Environment will be left unchanged."}
                     </span>
                   </FormItem>
                 )}
