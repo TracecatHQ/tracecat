@@ -9,6 +9,10 @@ definition:
     - type: webhook
       ref: receive_json
       entrypoint: serialize_json
+  returns:
+    ipv4: ${{ ACTIONS.extract_ipv4_addresses.result}}
+    urls: ${{ ACTIONS.extract_urls.result}}
+    emails: ${{ ACTIONS.extract_emails.result}}
 
   actions:
     - ref: serialize_json
@@ -40,15 +44,3 @@ definition:
       args:
         texts:
           - "${{ ACTIONS.serialize_json.result.serialized_json }}"
-
-    - ref: join_extracted_iocs
-      action: core.transform.reshape
-      depends_on:
-        - extract_ipv4_addresses
-        - extract_urls
-        - extract_emails
-      args:
-        value:
-          ipv4: ${{ ACTIONS.extract_ipv4_addresses.result}}
-          urls: ${{ ACTIONS.extract_urls.result}}
-          emails: ${{ ACTIONS.extract_emails.result}}
