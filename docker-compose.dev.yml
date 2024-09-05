@@ -50,7 +50,7 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       # Migrations
-      RUN_MIGRATIONS: true
+      RUN_MIGRATIONS: "true"
     volumes:
       - ./tracecat:/app/tracecat
       - ./alembic:/app/alembic
