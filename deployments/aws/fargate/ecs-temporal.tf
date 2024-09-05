@@ -3,8 +3,8 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
   family                   = "TracecatTemporalTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = var.temporal_cpu
+  memory                   = var.temporal_memory
   execution_role_arn       = aws_iam_role.temporal_execution.arn
   task_role_arn            = aws_iam_role.temporal_task.arn
 
@@ -14,8 +14,8 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
       image = "${var.temporal_server_image}:${var.temporal_server_image_tag}"
       portMappings = [
         {
-          containerPort = 7233 
-          hostPort      = 7233 
+          containerPort = 7233
+          hostPort      = 7233
           name          = "temporal"
           appProtocol   = "grpc"
         }
@@ -24,7 +24,7 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-          awslogs-region        = var.aws_region 
+          awslogs-region        = var.aws_region
           awslogs-stream-prefix = "temporal"
         }
       }
@@ -57,7 +57,7 @@ resource "aws_ecs_service" "temporal_service" {
   desired_count   = 1
 
   network_configuration {
-    subnets         = aws_subnet.private[*].id
+    subnets = aws_subnet.private[*].id
     security_groups = [
       aws_security_group.core.id,
       aws_security_group.temporal_db.id
@@ -71,7 +71,7 @@ resource "aws_ecs_service" "temporal_service" {
       port_name      = "temporal"
       discovery_name = "temporal-service"
       client_alias {
-        port     = 7233 
+        port     = 7233
         dns_name = "temporal-service"
       }
     }
@@ -80,7 +80,7 @@ resource "aws_ecs_service" "temporal_service" {
       log_driver = "awslogs"
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-        awslogs-region        = var.aws_region 
+        awslogs-region        = var.aws_region
         awslogs-stream-prefix = "service-connect-temporal"
       }
     }

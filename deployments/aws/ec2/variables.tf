@@ -49,5 +49,5 @@ variable "instance_type" {
 variable "tracecat_version" {
   description = "The version of Tracecat to use"
   type        = string
-  default     = "0.8.5"
+  default     = "0.9.0"
 }

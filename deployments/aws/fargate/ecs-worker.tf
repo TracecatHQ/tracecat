@@ -3,17 +3,15 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
   family                   = "TracecatWorkerTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  #cpu                      = "256"
-  cpu                      = "1024"
-  #memory                   = "512"
-  memory                   = "2048"
+  cpu                      = var.worker_cpu
+  memory                   = var.worker_memory
   execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
   container_definitions = jsonencode([
     {
-      name  = "TracecatWorkerContainer"
-      image = "${var.tracecat_image}:${var.tracecat_image_tag}"
+      name    = "TracecatWorkerContainer"
+      image   = "${var.tracecat_image}:${var.tracecat_image_tag}"
       command = ["python", "tracecat/dsl/worker.py"]
       portMappings = [
         {
@@ -27,11 +25,11 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-          awslogs-region        = var.aws_region 
+          awslogs-region        = var.aws_region
           awslogs-stream-prefix = "worker"
         }
       }
-      environment = concat(local.api_env, [
+      environment = concat(local.worker_env, [
         {
           name  = "TRACECAT__DB_ENDPOINT"
           value = local.core_db_hostname
@@ -52,15 +50,15 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
 }
 
 resource "aws_ecs_service" "tracecat_worker" {
-  name            = "tracecat-worker"
-  cluster         = aws_ecs_cluster.tracecat_cluster.id
-  task_definition = aws_ecs_task_definition.worker_task_definition.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
+  name                 = "tracecat-worker"
+  cluster              = aws_ecs_cluster.tracecat_cluster.id
+  task_definition      = aws_ecs_task_definition.worker_task_definition.arn
+  launch_type          = "FARGATE"
+  desired_count        = 1
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
-    subnets         = aws_subnet.private[*].id
+    subnets = aws_subnet.private[*].id
     security_groups = [
       aws_security_group.core.id,
       aws_security_group.core_db.id,
@@ -83,7 +81,7 @@ resource "aws_ecs_service" "tracecat_worker" {
       log_driver = "awslogs"
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-        awslogs-region        = var.aws_region 
+        awslogs-region        = var.aws_region
         awslogs-stream-prefix = "service-connect-worker"
       }
     }
