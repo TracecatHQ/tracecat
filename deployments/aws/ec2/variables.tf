@@ -51,15 +51,3 @@ variable "tracecat_version" {
   type        = string
   default     = "0.8.5"
 }
-
-variable "core_db_volume_size" {
-  description = "The size of the core database volume in GB"
-  type        = number
-  default     = 1
-}
-
-variable "temporal_db_volume_size" {
-  description = "The size of the temporal database volume in GB"
-  type        = number
-  default     = 1
-}

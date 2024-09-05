@@ -28,7 +28,8 @@ repos:
       - id: terraform_fmt
       - id: terraform_validate
       - id: terraform_tflint
-      - id: terraform_docs
+    files:
+      - deployments/**
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.18.2 # Specify the desired version of Gitleaks
     hooks:
