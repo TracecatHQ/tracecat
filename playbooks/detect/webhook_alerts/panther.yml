@@ -1,1 +1,44 @@
-# Work-in-progress
+definition:
+  title: Receive Panther alert
+  description: |
+    Receive a Panther alert, convert `createdAt` string to datetime, and deserialize `alertContext` JSON object.
+  entrypoint:
+    ref: deserialize_alert
+    expects:
+      # https://docs.panther.com/alerts/destinations/custom_webhook#custom-webhook-alert-schema
+      id: str
+      createdAt: str
+      severity: str
+      type: str
+      link: str
+      title: str
+      name: str
+      alertId: str
+      description: str
+      runbook: str
+      tags: list[str]
+      version: str
+      alertContext: str
+  triggers:
+    - type: webhook
+      ref: receive_panther_alert
+      entrypoint: deserialize_alert
+
+  actions:
+    - ref: deserialize_alert
+      action: core.transform.reshape
+      args:
+        value:
+          id: ${{ TRIGGER.id}}
+          createdAt: ${{ FN.to_datetime(TRIGGER.createdAt)}}
+          severity: ${{ TRIGGER.severity}}
+          type: ${{ TRIGGER.type}}
+          link: ${{ TRIGGER.link}}
+          title: ${{ TRIGGER.title}}
+          name: ${{ TRIGGER.name}}
+          alertId: ${{ TRIGGER.alertId}}
+          description: ${{ TRIGGER.description}}
+          runbook: ${{ TRIGGER.runbook}}
+          tags: ${{ TRIGGER.tags}}
+          version: ${{ TRIGGER.version}}
+          alertContext: ${{ FN.deserialize_json(TRIGGER.alertContext)}}
