@@ -43,7 +43,7 @@ async def get_mongodb_document(
         str,
         Field(
             ...,
-            description="The value to search for in the specified field (i.e. 'jira_id').",
+            description="The value to search for in the specified field (i.e. 'customer_name').",
         ),
     ],
     return_field: Annotated[
@@ -55,6 +55,8 @@ async def get_mongodb_document(
     ] = None,
 ) -> dict[str, Any] | None:
     MONGODB_URI = os.getenv("MONGODB_CONNECTION_STRING")
+    if not MONGODB_URI:
+        raise ValueError("Missing MONGODB_CONNECTION_STRING")
 
     client = MongoClient(MONGODB_URI)
     db = client["deployments"]
@@ -74,4 +76,4 @@ async def get_mongodb_document(
         result["_id"] = str(result["_id"])  # Convert ObjectId to String
         return result
     else:
-        return {"error_msg": "Error returning results, check your action config!"}
+        return {"error_msg": "No results returned from MongoDB."}
