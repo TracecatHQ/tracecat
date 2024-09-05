@@ -58,8 +58,8 @@ async def create_issue(
         str, Field(..., description="The ID of the Issue Type for the issue.")
     ],
     issue_description: Annotated[
-        str, Field(..., description="A description for the issue.")
-    ],
+        dict, Field(..., description="A description for the issue.")
+    ] ,
 ) -> list[dict[str, Any]]:
     url = f"{atlassian_domain}/rest/api/3/issue"
     AUTH_TOKEN = HTTPBasicAuth(os.getenv("JIRA_USERNAME"), os.getenv("JIRA_API_TOKEN"))
@@ -78,16 +78,7 @@ async def create_issue(
             "summary": issue_summary,
             "priority": {"id": issue_priority},
             "issuetype": {"id": issue_type},
-            "description": {
-                "type": "doc",  # matching the structure from the working payload
-                "version": 1,
-                "content": [
-                    {
-                        "type": "paragraph",
-                        "content": [{"text": issue_description, "type": "text"}],
-                    }
-                ],
-            },
+            "description": issue_description
         }
     }
 
@@ -123,7 +114,7 @@ async def update_issue(
             ...,
             description="The data you wish to update the issue with. This should be formatted exactly as the custom field is configured.",
         ),
-    ] = None,
+    ] = {},
 ) -> list[dict[str, Any]]:
     url = f"{atlassian_domain}/rest/api/3/issue/{issue_key}"
     AUTH_TOKEN = HTTPBasicAuth(os.getenv("JIRA_USERNAME"), os.getenv("JIRA_API_TOKEN"))
@@ -135,8 +126,9 @@ async def update_issue(
         "User-Agent": "Tracecat",
         "Content-Type": "application/json",
     }
-
+    
     update_payload = {"fields": update_data}
+
 
     async with httpx.AsyncClient() as client:
         response = await client.put(
@@ -146,5 +138,5 @@ async def update_issue(
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),
-            data=None,  # No content
+            data=update_payload,  # No content
         )
