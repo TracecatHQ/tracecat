@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   push-api-to-ghcr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   push-ui-to-ghcr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
