@@ -1,41 +1,47 @@
 ## AWS provider variables
 
 variable "aws_region" {
+  type    = string
   default = "us-west-2"
 }
 
 variable "az_count" {
+  type        = number
   description = "Number of AZs to cover in a given region"
-  default     = "2"
+  default     = 2
 }
 
 ### Images and Versions
 
 variable "temporal_server_image" {
+  type    = string
   default = "temporalio/auto-setup"
 }
 
 variable "temporal_server_image_tag" {
-  #default = "latest"
+  type    = string
   default = "1.24.2"
 }
 
 variable "tracecat_image" {
+  type    = string
   default = "ghcr.io/tracecathq/tracecat"
 }
 
 variable "tracecat_ui_image" {
+  type    = string
   default = "ghcr.io/tracecathq/tracecat-ui"
 }
 
 variable "tracecat_image_tag" {
-  default = "0.8.5"
+  type    = string
+  default = "0.9.0"
 }
 
 variable "force_new_deployment" {
+  type        = bool
   description = "Force a new deployment of Tracecat services. Used to update services with new images."
-  type    = bool
-  default = false
+  default     = false
 }
 
 ### Secret ARNs
@@ -70,44 +76,64 @@ variable "oauth_client_secret_arn" {
 ### DNS
 
 variable "hosted_zone_id" {
+  type        = string
   description = "The ID of the hosted zone in Route53"
 }
 
 variable "domain_name" {
+  type        = string
   description = "The domain name to use for the application"
 }
 
 ### Compute / Memory
 
 variable "api_cpu" {
+  type    = string
   default = "256"
 }
 
 variable "api_memory" {
+  type    = string
   default = "512"
 }
 
 variable "worker_cpu" {
+  type    = string
   default = "256"
 }
 
 variable "worker_memory" {
+  type    = string
   default = "512"
 }
 
 variable "ui_cpu" {
+  type    = string
   default = "256"
 }
 
 variable "ui_memory" {
+  type    = string
   default = "512"
 }
 
 variable "temporal_cpu" {
+  type    = string
   default = "256"
 }
 
 variable "temporal_memory" {
+  type    = string
+  default = "512"
+}
+
+variable "caddy_cpu" {
+  type    = string
+  default = "256"
+}
+
+variable "caddy_memory" {
+  type    = string
   default = "512"
 }
 
@@ -141,12 +167,6 @@ variable "tracecat_app_env" {
   type        = string
   description = "The environment of the Tracecat application"
   default     = "production"
-}
-
-variable "tracecat_db_sslmode" {
-  type        = string
-  description = "SSL mode for the database connection"
-  default     = "require"
 }
 
 # UI

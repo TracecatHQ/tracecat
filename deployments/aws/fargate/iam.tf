@@ -43,8 +43,8 @@ resource "aws_iam_policy" "secrets_access" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
         Resource = compact([
           aws_db_instance.core_database.master_user_secret[0].secret_arn,
           var.tracecat_db_encryption_key_arn,
@@ -77,7 +77,7 @@ resource "aws_iam_policy" "temporal_secrets_access" {
     ]
   })
 
-  depends_on = [ aws_db_instance.temporal_database ]
+  depends_on = [aws_db_instance.temporal_database]
 }
 
 # API execution role

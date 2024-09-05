@@ -41,8 +41,8 @@ resource "aws_eip" "gw" {
 
 resource "aws_nat_gateway" "gw" {
   count         = var.az_count
-  subnet_id     = element(aws_subnet.public.*.id, count.index)
-  allocation_id = element(aws_eip.gw.*.id, count.index)
+  subnet_id     = aws_subnet.public[count.index].id
+  allocation_id = aws_eip.gw[count.index].id
 }
 
 resource "aws_subnet" "private" {
@@ -62,14 +62,14 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = element(aws_nat_gateway.gw.*.id, count.index)
+    nat_gateway_id = aws_nat_gateway.gw[count.index].id
   }
 }
 
 resource "aws_route_table_association" "private" {
   count          = var.az_count
-  subnet_id      = element(aws_subnet.private.*.id, count.index)
-  route_table_id = element(aws_route_table.private.*.id, count.index)
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private[count.index].id
 }
 
 resource "aws_route_table" "public_rt" {

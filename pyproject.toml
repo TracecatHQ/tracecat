@@ -36,7 +36,7 @@ dependencies = [
     "colorlog==6.8.2",
     "croniter==2.0.5",
     "crowdstrike-falconpy==1.4.4",
-    "cryptography==42.0.7",
+    "cryptography==43.0.1",
     "fastapi-users[sqlalchemy,oauth]==13.0.0",
     "fastapi==0.111.0",
     "fsspec==2024.6.0",

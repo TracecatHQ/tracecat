@@ -3,8 +3,8 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
   family                   = "TracecatUiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = var.ui_cpu
+  memory                   = var.ui_memory
   execution_role_arn       = aws_iam_role.ui_execution.arn
 
   container_definitions = jsonencode([
@@ -13,8 +13,8 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
       image = "${var.tracecat_ui_image}:${var.tracecat_image_tag}"
       portMappings = [
         {
-          containerPort = 3000 
-          hostPort      = 3000 
+          containerPort = 3000
+          hostPort      = 3000
           name          = "ui"
           appProtocol   = "http"
         }
@@ -23,11 +23,11 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-          awslogs-region        = var.aws_region 
+          awslogs-region        = var.aws_region
           awslogs-stream-prefix = "ui"
         }
       }
-      environment = local.ui_env 
+      environment = local.ui_env
       dockerPullConfig = {
         maxAttempts = 3
         backoffTime = 30
@@ -37,15 +37,15 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
 }
 
 resource "aws_ecs_service" "tracecat_ui" {
-  name            = "tracecat-ui"
-  cluster         = aws_ecs_cluster.tracecat_cluster.id
-  task_definition = aws_ecs_task_definition.ui_task_definition.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
+  name                 = "tracecat-ui"
+  cluster              = aws_ecs_cluster.tracecat_cluster.id
+  task_definition      = aws_ecs_task_definition.ui_task_definition.arn
+  launch_type          = "FARGATE"
+  desired_count        = 1
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
-    subnets         = aws_subnet.private.*.id
+    subnets = aws_subnet.private[*].id
     security_groups = [
       aws_security_group.core.id,
     ]
@@ -58,7 +58,7 @@ resource "aws_ecs_service" "tracecat_ui" {
       port_name      = "ui"
       discovery_name = "ui-service"
       client_alias {
-        port     = 3000 
+        port     = 3000
         dns_name = "ui-service"
       }
     }
@@ -67,7 +67,7 @@ resource "aws_ecs_service" "tracecat_ui" {
       log_driver = "awslogs"
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-        awslogs-region        = var.aws_region 
+        awslogs-region        = var.aws_region
         awslogs-stream-prefix = "service-connect-ui"
       }
     }

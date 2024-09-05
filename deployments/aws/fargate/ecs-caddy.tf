@@ -3,8 +3,8 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
   family                   = "TracecatCaddyTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = var.caddy_cpu
+  memory                   = var.caddy_memory
   execution_role_arn       = aws_iam_role.caddy_execution.arn
   task_role_arn            = aws_iam_role.caddy_task.arn
 
@@ -60,7 +60,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
   desired_count   = 1
 
   network_configuration {
-    subnets         = aws_subnet.private[*].id
+    subnets = aws_subnet.private[*].id
     security_groups = [
       aws_security_group.caddy.id,
       aws_security_group.core.id
@@ -70,7 +70,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
   service_connect_configuration {
     enabled   = true
     namespace = local.local_dns_namespace
-    
+
     service {
       port_name      = "caddy"
       discovery_name = "caddy-service"
@@ -84,7 +84,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
       log_driver = "awslogs"
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-        awslogs-region        = var.aws_region 
+        awslogs-region        = var.aws_region
         awslogs-stream-prefix = "service-connect-caddy"
       }
     }

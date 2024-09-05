@@ -48,11 +48,11 @@ resource "aws_ecs_task_definition" "api_task_definition" {
 }
 
 resource "aws_ecs_service" "tracecat_api" {
-  name            = "tracecat-api"
-  cluster         = aws_ecs_cluster.tracecat_cluster.id
-  task_definition = aws_ecs_task_definition.api_task_definition.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
+  name                 = "tracecat-api"
+  cluster              = aws_ecs_cluster.tracecat_cluster.id
+  task_definition      = aws_ecs_task_definition.api_task_definition.arn
+  launch_type          = "FARGATE"
+  desired_count        = 1
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
