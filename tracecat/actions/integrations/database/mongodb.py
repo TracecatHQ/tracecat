@@ -46,6 +46,14 @@ async def get_mongodb_document(
             description="The value to search for in the specified field (i.e. 'customer_name').",
         ),
     ],
+    database_name: Annotated[
+        str,
+        Field(..., description="The name of the target database."),
+    ],
+    collection_name: Annotated[
+        str,
+        Field(..., description="The name of the target collection"),
+    ],
     return_field: Annotated[
         str | None,
         Field(
@@ -59,8 +67,8 @@ async def get_mongodb_document(
         raise ValueError("Missing MONGODB_CONNECTION_STRING")
 
     client = MongoClient(MONGODB_URI)
-    db = client["deployments"]
-    collection = db["customers"]
+    db = client[database_name]
+    collection = db[collection_name]
 
     # Build projection if return_field is provided
     if return_field:
