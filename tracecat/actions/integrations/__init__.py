@@ -1,4 +1,4 @@
-from . import cdr, chat, edr, email, enrichment, iam, siem, sinks
+from . import cdr, chat, edr, email, enrichment, iam, itsm, siem, sinks
 
 __all__ = [
     "cdr",
@@ -10,4 +10,5 @@ __all__ = [
     "iam",
     "siem",
     "sinks",
+    "itsm",
 ]
