@@ -74,4 +74,4 @@ async def get_mongodb_document(
         result["_id"] = str(result["_id"])  # Convert ObjectId to String
         return result
     else:
-        return None
+        return {"error_msg": "Error returning results, check your action config!"}
