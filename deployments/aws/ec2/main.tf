@@ -9,6 +9,7 @@ terraform {
   }
 }
 
+
 provider "aws" {
   region = var.aws_region
 }
@@ -33,6 +34,7 @@ locals {
     Project     = var.project_name
     Environment = var.environment
   }
+  tracecat_image_tag = coalesce(var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA, var.tracecat_image_tag)
 }
 
 module "vpc" {
@@ -226,37 +228,38 @@ resource "aws_instance" "this" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
-    tracecat_version = var.tracecat_version
-    efs_id           = aws_efs_file_system.this.id
+    image_tag = local.tracecat_image_tag
+    efs_id    = aws_efs_file_system.this.id
   }))
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws ec2 wait instance-status-ok --instance-ids ${self.id} --region ${var.aws_region} && \
-      sleep 60 && \
-      aws ssm send-command \
-        --instance-ids ${self.id} \
-        --document-name "AWS-RunShellScript" \
-        --parameters '{"commands":["cat /var/log/user-data.log"]}' \
-        --output text \
-        --region ${var.aws_region} \
-        --query "Command.CommandId" > ssm_command_id.txt && \
-      sleep 10 && \
-      aws ssm get-command-invocation \
-        --command-id $(cat ssm_command_id.txt) \
-        --instance-id ${self.id} \
-        --query "StandardOutputContent" \
-        --region ${var.aws_region} \
-        --output text > user_data_log.txt && \
-      if grep -q "ERROR:" user_data_log.txt; then
-        echo "Error detected in user data log. Log content:"
-        cat user_data_log.txt
-        exit 1
-      else
-        echo "User data script completed successfully"
-      fi
-    EOT
-  }
+  # NOTE: Used for debugging purposes only
+  # provisioner "local-exec" {
+  #   command = <<-EOT
+  #     aws ec2 wait instance-status-ok --instance-ids ${self.id} --region ${var.aws_region} && \
+  #     sleep 60 && \
+  #     aws ssm send-command \
+  #       --instance-ids ${self.id} \
+  #       --document-name "AWS-RunShellScript" \
+  #       --parameters '{"commands":["cat /var/log/user-data.log"]}' \
+  #       --output text \
+  #       --region ${var.aws_region} \
+  #       --query "Command.CommandId" > ssm_command_id.txt && \
+  #     sleep 10 && \
+  #     aws ssm get-command-invocation \
+  #       --command-id $(cat ssm_command_id.txt) \
+  #       --instance-id ${self.id} \
+  #       --query "StandardOutputContent" \
+  #       --region ${var.aws_region} \
+  #       --output text > user_data_log.txt && \
+  #     if grep -q "ERROR:" user_data_log.txt; then
+  #       echo "Error detected in user data log. Log content:"
+  #       cat user_data_log.txt
+  #       exit 1
+  #     else
+  #       echo "User data script completed successfully"
+  #     fi
+  #   EOT
+  # }
 
   tags = merge(local.project_tags, {
     Name = "${var.project_name}-instance"

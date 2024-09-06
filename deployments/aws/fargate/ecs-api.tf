@@ -11,7 +11,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TracecatApiContainer"
-      image = "${var.tracecat_image}:${var.tracecat_image_tag}"
+      image = "${var.tracecat_image}:${local.tracecat_image_tag}"
       portMappings = [
         {
           containerPort = 8000
