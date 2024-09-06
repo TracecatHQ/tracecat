@@ -869,16 +869,10 @@ export const $DSLConfig_Input = {
             default: false
         },
         environment: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
+            type: 'string',
             title: 'Environment',
-            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used. "
+            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment (default) is used.",
+            default: 'default'
         }
     },
     type: 'object',
@@ -887,21 +881,43 @@ export const $DSLConfig_Input = {
 
 export const $DSLConfig_Output = {
     properties: {
+        enable_runtime_tests: {
+            type: 'boolean',
+            title: 'Enable Runtime Tests',
+            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
+            default: false
+        },
         environment: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
+            type: 'string',
             title: 'Environment',
-            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used. "
+            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment (default) is used.",
+            default: 'default'
         }
     },
     type: 'object',
     title: 'DSLConfig'
+} as const;
+
+export const $DSLContext = {
+    properties: {
+        INPUTS: {
+            type: 'object',
+            title: 'Inputs'
+        },
+        ACTIONS: {
+            type: 'object',
+            title: 'Actions'
+        },
+        TRIGGER: {
+            type: 'object',
+            title: 'Trigger'
+        },
+        ENV: {
+            '$ref': '#/components/schemas/DSLEnvironment'
+        }
+    },
+    type: 'object',
+    title: 'DSLContext'
 } as const;
 
 export const $DSLEntrypoint = {
@@ -925,6 +941,26 @@ export const $DSLEntrypoint = {
     type: 'object',
     required: ['ref'],
     title: 'DSLEntrypoint'
+} as const;
+
+export const $DSLEnvironment = {
+    properties: {
+        workflow: {
+            type: 'object',
+            title: 'Workflow'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
+        },
+        variables: {
+            type: 'object',
+            title: 'Variables'
+        }
+    },
+    type: 'object',
+    title: 'DSLEnvironment',
+    description: 'DSL Environment context. Has metadata about the workflow.'
 } as const;
 
 export const $DSLInput = {
@@ -1242,12 +1278,6 @@ export const $EventHistoryType = {
     description: 'The event types we care about.'
 } as const;
 
-export const $ExprContext = {
-    type: 'string',
-    enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var'],
-    title: 'ExprContext'
-} as const;
-
 export const $GetWorkflowDefinitionActivityInputs = {
     properties: {
         role: {
@@ -1261,13 +1291,6 @@ export const $GetWorkflowDefinitionActivityInputs = {
             pattern: 'wf-[0-9a-f]{32}',
             title: 'Workflow Id'
         },
-        trigger_inputs: {
-            type: 'object',
-            title: 'Trigger Inputs'
-        },
-        runtime_config: {
-            '$ref': '#/components/schemas/DSLConfig-Output'
-        },
         version: {
             anyOf: [
                 {
@@ -1278,13 +1301,10 @@ export const $GetWorkflowDefinitionActivityInputs = {
                 }
             ],
             title: 'Version'
-        },
-        run_context: {
-            '$ref': '#/components/schemas/RunContext'
         }
     },
     type: 'object',
-    required: ['role', 'task', 'workflow_id', 'trigger_inputs', 'runtime_config', 'run_context'],
+    required: ['role', 'task', 'workflow_id'],
     title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
@@ -1890,19 +1910,12 @@ export const $SecretResponse = {
             title: 'Keys'
         },
         environment: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
+            type: 'string',
             title: 'Environment'
         }
     },
     type: 'object',
-    required: ['id', 'type', 'name', 'keys'],
+    required: ['id', 'type', 'name', 'keys', 'environment'],
     title: 'SecretResponse'
 } as const;
 
@@ -1971,11 +1984,7 @@ export const $UDFActionInput = {
             '$ref': '#/components/schemas/Role'
         },
         exec_context: {
-            additionalProperties: {
-                type: 'object'
-            },
-            type: 'object',
-            title: 'Exec Context'
+            '$ref': '#/components/schemas/DSLContext'
         },
         run_context: {
             '$ref': '#/components/schemas/RunContext'

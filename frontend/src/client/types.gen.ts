@@ -293,9 +293,9 @@ export type DSLConfig_Input = {
    */
   enable_runtime_tests?: boolean
   /**
-   * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used.
+   * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment (default) is used.
    */
-  environment?: string | null
+  environment?: string
 }
 
 /**
@@ -305,9 +305,26 @@ export type scheduler = "static" | "dynamic"
 
 export type DSLConfig_Output = {
   /**
-   * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment is used.
+   * Enable runtime action tests. This is dynamically set on workflow entry.
    */
-  environment?: string | null
+  enable_runtime_tests?: boolean
+  /**
+   * The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment (default) is used.
+   */
+  environment?: string
+}
+
+export type DSLContext = {
+  INPUTS?: {
+    [key: string]: unknown
+  }
+  ACTIONS?: {
+    [key: string]: unknown
+  }
+  TRIGGER?: {
+    [key: string]: unknown
+  }
+  ENV?: DSLEnvironment
 }
 
 export type DSLEntrypoint = {
@@ -319,6 +336,19 @@ export type DSLEntrypoint = {
    * Expected trigger input shape
    */
   expects?: unknown | null
+}
+
+/**
+ * DSL Environment context. Has metadata about the workflow.
+ */
+export type DSLEnvironment = {
+  workflow?: {
+    [key: string]: unknown
+  }
+  environment?: string
+  variables?: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -439,25 +469,11 @@ export type EventHistoryType =
   | "CHILD_WORKFLOW_EXECUTION_FAILED"
   | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
 
-export type ExprContext =
-  | "ACTIONS"
-  | "SECRETS"
-  | "FN"
-  | "INPUTS"
-  | "ENV"
-  | "TRIGGER"
-  | "var"
-
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   task: ActionStatement
   workflow_id: string
-  trigger_inputs: {
-    [key: string]: unknown
-  }
-  runtime_config: DSLConfig_Output
   version?: number | null
-  run_context: RunContext
 }
 
 export type HTTPValidationError = {
@@ -644,7 +660,7 @@ export type SecretResponse = {
   name: string
   description?: string | null
   keys: Array<string>
-  environment?: string | null
+  environment: string
 }
 
 export type Tag = {
@@ -669,11 +685,7 @@ export type type3 = "schedule" | "webhook"
 export type UDFActionInput = {
   task: ActionStatement
   role: Role
-  exec_context: {
-    [key: string]: {
-      [key: string]: unknown
-    }
-  }
+  exec_context: DSLContext
   run_context: RunContext
   action_test?: ActionTest | null
 }
@@ -1350,7 +1362,7 @@ export type CasesGetCaseEventData = {
 export type CasesGetCaseEventResponse = unknown
 
 export type SecretsSearchSecretsData = {
-  environment?: string | null
+  environment: string
   id?: Array<string> | null
   name?: Array<string> | null
   workspaceId: string

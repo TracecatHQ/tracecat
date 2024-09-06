@@ -1113,10 +1113,10 @@ export const casesGetCaseEvent = (data: CasesGetCaseEventData): CancelablePromis
  * Search Secrets
  * Search secrets.
  * @param data The data for the request.
+ * @param data.environment
  * @param data.workspaceId
  * @param data.name
  * @param data.id
- * @param data.environment
  * @returns Secret Successful Response
  * @throws ApiError
  */
@@ -1124,9 +1124,9 @@ export const secretsSearchSecrets = (data: SecretsSearchSecretsData): Cancelable
     method: 'GET',
     url: '/secrets/search',
     query: {
+        environment: data.environment,
         name: data.name,
         id: data.id,
-        environment: data.environment,
         workspace_id: data.workspaceId
     },
     errors: {
