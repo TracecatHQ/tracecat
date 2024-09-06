@@ -59,9 +59,11 @@ async def create_issue(
     ],
     optional_fields: Annotated[
         dict,
-        Field(..., description="Optional dictionary of fields you wish to add into the issue.")
-    ] = None
-    
+        Field(
+            ...,
+            description="Optional dictionary of fields you wish to add into the issue.",
+        ),
+    ] = None,
 ) -> list[dict[str, Any]]:
     url = f"{atlassian_domain}/rest/api/3/issue"
     AUTH_TOKEN = HTTPBasicAuth(os.getenv("JIRA_USERNAME"), os.getenv("JIRA_API_TOKEN"))
@@ -79,10 +81,10 @@ async def create_issue(
             "project": {"id": project_id},
             "summary": issue_summary,
             "priority": {"id": issue_priority},
-            "issuetype": {"id": issue_type}
+            "issuetype": {"id": issue_type},
         }
     }
-    
+
     # If optional fields are provided, merge them into the issue data
     if optional_fields:
         issue_data["fields"].update(optional_fields)
@@ -119,7 +121,7 @@ async def update_issue(
             ...,
             description="The data you wish to update the issue with. This should be formatted exactly as the custom field is configured.",
         ),
-    ] = {},
+    ] = None,
 ) -> list[dict[str, Any]]:
     url = f"{atlassian_domain}/rest/api/3/issue/{issue_key}"
     AUTH_TOKEN = HTTPBasicAuth(os.getenv("JIRA_USERNAME"), os.getenv("JIRA_API_TOKEN"))
@@ -131,9 +133,8 @@ async def update_issue(
         "User-Agent": "Tracecat",
         "Content-Type": "application/json",
     }
-    
-    update_payload = {"fields": update_data}
 
+    update_payload = {"fields": update_data} | {}
 
     async with httpx.AsyncClient() as client:
         response = await client.put(
