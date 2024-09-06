@@ -178,7 +178,6 @@ async def get_workflow(
         action.id: ActionResponse(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
-    logger.info("Getting workflow", workflow=workflow)
     return WorkflowResponse(
         **workflow.model_dump(),
         actions=actions_responses,
@@ -201,7 +200,6 @@ async def update_workflow(
     """Update a workflow."""
     service = WorkflowsManagementService(session, role=role)
     try:
-        logger.info("Updating workflow", workflow_id=workflow_id, params=params)
         await service.update_wrkflow(workflow_id, params=params)
     except NoResultFound as e:
         raise HTTPException(
