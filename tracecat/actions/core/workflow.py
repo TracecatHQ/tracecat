@@ -1,17 +1,10 @@
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.registry import RegistryUDFError, registry
-from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-
-
-class ChildWorkflowExecutionOptions(BaseModel):
-    loop_strategy: Literal["sequential", "parallel", "batch"] = "parallel"
-    batch_size: int = 16
-    fail_strategy: Literal["strict", "skip"] = "strict"
 
 
 @registry.register(
@@ -37,15 +30,15 @@ async def execute(
         ),
     ],
     environment: Annotated[
-        str,
+        str | None,
         Field(
             description=(
                 "The child workflow's target execution environment. "
                 "This is used as an isolation boundary for credentials and other secrets."
-                "If not provided, the default environment is used. "
+                "If not provided, the child workflow's default environment is used. "
             ),
         ),
-    ] = DEFAULT_SECRETS_ENVIRONMENT,
+    ] = None,
     version: Annotated[
         int | None,
         Field(..., description="The version of the child workflow definition, if any."),
