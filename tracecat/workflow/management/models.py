@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat.contexts import RunContext
 from tracecat.db.schemas import Schedule, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import ActionStatement, DSLConfig
@@ -73,10 +72,7 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
     task: ActionStatement
     workflow_id: WorkflowID
-    trigger_inputs: dict[str, Any]
-    runtime_config: DSLConfig
     version: int | None = None
-    run_context: RunContext
 
 
 WorkflowExportFormat = Literal["json", "yaml"]

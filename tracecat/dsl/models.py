@@ -1,8 +1,9 @@
-from typing import Annotated, Any, Literal, TypedDict
+from collections.abc import Mapping
+from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
 
-from tracecat.expressions.validation import TemplateValidator
+from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -14,7 +15,10 @@ class DSLNodeResult(TypedDict):
     result_typename: str
 
 
-class ActionStatement(BaseModel):
+ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
+
+
+class ActionStatement(BaseModel, Generic[ArgsT]):
     id: str | None = Field(
         default=None,
         exclude=True,
@@ -34,9 +38,7 @@ class ActionStatement(BaseModel):
     )
     """Action type. Equivalent to the UDF key."""
 
-    args: dict[str, Any] = Field(
-        default_factory=dict, description="Arguments for the action"
-    )
+    args: ArgsT = Field(default_factory=dict, description="Arguments for the action")
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
@@ -70,18 +72,14 @@ class DSLConfig(BaseModel):
         default=False,
         description="Enable runtime action tests. This is dynamically set on workflow entry.",
     )
-    environment: Annotated[
-        str,
-        Field(
-            default=DEFAULT_SECRETS_ENVIRONMENT,
-            description=(
-                "The workflow's target execution environment. "
-                "This is used as an isolation boundary for credentials and other secrets."
-                "If not provided, the default environment is used. "
-            ),
+    environment: ExpressionStr = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT,
+        description=(
+            "The workflow's target execution environment. "
+            "This is used as an isolation boundary for credentials and other secrets."
+            "If not provided, the default environment (default) is used."
         ),
-        TemplateValidator(),
-    ]
+    )
 
 
 class Trigger(BaseModel):
