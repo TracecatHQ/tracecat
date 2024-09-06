@@ -47,7 +47,9 @@ variable "instance_type" {
 }
 
 variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
-  type = string
+  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
+  type        = string
+  default     = null
 }
 
 variable "tracecat_image_tag" {
