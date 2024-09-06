@@ -69,12 +69,11 @@ class DSLConfig(BaseModel):
     enable_runtime_tests: bool = Field(
         default=False,
         description="Enable runtime action tests. This is dynamically set on workflow entry.",
-        exclude=True,  # Exclude from serialization
     )
     environment: Annotated[
         str,
         Field(
-            ...,
+            default=DEFAULT_SECRETS_ENVIRONMENT,
             description=(
                 "The workflow's target execution environment. "
                 "This is used as an isolation boundary for credentials and other secrets."
@@ -82,7 +81,7 @@ class DSLConfig(BaseModel):
             ),
         ),
         TemplateValidator(),
-    ] = DEFAULT_SECRETS_ENVIRONMENT
+    ]
 
 
 class Trigger(BaseModel):
