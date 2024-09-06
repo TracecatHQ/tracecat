@@ -8,7 +8,11 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
 from tracecat.secrets.encryption import encrypt_keyvalues
-from tracecat.secrets.models import SearchSecretsParams, SecretKeyValue
+from tracecat.secrets.models import (
+    CreateSecretParams,
+    SearchSecretsParams,
+    SecretKeyValue,
+)
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
@@ -107,3 +111,43 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
     mock_secrets_service.search_secrets.assert_called_once_with(
         SearchSecretsParams(names=["missing_secret"], environment="default")
     )
+
+
+@pytest.mark.asyncio
+async def test_auth_sandbox_custom_env_target(
+    mocker: pytest_mock.MockFixture, test_role
+):
+    # Add secrets to the db
+    async with SecretsService.with_session(role=test_role) as service:
+        await service.create_secret(
+            CreateSecretParams(
+                name="test_secret",
+                environment="__FIRST__",
+                keys=[SecretKeyValue(key="KEY", value="FIRST_VALUE")],
+            )
+        )
+        await service.create_secret(
+            CreateSecretParams(
+                name="test_secret",
+                environment="__SECOND__",
+                keys=[SecretKeyValue(key="KEY", value="SECOND_VALUE")],
+            )
+        )
+
+    # Verify that the correct secret is picked up
+    async with AuthSandbox(
+        secrets=["test_secret"], target="env", environment="__FIRST__"
+    ):
+        assert "KEY" in os.environ
+        assert os.environ["KEY"] == "FIRST_VALUE"
+
+    assert "KEY" not in os.environ
+
+    # Verify that if we change the environment, the incorrect secret is picked up
+    async with AuthSandbox(
+        secrets=["test_secret"], target="env", environment="__SECOND__"
+    ):
+        assert "KEY" in os.environ
+        assert os.environ["KEY"] == "SECOND_VALUE"
+
+    assert "KEY" not in os.environ
