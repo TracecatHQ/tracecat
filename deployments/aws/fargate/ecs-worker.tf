@@ -11,7 +11,7 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
   container_definitions = jsonencode([
     {
       name    = "TracecatWorkerContainer"
-      image   = "${var.tracecat_image}:${var.tracecat_image_tag}"
+      image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
       command = ["python", "tracecat/dsl/worker.py"]
       portMappings = [
         {
