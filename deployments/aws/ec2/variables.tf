@@ -17,9 +17,9 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "The environment (e.g., dev, staging, prod)"
+  description = "The environment (e.g., dev, staging, prod). Used for tagging."
   type        = string
-  default     = "dev"
+  default     = "prod"
 }
 
 variable "vpc_cidr" {
@@ -46,7 +46,11 @@ variable "instance_type" {
   default     = "t3.large"
 }
 
-variable "tracecat_version" {
+variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
+  type = string
+}
+
+variable "tracecat_image_tag" {
   description = "The version of Tracecat to use"
   type        = string
   default     = "0.9.0"

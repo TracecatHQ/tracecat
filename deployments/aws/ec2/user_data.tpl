@@ -24,7 +24,7 @@ mkdir -p /mnt/efs/core-db /mnt/efs/temporal-db /mnt/efs/config
 
 # Default branch/tag
 echo "Starting user data script execution"
-echo "Using Tracecat version: ${tracecat_version}"
+echo "Using Tracecat version: ${image_tag}"
 
 # Install docker
 yum update -y
@@ -37,10 +37,10 @@ chmod +x /usr/local/bin/docker-compose
 
 # Install tracecat
 cd /home/ec2-user
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/docker-compose.yml"
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/env.sh"
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/.env.example"
-curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${tracecat_version}/Caddyfile"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${image_tag}/docker-compose.yml"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${image_tag}/env.sh"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${image_tag}/.env.example"
+curl -O "https://raw.githubusercontent.com/TracecatHQ/tracecat/${image_tag}/Caddyfile"
 
 chmod +x env.sh
 

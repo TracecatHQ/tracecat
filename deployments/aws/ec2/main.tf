@@ -9,6 +9,7 @@ terraform {
   }
 }
 
+
 provider "aws" {
   region = var.aws_region
 }
@@ -33,6 +34,7 @@ locals {
     Project     = var.project_name
     Environment = var.environment
   }
+  tracecat_image_tag = coalesce(var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA, var.tracecat_image_tag)
 }
 
 module "vpc" {
@@ -226,8 +228,8 @@ resource "aws_instance" "this" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data.tpl", {
-    tracecat_version = var.tracecat_version
-    efs_id           = aws_efs_file_system.this.id
+    image_tag = local.tracecat_image_tag
+    efs_id    = aws_efs_file_system.this.id
   }))
 
   # NOTE: Used for debugging purposes only
