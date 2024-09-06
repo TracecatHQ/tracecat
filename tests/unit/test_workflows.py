@@ -30,6 +30,8 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
 from tracecat.logging import logger
+from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
+from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.workflow.management.definitions import (
@@ -226,20 +228,20 @@ async def test_workflow_ordering_is_correct(dsl, temporal_cluster, test_role):
 
 # Get the paths from the test name
 correctness_test_cases = [
-    # "unit_conditional_adder_tree_skips",
-    # "unit_conditional_adder_tree_continues",
-    # "unit_conditional_adder_tree_skip_propagates",
-    # "unit_conditional_adder_diamond_skip_with_join_weak_dep",
-    # "unit_transform_reshape_loop",
-    # "unit_transform_reshape_loop_chained",
-    # "unit_transform_reshape_arrange",
-    # "unit_transform_reshape_arrange_loop",
-    # "unit_transform_reshape_zip",
-    # "unit_transform_reshape_map_loop",
+    "unit_conditional_adder_tree_skips",
+    "unit_conditional_adder_tree_continues",
+    "unit_conditional_adder_tree_skip_propagates",
+    "unit_conditional_adder_diamond_skip_with_join_weak_dep",
+    "unit_transform_reshape_loop",
+    "unit_transform_reshape_loop_chained",
+    "unit_transform_reshape_arrange",
+    "unit_transform_reshape_arrange_loop",
+    "unit_transform_reshape_zip",
+    "unit_transform_reshape_map_loop",
     "unit_runtime_test_adder_tree",
     "unit_runtime_test_chain",
-    # "unit_transform_filter_dict",
-    # "unit_transform_filter_function",
+    "unit_transform_filter_dict",
+    "unit_transform_filter_function",
 ]
 
 
@@ -368,7 +370,7 @@ async def test_conditional_execution_fails(dsl, temporal_cluster, test_role):
 """Child workflow"""
 
 
-async def setup_child_workflow(dsl: DSLInput, role: Role) -> Workflow:
+async def _setup_child_workflow(dsl: DSLInput, role: Role) -> Workflow:
     async with get_async_session_context_manager() as session:
         # Create the child workflow
         mgmt_service = WorkflowsManagementService(session, role=role)
@@ -388,7 +390,7 @@ async def setup_child_workflow(dsl: DSLInput, role: Role) -> Workflow:
         return child_workflow
 
 
-async def run_parent_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
+async def _run_parent_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
     async with Worker(
         client,
@@ -437,7 +439,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
     )
     logger.info("child dsl", child_dsl=child_dsl)
 
-    child_workflow = await setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
     # Parent
     parent_dsl = DSLInput(
         **{
@@ -474,7 +476,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
 
     expected = {
         "ACTIONS": {
@@ -524,7 +526,7 @@ async def test_child_workflow_context_passing(
         }
     )
 
-    child_workflow = await setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
 
     # Parent
     parent_workflow_id = "wf-00000000000000000000000000000002"
@@ -575,7 +577,7 @@ async def test_child_workflow_context_passing(
         },
     )
 
-    result = await run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -640,7 +642,7 @@ async def test_single_child_workflow_override_environment_correct(
             "triggers": [],
         }
     )
-    child_workflow = await setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
 
     parent_dsl = DSLInput(
         **{
@@ -674,7 +676,7 @@ async def test_single_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -719,8 +721,7 @@ async def test_multiple_child_workflow_override_environment_correct(
             "triggers": [],
         }
     )
-    child_workflow = await setup_child_workflow(child_dsl, test_role)
-
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
     parent_dsl = DSLInput(
         **{
             "title": f"{test_name}:parent",
@@ -754,8 +755,7 @@ async def test_multiple_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await run_parent_workflow(temporal_client, wf_exec_id, run_args)
-
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -801,10 +801,7 @@ async def test_single_child_workflow_environment_has_correct_default(
             "triggers": [],
         }
     )
-    logger.info("child dsl", child_dsl=child_dsl)
-    child_workflow = await setup_child_workflow(child_dsl, test_role)
-    logger.info("child workflow", child_workflow=child_workflow)
-
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
     parent_dsl = DSLInput(
         **{
             "title": f"{test_name}:parent",
@@ -837,7 +834,7 @@ async def test_single_child_workflow_environment_has_correct_default(
         wf_id=TEST_WF_ID,
     )
 
-    result = await run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -885,7 +882,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
             "triggers": [],
         }
     )
-    child_workflow = await setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
 
     parent_dsl = DSLInput(
         **{
@@ -922,7 +919,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
         wf_id=TEST_WF_ID,
     )
 
-    result = await run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -930,6 +927,107 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                     "__TESTING_DEFAULT__ 1",
                     "__TESTING_DEFAULT__ 2",
                     "__TESTING_DEFAULT__ 3",
+                ],
+                "result_typename": "list",
+            }
+        },
+        "INPUTS": {},
+        "TRIGGER": {},
+    }
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_single_child_workflow_get_correct_secret_environment(
+    temporal_cluster, test_role, temporal_client
+):
+    test_name = f"{test_single_child_workflow_get_correct_secret_environment.__name__}"
+    test_description = "Test that a single child workflow can get a secret from the correect environment"
+
+    # Add secrets to the db
+    async with SecretsService.with_session(role=test_role) as service:
+        await service.create_secret(
+            CreateSecretParams(
+                name="test_single_child_workflow_get_correct_secret_environment",
+                environment="__FIRST__",
+                keys=[SecretKeyValue(key="KEY", value="FIRST_VALUE")],
+            )
+        )
+        await service.create_secret(
+            CreateSecretParams(
+                name="test_single_child_workflow_get_correct_secret_environment",
+                environment="__SECOND__",
+                keys=[SecretKeyValue(key="KEY", value="SECOND_VALUE")],
+            )
+        )
+
+    wf_exec_id = generate_test_exec_id(test_name)
+    child_dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "a"},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": "KEY is ${{ SECRETS.test_single_child_workflow_get_correct_secret_environment.KEY }}",
+                    },
+                    "depends_on": [],
+                    "description": "",
+                }
+            ],
+            "description": test_description,
+            "inputs": {},
+            "returns": "${{ ACTIONS.a.result }}",
+            "config": {
+                "environment": "__TESTING_DEFAULT__"
+            },  # Default child environment
+            "tests": [],
+            "title": f"{test_name}:child",
+            "triggers": [],
+        }
+    )
+    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    parent_dsl = DSLInput(
+        **{
+            "title": f"{test_name}:parent",
+            "description": test_description,
+            "entrypoint": {
+                "ref": "parent",
+            },
+            "actions": [
+                {
+                    "ref": "parent",
+                    "action": "core.workflow.execute",
+                    "for_each": "${{ for var.env in ['__FIRST__', '__SECOND__'] }}",
+                    "args": {
+                        "workflow_id": child_workflow.id,
+                        "trigger_inputs": {},
+                        "environment": "${{ var.env }}",
+                    },
+                    "depends_on": [],
+                },
+            ],
+            "inputs": {},
+            "returns": None,
+            "tests": [],
+            "triggers": [],
+        }
+    )
+
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+
+    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    expected = {
+        "ACTIONS": {
+            "parent": {
+                "result": [
+                    "KEY is FIRST_VALUE",
+                    "KEY is SECOND_VALUE",
                 ],
                 "result_typename": "list",
             }
