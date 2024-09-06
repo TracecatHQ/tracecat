@@ -118,6 +118,7 @@ class AuthSandbox:
                     del os.environ[kv.key]
 
     async def _get_secrets(self) -> Sequence[Secret]:
+        """Retrieve secrets from a secrets manager."""
         return await self._get_secrets_from_service()
 
     async def _get_secrets_from_service(self) -> Sequence[Secret]:
@@ -139,16 +140,13 @@ class AuthSandbox:
                 )
             )
 
-        if missing_secrets := {
-            (secret.name, secret.environment)
-            for secret in secrets
-            if secret.name not in unique_secret_names
-        }:
+        if len(unique_secret_names) != len(secrets):
+            missing_secrets = unique_secret_names - {secret.name for secret in secrets}
             raise TracecatCredentialsError(
                 "Failed to retrieve secrets",
                 detail=[
-                    {"secret_name": name, "environment": env}
-                    for name, env in missing_secrets
+                    {"secret_name": name, "environment": self._environment}
+                    for name in missing_secrets
                 ],
             )
 

@@ -8,7 +8,7 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
 from tracecat.secrets.encryption import encrypt_keyvalues
-from tracecat.secrets.models import SecretKeyValue
+from tracecat.secrets.models import SearchSecretsParams, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
@@ -59,6 +59,7 @@ async def test_auth_sandbox_env_target(mocker: pytest_mock.MockFixture, test_rol
     mock_secret = Secret(
         name="my_secret",
         owner_id=role.workspace_id,
+        environment="default",
         encrypted_keys=encrypt_keyvalues(
             mock_secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
         ),
@@ -66,7 +67,7 @@ async def test_auth_sandbox_env_target(mocker: pytest_mock.MockFixture, test_rol
 
     # Mock SecretsService
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
-    mock_secrets_service.get_secret_by_name.return_value = mock_secret
+    mock_secrets_service.search_secrets.return_value = [mock_secret]
     mocker.patch(
         "tracecat.auth.sandbox.SecretsService.with_session",
         return_value=mocker.AsyncMock(
@@ -88,7 +89,7 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
 
     # Mock SecretsService to return None (missing secret)
     mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
-    mock_secrets_service.get_secret_by_name.return_value = None
+    mock_secrets_service.search_secrets.return_value = []
     mocker.patch(
         "tracecat.auth.sandbox.SecretsService.with_session",
         return_value=mocker.AsyncMock(
@@ -97,8 +98,12 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
     )
 
     with pytest.raises(TracecatCredentialsError):
-        async with AuthSandbox(secrets=["missing_secret"], target="context"):
+        async with AuthSandbox(
+            secrets=["missing_secret"], target="context", environment="default"
+        ):
             pass
 
     # Assert that the SecretsService was called with the correct parameters
-    mock_secrets_service.get_secret_by_name.assert_called_once_with("missing_secret")
+    mock_secrets_service.search_secrets.assert_called_once_with(
+        SearchSecretsParams(names=["missing_secret"], environment="default")
+    )
