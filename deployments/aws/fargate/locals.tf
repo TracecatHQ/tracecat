@@ -1,6 +1,10 @@
 # Tracecat and Temporal Environment Variables
 locals {
 
+  # Tracecat version
+  tracecat_image_tag = coalesce(var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA, var.tracecat_image_tag)
+
+  # Tracecat common URLs
   public_app_url         = "https://${var.domain_name}"
   public_api_url         = "https://${var.domain_name}/api"
   internal_api_url       = "http://api-service:8000" # Service connect DNS name

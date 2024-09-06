@@ -3,6 +3,11 @@ output "instance_id" {
   value       = aws_instance.this.id
 }
 
+output "tracecat_image_tag" {
+  description = "The version of Tracecat used"
+  value       = local.tracecat_image_tag
+}
+
 output "instance_private_ip" {
   description = "The private IP address of the EC2 instance"
   value       = aws_instance.this.private_ip

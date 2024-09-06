@@ -1,13 +1,13 @@
 variable "aws_region" {
   description = "The AWS region to deploy resources in"
   type        = string
-  default     = "us-east-1"
+  default     = "us-west-2"
 }
 
 variable "aws_availability_zone" {
   description = "The AWS availability zone to deploy resources in"
   type        = string
-  default     = "us-east-1a"
+  default     = "us-west-2a"
 }
 
 variable "project_name" {
@@ -17,9 +17,9 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "The environment (e.g., dev, staging, prod)"
+  description = "The environment (e.g., dev, staging, prod). Used for tagging."
   type        = string
-  default     = "dev"
+  default     = "prod"
 }
 
 variable "vpc_cidr" {
@@ -46,7 +46,13 @@ variable "instance_type" {
   default     = "t3.large"
 }
 
-variable "tracecat_version" {
+variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
+  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
+  type        = string
+  default     = null
+}
+
+variable "tracecat_image_tag" {
   description = "The version of Tracecat to use"
   type        = string
   default     = "0.9.0"

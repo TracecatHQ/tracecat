@@ -33,6 +33,12 @@ variable "tracecat_ui_image" {
   default = "ghcr.io/tracecathq/tracecat-ui"
 }
 
+variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
+  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
+  type        = string
+  default     = null
+}
+
 variable "tracecat_image_tag" {
   type    = string
   default = "0.9.0"

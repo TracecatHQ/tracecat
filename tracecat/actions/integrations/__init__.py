@@ -1,4 +1,6 @@
-from . import cdr, chat, edr, email, enrichment, iam, itsm, siem, sinks
+from tracecat.actions.etl import extraction
+
+from . import cdr, chat, edr, email, enrichment, iam, siem, sinks
 
 __all__ = [
     "cdr",

@@ -10,7 +10,7 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TracecatUiContainer"
-      image = "${var.tracecat_ui_image}:${var.tracecat_image_tag}"
+      image = "${var.tracecat_ui_image}:${local.tracecat_image_tag}"
       portMappings = [
         {
           containerPort = 3000
