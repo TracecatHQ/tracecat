@@ -57,9 +57,11 @@ async def create_issue(
     issue_type: Annotated[
         str, Field(..., description="The ID of the Issue Type for the issue.")
     ],
-    issue_description: Annotated[
-        dict, Field(..., description="A description for the issue.")
-    ] ,
+    optional_fields: Annotated[
+        dict,
+        Field(..., description="Optional dictionary of fields you wish to add into the issue.")
+    ] = None
+    
 ) -> list[dict[str, Any]]:
     url = f"{atlassian_domain}/rest/api/3/issue"
     AUTH_TOKEN = HTTPBasicAuth(os.getenv("JIRA_USERNAME"), os.getenv("JIRA_API_TOKEN"))
@@ -77,10 +79,13 @@ async def create_issue(
             "project": {"id": project_id},
             "summary": issue_summary,
             "priority": {"id": issue_priority},
-            "issuetype": {"id": issue_type},
-            "description": issue_description
+            "issuetype": {"id": issue_type}
         }
     }
+    
+    # If optional fields are provided, merge them into the issue data
+    if optional_fields:
+        issue_data["fields"].update(optional_fields)
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
