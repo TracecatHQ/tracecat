@@ -7,14 +7,14 @@ on:
       - tracecat/**
       - playbooks/**
       - pyproject.toml
-      - .github/workflows/test.yml
+      - .github/workflows/test-python.yml
   pull_request:
     branches: ["main"]
     paths:
       - tracecat/**
       - playbooks/**
       - pyproject.toml
-      - .github/workflows/test.yml
+      - .github/workflows/test-python.yml
   workflow_dispatch:
     inputs:
       git-ref:
