@@ -5,7 +5,7 @@ output "instance_id" {
 
 output "tracecat_image_tag" {
   description = "The version of Tracecat used"
-  value       = var.tracecat_image_tag
+  value       = local.tracecat_image_tag
 }
 
 output "instance_private_ip" {
