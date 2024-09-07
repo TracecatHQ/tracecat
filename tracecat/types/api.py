@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from tracecat.db.schemas import Resource
-from tracecat.identifiers import WorkflowID
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.validation import ValidationResult
 
@@ -147,33 +145,3 @@ class ServiceCallbackAction(BaseModel):
     action: Literal["webhook"]
     payload: dict[str, Any]
     metadata: dict[str, Any]
-
-
-class CreateScheduleParams(BaseModel):
-    workflow_id: WorkflowID
-    inputs: dict[str, Any] | None = None
-    cron: str | None = None
-    every: timedelta = Field(..., description="ISO 8601 duration string")
-    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
-    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    status: Literal["online", "offline"] = "online"
-
-
-class UpdateScheduleParams(BaseModel):
-    inputs: dict[str, Any] | None = None
-    cron: str | None = None
-    every: timedelta | None = Field(None, description="ISO 8601 duration string")
-    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
-    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    status: Literal["online", "offline"] | None = None
-
-
-class SearchScheduleParams(BaseModel):
-    workflow_id: str | None = None
-    limit: int = 100
-    order_by: str = "created_at"
-    query: str | None = None
-    group_by: list[str] | None = None
-    agg: str | None = None

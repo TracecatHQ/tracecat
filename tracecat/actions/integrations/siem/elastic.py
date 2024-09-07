@@ -15,6 +15,11 @@ list_alerts = {
     "ocsf_schema": "array[detection_finding]",
     "reference": "https://www.elastic.co/guide/en/security/current/signals-api-overview.html#_get_alerts,
 }
+update_alerts = {
+    "endpoint": "<kibana host>:<port>//api/detection_engine/signals/status",
+    "method": "POST",
+    "reference": "https://www.elastic.co/guide/en/security/current/signals-api-overview.html#_set_alert_status",
+}
 ```
 """
 
@@ -101,4 +106,46 @@ async def list_elastic_alerts(
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=query)
         response.raise_for_status()  # Raise an exception for HTTP errors
+        return response.json()
+
+
+@registry.register(
+    default_title="Update Elastic Security Alert Status",
+    description="Updates the status of Elastic Security Alerts.",
+    display_group="Elastic",
+    namespace="integrations.elastic",
+    secrets=[elastic_secret],
+)
+async def update_alert_status(
+    status: Annotated[
+        str,
+        Field(
+            ...,
+            description="The desired status for the alert ('open', 'acknowledged', 'closed')",
+        ),
+    ],
+    alert_input: Annotated[
+        dict[str, Any] | list[str],
+        Field(..., description="Either an array of Alert IDs OR an Elastic query."),
+    ],
+) -> dict[str, Any]:
+    api_key = os.getenv("ELASTIC_API_KEY")
+    api_url = os.getenv("ELASTIC_API_URL")
+    url = f"{api_url}/api/detection_engine/signals/status"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"ApiKey {api_key}",
+        "kbn-xsrf": "kibana",
+    }
+
+    payload = {"status": status}
+
+    if isinstance(alert_input, list):
+        payload["signal_ids"] = alert_input  # Add signal_ids if it's a list
+    else:
+        payload.update(alert_input)  # Unpack the query dictionary
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
         return response.json()

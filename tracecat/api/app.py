@@ -16,7 +16,6 @@ from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
 from tracecat.api.routers.public.callbacks import router as callback_router
 from tracecat.api.routers.public.webhooks import router as webhook_router
-from tracecat.api.routers.schedules import router as schedules_router
 from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
@@ -44,6 +43,7 @@ from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
+from tracecat.workflow.schedules.router import router as schedules_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
