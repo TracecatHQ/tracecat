@@ -8,12 +8,12 @@ definition:
     expects:
       interval_minutes: int
       filter: str
-      child_workflow_id: str
   triggers:
     - type: webhook
       ref: crowdstrike_alerts_webhook
       entrypoint: list_crowdstrike_alerts
   inputs:
+    child_workflow_id: REPLACE_WITH_CHILD_WORKFLOW_ID
     limit: 10
     batch_size: 10
 
@@ -41,7 +41,7 @@ definition:
         - normalize_crowdstrike_alerts
       for_each: ${{ for var.alert in ACTIONS.normalize_crowdstrike_alerts.result }}
       args:
-        workflow_id: ${{ TRIGGER.child_workflow_id }}
+        workflow_id: ${{ INPUTS.child_workflow_id }}
         loop_strategy: parallel
         fail_strategy: isolated
         batch_size: ${{ INPUTS.batch_size }}

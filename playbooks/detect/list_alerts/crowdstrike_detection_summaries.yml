@@ -10,12 +10,12 @@ definition:
       start_time: str
       interval_minutes: str
       filter: str
-      child_workflow_id: str
   triggers:
     - type: webhook
       ref: crowdstrike_detections_webhook
       entrypoint: list_crowdstrike_detections
   inputs:
+    child_workflow_id: REPLACE_WITH_CHILD_WORKFLOW_ID
     limit: 10
     batch_size: 10
 
@@ -51,7 +51,7 @@ definition:
         - normalize_crowdstrike_detections
       for_each: ${{ for var.detection in ACTIONS.normalize_crowdstrike_detections.result }}
       args:
-        workflow_id: ${{ TRIGGER.child_workflow_id }}
+        workflow_id: ${{ INPUTS.child_workflow_id }}
         loop_strategy: parallel
         fail_strategy: isolated
         batch_size: ${{ INPUTS.batch_size }}

@@ -7,12 +7,12 @@ definition:
     ref: list_sentinelone_alerts
     expects:
       interval_minutes: int
-      child_workflow_id: str
   triggers:
     - type: webhook
       ref: sentinelone_alerts_webhook
       entrypoint: list_sentinelone_alerts
   inputs:
+    child_workflow_id: REPLACE_WITH_CHILD_WORKFLOW_ID
     limit: 10
     batch_size: 10
 

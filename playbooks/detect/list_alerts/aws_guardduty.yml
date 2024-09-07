@@ -7,12 +7,12 @@ definition:
     ref: list_guardduty_alerts
     expects:
       interval_minutes: int
-      child_workflow_id: str
   triggers:
     - type: webhook
       ref: guardduty_alerts_webhook
       entrypoint: list_guardduty_alerts
   inputs:
+    child_workflow_id: REPLACE_WITH_CHILD_WORKFLOW_ID
     limit: 10
     batch_size: 10
 
@@ -39,7 +39,7 @@ definition:
         - normalize_guardduty_alerts
       for_each: ${{ for var.alert in ACTIONS.normalize_guardduty_alerts.result }}
       args:
-        workflow_id: ${{ TRIGGER.child_workflow_id }}
+        workflow_id: ${{ INPUTS.child_workflow_id }}
         loop_strategy: parallel
         fail_strategy: isolated
         batch_size: ${{ INPUTS.batch_size }}

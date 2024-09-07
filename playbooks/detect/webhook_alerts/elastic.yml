@@ -16,7 +16,7 @@ definition:
       ref: receive_elastic_alerts
       entrypoint: deserialize_elastic_alerts
   inputs:
-    child_workflow_id: str
+    child_workflow_id: REPLACE_WITH_CHILD_WORKFLOW_ID
     limit: 10
     batch_size: 10
 
