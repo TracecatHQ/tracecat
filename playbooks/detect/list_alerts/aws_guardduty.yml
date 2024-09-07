@@ -44,5 +44,7 @@ definition:
         fail_strategy: isolated
         batch_size: ${{ INPUTS.batch_size }}
         trigger_inputs:
+          title: ${{ var.alert.message }}
+          integration: AWS GuardDuty
           alert: ${{ var.alert }}
           severity: ${{ var.alert.aws.guardduty.severity.code }}
