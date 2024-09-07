@@ -1,1 +1,69 @@
-# Work-in-progress
+definition:
+  title: Send alert to Slack
+  description: |
+    Receives a object with `alert` (Elastic Common Schema formatted)
+    and `severity` fields and sends it to Slack. The Slack notification
+    includes a dropdown of options for the user to take action on the alert.
+  entrypoint:
+    ref: send_to_slack
+    expects:
+      title: str
+      integration: str
+      alert: any
+      severity: str
+  triggers:
+    - type: webhook
+      ref: receive_alert
+      entrypoint: send_to_slack
+
+  actions:
+    - ref: send_to_slack
+      action: integrations.chat.slack.post_slack_message
+      args:
+        channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+        text: 🚨 *An alert has been raised in ${{ TRIGGER.integration }}*
+        blocks:
+          - type: header
+            text:
+              type: plain_text
+              text: ${{ TRIGGER.title }}
+              emoji: true
+          - type: divider
+          - type: context
+            elements:
+              - type: plain_text
+                text: ${{ TRIGGER.alert.message }}
+                emoji: true
+          - type: divider
+          - type: section
+            fields:
+              - type: mrkdwn
+                text: "*Severity:*\n${{ TRIGGER.severity }}"
+              - type: mrkdwn
+                text: "*When:*\n${{ TRIGGER.alert.@timestamp }}"
+              - type: mrkdwn
+                text: "*Source:*\n${{ FN.prettify_json(TRIGGER.alert.source) }}"
+              - type: mrkdwn
+                text: "*User:*\n${{ FN.prettify_json(TRIGGER.alert.user) }}"
+          - type: divider
+          - type: context
+            elements:
+              - type: plain_text
+                text: "Respond to alert?"
+                emoji: true
+          - type: actions
+            elements:
+              - type: button
+                text:
+                  type: plain_text
+                  emoji: true
+                  text: Accept
+                style: primary
+                value: accept
+              - type: button
+                text:
+                  type: plain_text
+                  emoji: true
+                  text: Reject
+                style: danger
+                value: reject
