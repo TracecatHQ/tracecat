@@ -1,0 +1,68 @@
+definition:
+  title: Enrich URLs
+  description: |
+    Receive a list of URLs and enrich them with additional context
+    from multiple threat intelligence sources.
+  entrypoint:
+    ref: select_urls
+    expects:
+      urls: list[str]
+  triggers:
+    - type: webhook
+      ref: receive_json
+      entrypoint: select_urls
+  returns:
+    urls: list[str]
+    reports:
+      abuseipdb: ${{ ACTIONS.abuseipdb.result }}
+      pulsedive: ${{ ACTIONS.pulsedive.result }}
+      shodan: ${{ ACTIONS.shodan.result }}
+      urlscan: ${{ ACTIONS.urlscan.result }}
+      virustotal: ${{ ACTIONS.virustotal.result }}
+
+  actions:
+    - ref: select_urls
+      action: core.transform.reshape
+      args:
+        value:
+          urls: ${{ TRIGGER.urls }}
+
+    - ref: abuseipdb
+      action: integration.abuseipdb.analyze_url
+      depends_on:
+        - select_urls
+      for_each: ${{ for var.url in ACTIONS.select_urls.result }}
+      args:
+        url: ${{ var.url }}
+
+    - ref: pulsedive
+      action: integration.pulsedive.analyze_url
+      depends_on:
+        - select_urls
+      for_each: ${{ for var.url in ACTIONS.select_urls.result }}
+      args:
+        url: ${{ var.url }}
+
+    - ref: shodan
+      action: integration.shodan.analyze_url
+      depends_on:
+        - select_urls
+      for_each: ${{ for var.url in ACTIONS.select_urls.result }}
+      args:
+        url: ${{ var.url }}
+
+    - ref: urlscan
+      action: integration.urlscan.analyze_url
+      depends_on:
+        - select_urls
+      for_each: ${{ for var.url in ACTIONS.select_urls.result }}
+      args:
+        url: ${{ var.url }}
+
+    - ref: virustotal
+      action: integration.virustotal.analyze_url
+      depends_on:
+        - select_urls
+      for_each: ${{ for var.url in ACTIONS.select_urls.result }}
+      args:
+        url: ${{ serialized_json.urls }}
