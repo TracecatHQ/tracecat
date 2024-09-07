@@ -38,7 +38,19 @@ class WorkflowSchedulesService:
     async def list_schedules(
         self, workflow_id: WorkflowID | None = None
     ) -> list[Schedule]:
-        """List all schedules for a workflow."""
+        """
+        List all schedules for a workflow.
+
+        Parameters
+        ----------
+        workflow_id : WorkflowID | None, optional
+            The ID of the workflow. If provided, only schedules for the specified workflow will be listed.
+
+        Returns
+        -------
+        list[Schedule]
+            A list of Schedule objects representing the schedules for the specified workflow, or all schedules if no workflow ID is provided.
+        """
         statement = select(Schedule).where(Schedule.owner_id == self.role.workspace_id)
         if workflow_id:
             statement = statement.where(Schedule.workflow_id == workflow_id)
@@ -47,6 +59,27 @@ class WorkflowSchedulesService:
         return list(schedules)
 
     async def create_schedule(self, params: ScheduleCreate) -> Schedule:
+        """
+        Create a schedule for a workflow.
+
+        Parameters
+        ----------
+        params : ScheduleCreate
+            The parameters for creating the schedule.
+
+        Returns
+        -------
+        Schedule
+            The created schedule.
+
+        Raises
+        ------
+        NoResultFound
+            If no workflow definition is found for the given workflow ID.
+        RuntimeError
+            If there is an error creating the schedule.
+
+        """
         result = await self.session.exec(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == params.workflow_id)
@@ -106,6 +139,24 @@ class WorkflowSchedulesService:
         return schedule
 
     async def get_schedule(self, schedule_id: ScheduleID) -> Schedule:
+        """
+        Retrieve a schedule by its ID.
+
+        Parameters
+        ----------
+        schedule_id : ScheduleID
+            The ID of the schedule to retrieve.
+
+        Returns
+        -------
+        Schedule
+            The retrieved schedule.
+
+        Raises
+        ------
+        None
+
+        """
         result = await self.session.exec(
             select(Schedule).where(
                 Schedule.owner_id == self.role.workspace_id,
@@ -117,6 +168,26 @@ class WorkflowSchedulesService:
     async def update_schedule(
         self, schedule_id: ScheduleID, params: ScheduleUpdate
     ) -> Schedule:
+        """
+        Update a schedule with the given schedule ID and parameters.
+
+        Parameters
+        ----------
+        schedule_id : ScheduleID
+            The ID of the schedule to be updated.
+        params : ScheduleUpdate
+            The updated parameters for the schedule.
+
+        Returns
+        -------
+        Schedule
+            The updated schedule.
+
+        Raises
+        ------
+        RuntimeError
+            If there is an error updating the schedule.
+        """
         schedule = await self.get_schedule(schedule_id)
 
         try:
@@ -138,6 +209,20 @@ class WorkflowSchedulesService:
         return schedule
 
     async def delete_schedule(self, schedule_id: ScheduleID) -> None:
+        """
+        Delete a schedule.
+
+        Parameters
+        ----------
+        schedule_id : ScheduleID
+            The ID of the schedule to be deleted.
+
+        Raises
+        ------
+        RuntimeError
+            If an error occurs while deleting the schedule from Temporal.
+
+        """
         try:
             schedule = await self.get_schedule(schedule_id)
         except NoResultFound:
