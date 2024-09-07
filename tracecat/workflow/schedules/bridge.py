@@ -14,7 +14,7 @@ from tracecat.workflow.schedules.models import ScheduleUpdate
 
 async def _get_handle(sch_id: ScheduleID) -> temporalio.client.ScheduleHandle:
     client = await get_temporal_client()
-    return client.get_schedule_handle(sch_id)
+    return client.get_schedule_handle(schedule_id)
 
 
 async def create_schedule(
