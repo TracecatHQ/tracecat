@@ -79,7 +79,6 @@
           "group": "Deployment Options",
           "pages": [
             "self-hosting/deployment-options/docker-compose",
-            "self-hosting/deployment-options/aws-ec2",
             "self-hosting/deployment-options/aws-ecs"
           ]
         },
