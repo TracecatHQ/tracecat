@@ -1,179 +1,163 @@
 from __future__ import annotations
 
-import re
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
-from pydantic import ValidationInfo, ValidatorFunctionWrapHandler, WrapValidator
-from temporalio.client import (
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleHandle,
-    ScheduleIntervalSpec,
-    ScheduleSpec,
-    ScheduleUpdate,
-    ScheduleUpdateInput,
-)
+from sqlalchemy.exc import NoResultFound
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import config, identifiers
+from tracecat.auth.credentials import TemporaryRole
 from tracecat.contexts import ctx_role
-from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLRunArgs
-from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.types.api import UpdateScheduleParams
-
-if TYPE_CHECKING:
-    from tracecat.dsl.common import DSLInput
-
-T = TypeVar("T")
-
-EASY_TD_PATTERN = (
-    r"^"  # Start of string
-    r"(?:(?P<weeks>\d+)w)?"  # Match weeks
-    r"(?:(?P<days>\d+)d)?"  # Match days
-    r"(?:(?P<hours>\d+)h)?"  # Match hours
-    r"(?:(?P<minutes>\d+)m)?"  # Match minutes
-    r"(?:(?P<seconds>\d+)s)?"  # Match seconds
-    r"$"  # End of string
-)
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.schemas import Schedule, WorkflowDefinition
+from tracecat.dsl.common import DSLInput
+from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.logging import logger
+from tracecat.types.auth import Role
+from tracecat.workflow.schedules import bridge
+from tracecat.workflow.schedules.models import ScheduleCreate, ScheduleUpdate
 
 
-class EasyTimedelta:
-    def __new__(cls):
-        return WrapValidator(cls.maybe_str2timedelta)
+class WorkflowSchedulesService:
+    """Manages schedules for Workflows."""
 
-    @classmethod
-    def maybe_str2timedelta(
-        cls, v: T, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
-    ) -> T:
-        if isinstance(v, str):
-            # If it's a string, try to parse it as a timedelta
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        self.role = role or ctx_role.get()
+        self.session = session
+        self.logger = logger.bind(service="workflow-schedules")
+
+    @asynccontextmanager
+    @staticmethod
+    async def with_session(
+        role: Role | None = None,
+    ) -> AsyncGenerator[WorkflowSchedulesService, None]:
+        async with get_async_session_context_manager() as session:
+            yield WorkflowSchedulesService(session, role=role)
+
+    async def list_schedules(
+        self, workflow_id: WorkflowID | None = None
+    ) -> list[Schedule]:
+        """List all schedules for a workflow."""
+        statement = select(Schedule).where(Schedule.owner_id == self.role.workspace_id)
+        if workflow_id:
+            statement = statement.where(Schedule.workflow_id == workflow_id)
+        result = await self.session.exec(statement)
+        schedules = result.all()
+        return list(schedules)
+
+    async def create_schedule(self, params: ScheduleCreate) -> Schedule:
+        result = await self.session.exec(
+            select(WorkflowDefinition)
+            .where(WorkflowDefinition.workflow_id == params.workflow_id)
+            .order_by(WorkflowDefinition.version.desc())  # type: ignore
+        )
+        defn_data = result.first()
+        if not defn_data:
+            raise NoResultFound("No workflow definition found for workflow ID")
+
+        schedule = Schedule(
+            owner_id=self.role.workspace_id, **params.model_dump(exclude_unset=True)
+        )
+        await self.session.refresh(defn_data)
+        defn = WorkflowDefinition.model_validate(defn_data)
+        dsl = DSLInput(**defn.content)
+
+        # Set the role for the schedule as the tracecat-runner
+        with TemporaryRole(
+            type="service",
+            user_id=defn.owner_id,
+            service_id="tracecat-schedule-runner",
+        ) as sch_role:
             try:
-                return string_to_timedelta(v)
-            except ValueError:
-                pass
-        # Otherwise, handle as normal
-        return handler(v, info)
-
-
-def string_to_timedelta(time_str: str) -> timedelta:
-    # Regular expressions to match different time units with named capture groups
-    pattern = re.compile(
-        r"^"  # Start of string
-        r"(?:(?P<weeks>\d+)w)?"  # Match weeks
-        r"(?:(?P<days>\d+)d)?"  # Match days
-        r"(?:(?P<hours>\d+)h)?"  # Match hours
-        r"(?:(?P<minutes>\d+)m)?"  # Match minutes
-        r"(?:(?P<seconds>\d+)s)?"  # Match seconds
-        r"$"  # End of string
-    )
-    match = pattern.match(time_str)
-
-    if not match:
-        raise ValueError("Invalid time format")
-
-    # Extracting the values, defaulting to 0 if not present
-    weeks = int(match.group("weeks") or 0)
-    days = int(match.group("days") or 0)
-    hours = int(match.group("hours") or 0)
-    minutes = int(match.group("minutes") or 0)
-    seconds = int(match.group("seconds") or 0)
-
-    # Check if all values are zero
-    if all(v == 0 for v in (weeks, days, hours, minutes, seconds)):
-        raise ValueError("Invalid time format. All values are zero.")
-
-    # Creating a timedelta object
-    return timedelta(
-        days=days, weeks=weeks, hours=hours, minutes=minutes, seconds=seconds
-    )
-
-
-async def _get_handle(sch_id: identifiers.ScheduleID) -> ScheduleHandle:
-    client = await get_temporal_client()
-    return client.get_schedule_handle(sch_id)
-
-
-async def create_schedule(
-    workflow_id: identifiers.WorkflowID,
-    schedule_id: identifiers.ScheduleID,
-    dsl: DSLInput,
-    # Schedule config
-    every: timedelta,
-    offset: timedelta | None = None,
-    start_at: datetime | None = None,
-    end_at: datetime | None = None,
-    trigger_inputs: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> ScheduleHandle:
-    client = await get_temporal_client()
-
-    workflow_schedule_id = f"{workflow_id}:{schedule_id}"
-    return await client.create_schedule(
-        schedule_id,
-        Schedule(
-            action=ScheduleActionStartWorkflow(
-                DSLWorkflow.run,
-                # The args that should run in the scheduled workflow
-                DSLRunArgs(
+                handle = await bridge.create_schedule(
+                    workflow_id=params.workflow_id,
+                    schedule_id=schedule.id,
                     dsl=dsl,
-                    role=ctx_role.get(),
-                    wf_id=workflow_id,
-                    trigger_inputs=trigger_inputs,
-                ),
-                id=workflow_schedule_id,
-                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-            ),
-            spec=ScheduleSpec(
-                intervals=[ScheduleIntervalSpec(every=every, offset=offset)],
-                start_at=start_at,
-                end_at=end_at,
-            ),
-        ),
-        **kwargs,
-    )
-
-
-async def delete_schedule(schedule_id: identifiers.ScheduleID) -> ScheduleHandle:
-    handle = await _get_handle(schedule_id)
-    try:
-        return await handle.delete()
-    except Exception as e:
-        if "workflow execution already completed" in str(e):
-            # This is fine, we can ignore this error
-            return
-        raise e
-
-
-async def update_schedule(
-    schedule_id: identifiers.ScheduleID, params: UpdateScheduleParams
-) -> ScheduleUpdate:
-    async def _update_schedule(input: ScheduleUpdateInput) -> ScheduleUpdate:
-        set_fields = params.model_dump(exclude_unset=True)
-        action = input.description.schedule.action
-        spec = input.description.schedule.spec
-        state = input.description.schedule.state
-
-        if "status" in set_fields:
-            state.paused = set_fields["status"] != "online"
-        if isinstance(action, ScheduleActionStartWorkflow):
-            if "inputs" in set_fields:
-                action.args[0].dsl.trigger_inputs = set_fields["inputs"]
-        else:
-            raise NotImplementedError(
-                "Only ScheduleActionStartWorkflow is supported for now."
+                    every=params.every,
+                    offset=params.offset,
+                    start_at=params.start_at,
+                    end_at=params.end_at,
+                    trigger_inputs=params.inputs,
+                )
+            except Exception as e:
+                # If we fail to create the schedule in temporal
+                # we should rollback the transaction
+                await self.session.rollback()
+                self.logger.error(
+                    "Error creating schedule",
+                    error=e,
+                    workflow_id=params.workflow_id,
+                    schedule_id=schedule.id,
+                    sch_role=sch_role,
+                )
+                raise RuntimeError("Error creating schedule") from e
+            logger.info(
+                "Created schedule",
+                handle_id=handle.id,
+                workflow_id=params.workflow_id,
+                schedule_id=schedule.id,
+                sch_role=sch_role,
             )
-        # We only support one interval per schedule for now
-        if "every" in set_fields:
-            spec.intervals[0].every = set_fields["every"]
-        if "offset" in set_fields:
-            spec.intervals[0].offset = set_fields["offset"]
-        if "start_at" in set_fields:
-            spec.start_at = set_fields["start_at"]
-        if "end_at" in set_fields:
-            spec.end_at = set_fields["end_at"]
 
-        return ScheduleUpdate(schedule=input.description.schedule)
+        self.session.add(schedule)
+        await self.session.commit()
+        await self.session.refresh(schedule)
+        return schedule
 
-    handle = await _get_handle(schedule_id)
-    return await handle.update(_update_schedule)
+    async def get_schedule(self, schedule_id: ScheduleID) -> Schedule:
+        result = await self.session.exec(
+            select(Schedule).where(
+                Schedule.owner_id == self.role.workspace_id,
+                Schedule.id == schedule_id,
+            )
+        )
+        return result.one()
+
+    async def update_schedule(
+        self, schedule_id: ScheduleID, params: ScheduleUpdate
+    ) -> Schedule:
+        schedule = await self.get_schedule(schedule_id)
+
+        try:
+            # Synchronize with Temporal
+            await bridge.update_schedule(schedule_id, params)
+        except Exception as e:
+            await self.session.rollback()
+            logger.error("Error updating schedule", error=e)
+            raise RuntimeError("Error updating schedule") from e
+
+        # Update the schedule
+        for key, value in params.model_dump(exclude_unset=True).items():
+            # Safety: params have been validated
+            setattr(schedule, key, value)
+
+        self.session.add(schedule)
+        await self.session.commit()
+        await self.session.refresh(schedule)
+        return schedule
+
+    async def delete_schedule(self, schedule_id: ScheduleID) -> None:
+        try:
+            schedule = await self.get_schedule(schedule_id)
+        except NoResultFound:
+            logger.warning(
+                "Schedule not found, attempt to delete underlying Temporal schedule...",
+                schedule_id=schedule_id,
+            )
+
+        try:
+            # Delete the schedule from Temporal first
+            await bridge.delete_schedule(schedule_id)
+        except RuntimeError as e:
+            raise e
+
+        # If successful, delete the schedule from the database
+        if schedule:
+            await self.session.delete(schedule)
+            await self.session.commit()
+        else:
+            logger.warning(
+                "Schedule was already deleted from the database",
+                schedule_id=schedule_id,
+            )

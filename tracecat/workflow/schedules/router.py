@@ -5,19 +5,18 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import TemporaryRole, authenticate_user_for_workspace
+from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
-from tracecat.db.schemas import Schedule, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logging import logger
-from tracecat.types.api import (
-    CreateScheduleParams,
-    SearchScheduleParams,
-    UpdateScheduleParams,
-)
 from tracecat.types.auth import Role
-from tracecat.workflow.schedules import service
+from tracecat.workflow.schedules.models import (
+    ScheduleCreate,
+    ScheduleSearch,
+    ScheduleUpdate,
+)
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 router = APIRouter(prefix="/schedules")
 
@@ -31,79 +30,31 @@ async def list_schedules(
     session: AsyncDBSession,
     workflow_id: WorkflowID | None = None,
 ) -> list[Schedule]:
-    """List all schedules for a workflow."""
-    statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
-    if workflow_id:
-        statement = statement.where(Schedule.workflow_id == workflow_id)
-    result = await session.exec(statement)
-    schedules = result.all()
-    return schedules
+    service = WorkflowSchedulesService(session, role=role)
+    return await service.list_schedules(workflow_id=workflow_id)
 
 
 @router.post("", tags=["schedules"])
 async def create_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    params: CreateScheduleParams,
+    params: ScheduleCreate,
 ) -> Schedule:
     """Create a schedule for a workflow."""
-
-    result = await session.exec(
-        select(WorkflowDefinition)
-        .where(WorkflowDefinition.workflow_id == params.workflow_id)
-        .order_by(WorkflowDefinition.version.desc())
-    )
+    service = WorkflowSchedulesService(session, role=role)
     try:
-        if not (defn_data := result.first()):
-            raise NoResultFound("No workflow definition found for workflow ID")
+        return await service.create_schedule(params)
     except NoResultFound as e:
-        logger.opt(exception=e).error("Invalid workflow ID", error=e)
+        logger.error("No workflow definition found for workflow ID", error=e)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No workflow definition found for workflow ID",
         ) from e
-
-    schedule = Schedule(
-        owner_id=role.workspace_id, **params.model_dump(exclude_unset=True)
-    )
-    await session.refresh(defn_data)
-    defn = WorkflowDefinition.model_validate(defn_data)
-    dsl = DSLInput(**defn.content)
-
-    try:
-        # Set the role for the schedule as the tracecat-runner
-        with TemporaryRole(
-            type="service",
-            user_id=defn.owner_id,
-            service_id="tracecat-schedule-runner",
-        ) as sch_role:
-            handle = await service.create_schedule(
-                workflow_id=params.workflow_id,
-                schedule_id=schedule.id,
-                dsl=dsl,
-                every=params.every,
-                offset=params.offset,
-                start_at=params.start_at,
-                end_at=params.end_at,
-                trigger_inputs=params.inputs,
-            )
-            logger.info(
-                "Created schedule",
-                handle_id=handle.id,
-                workflow_id=params.workflow_id,
-                schedule_id=schedule.id,
-                sch_role=sch_role,
-            )
-
-        session.add(schedule)
-        await session.commit()
-        await session.refresh(schedule)
-        return schedule
-    except Exception as e:
-        session.rollback()
-        logger.opt(exception=e).error("Error creating schedule", error=e)
+    except RuntimeError as e:
+        logger.error("Error creating schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error creating schedule",
+            detail=f"Error creating schedule: {e}",
         ) from e
 
 
@@ -112,17 +63,13 @@ async def get_schedule(
     role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: ScheduleID
 ) -> Schedule:
     """Get a schedule from a workflow."""
-    statement = select(Schedule).where(
-        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
-    )
-    result = await session.exec(statement)
+    service = WorkflowSchedulesService(session, role=role)
     try:
-        schedule = result.one()
+        return await service.get_schedule(schedule_id)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
         ) from e
-    return schedule
 
 
 @router.post("/{schedule_id}", tags=["schedules"])
@@ -130,39 +77,20 @@ async def update_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     schedule_id: ScheduleID,
-    params: UpdateScheduleParams,
+    params: ScheduleUpdate,
 ) -> Schedule:
     """Update a schedule from a workflow. You cannot update the Workflow Definition, but you can update other fields."""
-    statement = select(Schedule).where(
-        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
-    )
-    result = await session.exec(statement)
+    service = WorkflowSchedulesService(session, role=role)
     try:
-        schedule = result.one()
+        return await service.update_schedule(schedule_id, params)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
         ) from e
-
-    try:
-        # (1) Synchronize with Temporal
-        await service.update_schedule(schedule_id, params)
-
-        # (2) Update the schedule
-        for key, value in params.model_dump(exclude_unset=True).items():
-            # Safety: params have been validated
-            setattr(schedule, key, value)
-
-        session.add(schedule)
-        await session.commit()
-        await session.refresh(schedule)
-        return schedule
-    except Exception as e:
-        session.rollback()
-        logger.opt(exception=e).error("Error creating schedule", error=e)
+    except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error creating schedule",
+            detail=f"Error updating schedule: {e}",
         ) from e
 
 
@@ -175,31 +103,18 @@ async def delete_schedule(
     role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: ScheduleID
 ) -> None:
     """Delete a schedule from a workflow."""
-    statement = select(Schedule).where(
-        Schedule.owner_id == role.workspace_id, Schedule.id == schedule_id
-    )
-    result = await session.exec(statement)
-    schedule = result.one_or_none()
-    if not schedule:
+    service = WorkflowSchedulesService(session, role=role)
+    try:
+        await service.delete_schedule(schedule_id)
+    except NoResultFound as e:
         logger.warning(
             "Schedule not found, attempt to delete underlying Temporal schedule...",
             schedule_id=schedule_id,
         )
-
-    try:
-        # Delete the schedule from Temporal first
-        await service.delete_schedule(schedule_id)
-
-        # If successful, delete the schedule from the database
-        if schedule:
-            await session.delete(schedule)
-            await session.commit()
-        else:
-            logger.warning(
-                "Schedule was already deleted from the database",
-                schedule_id=schedule_id,
-            )
-    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
+        ) from e
+    except RuntimeError as e:
         logger.error("Error deleting schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -209,10 +124,10 @@ async def delete_schedule(
 
 @router.get("/search", tags=["schedules"])
 async def search_schedules(
-    role: WorkspaceUserRole, session: AsyncDBSession, params: SearchScheduleParams
+    role: WorkspaceUserRole, session: AsyncDBSession, params: ScheduleSearch
 ) -> list[Schedule]:
     """**[WORK IN PROGRESS]** Search for schedules."""
     statement = select(Schedule).where(Schedule.owner_id == role.workspace_id)
     results = await session.exec(statement)
     schedules = results.all()
-    return schedules
+    return list(schedules)
