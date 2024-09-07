@@ -11,6 +11,14 @@ definition:
     - type: webhook
       ref: receive_json
       entrypoint: select_ip_addresses
+  returns:
+    ipv4: list[str]
+    reports:
+      abuseipdb: ${{ ACTIONS.abuseipdb.result }}
+      pulsedive: ${{ ACTIONS.pulsedive.result }}
+      shodan: ${{ ACTIONS.shodan.result }}
+      urlscan: ${{ ACTIONS.urlscan.result }}
+      virustotal: ${{ ACTIONS.virustotal.result }}
 
   actions:
     - ref: select_ip_addresses
