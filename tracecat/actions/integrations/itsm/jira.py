@@ -67,7 +67,6 @@ async def create_issue(
 ) -> list[dict[str, Any]]:
     url = f"{atlassian_domain}/rest/api/3/issue"
     AUTH_TOKEN = HTTPBasicAuth(os.getenv("JIRA_USERNAME"), os.getenv("JIRA_API_TOKEN"))
-    if not AUTH_TOKEN:
         raise ValueError("Missing JIRA_USERNAME or JIRA_API_TOKEN")
 
     headers = {
