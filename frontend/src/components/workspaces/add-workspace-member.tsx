@@ -65,8 +65,8 @@ export function AddWorkspaceMember({
         console.error("Unexpected error", e)
       }
       toast({
-        title: "Failed to add user to workspace",
-        description: "Couldn't find a user with this email.",
+        title: "Couldn't find a user with this email. ",
+        description: "Users must first sign-up via email/password or OAuth2.0 before getting invited to a workspace.",
       })
       return
     }
