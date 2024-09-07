@@ -12,7 +12,7 @@ from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.workflow.schedules.models import ScheduleUpdate
 
 
-async def _get_handle(sch_id: ScheduleID) -> temporalio.client.ScheduleHandle:
+async def _get_handle(schedule_id: ScheduleID) -> temporalio.client.ScheduleHandle:
     client = await get_temporal_client()
     return client.get_schedule_handle(schedule_id)
 
