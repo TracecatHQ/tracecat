@@ -18,7 +18,7 @@ definition:
 
   actions:
     - ref: list_sentinelone_alerts
-      action: integrations.sentinelone.list_sentinelone_alerts
+      action: integrations.sentinel_one.list_sentinelone_alerts
       args:
         start_time: ${{ ENV.workflow.start_time }}
         end_time: ${{ ENV.workflow.start_time + FN.minutes(TRIGGER.interval_minutes) }}
@@ -34,15 +34,15 @@ definition:
         data: ${{ ACTIONS.list_sentinelone_alerts.result }}
 
     - ref: trigger_child_workflow
-      action: system.trigger_child_workflow
+      action: core.workflow.execute
       depends_on:
         - normalize_sentinelone_alerts
       run_if: ${{ FN.not_empty(ACTIONS.normalize_sentinelone_alerts.result) }}
       args:
-        child_workflow_id: ${{ INPUTS.child_workflow_id }}
-        data: ${{ ACTIONS.normalize_sentinelone_alerts.result }}
+        workflow_id: ${{ INPUTS.child_workflow_id }}
+        loop_strategy: parallel
+        fail_strategy: isolated
         batch_size: ${{ INPUTS.batch_size }}
-        interval_minutes: ${{ TRIGGER.interval_minutes }}
         trigger_inputs:
           title: ${{ var.alert.rule.description }}
           integration: SentinelOne
