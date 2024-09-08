@@ -143,7 +143,7 @@ class AuthSandbox:
         if len(unique_secret_names) != len(secrets):
             missing_secrets = unique_secret_names - {secret.name for secret in secrets}
             raise TracecatCredentialsError(
-                "Failed to retrieve secrets",
+                "Failed to retrieve secrets. Please contact support for help.",
                 detail=[
                     {"secret_name": name, "environment": self._environment}
                     for name in missing_secrets
