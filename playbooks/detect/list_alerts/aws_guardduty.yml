@@ -18,7 +18,7 @@ definition:
 
   actions:
     - ref: list_guardduty_alerts
-      action: integrations.aws_guardduty.list_guardduty_alerts
+      action: integrations.aws.guardduty.list_guardduty_alerts
       args:
         start_time: ${{ ENV.workflow.start_time }}
         end_time: ${{ ENV.workflow.start_time + FN.minutes(TRIGGER.interval_minutes) }}
