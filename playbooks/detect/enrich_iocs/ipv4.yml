@@ -17,7 +17,6 @@ definition:
       abuseipdb: ${{ ACTIONS.abuseipdb.result }}
       pulsedive: ${{ ACTIONS.pulsedive.result }}
       shodan: ${{ ACTIONS.shodan.result }}
-      urlscan: ${{ ACTIONS.urlscan.result }}
       virustotal: ${{ ACTIONS.virustotal.result }}
 
   actions:
@@ -28,7 +27,7 @@ definition:
           ipv4: ${{ TRIGGER.ipv4 }}
 
     - ref: abuseipdb
-      action: integration.abuseipdb.analyze_ip_address
+      action: integrations.abuseipdb.analyze_ip_address
       depends_on:
         - select_ip_addresses
       for_each: ${{ for var.ip_address in ACTIONS.select_ip_addresses.result }}
@@ -36,7 +35,7 @@ definition:
         ip_address: ${{ var.ip_address }}
 
     - ref: pulsedive
-      action: integration.pulsedive.analyze_ip_address
+      action: integrations.pulsedive.analyze_ip_address
       depends_on:
         - select_ip_addresses
       for_each: ${{ for var.ip_address in ACTIONS.select_ip_addresses.result }}
@@ -44,15 +43,7 @@ definition:
         ip_address: ${{ var.ip_address }}
 
     - ref: shodan
-      action: integration.shodan.analyze_ip_address
-      depends_on:
-        - select_ip_addresses
-      for_each: ${{ for var.ip_address in ACTIONS.select_ip_addresses.result }}
-      args:
-        ip_address: ${{ var.ip_address }}
-
-    - ref: urlscan
-      action: integration.urlscan.analyze_ip_address
+      action: integrations.shodan.analyze_ip_address
       depends_on:
         - select_ip_addresses
       for_each: ${{ for var.ip_address in ACTIONS.select_ip_addresses.result }}
@@ -60,9 +51,9 @@ definition:
         ip_address: ${{ var.ip_address }}
 
     - ref: virustotal
-      action: integration.virustotal.analyze_ip_address
+      action: integrations.virustotal.analyze_ip_address
       depends_on:
         - select_ip_addresses
       for_each: ${{ for var.ip_address in ACTIONS.select_ip_addresses.result }}
       args:
-        ip_address: ${{ serialized_json.ipv4 }}
+        ip_address: ${{ var.ip_address }}

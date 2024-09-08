@@ -28,7 +28,7 @@ definition:
           urls: ${{ TRIGGER.urls }}
 
     - ref: abuseipdb
-      action: integration.abuseipdb.analyze_url
+      action: integrations.abuseipdb.analyze_url
       depends_on:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
@@ -36,7 +36,7 @@ definition:
         url: ${{ var.url }}
 
     - ref: pulsedive
-      action: integration.pulsedive.analyze_url
+      action: integrations.pulsedive.analyze_url
       depends_on:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
@@ -44,7 +44,7 @@ definition:
         url: ${{ var.url }}
 
     - ref: shodan
-      action: integration.shodan.analyze_url
+      action: integrations.shodan.analyze_url
       depends_on:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
@@ -52,7 +52,7 @@ definition:
         url: ${{ var.url }}
 
     - ref: urlscan
-      action: integration.urlscan.analyze_url
+      action: integrations.urlscan.analyze_url
       depends_on:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
@@ -60,7 +60,7 @@ definition:
         url: ${{ var.url }}
 
     - ref: virustotal
-      action: integration.virustotal.analyze_url
+      action: integrations.virustotal.analyze_url
       depends_on:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
