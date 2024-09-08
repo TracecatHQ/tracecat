@@ -51,7 +51,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.expressions.shared import ExprContext, context_locator
     from tracecat.logging import logger
+    from tracecat.parse import traverse_leaves
     from tracecat.registry import registry
+    from tracecat.secrets.common import apply_masks_object
     from tracecat.types.auth import Role
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
@@ -823,10 +825,13 @@ class DSLActivities:
                 target="context",
                 environment=env_context["environment"],
             ) as sandbox:
-                context_with_secrets = {
-                    **input.exec_context,
-                    ExprContext.SECRETS: sandbox.secrets.copy(),
-                }
+                secrets = sandbox.secrets.copy()
+            context_with_secrets = {
+                **input.exec_context,
+                ExprContext.SECRETS: secrets,
+            }
+            # Safety: Secret context leaves are all strings
+            mask_values = {s for _, s in traverse_leaves(secrets)}
 
             # When we're here, we've populated the task arguments with shared context values
             type = task.action
@@ -878,8 +883,9 @@ class DSLActivities:
                 args = eval_templated_object(task.args, operand=context_with_secrets)
                 result = await udf.run_async(args)
 
-            act_logger.debug("Result", result=result)
-            return result
+            masked_result = apply_masks_object(result, masks=mask_values)
+            act_logger.debug("Result", masked_result=masked_result)
+            return masked_result
 
         except TracecatException as e:
             err_type = e.__class__.__name__
