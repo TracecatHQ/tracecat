@@ -338,18 +338,23 @@ class DSLWorkflow:
         )
         ctx_run.set(self.run_ctx)
 
-        # self.logger = logger.bind(
-        #     run_ctx=self.run_ctx, role=self.role, unit="dsl-workflow-runner"
-        # )
-        self.logger = logger
+        self.logger = logger.bind(
+            run_ctx=self.run_ctx, role=self.role, unit="dsl-workflow-runner"
+        )
         ctx_logger.set(self.logger)
-
-        # Set runtime args
-        self.start_to_close_timeout = args.timeout
-        self.runtime_config = args.runtime_config
 
         # Setup DSL context
         self.dsl = args.dsl
+
+        # Set runtime args
+        self.start_to_close_timeout = args.timeout
+
+        if "runtime_config" in args.model_fields_set:
+            # Use the override runtime config if it's set
+            self.runtime_config = args.runtime_config
+        else:
+            # Otherwise default to the DSL config
+            self.runtime_config = self.dsl.config
 
         self.context = DSLContext(
             ACTIONS={},
@@ -359,7 +364,7 @@ class DSLWorkflow:
                 workflow={
                     "start_time": wf_info.start_time,
                 },
-                environment=args.runtime_config.environment,
+                environment=self.runtime_config.environment,
                 variables={},
             ),
         )
@@ -369,7 +374,6 @@ class DSLWorkflow:
 
         self.logger.info(
             "Running DSL task workflow",
-            environment=args.runtime_config.environment,
             runtime_config=self.runtime_config,
             timeout=self.start_to_close_timeout,
         )
