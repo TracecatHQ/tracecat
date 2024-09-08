@@ -310,7 +310,7 @@ def test_workspace(
             workspace = test_config_manager.get_workspace()
             if not workspace:
                 raise ValueError(
-                    "Unexpected error when trying to get workspace. It either doesn't exist, or there was a conflict."
+                    "Unexpected error when retrieving workspace. Workspace either doesn't exist or there was a conflict."
                     "Please check the logs for more information, or try viewing the database directly."
                 ) from e
             yield WorkspaceMetadataResponse(**workspace.model_dump())
