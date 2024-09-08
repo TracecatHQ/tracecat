@@ -34,7 +34,7 @@ async def execute(
         Field(
             description=(
                 "The child workflow's target execution environment. "
-                "This is used as an isolation boundary for credentials and other secrets."
+                "This is used to isolate secrets across different environments."
                 "If not provided, the child workflow's default environment is used. "
             ),
         ),
