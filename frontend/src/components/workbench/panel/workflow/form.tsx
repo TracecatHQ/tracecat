@@ -62,7 +62,7 @@ const workflowConfigFormSchema = z.object({
     } catch (error) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
+        message: "Invalid YAML format. Please check workflow definition for errors.",
       })
       return z.NEVER
     }
