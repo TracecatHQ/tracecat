@@ -94,7 +94,7 @@ class SecretsService:
                 ) from e
         except NoResultFound as e:
             if raise_on_error:
-                raise NoResultFound("Secret not found when searching by ID") from e
+                raise NoResultFound("Secret not found when searching by ID. Please check that the ID was correctly input.") from e
         return None
 
     @overload
