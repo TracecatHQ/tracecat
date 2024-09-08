@@ -130,7 +130,7 @@ class SecretsService:
         except MultipleResultsFound as e:
             if raise_on_error:
                 raise MultipleResultsFound(
-                    "Multiple secrets found when searching by name"
+                    "Multiple secrets found when searching by name. Expected one secret only."
                 ) from e
         except NoResultFound as e:
             if raise_on_error:
