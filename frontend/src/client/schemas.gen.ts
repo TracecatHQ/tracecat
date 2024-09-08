@@ -696,92 +696,6 @@ export const $CreateActionParams = {
     title: 'CreateActionParams'
 } as const;
 
-export const $CreateScheduleParams = {
-    properties: {
-        workflow_id: {
-            type: 'string',
-            pattern: 'wf-[0-9a-f]{32}',
-            title: 'Workflow Id'
-        },
-        inputs: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Inputs'
-        },
-        cron: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Cron'
-        },
-        every: {
-            type: 'string',
-            format: 'duration',
-            title: 'Every',
-            description: 'ISO 8601 duration string'
-        },
-        offset: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'duration'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Offset',
-            description: 'ISO 8601 duration string'
-        },
-        start_at: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'date-time'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Start At',
-            description: 'ISO 8601 datetime string'
-        },
-        end_at: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'date-time'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'End At',
-            description: 'ISO 8601 datetime string'
-        },
-        status: {
-            type: 'string',
-            enum: ['online', 'offline'],
-            title: 'Status',
-            default: 'online'
-        }
-    },
-    type: 'object',
-    required: ['workflow_id', 'every'],
-    title: 'CreateScheduleParams'
-} as const;
-
 export const $CreateSecretParams = {
     properties: {
         type: {
@@ -1558,7 +1472,93 @@ export const $Schedule = {
     title: 'Schedule'
 } as const;
 
-export const $SearchScheduleParams = {
+export const $ScheduleCreate = {
+    properties: {
+        workflow_id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Workflow Id'
+        },
+        inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inputs'
+        },
+        cron: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cron'
+        },
+        every: {
+            type: 'string',
+            format: 'duration',
+            title: 'Every',
+            description: 'ISO 8601 duration string'
+        },
+        offset: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'duration'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Offset',
+            description: 'ISO 8601 duration string'
+        },
+        start_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Start At',
+            description: 'ISO 8601 datetime string'
+        },
+        end_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'End At',
+            description: 'ISO 8601 datetime string'
+        },
+        status: {
+            type: 'string',
+            enum: ['online', 'offline'],
+            title: 'Status',
+            default: 'online'
+        }
+    },
+    type: 'object',
+    required: ['workflow_id', 'every'],
+    title: 'ScheduleCreate'
+} as const;
+
+export const $ScheduleSearch = {
     properties: {
         workflow_id: {
             anyOf: [
@@ -1619,7 +1619,100 @@ export const $SearchScheduleParams = {
         }
     },
     type: 'object',
-    title: 'SearchScheduleParams'
+    title: 'ScheduleSearch'
+} as const;
+
+export const $ScheduleUpdate = {
+    properties: {
+        inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inputs'
+        },
+        cron: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cron'
+        },
+        every: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'duration'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Every',
+            description: 'ISO 8601 duration string'
+        },
+        offset: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'duration'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Offset',
+            description: 'ISO 8601 duration string'
+        },
+        start_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Start At',
+            description: 'ISO 8601 datetime string'
+        },
+        end_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'End At',
+            description: 'ISO 8601 datetime string'
+        },
+        status: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['online', 'offline']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Status'
+        }
+    },
+    type: 'object',
+    title: 'ScheduleUpdate'
 } as const;
 
 export const $SearchSecretsParams = {
@@ -2013,99 +2106,6 @@ export const $UpdateActionParams = {
     },
     type: 'object',
     title: 'UpdateActionParams'
-} as const;
-
-export const $UpdateScheduleParams = {
-    properties: {
-        inputs: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Inputs'
-        },
-        cron: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Cron'
-        },
-        every: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'duration'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Every',
-            description: 'ISO 8601 duration string'
-        },
-        offset: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'duration'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Offset',
-            description: 'ISO 8601 duration string'
-        },
-        start_at: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'date-time'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Start At',
-            description: 'ISO 8601 datetime string'
-        },
-        end_at: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'date-time'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'End At',
-            description: 'ISO 8601 datetime string'
-        },
-        status: {
-            anyOf: [
-                {
-                    type: 'string',
-                    enum: ['online', 'offline']
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Status'
-        }
-    },
-    type: 'object',
-    title: 'UpdateScheduleParams'
 } as const;
 
 export const $UpdateSecretParams = {

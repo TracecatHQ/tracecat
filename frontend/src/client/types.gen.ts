@@ -201,33 +201,6 @@ export type CreateActionParams = {
     title: string;
 };
 
-export type CreateScheduleParams = {
-    workflow_id: string;
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    cron?: string | null;
-    /**
-     * ISO 8601 duration string
-     */
-    every: string;
-    /**
-     * ISO 8601 duration string
-     */
-    offset?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    start_at?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    end_at?: string | null;
-    status?: 'online' | 'offline';
-};
-
-export type status3 = 'online' | 'offline';
-
 /**
  * Create a new secret.
  *
@@ -483,13 +456,64 @@ export type Schedule = {
     workflow_id: string | null;
 };
 
-export type SearchScheduleParams = {
+export type ScheduleCreate = {
+    workflow_id: string;
+    inputs?: {
+    [key: string]: unknown;
+} | null;
+    cron?: string | null;
+    /**
+     * ISO 8601 duration string
+     */
+    every: string;
+    /**
+     * ISO 8601 duration string
+     */
+    offset?: string | null;
+    /**
+     * ISO 8601 datetime string
+     */
+    start_at?: string | null;
+    /**
+     * ISO 8601 datetime string
+     */
+    end_at?: string | null;
+    status?: 'online' | 'offline';
+};
+
+export type status3 = 'online' | 'offline';
+
+export type ScheduleSearch = {
     workflow_id?: string | null;
     limit?: number;
     order_by?: string;
     query?: string | null;
     group_by?: Array<(string)> | null;
     agg?: string | null;
+};
+
+export type ScheduleUpdate = {
+    inputs?: {
+    [key: string]: unknown;
+} | null;
+    cron?: string | null;
+    /**
+     * ISO 8601 duration string
+     */
+    every?: string | null;
+    /**
+     * ISO 8601 duration string
+     */
+    offset?: string | null;
+    /**
+     * ISO 8601 datetime string
+     */
+    start_at?: string | null;
+    /**
+     * ISO 8601 datetime string
+     */
+    end_at?: string | null;
+    status?: 'online' | 'offline' | null;
 };
 
 export type SearchSecretsParams = {
@@ -595,30 +619,6 @@ export type UpdateActionParams = {
     [key: string]: unknown;
 } | null;
     control_flow?: ActionControlFlow | null;
-};
-
-export type UpdateScheduleParams = {
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    cron?: string | null;
-    /**
-     * ISO 8601 duration string
-     */
-    every?: string | null;
-    /**
-     * ISO 8601 duration string
-     */
-    offset?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    start_at?: string | null;
-    /**
-     * ISO 8601 datetime string
-     */
-    end_at?: string | null;
-    status?: 'online' | 'offline' | null;
 };
 
 /**
@@ -1244,12 +1244,12 @@ export type SecretsCreateSecretData = {
 
 export type SecretsCreateSecretResponse = unknown;
 
-export type SecretsGetSecretData = {
+export type SecretsGetSecretByNameData = {
     secretName: string;
     workspaceId: string;
 };
 
-export type SecretsGetSecretResponse = Secret;
+export type SecretsGetSecretByNameResponse = Secret;
 
 export type SecretsUpdateSecretByIdData = {
     requestBody: UpdateSecretParams;
@@ -1281,7 +1281,7 @@ export type SchedulesListSchedulesData = {
 export type SchedulesListSchedulesResponse = Array<Schedule>;
 
 export type SchedulesCreateScheduleData = {
-    requestBody: CreateScheduleParams;
+    requestBody: ScheduleCreate;
     workspaceId: string;
 };
 
@@ -1295,7 +1295,7 @@ export type SchedulesGetScheduleData = {
 export type SchedulesGetScheduleResponse = Schedule;
 
 export type SchedulesUpdateScheduleData = {
-    requestBody: UpdateScheduleParams;
+    requestBody: ScheduleUpdate;
     scheduleId: string;
     workspaceId: string;
 };
@@ -1310,7 +1310,7 @@ export type SchedulesDeleteScheduleData = {
 export type SchedulesDeleteScheduleResponse = void;
 
 export type SchedulesSearchSchedulesData = {
-    requestBody: SearchScheduleParams;
+    requestBody: ScheduleSearch;
     workspaceId: string;
 };
 
@@ -2110,7 +2110,7 @@ export type $OpenApiTs = {
     };
     '/secrets/{secret_name}': {
         get: {
-            req: SecretsGetSecretData;
+            req: SecretsGetSecretByNameData;
             res: {
                 /**
                  * Successful Response
