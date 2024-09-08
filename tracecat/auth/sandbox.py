@@ -60,7 +60,7 @@ class AuthSandbox:
     ) -> None:
         self._unset_secrets()
         if exc_type is not None:
-            logger.error("An error occurred", exc_info=(exc_type, exc_value, traceback))
+            logger.error("An error occurred inside AuthSandbox. If you are seeing this, please contact support.", exc_info=(exc_type, exc_value, traceback))
 
     async def __aenter__(self) -> Self:
         if self._secret_paths:
