@@ -31,7 +31,7 @@ definition:
       run_if: ${{ FN.not_empty(ACTIONS.list_guardduty_alerts.result) }}
       args:
         pipeline: https://github.com/elastic/integrations/raw/main/packages/aws/data_stream/guardduty/elasticsearch/ingest_pipeline/default.yml
-        data: ${{ ACTION.list_guardduty_alerts.result }}
+        data: ${{ ACTIONS.list_guardduty_alerts.result }}
 
     - ref: redirect_guardduty_alerts
       action: core.workflow.execute
