@@ -76,7 +76,7 @@ class DSLConfig(BaseModel):
         default=DEFAULT_SECRETS_ENVIRONMENT,
         description=(
             "The workflow's target execution environment. "
-            "This is used as an isolation boundary for credentials and other secrets."
+            "This is used to isolate secrets across different environments."
             "If not provided, the default environment (default) is used."
         ),
     )
