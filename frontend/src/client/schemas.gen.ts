@@ -871,7 +871,7 @@ export const $DSLConfig_Input = {
         environment: {
             type: 'string',
             title: 'Environment',
-            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment (default) is used.",
+            description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
         }
     },
@@ -890,7 +890,7 @@ export const $DSLConfig_Output = {
         environment: {
             type: 'string',
             title: 'Environment',
-            description: "The workflow's target execution environment. This is used as an isolation boundary for credentials and other secrets.If not provided, the default environment (default) is used.",
+            description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
         }
     },
