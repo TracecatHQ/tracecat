@@ -74,11 +74,34 @@ def test_apply_masks_object_with_string():
     )
 
 
-def test_apply_masks_object_with_list():
+def test_apply_masks_object_with_tuple():
+    """
+    Test apply_masks_object with a tuple.
+    """
     masks = ["secret", "password"]
-    input_list = ["This is a secret message", "No sensitive data here"]
-    expected_list = ["This is a *** message", "No sensitive data here"]
-    assert apply_masks_object(input_list, masks) == expected_list
+    input_tuple = ("This is a secret message", "No sensitive data here")
+    expected_tuple = ("This is a *** message", "No sensitive data here")
+    assert apply_masks_object(input_tuple, masks) == expected_tuple
+
+
+def test_apply_masks_object_with_mixed_types():
+    """
+    Test apply_masks_object with mixed types.
+    """
+    masks = ["secret", "password"]
+    input_data = [
+        "This is a secret message",
+        {"key": "password123"},
+        ("No sensitive data here", "Another secret"),
+        ["No sensitive data here", "Another secret in a list"],
+    ]
+    expected_data = [
+        "This is a *** message",
+        {"key": "***123"},
+        ("No sensitive data here", "Another ***"),
+        ["No sensitive data here", "Another *** in a list"],
+    ]
+    assert apply_masks_object(input_data, masks) == expected_data
 
 
 def test_apply_masks_object_with_dict():
