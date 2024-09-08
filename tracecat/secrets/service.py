@@ -134,7 +134,7 @@ class SecretsService:
                 ) from e
         except NoResultFound as e:
             if raise_on_error:
-                raise NoResultFound("Secret not found when searching by name") from e
+                raise NoResultFound("Secret not found when searching by name. Please double check that the name was correctly input.") from e
         return None
 
     async def create_secret(self, params: CreateSecretParams) -> None:
