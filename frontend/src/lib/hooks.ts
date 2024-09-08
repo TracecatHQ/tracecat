@@ -646,7 +646,7 @@ export function useSecrets() {
           console.error("Failed to create secret", error)
           toast({
             title: "Failed to add new secret",
-            description: "An error occurred while adding the new secret.",
+            description: "Please contact support for help.",
           })
       }
     },
