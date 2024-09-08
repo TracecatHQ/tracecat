@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
 
 import orjson
+import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -142,10 +143,8 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-                    result = orjson.loads(
-                        event.child_workflow_execution_completed_event_attributes.result.payloads[
-                            0
-                        ].data
+                    result = _extract_first(
+                        event.child_workflow_execution_completed_event_attributes.result
                     )
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
                     group = event_group_names.get(initiator_event_id)
@@ -175,10 +174,8 @@ class WorkflowExecutionsService:
                     )
 
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
-                    run_args_data = orjson.loads(
-                        event.workflow_execution_started_event_attributes.input.payloads[
-                            0
-                        ].data
+                    run_args_data = _extract_first(
+                        event.workflow_execution_started_event_attributes.input
                     )
                     dsl_run_args = DSLRunArgs(**run_args_data)
                     events.append(
@@ -192,10 +189,8 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
-                    result = orjson.loads(
-                        event.workflow_execution_completed_event_attributes.result.payloads[
-                            0
-                        ].data
+                    result = _extract_first(
+                        event.workflow_execution_completed_event_attributes.result
                     )
                     events.append(
                         EventHistoryResponse(
@@ -267,10 +262,8 @@ class WorkflowExecutionsService:
                     gparent_event_id = event.activity_task_completed_event_attributes.scheduled_event_id
                     group = event_group_names.get(gparent_event_id)
                     event_group_names[event.event_id] = group
-                    result = orjson.loads(
-                        event.activity_task_completed_event_attributes.result.payloads[
-                            0
-                        ].data
+                    result = _extract_first(
+                        event.activity_task_completed_event_attributes.result
                     )
                     events.append(
                         EventHistoryResponse(
@@ -426,3 +419,18 @@ class WorkflowExecutionsService:
     ) -> Awaitable[None]:
         """Terminate a workflow execution."""
         return self.handle(wf_exec_id).terminate(reason=reason)
+
+
+def _extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> Any:
+    """Extract the first payload from a workflow history event."""
+    raw_data = input_or_result.payloads[0].data
+    try:
+        return orjson.loads(raw_data)
+    except orjson.JSONDecodeError:
+        logger.warning("Failed to decode JSON data, attemping to decode as string")
+
+    try:
+        return raw_data.decode()
+    except UnicodeDecodeError:
+        logger.warning("Failed to decode data as string, returning raw bytes")
+        return raw_data
