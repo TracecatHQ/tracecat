@@ -368,10 +368,10 @@ async def test_conditional_execution_fails(dsl, temporal_cluster, test_role):
 
 
 @pytest.mark.asyncio
-async def test_workflow_override_environment_correct(
+async def test_workflow_set_environment_correct(
     temporal_cluster, test_role, temporal_client
 ):
-    test_name = f"{test_workflow_override_environment_correct.__name__}"
+    test_name = f"{test_workflow_set_environment_correct.__name__}"
     test_description = (
         "Test that we can set the runtime environment for a workflow."
         " The workflow should use the environment set in the DSL config."
@@ -406,6 +406,7 @@ async def test_workflow_override_environment_correct(
         dsl=dsl,
         role=test_role,
         wf_id=TEST_WF_ID,
+        # Note that run args are not set here
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
@@ -424,6 +425,67 @@ async def test_workflow_override_environment_correct(
             retry_policy=retry_policies["workflow:fail_fast"],
         )
     assert result == "__TEST_ENVIRONMENT__"
+
+
+@pytest.mark.asyncio
+async def test_workflow_override_environment_correct(
+    temporal_cluster, test_role, temporal_client
+):
+    test_name = f"{test_workflow_override_environment_correct.__name__}"
+    test_description = (
+        "Test that we can override the runtime environment for a workflow from its run_args."
+        " The workflow should use the environment passed in the run_args."
+    )
+    wf_exec_id = generate_test_exec_id(test_name)
+    dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "a"},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": "${{ ENV.environment }}",
+                    },
+                    "depends_on": [],
+                    "description": "",
+                }
+            ],
+            "description": test_description,
+            "inputs": {},
+            "returns": "${{ ACTIONS.a.result }}",
+            "tests": [],
+            "title": f"{test_name}",
+            "triggers": [],
+            # When the environment is set in the config, it should override the default
+            "config": {"environment": "__WRONG_ENVIRONMENT__"},
+        }
+    )
+
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+        # When the environment is set in the run_args, it should override the config
+        runtime_config=DSLConfig(environment="__CORRECT_ENVIRONMENT__"),
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    async with Worker(
+        temporal_client,
+        task_queue=queue,
+        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+    assert result == "__CORRECT_ENVIRONMENT__"
 
 
 @pytest.mark.asyncio
@@ -464,6 +526,7 @@ async def test_workflow_default_environment_correct(
         dsl=dsl,
         role=test_role,
         wf_id=TEST_WF_ID,
+        # Note that run args are not set here
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
