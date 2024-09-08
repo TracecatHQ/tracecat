@@ -12,5 +12,6 @@ __all__ = [
     "iam",
     "siem",
     "sinks",
+    "itsm",
     "database",
 ]
