@@ -485,7 +485,6 @@ class DSLWorkflow:
                 logger.error(
                     "Activity execution failed with unexpected error", error=msg
                 )
-                raise e
                 raise ApplicationError(
                     msg, non_retryable=True, type=e.__class__.__name__
                 ) from e
