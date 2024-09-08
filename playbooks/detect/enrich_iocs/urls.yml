@@ -14,7 +14,7 @@ definition:
   returns:
     urls: list[str]
     reports:
-      abuseipdb: ${{ ACTIONS.abuseipdb.result }}
+      alienvault: ${{ ACTIONS.abuseipdb.result }}
       pulsedive: ${{ ACTIONS.pulsedive.result }}
       shodan: ${{ ACTIONS.shodan.result }}
       urlscan: ${{ ACTIONS.urlscan.result }}
@@ -27,8 +27,8 @@ definition:
         value:
           urls: ${{ TRIGGER.urls }}
 
-    - ref: abuseipdb
-      action: integrations.abuseipdb.analyze_url
+    - ref: alienvault
+      action: integrations.alienvault.analyze_url
       depends_on:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
@@ -65,4 +65,4 @@ definition:
         - select_urls
       for_each: ${{ for var.url in ACTIONS.select_urls.result }}
       args:
-        url: ${{ serialized_json.urls }}
+        url: ${{ var.url }}

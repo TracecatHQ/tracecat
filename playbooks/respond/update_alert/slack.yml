@@ -1,1 +1,5 @@
-# Work-in-progress
+definition:
+  title: Update alerts via Slack
+  description: |
+    Receives a Slack action and returns `alert_ids`, `status`, and `severity`
+    provided in the Slack action payload.
