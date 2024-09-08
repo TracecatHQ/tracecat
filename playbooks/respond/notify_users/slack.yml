@@ -40,7 +40,7 @@ definition:
               - type: mrkdwn
                 text: "*Severity:*\n${{ TRIGGER.severity }}"
               - type: mrkdwn
-                text: "*When:*\n${{ TRIGGER.alert.@timestamp }}"
+                text: "*When:*\n${{ TRIGGER.alert.['@timestamp'] }}"
               - type: mrkdwn
                 text: "*Source:*\n${{ FN.prettify_json(TRIGGER.alert.source) }}"
               - type: mrkdwn
