@@ -16,7 +16,7 @@ from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeDat
 from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logging import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
@@ -190,7 +190,7 @@ class DSLInput(BaseModel):
 
 class DSLRunArgs(BaseModel):
     role: Role
-    dsl: DSLInput
+    dsl: DSLInput | None = None
     wf_id: WorkflowID
     trigger_inputs: dict[str, Any] | None = None
     parent_run_context: RunContext | None = None
@@ -204,6 +204,10 @@ class DSLRunArgs(BaseModel):
     timeout: timedelta = Field(
         default_factory=lambda: timedelta(minutes=5),
         description="The maximum time to wait for the workflow to complete.",
+    )
+    schedule_id: ScheduleID | None = Field(
+        None,
+        description="The schedule ID that triggered this workflow, if any.",
     )
 
 

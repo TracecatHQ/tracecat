@@ -22,6 +22,8 @@ from temporalio.exceptions import (
     FailureError,
 )
 
+from tracecat.types.exceptions import TracecatNotFoundError
+
 with workflow.unsafe.imports_passed_through():
     import httpx
     import jsonpath_ng.lexer  # noqa
@@ -66,6 +68,8 @@ with workflow.unsafe.imports_passed_through():
         get_workflow_definition_activity,
     )
     from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
+    from tracecat.workflow.schedules.models import GetScheduleActivityInputs
+    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
 class DSLContext(TypedDict, total=False):
@@ -328,8 +332,9 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
-        # Setup general run context
+        # Set runtime args
         self.role = args.role
+        self.start_to_close_timeout = args.timeout
         ctx_role.set(self.role)
         wf_info = workflow.info()
 
@@ -344,12 +349,25 @@ class DSLWorkflow:
             run_ctx=self.run_ctx, role=self.role, unit="dsl-workflow-runner"
         )
         ctx_logger.set(self.logger)
+        self.logger.debug("DSL workflow started", args=args)
 
         # Setup DSL context
-        self.dsl = args.dsl
-
-        # Set runtime args
-        self.start_to_close_timeout = args.timeout
+        if args.dsl:
+            # Use the provided DSL
+            self.logger.debug("Using provided workflow definition")
+            self.dsl = args.dsl
+        else:
+            # Otherwise, fetch the latest workflow definition
+            self.logger.debug("Fetching latest workflow definition")
+            try:
+                self.dsl = await self._get_workflow_definition(args.wf_id)
+            except TracecatException as e:
+                self.logger.error("Failed to fetch workflow definition")
+                raise ApplicationError(
+                    "Failed to fetch workflow definition",
+                    non_retryable=True,
+                    type=e.__class__.__name__,
+                ) from e
 
         if "runtime_config" in args.model_fields_set:
             # Use the override runtime config if it's set
@@ -358,14 +376,29 @@ class DSLWorkflow:
             # Otherwise default to the DSL config
             self.runtime_config = self.dsl.config
 
+        # Set trigger inputs
+        if args.schedule_id:
+            self.logger.debug("Fetching schedule trigger inputs")
+            try:
+                trigger_inputs = await self._get_schedule_trigger_inputs(
+                    schedule_id=args.schedule_id, worflow_id=args.wf_id
+                )
+            except TracecatNotFoundError as e:
+                raise ApplicationError(
+                    "Failed to fetch trigger inputs as the schedule was not found",
+                    non_retryable=True,
+                    type=e.__class__.__name__,
+                ) from e
+        else:
+            self.logger.debug("Using provided trigger inputs")
+            trigger_inputs = args.trigger_inputs or {}
+
         self.context = DSLContext(
             ACTIONS={},
             INPUTS=self.dsl.inputs,
-            TRIGGER=args.trigger_inputs or {},
+            TRIGGER=trigger_inputs,
             ENV=DSLEnvironment(
-                workflow={
-                    "start_time": wf_info.start_time,
-                },
+                workflow={"start_time": wf_info.start_time},
                 environment=self.runtime_config.environment,
                 variables={},
             ),
@@ -637,6 +670,48 @@ class DSLWorkflow:
         self.logger.trace("Returning value from expression")
         return eval_templated_object(self.dsl.returns, operand=self.context)
 
+    async def _get_workflow_definition(
+        self, workflow_id: identifiers.WorkflowID, version: int | None = None
+    ) -> DSLInput:
+        activity_inputs = GetWorkflowDefinitionActivityInputs(
+            role=self.role, workflow_id=workflow_id, version=version
+        )
+
+        self.logger.debug(
+            "Running get workflow definition activity", activity_inputs=activity_inputs
+        )
+        return await workflow.execute_activity(
+            get_workflow_definition_activity,
+            arg=activity_inputs,
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
+
+    async def _get_schedule_trigger_inputs(
+        self, schedule_id: identifiers.ScheduleID, worflow_id: identifiers.WorkflowID
+    ) -> dict[str, Any]:
+        """Get the trigger inputs for a schedule.
+
+        Raises
+        ------
+        TracecatNotFoundError
+            If the schedule is not found.
+        """
+        activity_inputs = GetScheduleActivityInputs(
+            role=self.role, schedule_id=schedule_id, workflow_id=worflow_id
+        )
+
+        self.logger.debug(
+            "Running get schedule activity", activity_inputs=activity_inputs
+        )
+        schedule_read = await workflow.execute_activity(
+            WorkflowSchedulesService.get_schedule_activity,
+            arg=activity_inputs,
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
+        return schedule_read.inputs
+
     async def _prepare_child_workflow(
         self, task: ActionStatement[ExecuteChildWorkflowArgs]
     ) -> DSLRunArgs:
@@ -649,24 +724,10 @@ class DSLWorkflow:
         )
 
         child_wf_id = validated_args["workflow_id"]
-        activity_inputs = GetWorkflowDefinitionActivityInputs(
-            role=self.role,
-            task=task,
-            workflow_id=child_wf_id,
-            version=validated_args["version"],
+        dsl = await self._get_workflow_definition(
+            workflow_id=child_wf_id, version=validated_args["version"]
         )
 
-        self.logger.debug(
-            "Running get workflow definition activity", activity_inputs=activity_inputs
-        )
-
-        # by the time we get this wfd, it's already set to the default environment
-        dsl = await workflow.execute_activity(
-            get_workflow_definition_activity,
-            arg=activity_inputs,
-            start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
-        )
         self.logger.debug(
             "Got workflow definition",
             dsl=dsl,

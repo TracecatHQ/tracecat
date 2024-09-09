@@ -3,7 +3,23 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers import OwnerID, ScheduleID, WorkflowID
+from tracecat.types.auth import Role
+
+
+class ScheduleRead(BaseModel):
+    id: ScheduleID
+    owner_id: OwnerID
+    created_at: datetime
+    updated_at: datetime
+    workflow_id: WorkflowID
+    inputs: dict[str, Any] = Field(..., default_factory=dict)
+    cron: str | None = None
+    every: timedelta | None = None
+    offset: timedelta | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    status: Literal["online", "offline"]
 
 
 class ScheduleCreate(BaseModel):
@@ -34,3 +50,9 @@ class ScheduleSearch(BaseModel):
     query: str | None = None
     group_by: list[str] | None = None
     agg: str | None = None
+
+
+class GetScheduleActivityInputs(BaseModel):
+    role: Role
+    schedule_id: ScheduleID
+    workflow_id: WorkflowID

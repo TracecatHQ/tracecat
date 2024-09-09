@@ -10,6 +10,7 @@ from temporalio.worker.workflow_sandbox import (
 )
 
 from tracecat.logging import logger
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 # We always want to pass through external modules to the sandbox that we know
 # are safe for workflow use
@@ -54,10 +55,21 @@ async def main() -> None:
 
     # Run a worker for the activities and workflow
     DSLActivities.init()
+    activities = [
+        *DSLActivities.load(),
+        get_workflow_definition_activity,
+        *WorkflowSchedulesService.get_activities(),
+    ]
+    logger.debug(
+        "Activities loaded",
+        activities=[
+            getattr(a, "__temporal_activity_definition").name for a in activities
+        ],
+    )
     async with Worker(
         client,
         task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
-        activities=[*DSLActivities.load(), get_workflow_definition_activity],
+        activities=activities,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):

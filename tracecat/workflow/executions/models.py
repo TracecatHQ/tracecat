@@ -120,7 +120,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     @staticmethod
     def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[EventInput]:
+    ) -> EventGroup[EventInput] | None:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
@@ -134,28 +134,28 @@ class EventGroup(BaseModel, Generic[EventInput]):
         act_type = event.activity_task_scheduled_event_attributes.activity_type.name
         if act_type == "get_workflow_definition_activity":
             action_input = GetWorkflowDefinitionActivityInputs(**action_stmt_data)
-            # Create an event group
-            namespace, udf_name = destructure_slugified_namespace(
-                action_input.task.action, delimiter="."
-            )
-
+        elif act_type == "get_schedule_activity":
+            return None
         else:
             action_input = UDFActionInput(**action_stmt_data)
         # Create an event group
-        namespace, udf_name = destructure_slugified_namespace(
-            action_input.task.action, delimiter="."
-        )
-        return EventGroup(
-            event_id=event.event_id,
-            udf_namespace=namespace,
-            udf_name=udf_name,
-            udf_key=action_input.task.action,
-            action_id=action_input.task.id,
-            action_ref=action_input.task.ref,
-            action_title=action_input.task.title,
-            action_description=action_input.task.description,
-            action_input=action_input,
-        )
+        if action_input.task:
+            namespace, task_name = destructure_slugified_namespace(
+                action_input.task.action, delimiter="."
+            )
+            return EventGroup(
+                event_id=event.event_id,
+                udf_namespace=namespace,
+                udf_name=task_name,
+                udf_key=action_input.task.action,
+                action_id=action_input.task.id,
+                action_ref=action_input.task.ref,
+                action_title=action_input.task.title,
+                action_description=action_input.task.description,
+                action_input=action_input,
+            )
+        # It's a utility action.
+        return None
 
     @staticmethod
     def from_initiated_child_workflow(

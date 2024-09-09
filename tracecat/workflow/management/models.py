@@ -70,9 +70,9 @@ class CreateWorkflowParams(BaseModel):
 
 class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
-    task: ActionStatement
     workflow_id: WorkflowID
     version: int | None = None
+    task: ActionStatement[Any] | None = None
 
 
 WorkflowExportFormat = Literal["json", "yaml"]

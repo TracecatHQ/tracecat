@@ -1,16 +1,12 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import NoResultFound
+from fastapi import APIRouter, HTTPException, status
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user_for_workspace
-from tracecat.db.engine import get_async_session
+from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logging import logger
-from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.schedules.models import (
     ScheduleCreate,
     ScheduleSearch,
@@ -19,9 +15,6 @@ from tracecat.workflow.schedules.models import (
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 router = APIRouter(prefix="/schedules")
-
-WorkspaceUserRole = Annotated[Role, Depends(authenticate_user_for_workspace)]
-AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 @router.get("", tags=["schedules"])
@@ -44,14 +37,8 @@ async def create_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         return await service.create_schedule(params)
-    except NoResultFound as e:
-        logger.error("No workflow definition found for workflow ID", error=e)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No workflow definition found for workflow ID",
-        ) from e
-    except RuntimeError as e:
-        logger.error("Error creating schedule", error=e)
+    except TracecatServiceError as e:
+        logger.exception("Error creating schedule")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating schedule: {e}",
@@ -66,7 +53,7 @@ async def get_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         return await service.get_schedule(schedule_id)
-    except NoResultFound as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
         ) from e
@@ -83,11 +70,11 @@ async def update_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         return await service.update_schedule(schedule_id, params)
-    except NoResultFound as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
         ) from e
-    except RuntimeError as e:
+    except TracecatServiceError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating schedule: {e}",
@@ -106,7 +93,7 @@ async def delete_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         await service.delete_schedule(schedule_id)
-    except NoResultFound as e:
+    except TracecatNotFoundError as e:
         logger.warning(
             "Schedule not found, attempt to delete underlying Temporal schedule...",
             schedule_id=schedule_id,
@@ -114,7 +101,7 @@ async def delete_schedule(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
         ) from e
-    except RuntimeError as e:
+    except TracecatServiceError as e:
         logger.error("Error deleting schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
