@@ -76,7 +76,6 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
         "detect/enrich_iocs/urls.yml",
         # Respond
         "respond/notify_users/slack.yml",
-        "respond/update_alert/slack.yml",
         # Quickstart
         "tutorials/virustotal_quickstart.yml",
     ],
