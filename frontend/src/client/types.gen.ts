@@ -63,6 +63,34 @@ export type ActionStatement = {
     for_each?: string | Array<(string)> | null;
 };
 
+export type ActionStatement_Any_ = {
+    /**
+     * Unique reference for the task
+     */
+    ref: string;
+    description?: string;
+    /**
+     * Action type. Equivalent to the UDF key.
+     */
+    action: string;
+    /**
+     * Arguments for the action
+     */
+    args?: unknown;
+    /**
+     * Task dependencies
+     */
+    depends_on?: Array<(string)>;
+    /**
+     * Condition to run the task
+     */
+    run_if?: string | null;
+    /**
+     * Iterate over a list of items and run the task for each item.
+     */
+    for_each?: string | Array<(string)> | null;
+};
+
 export type ActionTest = {
     /**
      * Action reference
@@ -350,7 +378,7 @@ export type DSLInput = {
 
 export type DSLRunArgs = {
     role: Role;
-    dsl: DSLInput;
+    dsl?: DSLInput | null;
     wf_id: string;
     trigger_inputs?: {
     [key: string]: unknown;
@@ -364,6 +392,10 @@ export type DSLRunArgs = {
      * The maximum time to wait for the workflow to complete.
      */
     timeout?: string;
+    /**
+     * The schedule ID that triggered this workflow, if any.
+     */
+    schedule_id?: string | null;
 };
 
 export type ErrorModel = {
@@ -417,9 +449,9 @@ export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTIO
 
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
-    task: ActionStatement;
     workflow_id: string;
     version?: number | null;
+    task?: ActionStatement_Any_ | null;
 };
 
 export type HTTPValidationError = {

@@ -267,7 +267,7 @@ function ChildWorkflowEventGeneralInfo({ input }: { input: DSLRunArgs }) {
         Workflow Title
       </Label>
       <DescriptorBadge
-        text={input.dsl.title}
+        text={input.dsl?.title || "No title"}
         className="font-mono font-semibold"
       />
     </div>
