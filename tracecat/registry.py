@@ -18,6 +18,7 @@ from typing_extensions import Doc
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.db.schemas import UDFSpec
+from tracecat.dsl.models import ArgsT
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.identifiers import OwnerID
 from tracecat.secrets.models import SecretKey, SecretName
@@ -55,7 +56,7 @@ class UDFSchema(BaseModel):
     metadata: RegisteredUDFMetadata
 
 
-ArgsT = TypeVar("ArgsT", bound=type[BaseModel])
+ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
 
 
 # total=False allows for additional fields in the TypedDict
@@ -67,7 +68,7 @@ class RegisteredUDFMetadata(TypedDict, total=False):
     include_in_schema: bool
 
 
-class RegisteredUDF(BaseModel, Generic[ArgsT]):
+class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     fn: FunctionType
     key: str
@@ -75,7 +76,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
     namespace: str
     version: str | None = None
     secrets: list[RegistrySecret] | None = None
-    args_cls: ArgsT
+    args_cls: ArgsClsT
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter | None = None
@@ -97,7 +98,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
             metadata=self.metadata,
         ).model_dump(mode="json")
 
-    def validate_args(self, *args, **kwargs) -> dict[str, Any]:
+    def validate_args[T](self, *args, **kwargs) -> T:
         """Validate the input arguments for a UDF.
 
         Checks:
@@ -129,7 +130,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsT]):
                 key=self.key,
             ) from e
 
-    async def run_async(self, args: dict[str, Any]) -> Coroutine[Any, Any, Any]:
+    async def run_async(self, args: ArgsT) -> Coroutine[Any, Any, Any]:
         """Run a UDF async."""
         if self.is_async:
             return await self.fn(**args)

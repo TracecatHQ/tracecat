@@ -54,6 +54,7 @@ from tracecat.expressions.parser.validator import (
 from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logging import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
+from tracecat.secrets.models import SearchSecretsParams
 from tracecat.secrets.service import SecretsService
 from tracecat.types.validation import (
     RegistryValidationResult,
@@ -156,18 +157,30 @@ def vadliate_udf_args(udf_key: str, args: dict[str, Any]) -> RegistryValidationR
         raise e
 
 
-async def secret_validator(name: str, key: str) -> ExprValidationResult:
+async def secret_validator(
+    *, name: str, key: str, loc: str, environment: str
+) -> ExprValidationResult:
     # (1) Check if the secret is defined
     async with SecretsService.with_session() as service:
-        defined_secret = await service.get_secret_by_name(name)
-        if not defined_secret:
-            logger.error("Missing secret in SECRET context usage", secret_name=name)
+        defined_secret = await service.search_secrets(
+            SearchSecretsParams(names=[name], environment=environment)
+        )
+        logger.info("Secret search results", defined_secret=defined_secret)
+        if (n_found := len(defined_secret)) != 1:
+            logger.error(
+                "Secret not found in SECRET context usage",
+                n_found=n_found,
+                secret_name=name,
+                environment=environment,
+            )
             return ExprValidationResult(
                 status="error",
-                msg=f"Secret {name!r} is not defined in the secrets manager.",
+                msg=f"[{loc}]\n\nFound {n_found} secrets matching {name!r} in the {environment!r} environment.",
                 expression_type=ExprType.SECRET,
             )
-        decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
+
+        # There should only be 1 secret
+        decrypted_keys = service.decrypt_keys(defined_secret[0].encrypted_keys)
         defined_keys = {kv.key for kv in decrypted_keys}
 
     # (2) Check if the secret has the correct keys
@@ -186,7 +199,9 @@ async def secret_validator(name: str, key: str) -> ExprValidationResult:
 
 
 async def validate_dsl_expressions(
-    dsl: DSLInput, exclude: set[ExprType] | None = None
+    dsl: DSLInput,
+    *,
+    exclude: set[ExprType] | None = None,
 ) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
@@ -198,7 +213,11 @@ async def validate_dsl_expressions(
     # and launches them concurrently on __aexit__
     async with GatheringTaskGroup() as tg:
         visitor = ExprValidator(
-            task_group=tg, validation_context=validation_context, validators=validators
+            task_group=tg,
+            validation_context=validation_context,
+            validators=validators,
+            # Validate against the specified environment
+            environment=dsl.config.environment,
         )
         for act_stmt in dsl.actions:
             # Validate action args

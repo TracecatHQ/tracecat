@@ -1,4 +1,4 @@
-from typing import Any, TypeVar
+from typing import Annotated, Any, TypeVar
 
 from pydantic import ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
@@ -45,3 +45,6 @@ class TemplateValidator:
         # Otherwise, it's an inline template or non-template
         # Call the default handler
         return handler(v, info)
+
+
+ExpressionStr = Annotated[str, TemplateValidator()]

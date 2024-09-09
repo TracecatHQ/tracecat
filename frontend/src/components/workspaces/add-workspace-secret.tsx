@@ -6,8 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { KeyRoundIcon, PlusCircle, Trash2Icon } from "lucide-react"
 import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
+import { z } from "zod"
 
-import { createSecretSchema } from "@/types/schemas"
 import { useSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,6 +36,21 @@ interface NewCredentialsDialogProps
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {}
 
+const createSecretSchema = z.object({
+  name: z.string().default(""),
+  description: z.string().max(255).default(""),
+  environment: z
+    .string()
+    .nullable()
+    .transform((val) => val || "default"), // "default" if null or empty
+  keys: z.array(
+    z.object({
+      key: z.string(),
+      value: z.string(),
+    })
+  ),
+})
+
 export function NewCredentialsDialog({
   children,
   className,
@@ -47,6 +62,8 @@ export function NewCredentialsDialog({
     resolver: zodResolver(createSecretSchema),
     defaultValues: {
       name: "",
+      description: "",
+      environment: "",
       type: "custom",
       keys: [{ key: "", value: "" }],
     },
@@ -54,7 +71,7 @@ export function NewCredentialsDialog({
   const { control, register } = methods
 
   const onSubmit = async (values: CreateSecretParams) => {
-    console.log("Submitting new secret")
+    console.log("Submitting new secret", values)
     try {
       await createSecret(values)
     } catch (error) {
@@ -135,6 +152,27 @@ export function NewCredentialsDialog({
                         className="text-sm"
                         placeholder="Description"
                         {...register("description")}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                key="environment"
+                control={control}
+                name="environment"
+                render={() => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Environment</FormLabel>
+                    <FormDescription className="text-sm">
+                      The workflow&apos;s target execution environment.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        className="text-sm"
+                        placeholder='Default environment: "default"'
+                        {...register("environment")}
                       />
                     </FormControl>
                     <FormMessage />

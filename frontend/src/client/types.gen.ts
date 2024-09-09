@@ -218,6 +218,7 @@ export type CreateSecretParams = {
     tags?: {
     [key: string]: (string);
 } | null;
+    environment?: string;
 };
 
 export type CreateWorkflowExecutionParams = {
@@ -246,15 +247,49 @@ export type CreateWorkspaceParams = {
     owner_id?: string;
 };
 
-export type DSLConfig = {
+export type DSLConfig_Input = {
+    /**
+     * The type of scheduler to use.
+     */
     scheduler?: 'static' | 'dynamic';
     /**
      * Enable runtime action tests. This is dynamically set on workflow entry.
      */
     enable_runtime_tests?: boolean;
+    /**
+     * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
+     */
+    environment?: string;
 };
 
+/**
+ * The type of scheduler to use.
+ */
 export type scheduler = 'static' | 'dynamic';
+
+export type DSLConfig_Output = {
+    /**
+     * Enable runtime action tests. This is dynamically set on workflow entry.
+     */
+    enable_runtime_tests?: boolean;
+    /**
+     * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
+     */
+    environment?: string;
+};
+
+export type DSLContext = {
+    INPUTS?: {
+        [key: string]: unknown;
+    };
+    ACTIONS?: {
+        [key: string]: unknown;
+    };
+    TRIGGER?: {
+        [key: string]: unknown;
+    };
+    ENV?: DSLEnvironment;
+};
 
 export type DSLEntrypoint = {
     /**
@@ -265,6 +300,19 @@ export type DSLEntrypoint = {
      * Expected trigger input shape
      */
     expects?: unknown | null;
+};
+
+/**
+ * DSL Environment context. Has metadata about the workflow.
+ */
+export type DSLEnvironment = {
+    workflow?: {
+        [key: string]: unknown;
+    };
+    environment?: string;
+    variables?: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -282,7 +330,7 @@ export type DSLInput = {
     description: string;
     entrypoint: DSLEntrypoint;
     actions: Array<ActionStatement>;
-    config?: DSLConfig;
+    config?: DSLConfig_Output;
     triggers?: Array<Trigger>;
     /**
      * Static input parameters
@@ -308,9 +356,14 @@ export type DSLRunArgs = {
     [key: string]: unknown;
 } | null;
     parent_run_context?: RunContext | null;
-    run_config?: {
-        [key: string]: unknown;
-    };
+    /**
+     * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
+     */
+    runtime_config?: DSLConfig_Output;
+    /**
+     * The maximum time to wait for the workflow to complete.
+     */
+    timeout?: string;
 };
 
 export type ErrorModel = {
@@ -362,17 +415,11 @@ export type EventHistoryResponse = {
  */
 export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
 
-export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var';
-
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     task: ActionStatement;
     workflow_id: string;
-    trigger_inputs: {
-        [key: string]: unknown;
-    };
     version?: number | null;
-    run_context: RunContext;
 };
 
 export type HTTPValidationError = {
@@ -516,10 +563,6 @@ export type ScheduleUpdate = {
     status?: 'online' | 'offline' | null;
 };
 
-export type SearchSecretsParams = {
-    names: Array<(string)>;
-};
-
 export type Secret = {
     owner_id: string;
     created_at: string;
@@ -532,6 +575,7 @@ export type Secret = {
     name: string;
     description?: string | null;
     encrypted_keys: (Blob | File);
+    environment?: string;
     tags: {
     [key: string]: (string);
 } | null;
@@ -548,6 +592,7 @@ export type SecretResponse = {
     name: string;
     description?: string | null;
     keys: Array<(string)>;
+    environment: string;
 };
 
 export type Tag = {
@@ -572,11 +617,7 @@ export type type3 = 'schedule' | 'webhook';
 export type UDFActionInput = {
     task: ActionStatement;
     role: Role;
-    exec_context: {
-        [key: string]: {
-            [key: string]: unknown;
-        };
-    };
+    exec_context: DSLContext;
     run_context: RunContext;
     action_test?: ActionTest | null;
 };
@@ -638,6 +679,7 @@ export type UpdateSecretParams = {
     tags?: {
     [key: string]: (string);
 } | null;
+    environment?: string | null;
 };
 
 export type UpdateWorkflowParams = {
@@ -654,6 +696,7 @@ export type UpdateWorkflowParams = {
     [key: string]: unknown;
 } | null;
     returns?: unknown | null;
+    config?: DSLConfig_Input | null;
 };
 
 export type UpdateWorkspaceParams = {
@@ -832,9 +875,7 @@ export type WorkflowResponse = {
         [key: string]: unknown;
     };
     returns: unknown;
-    config: {
-    [key: string]: unknown;
-} | null;
+    config: DSLConfig_Output | null;
 };
 
 export type WorkspaceMember = {
@@ -1231,6 +1272,15 @@ export type CasesGetCaseEventData = {
 
 export type CasesGetCaseEventResponse = unknown;
 
+export type SecretsSearchSecretsData = {
+    environment: string;
+    id?: Array<(string)> | null;
+    name?: Array<(string)> | null;
+    workspaceId: string;
+};
+
+export type SecretsSearchSecretsResponse = Array<Secret>;
+
 export type SecretsListSecretsData = {
     workspaceId: string;
 };
@@ -1265,13 +1315,6 @@ export type SecretsDeleteSecretByIdData = {
 };
 
 export type SecretsDeleteSecretByIdResponse = void;
-
-export type SecretsSearchSecretsData = {
-    requestBody: SearchSecretsParams;
-    workspaceId: string;
-};
-
-export type SecretsSearchSecretsResponse = Array<Secret>;
 
 export type SchedulesListSchedulesData = {
     workflowId?: string | null;
@@ -2080,6 +2123,21 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/secrets/search': {
+        get: {
+            req: SecretsSearchSecretsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<Secret>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
     '/secrets': {
         get: {
             req: SecretsListSecretsData;
@@ -2144,21 +2202,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/secrets/search': {
-        post: {
-            req: SecretsSearchSecretsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<Secret>;
                 /**
                  * Validation Error
                  */

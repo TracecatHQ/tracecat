@@ -308,7 +308,12 @@ def test_workspace(
         if e.response.status_code == 409:
             logger.info("Test workspace already exists")
             workspace = test_config_manager.get_workspace()
-            yield WorkspaceMetadataResponse(**workspace)
+            if not workspace:
+                raise ValueError(
+                    "Unexpected error when retrieving workspace. Workspace either doesn't exist or there was a conflict."
+                    "Please check the logs for more information, or try viewing the database directly."
+                ) from e
+            yield WorkspaceMetadataResponse(**workspace.model_dump())
     finally:
         # NOTE: This will remove all test assets created from the DB
         logger.info("Teardown test workspace")

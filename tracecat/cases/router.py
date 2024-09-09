@@ -1,32 +1,14 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import (
-    authenticate_user_for_workspace,
-    authenticate_user_or_service_for_workspace,
-)
-from tracecat.cases.models import (
-    CaseCreate,
-    CaseEventCreate,
-    CaseRead,
-    CaseUpdate,
-)
+from tracecat.auth.dependencies import WorkspaceUserOrServiceRole, WorkspaceUserRole
+from tracecat.cases.models import CaseCreate, CaseEventCreate, CaseRead, CaseUpdate
 from tracecat.cases.service import CaseEventsService, CaseManagementService
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import CaseEvent
 from tracecat.identifiers import CaseEventID, CaseID, WorkflowID
-from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/cases")
-
-WorkspaceUserRole = Annotated[Role, Depends(authenticate_user_for_workspace)]
-WorkspaceUserOrServiceRole = Annotated[
-    Role, Depends(authenticate_user_or_service_for_workspace)
-]
-AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 @router.post(

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Any, Self
+from typing import Any, Self, TypedDict
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.contexts import RunContext
+from tracecat.dsl.enums import FailStrategy, LoopStrategy
 from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeData
 from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
@@ -192,4 +194,24 @@ class DSLRunArgs(BaseModel):
     wf_id: WorkflowID
     trigger_inputs: dict[str, Any] | None = None
     parent_run_context: RunContext | None = None
-    run_config: dict[str, Any] = Field(default_factory=dict)
+    runtime_config: DSLConfig = Field(
+        default_factory=DSLConfig,
+        description=(
+            "Runtime configuration that can be set on workflow entry. "
+            "Note that this can override the default config in DSLInput."
+        ),
+    )
+    timeout: timedelta = Field(
+        default_factory=lambda: timedelta(minutes=5),
+        description="The maximum time to wait for the workflow to complete.",
+    )
+
+
+class ExecuteChildWorkflowArgs(TypedDict):
+    workflow_id: WorkflowID
+    trigger_inputs: dict[str, Any]
+    environment: str | None = None
+    version: int | None = None
+    loop_strategy: LoopStrategy | None = None
+    batch_size: int | None = None
+    fail_strategy: FailStrategy | None = None

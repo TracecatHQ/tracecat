@@ -256,6 +256,7 @@ class WorkflowsManagementService:
             "owner_id": self.role.workspace_id,
             "static_inputs": dsl.inputs,
             "returns": dsl.returns,
+            "config": dsl.config.model_dump(),
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id

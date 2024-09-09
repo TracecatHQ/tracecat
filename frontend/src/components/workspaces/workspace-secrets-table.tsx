@@ -94,6 +94,24 @@ export function WorkspaceSecretsTable() {
               enableHiding: false,
             },
             {
+              accessorKey: "environment",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Environment"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="text-xs">
+                  {row.getValue<SecretResponse["environment"]>("environment") ||
+                    "-"}
+                </div>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
               accessorKey: "keys",
               header: ({ column }) => (
                 <DataTableColumnHeader

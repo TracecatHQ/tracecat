@@ -31,13 +31,3 @@ export const secretKeyValueSchema = z.object({
   key: z.string().min(1, "Please enter a key."),
   value: z.string().min(1, "Please enter a value."),
 })
-
-export const createSecretSchema = z.object({
-  id: z.string().min(1).optional(),
-  type: z.enum(secretTypes),
-  name: z.string().min(1, "Please enter a secret name."),
-  description: z.string().max(255).nullish(),
-  keys: z.array(secretKeyValueSchema),
-})
-
-export type CreateSecretParams = z.infer<typeof createSecretSchema>
