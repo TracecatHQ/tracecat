@@ -15,6 +15,9 @@ definition:
     - type: webhook
       ref: receive_alert
       entrypoint: send_to_slack
+  inputs:
+    # ID to uniquely identify the actions in this playbook
+    slack_actions_id: alert-from-tracecat
 
   actions:
     - ref: send_to_slack
@@ -52,6 +55,7 @@ definition:
                 text: "Respond to alert?"
                 emoji: true
           - type: actions
+            block_id: ${{ INPUTS.slack_actions_id }}
             elements:
               - type: button
                 text:
