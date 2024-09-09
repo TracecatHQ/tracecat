@@ -29,7 +29,7 @@ with workflow.unsafe.imports_passed_through():
     import lark  # noqa
     from pydantic import BaseModel, ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import RunContext, ctx_logger, ctx_role, ctx_run
@@ -830,8 +830,15 @@ class DSLActivities:
                 **input.exec_context,
                 ExprContext.SECRETS: secrets,
             }
-            # Safety: Secret context leaves are all strings
-            mask_values = {s for _, s in traverse_leaves(secrets)}
+
+            if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
+                act_logger.warning(
+                    "Secrets masking is disabled. This is unsafe in production workflows."
+                )
+                mask_values = None
+            else:
+                # Safety: Secret context leaves are all strings
+                mask_values = {s for _, s in traverse_leaves(secrets)}
 
             # When we're here, we've populated the task arguments with shared context values
             type = task.action
@@ -883,9 +890,11 @@ class DSLActivities:
                 args = eval_templated_object(task.args, operand=context_with_secrets)
                 result = await udf.run_async(args)
 
-            masked_result = apply_masks_object(result, masks=mask_values)
-            act_logger.debug("Result", masked_result=masked_result)
-            return masked_result
+            if mask_values:
+                result = apply_masks_object(result, masks=mask_values)
+
+            act_logger.debug("Result", result=result)
+            return result
 
         except TracecatException as e:
             err_type = e.__class__.__name__
