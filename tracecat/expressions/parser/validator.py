@@ -14,6 +14,7 @@ from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions import functions
 from tracecat.expressions.shared import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logging import logger
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.types.validation import ExprValidationResult
 
@@ -39,6 +40,7 @@ class ExprValidator(Visitor):
         validation_context: ExprValidationContext,
         validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
         *,
+        environment: str = DEFAULT_SECRETS_ENVIRONMENT,
         strict: bool = True,
     ) -> None:
         self._task_group = task_group
@@ -47,6 +49,7 @@ class ExprValidator(Visitor):
         self._results: list[ExprValidationResult] = []
         self._strict = strict
         self._loc: str = "expression"  # default locator
+        self._environment = environment
 
         # External validators
         self._validators = validators or {}
@@ -156,7 +159,9 @@ class ExprValidator(Visitor):
                 type=ExprType.SECRET,
             )
 
-        coro = self._validators[ExprType.SECRET](name, key)
+        coro = self._validators[ExprType.SECRET](
+            name=name, key=key, environment=self._environment, loc=self._loc
+        )
         self._task_group.create_task(coro)
 
     def inputs(self, node: Tree):

@@ -1,16 +1,10 @@
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.registry import RegistryUDFError, registry
-
-
-class ChildWorkflowExecutionOptions(BaseModel):
-    loop_strategy: Literal["sequential", "parallel", "batch"] = "parallel"
-    batch_size: int = 16
-    fail_strategy: Literal["strict", "skip"] = "strict"
 
 
 @registry.register(
@@ -35,6 +29,16 @@ async def execute(
             description="The inputs to pass to the child workflow.",
         ),
     ],
+    environment: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The child workflow's target execution environment. "
+                "This is used to isolate secrets across different environments."
+                "If not provided, the child workflow's default environment is used. "
+            ),
+        ),
+    ] = None,
     version: Annotated[
         int | None,
         Field(..., description="The version of the child workflow definition, if any."),

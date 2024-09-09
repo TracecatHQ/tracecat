@@ -360,6 +360,7 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
+        # XXX: We need to rethink how to pass runtime config overrides
         dsl.config.enable_runtime_tests = enable_runtime_tests
         wf_exec_id = identifiers.workflow.exec_id(wf_id)
         return self._dispatch_workflow(

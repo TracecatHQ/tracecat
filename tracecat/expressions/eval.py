@@ -112,7 +112,7 @@ def extract_expressions(templated_obj: Any) -> list[Expression]:
 
 
 def get_iterables_from_expression(
-    expr: str, operand: OperandType
+    expr: str | list[str], operand: OperandType
 ) -> list[IterableExpr]:
     iterable_exprs: IterableExpr | list[IterableExpr] = eval_templated_object(
         expr, operand=operand

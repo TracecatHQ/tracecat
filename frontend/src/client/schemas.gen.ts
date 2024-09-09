@@ -738,6 +738,11 @@ export const $CreateSecretParams = {
                 }
             ],
             title: 'Tags'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            default: 'default'
         }
     },
     type: 'object',
@@ -848,12 +853,13 @@ export const $CreateWorkspaceParams = {
     title: 'CreateWorkspaceParams'
 } as const;
 
-export const $DSLConfig = {
+export const $DSLConfig_Input = {
     properties: {
         scheduler: {
             type: 'string',
             enum: ['static', 'dynamic'],
             title: 'Scheduler',
+            description: 'The type of scheduler to use.',
             default: 'dynamic'
         },
         enable_runtime_tests: {
@@ -861,10 +867,57 @@ export const $DSLConfig = {
             title: 'Enable Runtime Tests',
             description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
             default: false
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
+            default: 'default'
         }
     },
     type: 'object',
     title: 'DSLConfig'
+} as const;
+
+export const $DSLConfig_Output = {
+    properties: {
+        enable_runtime_tests: {
+            type: 'boolean',
+            title: 'Enable Runtime Tests',
+            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
+            default: false
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
+            default: 'default'
+        }
+    },
+    type: 'object',
+    title: 'DSLConfig'
+} as const;
+
+export const $DSLContext = {
+    properties: {
+        INPUTS: {
+            type: 'object',
+            title: 'Inputs'
+        },
+        ACTIONS: {
+            type: 'object',
+            title: 'Actions'
+        },
+        TRIGGER: {
+            type: 'object',
+            title: 'Trigger'
+        },
+        ENV: {
+            '$ref': '#/components/schemas/DSLEnvironment'
+        }
+    },
+    type: 'object',
+    title: 'DSLContext'
 } as const;
 
 export const $DSLEntrypoint = {
@@ -890,6 +943,26 @@ export const $DSLEntrypoint = {
     title: 'DSLEntrypoint'
 } as const;
 
+export const $DSLEnvironment = {
+    properties: {
+        workflow: {
+            type: 'object',
+            title: 'Workflow'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
+        },
+        variables: {
+            type: 'object',
+            title: 'Variables'
+        }
+    },
+    type: 'object',
+    title: 'DSLEnvironment',
+    description: 'DSL Environment context. Has metadata about the workflow.'
+} as const;
+
 export const $DSLInput = {
     properties: {
         title: {
@@ -911,7 +984,7 @@ export const $DSLInput = {
             title: 'Actions'
         },
         config: {
-            '$ref': '#/components/schemas/DSLConfig'
+            '$ref': '#/components/schemas/DSLConfig-Output'
         },
         triggers: {
             items: {
@@ -991,9 +1064,19 @@ export const $DSLRunArgs = {
                 }
             ]
         },
-        run_config: {
-            type: 'object',
-            title: 'Run Config'
+        runtime_config: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/DSLConfig-Output'
+                }
+            ],
+            description: 'Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.'
+        },
+        timeout: {
+            type: 'string',
+            format: 'duration',
+            title: 'Timeout',
+            description: 'The maximum time to wait for the workflow to complete.'
         }
     },
     type: 'object',
@@ -1195,12 +1278,6 @@ export const $EventHistoryType = {
     description: 'The event types we care about.'
 } as const;
 
-export const $ExprContext = {
-    type: 'string',
-    enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var'],
-    title: 'ExprContext'
-} as const;
-
 export const $GetWorkflowDefinitionActivityInputs = {
     properties: {
         role: {
@@ -1214,10 +1291,6 @@ export const $GetWorkflowDefinitionActivityInputs = {
             pattern: 'wf-[0-9a-f]{32}',
             title: 'Workflow Id'
         },
-        trigger_inputs: {
-            type: 'object',
-            title: 'Trigger Inputs'
-        },
         version: {
             anyOf: [
                 {
@@ -1228,13 +1301,10 @@ export const $GetWorkflowDefinitionActivityInputs = {
                 }
             ],
             title: 'Version'
-        },
-        run_context: {
-            '$ref': '#/components/schemas/RunContext'
         }
     },
     type: 'object',
-    required: ['role', 'task', 'workflow_id', 'trigger_inputs', 'run_context'],
+    required: ['role', 'task', 'workflow_id'],
     title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
@@ -1715,21 +1785,6 @@ export const $ScheduleUpdate = {
     title: 'ScheduleUpdate'
 } as const;
 
-export const $SearchSecretsParams = {
-    properties: {
-        names: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Names'
-        }
-    },
-    type: 'object',
-    required: ['names'],
-    title: 'SearchSecretsParams'
-} as const;
-
 export const $Secret = {
     properties: {
         owner_id: {
@@ -1778,6 +1833,11 @@ export const $Secret = {
             type: 'string',
             format: 'binary',
             title: 'Encrypted Keys'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            default: 'default'
         },
         tags: {
             anyOf: [
@@ -1848,10 +1908,14 @@ export const $SecretResponse = {
             },
             type: 'array',
             title: 'Keys'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
         }
     },
     type: 'object',
-    required: ['id', 'type', 'name', 'keys'],
+    required: ['id', 'type', 'name', 'keys', 'environment'],
     title: 'SecretResponse'
 } as const;
 
@@ -1920,11 +1984,7 @@ export const $UDFActionInput = {
             '$ref': '#/components/schemas/Role'
         },
         exec_context: {
-            additionalProperties: {
-                type: 'object'
-            },
-            type: 'object',
-            title: 'Exec Context'
+            '$ref': '#/components/schemas/DSLContext'
         },
         run_context: {
             '$ref': '#/components/schemas/RunContext'
@@ -2170,6 +2230,17 @@ export const $UpdateSecretParams = {
                 }
             ],
             title: 'Tags'
+        },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment'
         }
     },
     type: 'object',
@@ -2282,6 +2353,16 @@ export const $UpdateWorkflowParams = {
                 }
             ],
             title: 'Returns'
+        },
+        config: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/DSLConfig-Input'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',
@@ -2977,13 +3058,12 @@ export const $WorkflowResponse = {
         config: {
             anyOf: [
                 {
-                    type: 'object'
+                    '$ref': '#/components/schemas/DSLConfig-Output'
                 },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Config'
+            ]
         }
     },
     type: 'object',

@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterator
-from typing import Literal, Self
+from collections.abc import Iterator, Sequence
+from types import TracebackType
+from typing import Any, Literal, Self
 
-import httpx
-
-from tracecat.clients import AuthenticatedAPIClient
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
 from tracecat.logging import logger
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.models import SecretKeyValue
+from tracecat.secrets.models import SearchSecretsParams, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
@@ -35,15 +33,18 @@ class AuthSandbox:
         role: Role | None = None,
         secrets: list[str] | None = None,
         target: Literal["env", "context"] = "env",
+        environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
-        self._secret_objs: list[Secret] = []
+        self._secret_objs: Sequence[Secret] = []
         self._target = target
-        self._context = {}
-        self._encryption_key = os.getenv("TRACECAT__DB_ENCRYPTION_KEY")
-        if not self._encryption_key:
-            raise ValueError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+        self._context: dict[str, Any] = {}
+        self._environment = environment
+        try:
+            self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+        except KeyError as e:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
 
     def __enter__(self) -> Self:
         if self._secret_paths:
@@ -51,22 +52,35 @@ class AuthSandbox:
             self._set_secrets()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        traceback: TracebackType,
+    ) -> None:
         self._unset_secrets()
         if exc_type is not None:
-            logger.error("An error occurred", exc_info=(exc_type, exc_value, traceback))
+            logger.error(
+                "An error occurred inside AuthSandbox. If you are seeing this, please contact support.",
+                exc_info=(exc_type, exc_value, traceback),
+            )
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         if self._secret_paths:
             self._secret_objs = await self._get_secrets()
             self._set_secrets()
         return self
 
-    async def __aexit__(self, exc_type, exc_value, traceback):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        traceback: TracebackType,
+    ) -> None:
         return self.__exit__(exc_type, exc_value, traceback)
 
     @property
-    def secrets(self) -> dict[str, str]:
+    def secrets(self) -> dict[str, Any]:
         """Return secret names mapped to their secret key value pairs."""
         return self._context
 
@@ -79,7 +93,7 @@ class AuthSandbox:
             for kv in keyvalues:
                 yield secret.name, kv
 
-    def _set_secrets(self):
+    def _set_secrets(self) -> None:
         """Set secrets in the target."""
         if self._target == "context":
             logger.info(
@@ -96,7 +110,7 @@ class AuthSandbox:
             for _, kv in self._iter_secrets():
                 os.environ[kv.key] = kv.value.get_secret_value()
 
-    def _unset_secrets(self):
+    def _unset_secrets(self) -> None:
         if self._target == "context":
             for secret in self._secret_objs:
                 if secret.name in self._context:
@@ -106,99 +120,37 @@ class AuthSandbox:
                 if kv.key in os.environ:
                     del os.environ[kv.key]
 
-    async def _get_secrets(
-        self, how: Literal["api", "service"] = "service"
-    ) -> list[Secret]:
-        if how == "service":
-            return await self._get_secrets_from_service()
-        if how == "api":
-            return await self._get_secrets_from_api()
-        raise ValueError(f"Invalid value for how: {how}")
+    async def _get_secrets(self) -> Sequence[Secret]:
+        """Retrieve secrets from a secrets manager."""
+        return await self._get_secrets_from_service()
 
-    async def _get_secrets_from_api(self) -> list[Secret]:
-        """Retrieve secrets from the secrets API."""
-
-        logger.debug(
-            "Retrieving secrets from the secrets API",
-            secret_names=self._secret_paths,
-            role=self._role,
-        )
-        secret_names = (path.split(".")[0] for path in self._secret_paths)
-
-        try:
-            async with (
-                AuthenticatedAPIClient(
-                    role=self._role, params={"workspace_id": self._role.workspace_id}
-                ) as client,
-                GatheringTaskGroup() as tg,
-            ):
-                for secret_name in secret_names:
-
-                    async def fetcher(name: str):
-                        try:
-                            res = await client.get(f"/secrets/{name}")
-                            res.raise_for_status()  # Raise an exception for HTTP error codes
-                            return res
-                        except httpx.ConnectError as e:
-                            msg = f"Failed to connect to the secrets API: {e}"
-                            logger.error(msg, detail=str(e), request=e.request)
-                            raise TracecatCredentialsError(
-                                msg, detail={"request": str(e.request)}
-                            ) from e
-                        except httpx.HTTPStatusError as e:
-                            msg = (
-                                f"Failed to retrieve secret {name!r}."
-                                f" Please ensure you have set all required secrets: {self._secret_paths}"
-                            )
-                            detail = e.response.text
-                            logger.error(msg, detail=detail)
-                            raise TracecatCredentialsError(msg, detail=detail) from e
-                        except Exception as e:
-                            msg = f"Failed to retrieve secret {name!r}."
-                            detail = str(e)
-                            logger.error(msg, detail=detail)
-                            raise TracecatCredentialsError(msg, detail=detail) from e
-
-                    tg.create_task(fetcher(secret_name))
-        except* TracecatCredentialsError as eg:
-            raise TracecatCredentialsError(
-                "Failed to retrieve secrets",
-                detail={
-                    "errors": [
-                        str(x)
-                        for x in eg.exceptions
-                        if isinstance(x, TracecatCredentialsError)
-                    ],
-                    "secrets": self._secret_paths,
-                },
-            ) from eg
-
-        return [
-            Secret.model_validate_json(secret_bytes.content)
-            for secret_bytes in tg.results()
-        ]
-
-    async def _get_secrets_from_service(self) -> list[Secret]:
+    async def _get_secrets_from_service(self) -> Sequence[Secret]:
         """Retrieve secrets from the secrets service."""
         logger.debug(
             "Retrieving secrets directly from db",
             secret_names=self._secret_paths,
             role=self._role,
+            environment=self._environment,
         )
 
+        unique_secret_names = {path.split(".")[0] for path in self._secret_paths}
         async with SecretsService.with_session(role=self._role) as service:
-            secrets: dict[str, Secret | None] = {}
-            logger.info("Retrieving secrets", secret_names=self._secret_paths)
-            for path in self._secret_paths:
-                name = path.split(".")[0]
-                secrets[name] = await service.get_secret_by_name(name)
-        logger.info("Retrieved secrets", secrets=secrets)
-        missing_secret_names = [name for name, secret in secrets.items() if not secret]
-        if missing_secret_names:
-            raise TracecatCredentialsError(
-                "Failed to retrieve secrets", detail=missing_secret_names
+            logger.info("Retrieving secrets", secret_names=unique_secret_names)
+
+            secrets = await service.search_secrets(
+                SearchSecretsParams(
+                    names=list(unique_secret_names), environment=self._environment
+                )
             )
 
-        res = [secret for secret in secrets.values() if secret]
-        logger.info("Retrieved secrets", secrets=res)
-        return res
+        if len(unique_secret_names) != len(secrets):
+            missing_secrets = unique_secret_names - {secret.name for secret in secrets}
+            raise TracecatCredentialsError(
+                "Failed to retrieve secrets. Please contact support for help.",
+                detail=[
+                    {"secret_name": name, "environment": self._environment}
+                    for name in missing_secrets
+                ],
+            )
+
+        return secrets

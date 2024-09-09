@@ -9,10 +9,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio import activity
 
 from tracecat import identifiers
-from tracecat.contexts import ctx_role, ctx_run
+from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.common import DSLInput
 from tracecat.logging import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
@@ -140,8 +140,7 @@ class WorkflowDefinitionsService:
 @activity.defn
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
-) -> DSLRunArgs:
-    logger.trace("Getting workflow definition", workflow_id=input.workflow_id)
+) -> DSLInput:
     async with WorkflowDefinitionsService.with_session(role=input.role) as service:
         defn = await service.get_definition_by_workflow_id(
             input.workflow_id, version=input.version
@@ -151,11 +150,4 @@ async def get_workflow_definition_activity(
         logger.error(msg)
         raise TracecatException(msg)
     dsl = DSLInput(**defn.content)
-    parent_run_context = ctx_run.get()
-    return DSLRunArgs(
-        role=input.role,
-        dsl=dsl,
-        wf_id=defn.workflow_id,
-        parent_run_context=parent_run_context,
-        trigger_inputs=input.trigger_inputs,
-    )
+    return dsl

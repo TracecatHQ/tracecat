@@ -164,6 +164,7 @@ services:
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     depends_on:
       - temporal
+    attach: false
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0

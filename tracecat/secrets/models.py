@@ -10,6 +10,9 @@ from pydantic import (
     field_validator,
 )
 
+from tracecat.identifiers import SecretID
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
 
@@ -84,6 +87,7 @@ class CreateSecretParams(BaseModel):
     description: str | None = None
     keys: list[SecretKeyValue]
     tags: dict[str, str] | None = None
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT
 
     @staticmethod
     def from_strings(name: str, keyvalues: list[str]) -> CreateSecretParams:
@@ -114,10 +118,13 @@ class UpdateSecretParams(BaseModel):
     description: str | None = None
     keys: list[SecretKeyValue] | None = None
     tags: dict[str, str] | None = None
+    environment: str | None = None
 
 
 class SearchSecretsParams(BaseModel):
-    names: list[str]
+    names: list[str] | None = None
+    ids: list[SecretID] | None = None
+    environment: str
 
 
 class SecretResponse(BaseModel):
@@ -126,3 +133,4 @@ class SecretResponse(BaseModel):
     name: str
     description: str | None = None
     keys: list[str]
+    environment: str

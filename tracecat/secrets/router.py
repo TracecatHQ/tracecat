@@ -1,15 +1,8 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import (
-    authenticate_user_for_workspace,
-    authenticate_user_or_service_for_workspace,
-)
-from tracecat.db.engine import get_async_session
+from tracecat.auth.dependencies import WorkspaceUserOrServiceRole, WorkspaceUserRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Secret
 from tracecat.identifiers import SecretID
 from tracecat.logging import logger
@@ -20,15 +13,33 @@ from tracecat.secrets.models import (
     UpdateSecretParams,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/secrets")
 
 
+@router.get("/search", tags=["secrets"], response_model=list[Secret])
+async def search_secrets(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    environment: str = Query(...),
+    names: list[str] | None = Query(None, alias="name"),
+    ids: list[SecretID] | None = Query(None, alias="id"),
+) -> list[Secret]:
+    """Search secrets."""
+    service = SecretsService(session, role=role)
+    params = {"environment": environment}
+    if names:
+        params["names"] = names
+    if ids:
+        params["ids"] = ids
+    secrets = await service.search_secrets(SearchSecretsParams(**params))
+    return secrets
+
+
 @router.get("", tags=["secrets"])
 async def list_secrets(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    session: AsyncSession = Depends(get_async_session),
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
 ) -> list[SecretResponse]:
     """List user secrets."""
     service = SecretsService(session, role)
@@ -40,6 +51,7 @@ async def list_secrets(
             name=secret.name,
             description=secret.description,
             keys=[kv.key for kv in service.decrypt_keys(secret.encrypted_keys)],
+            environment=secret.environment,
         )
         for secret in secrets
     ]
@@ -48,9 +60,9 @@ async def list_secrets(
 @router.get("/{secret_name}", tags=["secrets"])
 async def get_secret_by_name(
     # NOTE(auth): Worker service can also access secrets
-    role: Annotated[Role, Depends(authenticate_user_or_service_for_workspace)],
+    role: WorkspaceUserOrServiceRole,
+    session: AsyncDBSession,
     secret_name: str,
-    session: AsyncSession = Depends(get_async_session),
 ) -> Secret:
     """Get a secret."""
 
@@ -67,26 +79,28 @@ async def get_secret_by_name(
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["secrets"])
 async def create_secret(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     params: CreateSecretParams,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Create a secret."""
     service = SecretsService(session, role)
     try:
         await service.create_secret(params)
     except IntegrityError as e:
+        logger.error("Secret integrity error", e=str(e))
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Secret creation integrity error: {e!r}",
         ) from e
 
 
 # @router.post("/{secret_name}", status_code=status.HTTP_201_CREATED, tags=["secrets"])
 # async def update_secret(
-#     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+#     role: WorkspaceUserRole,
+#     session: AsyncDBSession,
 #     secret_name: str,
 #     params: UpdateSecretParams,
-#     session: AsyncSession = Depends(get_async_session),
 # ) -> Secret:
 #     """Update a secret by name."""
 #     service = SecretsService(session, role)
@@ -104,10 +118,10 @@ async def create_secret(
 
 @router.post("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"])
 async def update_secret_by_id(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     secret_id: SecretID,
     params: UpdateSecretParams,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Update a secret by ID."""
     service = SecretsService(session, role)
@@ -132,9 +146,9 @@ async def update_secret_by_id(
 #     "/{secret_name}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"]
 # )
 # async def delete_secret_by_name(
-#     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+#     role: WorkspaceUserRole,
+#     session: AsyncDBSession,
 #     secret_name: str,
-#     session: AsyncSession = Depends(get_async_session),
 # ) -> None:
 #     """Delete a secret."""
 #     service = SecretsService(session, role=role)
@@ -149,9 +163,9 @@ async def update_secret_by_id(
 
 @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["secrets"])
 async def delete_secret_by_id(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
     secret_id: SecretID,
-    session: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a secret by ID."""
     service = SecretsService(session, role=role)
@@ -162,20 +176,3 @@ async def delete_secret_by_id(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
         ) from e
-
-
-@router.post("/search", tags=["secrets"])
-async def search_secrets(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    params: SearchSecretsParams,
-    session: AsyncSession = Depends(get_async_session),
-) -> list[Secret]:
-    """**[WORK IN PROGRESS]**   Get a secret by ID."""
-    statement = (
-        select(Secret)
-        .where(Secret.owner_id == role.workspace_id)
-        .filter(*[Secret.name == name for name in params.names])
-    )
-    result = await session.exec(statement)
-    secrets = result.all()
-    return secrets

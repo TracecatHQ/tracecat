@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
+import loguru
 from pydantic import BaseModel
 
 from tracecat import identifiers
@@ -20,4 +20,4 @@ class RunContext(BaseModel):
 
 ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)
 ctx_role: ContextVar[Role] = ContextVar("role", default=None)
-ctx_logger: ContextVar[logging.Logger] = ContextVar("logger", default=None)
+ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)

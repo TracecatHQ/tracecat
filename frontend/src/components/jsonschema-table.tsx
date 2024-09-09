@@ -21,7 +21,9 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
     <Table>
       <TableHeader>
         <TableRow className="h-6 text-xs capitalize ">
-          <TableHead className="min-w-max whitespace-nowrap font-bold">Parameter</TableHead>
+          <TableHead className="min-w-max whitespace-nowrap font-bold">
+            Parameter
+          </TableHead>
           <TableHead className="font-bold">Type</TableHead>
           <TableHead className="font-bold">Default</TableHead>
         </TableRow>
@@ -45,7 +47,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                     : row.default}
                   {/* This is a hacky solution to avoid `<div> cannot appear as a child of <tr>` */}
                   <HoverCardContent
-                    className="max-w-300 w-200 space-y-2 p-3"
+                    className="w-[300px] max-w-[300px] space-y-2 p-3"
                     side="left"
                     align="start"
                     sideOffset={20}

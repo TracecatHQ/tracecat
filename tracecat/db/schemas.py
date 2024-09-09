@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import UUID4, computed_field, field_validator
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import UUID, Field, Relationship, SQLModel
+from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.auth.schemas import UserRole
@@ -19,6 +19,7 @@ from tracecat.db.adapter import (
     SQLModelBaseUserDB,
 )
 from tracecat.identifiers import OwnerID, action, id_factory
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 DEFAULT_CASE_ACTIONS = [
     "Active compromise",
@@ -142,6 +143,11 @@ class AccessToken(SQLModelBaseAccessToken, table=True):
 
 
 class Secret(Resource, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "name", "environment", "owner_id", name="uq_secret_name_env_owner"
+        ),
+    )
     id: str = Field(
         default_factory=id_factory("secret"), nullable=False, unique=True, index=True
     )
@@ -156,6 +162,7 @@ class Secret(Resource, table=True):
     description: str | None = Field(default=None, max_length=255)
     # We store this object as encrypted bytes, but first validate that it's the correct type
     encrypted_keys: bytes
+    environment: str = Field(default=DEFAULT_SECRETS_ENVIRONMENT, nullable=False)
     tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
     owner_id: OwnerID = Field(
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
