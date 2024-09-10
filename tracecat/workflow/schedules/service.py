@@ -102,7 +102,7 @@ class WorkflowSchedulesService:
         # Set the role for the schedule as the tracecat-runner
         with TemporaryRole(
             type="service",
-            user_id=owner_id,
+            user_id=str(owner_id),
             service_id="tracecat-schedule-runner",
         ) as sch_role:
             try:
@@ -118,14 +118,15 @@ class WorkflowSchedulesService:
                 # If we fail to create the schedule in temporal
                 # we should rollback the transaction
                 await self.session.rollback()
+                msg = "The schedules service couldn't create a Temporal schedule"
                 self.logger.error(
-                    "Error creating schedule",
+                    msg,
                     error=e,
                     workflow_id=params.workflow_id,
                     schedule_id=schedule.id,
                     sch_role=sch_role,
                 )
-                raise TracecatServiceError("Error creating schedule") from e
+                raise TracecatServiceError(msg) from e
             logger.info(
                 "Created schedule",
                 handle_id=handle.id,
@@ -199,8 +200,9 @@ class WorkflowSchedulesService:
             await bridge.update_schedule(schedule_id, params)
         except Exception as e:
             await self.session.rollback()
-            logger.error("Error updating schedule", error=e)
-            raise TracecatNotFoundError("Error updating schedule") from e
+            msg = f"The schedules service couldn't update the Temporal schedule with ID {schedule_id}"
+            logger.error(msg, error=e)
+            raise TracecatNotFoundError(msg) from e
 
         # Update the schedule
         for key, value in params.model_dump(exclude_unset=True).items():
@@ -223,13 +225,14 @@ class WorkflowSchedulesService:
 
         Raises
         ------
-        TracecatNotFoundError
+        TracecatServiceError
             If an error occurs while deleting the schedule from Temporal.
 
         """
         try:
             schedule = await self.get_schedule(schedule_id)
         except NoResultFound:
+            schedule = None
             logger.warning(
                 "Schedule not found, attempt to delete underlying Temporal schedule...",
                 schedule_id=schedule_id,
@@ -238,8 +241,10 @@ class WorkflowSchedulesService:
         try:
             # Delete the schedule from Temporal first
             await bridge.delete_schedule(schedule_id)
-        except TracecatNotFoundError:
-            raise
+        except RuntimeError as e:
+            raise TracecatServiceError(
+                f"The schedules service couldn't delete the Temporal schedule with ID {schedule_id}"
+            ) from e
 
         # If successful, delete the schedule from the database
         if schedule:

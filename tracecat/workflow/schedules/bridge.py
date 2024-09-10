@@ -62,9 +62,9 @@ async def create_schedule(
 async def delete_schedule(schedule_id: ScheduleID) -> None:
     handle = await _get_handle(schedule_id)
     try:
-        return await handle.delete()
+        await handle.delete()
     except Exception as e:
-        if "workflow execution already completed" not in str(e):
+        if "workflow execution already completed" not in str(e).lower():
             raise RuntimeError(f"Error deleting schedule: {e}") from e
     return None
 

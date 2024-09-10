@@ -38,10 +38,10 @@ async def create_schedule(
     try:
         return await service.create_schedule(params)
     except TracecatServiceError as e:
-        logger.exception("Error creating schedule")
+        logger.error("Error creating schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating schedule: {e}",
+            detail=f"Error creating schedule: {e}. Please try again or contact support.",
         ) from e
 
 
@@ -54,8 +54,10 @@ async def get_schedule(
     try:
         return await service.get_schedule(schedule_id)
     except TracecatNotFoundError as e:
+        logger.error("Error getting schedule", error=e)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Schedule {schedule_id} not found. Please check whether this schedule exists and try again.",
         ) from e
 
 
@@ -72,12 +74,14 @@ async def update_schedule(
         return await service.update_schedule(schedule_id, params)
     except TracecatNotFoundError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Schedule {schedule_id} not found. Please check whether this schedule exists and try again.",
         ) from e
     except TracecatServiceError as e:
+        logger.error("Error updating schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating schedule: {e}",
+            detail=f"Failed to update schedule: {e}. Please try again or contact support.",
         ) from e
 
 
@@ -93,19 +97,11 @@ async def delete_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         await service.delete_schedule(schedule_id)
-    except TracecatNotFoundError as e:
-        logger.warning(
-            "Schedule not found, attempt to delete underlying Temporal schedule...",
-            schedule_id=schedule_id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found"
-        ) from e
     except TracecatServiceError as e:
         logger.error("Error deleting schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error deleting schedule",
+            detail=f"Failed to delete schedule: {e}. Please try again or contact support.",
         ) from e
 
 
