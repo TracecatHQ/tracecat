@@ -356,6 +356,7 @@ class DSLWorkflow:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
             self.dsl = args.dsl
+            self.dispatch_type = "push"
         else:
             # Otherwise, fetch the latest workflow definition
             self.logger.debug("Fetching latest workflow definition")
@@ -368,6 +369,7 @@ class DSLWorkflow:
                     non_retryable=True,
                     type=e.__class__.__name__,
                 ) from e
+            self.dispatch_type = "pull"
 
         if "runtime_config" in args.model_fields_set:
             # Use the override runtime config if it's set
@@ -398,7 +400,10 @@ class DSLWorkflow:
             INPUTS=self.dsl.inputs,
             TRIGGER=trigger_inputs,
             ENV=DSLEnvironment(
-                workflow={"start_time": wf_info.start_time},
+                workflow={
+                    "start_time": wf_info.start_time,
+                    "dispatch_type": self.dispatch_type,
+                },
                 environment=self.runtime_config.environment,
                 variables={},
             ),
