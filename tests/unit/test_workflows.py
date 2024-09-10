@@ -551,27 +551,27 @@ async def test_workflow_default_environment_correct(
 """Child workflow"""
 
 
-async def _setup_child_workflow(dsl: DSLInput, role: Role) -> Workflow:
+async def _create_and_commit_workflow(dsl: DSLInput, role: Role) -> Workflow:
     async with get_async_session_context_manager() as session:
         # Create the child workflow
         mgmt_service = WorkflowsManagementService(session, role=role)
-        child_res = await mgmt_service.create_workflow_from_dsl(
+        res = await mgmt_service.create_workflow_from_dsl(
             dsl.model_dump(), skip_secret_validation=True
         )
-        child_workflow = child_res.workflow
-        if not child_workflow:
-            return pytest.fail("Child workflow not created")
-        constructed_dsl = await mgmt_service.build_dsl_from_workflow(child_workflow)
+        workflow = res.workflow
+        if not workflow:
+            return pytest.fail("Workflow wasn't created")
+        constructed_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
 
         # Commit the child workflow
         defn_service = WorkflowDefinitionsService(session, role=role)
         await defn_service.create_workflow_definition(
-            workflow_id=child_workflow.id, dsl=constructed_dsl
+            workflow_id=workflow.id, dsl=constructed_dsl
         )
-        return child_workflow
+        return workflow
 
 
-async def _run_parent_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
+async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
     async with Worker(
         client,
@@ -620,7 +620,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
     )
     logger.info("child dsl", child_dsl=child_dsl)
 
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
     # Parent
     parent_dsl = DSLInput(
         **{
@@ -657,7 +657,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
 
     expected = {
         "ACTIONS": {
@@ -707,7 +707,7 @@ async def test_child_workflow_context_passing(
         }
     )
 
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
 
     # Parent
     parent_workflow_id = "wf-00000000000000000000000000000002"
@@ -758,7 +758,7 @@ async def test_child_workflow_context_passing(
         },
     )
 
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -823,7 +823,7 @@ async def test_single_child_workflow_override_environment_correct(
             "triggers": [],
         }
     )
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
 
     parent_dsl = DSLInput(
         **{
@@ -857,7 +857,7 @@ async def test_single_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -902,7 +902,7 @@ async def test_multiple_child_workflow_override_environment_correct(
             "triggers": [],
         }
     )
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
     parent_dsl = DSLInput(
         **{
             "title": f"{test_name}:parent",
@@ -936,7 +936,7 @@ async def test_multiple_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -982,7 +982,7 @@ async def test_single_child_workflow_environment_has_correct_default(
             "triggers": [],
         }
     )
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
     parent_dsl = DSLInput(
         **{
             "title": f"{test_name}:parent",
@@ -1015,7 +1015,7 @@ async def test_single_child_workflow_environment_has_correct_default(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1063,7 +1063,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
             "triggers": [],
         }
     )
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
 
     parent_dsl = DSLInput(
         **{
@@ -1100,7 +1100,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1169,7 +1169,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
             "triggers": [],
         }
     )
-    child_workflow = await _setup_child_workflow(child_dsl, test_role)
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
     parent_dsl = DSLInput(
         **{
             "title": f"{test_name}:parent",
@@ -1203,7 +1203,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_parent_workflow(temporal_client, wf_exec_id, run_args)
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     expected = {
         "ACTIONS": {
             "parent": {
