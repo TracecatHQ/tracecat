@@ -914,6 +914,13 @@ class DSLActivities:
                 non_retryable=True,
                 type=e.__class__.__name__,
             ) from e
+        except httpx.ReadTimeout as e:
+            act_logger.error("HTTP read timeout occurred", error=e)
+            raise ApplicationError(
+                _contextualize_message(task, "HTTP read timeout"),
+                non_retryable=True,
+                type=e.__class__.__name__,
+            ) from e
         except ApplicationError as e:
             act_logger.error("ApplicationError occurred", error=e)
             raise ApplicationError(
