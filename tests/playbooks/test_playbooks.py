@@ -104,7 +104,7 @@ async def test_playbook_validation(
     "filename, trigger_inputs, expected_actions",
     [
         (
-            "virustotal_quickstart.yml",
+            "tutorials/virustotal_quickstart.yml",
             {
                 "url_input": "crowdstrikebluescreen.com",
             },
