@@ -29,7 +29,7 @@ with workflow.unsafe.imports_passed_through():
     import lark  # noqa
     from pydantic import BaseModel, ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.auth.sandbox import AuthSandbox
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import RunContext, ctx_logger, ctx_role, ctx_run
@@ -51,7 +51,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.expressions.shared import ExprContext, context_locator
     from tracecat.logging import logger
+    from tracecat.parse import traverse_leaves
     from tracecat.registry import registry
+    from tracecat.secrets.common import apply_masks_object
     from tracecat.types.auth import Role
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
@@ -823,10 +825,20 @@ class DSLActivities:
                 target="context",
                 environment=env_context["environment"],
             ) as sandbox:
-                context_with_secrets = {
-                    **input.exec_context,
-                    ExprContext.SECRETS: sandbox.secrets.copy(),
-                }
+                secrets = sandbox.secrets.copy()
+            context_with_secrets = {
+                **input.exec_context,
+                ExprContext.SECRETS: secrets,
+            }
+
+            if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
+                act_logger.warning(
+                    "Secrets masking is disabled. This is unsafe in production workflows."
+                )
+                mask_values = None
+            else:
+                # Safety: Secret context leaves are all strings
+                mask_values = {s for _, s in traverse_leaves(secrets)}
 
             # When we're here, we've populated the task arguments with shared context values
             type = task.action
@@ -877,6 +889,9 @@ class DSLActivities:
             else:
                 args = eval_templated_object(task.args, operand=context_with_secrets)
                 result = await udf.run_async(args)
+
+            if mask_values:
+                result = apply_masks_object(result, masks=mask_values)
 
             act_logger.debug("Result", result=result)
             return result

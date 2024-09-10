@@ -20,6 +20,7 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
@@ -1119,8 +1120,9 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
 
 @pytest.mark.asyncio
 async def test_single_child_workflow_get_correct_secret_environment(
-    temporal_cluster, test_role, temporal_client
+    temporal_cluster, test_role, temporal_client, monkeysession: pytest.MonkeyPatch
 ):
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
     test_name = f"{test_single_child_workflow_get_correct_secret_environment.__name__}"
     test_description = "Test that a single child workflow can get a secret from the correect environment"
 

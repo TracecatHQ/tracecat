@@ -112,14 +112,25 @@ RETRY_STOP_AFTER_ATTEMPT = 5
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = os.environ.get("SMTP_PORT", 25)
 SMTP_STARTTLS_ENABLED = os.environ.get("SMTP_STARTTLS_ENABLED", "0").lower() in (
-    1,
+    "1",
     "true",
 )
-SMTP_SSL_ENABLED = os.environ.get("SMTP_SSL_ENABLED", "0").lower() in (1, "true")
+SMTP_SSL_ENABLED = os.environ.get("SMTP_SSL_ENABLED", "0").lower() in ("1", "true")
 SMTP_IGNORE_CERT_ERRORS = os.environ.get("SMTP_IGNORE_CERT_ERRORS", "0").lower() in (
-    1,
+    "1",
     "true",
 )
-SMTP_AUTH_ENABLED = os.environ.get("SMTP_AUTH_ENABLED", "0").lower() in (1, "true")
+SMTP_AUTH_ENABLED = os.environ.get("SMTP_AUTH_ENABLED", "0").lower() in ("1", "true")
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
+
+
+# Secrets manager config
+TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
+    "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
+    "0",  # Default to False
+).lower() in ("1", "true")
+"""Disable masking of secrets in the secrets manager.
+    WARNING: This is only be used for testing and debugging purposes during
+    development and should never be enabled in production.
+"""
