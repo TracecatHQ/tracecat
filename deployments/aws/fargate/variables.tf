@@ -41,7 +41,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.9.0"
+  default = "0.9.1"
 }
 
 variable "force_new_deployment" {
