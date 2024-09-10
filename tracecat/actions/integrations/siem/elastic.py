@@ -116,17 +116,17 @@ async def list_elastic_alerts(
     namespace="integrations.elastic",
     secrets=[elastic_secret],
 )
-async def update_alert_status(
+async def update_elastic_alert_status(
+    alert_input: Annotated[
+        list[str] | dict[str, Any],
+        Field(..., description="Either a list of of Alert IDs OR an Elastic query."),
+    ],
     status: Annotated[
         str,
         Field(
             ...,
             description="The desired status for the alert ('open', 'acknowledged', 'closed')",
         ),
-    ],
-    alert_input: Annotated[
-        dict[str, Any] | list[str],
-        Field(..., description="Either an array of Alert IDs OR an Elastic query."),
     ],
 ) -> dict[str, Any]:
     api_key = os.getenv("ELASTIC_API_KEY")
