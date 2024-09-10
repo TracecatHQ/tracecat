@@ -48,9 +48,25 @@ async def http_request(
         RequestMethods,
         Field(description="HTTP request method"),
     ] = "GET",
+    timeout: Annotated[
+        float,
+        Field(description="Timeout in seconds"),
+    ] = 10.0,
+    follow_redirects: Annotated[
+        bool,
+        Field(description="Follow HTTP redirects"),
+    ] = False,
+    max_redirects: Annotated[
+        int,
+        Field(description="Maximum number of redirects"),
+    ] = 20,
 ) -> HTTPResponse:
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=follow_redirects,
+            max_redirects=max_redirects,
+        ) as client:
             response = await client.request(
                 method=method,
                 url=url,
