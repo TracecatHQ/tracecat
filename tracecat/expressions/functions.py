@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import base64
 import itertools
+import json
 import operator
 import re
 from collections.abc import Callable
@@ -378,6 +379,8 @@ _FUNCTION_MAPPING = {
     "serialize_json": lambda x: orjson.dumps(x).decode(),
     # Convert JSON string to dictionary
     "deserialize_json": orjson.loads,
+    # Pretty-print JSON
+    "prettify_json": lambda x: json.dumps(x, indent=2),
     # Convert NDJSON to list of dictionaries
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
