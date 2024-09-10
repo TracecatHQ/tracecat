@@ -1218,3 +1218,99 @@ async def test_single_child_workflow_get_correct_secret_environment(
         "TRIGGER": {},
     }
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_role):
+    """Test that a pull-based workflow fetches the latest version after being updated.
+
+    Steps
+    -----
+    1. Create workflow
+    2. Create worfklow definition 1
+    3. Run the workflow as pull based, check the result
+    4. Create workflow definition 2
+    5. Run the workflow again as pull based, check the result
+    """
+    test_name = f"{test_pull_based_workflow_fetches_latest_version.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    first_dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "a"},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": "__EXPECTED_FIRST_RESULT__",
+                    },
+                    "depends_on": [],
+                    "description": "",
+                }
+            ],
+            "description": "Test that a pull-based workflow fetches the latest version",
+            "inputs": {},
+            "returns": "${{ ACTIONS.a.result }}",
+            "tests": [],
+            "title": f"{test_name}:first",
+            "triggers": [],
+        }
+    )
+    async with get_async_session_context_manager() as session:
+        # 1) Create the workflow
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
+        res = await mgmt_service.create_workflow_from_dsl(
+            first_dsl.model_dump(), skip_secret_validation=True
+        )
+        workflow = res.workflow
+        if not workflow:
+            return pytest.fail("Workflow wasn't created")
+        constructed_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+
+        # 2) Create first workflow definition
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
+        await defn_service.create_workflow_definition(
+            workflow_id=workflow.id, dsl=constructed_dsl
+        )
+
+    run_args = DSLRunArgs(
+        role=test_role,
+        wf_id=workflow.id,
+        # NOTE: Not setting dsl here to make it pull based
+        # Not setting schedule_id here to make it use the passed in trigger inputs
+    )
+    result = await _run_workflow(temporal_client, f"{wf_exec_id}:first", run_args)
+
+    assert result == "__EXPECTED_FIRST_RESULT__"
+
+    second_dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "a"},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": "__EXPECTED_SECOND_RESULT__",
+                    },
+                    "depends_on": [],
+                    "description": "",
+                }
+            ],
+            "description": "Test that a pull-based workflow fetches the latest version",
+            "inputs": {},
+            "returns": "${{ ACTIONS.a.result }}",
+            "tests": [],
+            "title": f"{test_name}:second",
+            "triggers": [],
+        }
+    )
+    async with get_async_session_context_manager() as session:
+        # 4) Create second workflow definition
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
+        await defn_service.create_workflow_definition(
+            workflow_id=workflow.id, dsl=second_dsl
+        )
+
+    result = await _run_workflow(temporal_client, f"{wf_exec_id}:second", run_args)
+    assert result == "__EXPECTED_SECOND_RESULT__"
