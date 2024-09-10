@@ -79,6 +79,9 @@ async def http_request(
         logger.error(f"HTTP request failed with status {e.response.status_code}.")
         logger.error(e.response.text)
         raise e
+    except httpx.ReadTimeout as e:
+        logger.error(f"HTTP request timed out after {timeout} seconds.")
+        raise e
 
     # Handle 204 No Content
     if response.status_code == 204:
