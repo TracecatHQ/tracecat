@@ -63,7 +63,7 @@ async def http_request(
 ) -> HTTPResponse:
     try:
         async with httpx.AsyncClient(
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout),
             follow_redirects=follow_redirects,
             max_redirects=max_redirects,
         ) as client:
