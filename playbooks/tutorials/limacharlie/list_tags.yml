@@ -22,6 +22,8 @@ definition:
 
     - action: core.http_request
       ref: list_sensors
+      depends_on:
+        - list_tags
       args:
         url: "${{ INPUTS.api_url }}/sensors/${{ SECRETS.limacharlie.LIMACHARLIE_OID }}"
         jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
