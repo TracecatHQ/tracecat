@@ -17,7 +17,7 @@ from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
 from tracecat.dsl.validation import SchemaValidatorFactory
 from tracecat.expressions import patterns
 from tracecat.identifiers import ScheduleID, WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatDSLError, TracecatValidationError

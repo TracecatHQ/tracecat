@@ -3,7 +3,7 @@ import functools
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar, cast
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 

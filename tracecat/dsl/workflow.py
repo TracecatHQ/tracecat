@@ -52,7 +52,7 @@ with workflow.unsafe.imports_passed_through():
         get_iterables_from_expression,
     )
     from tracecat.expressions.shared import ExprContext, context_locator
-    from tracecat.logging import logger
+    from tracecat.logger import logger
     from tracecat.parse import traverse_leaves
     from tracecat.registry import registry
     from tracecat.secrets.common import apply_masks_object

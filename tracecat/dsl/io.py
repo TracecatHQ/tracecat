@@ -6,7 +6,7 @@ import fsspec
 import orjson
 
 from tracecat.dsl.models import ActionTest
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatDSLError
 
 

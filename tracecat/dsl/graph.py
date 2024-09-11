@@ -16,7 +16,7 @@ from pydantic.alias_generators import to_camel
 from tracecat.db.schemas import Action
 from tracecat.dsl.models import ActionStatement
 from tracecat.identifiers import action
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.api import ActionControlFlow
 from tracecat.types.exceptions import TracecatValidationError
 

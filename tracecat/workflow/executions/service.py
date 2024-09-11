@@ -27,7 +27,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.models import (

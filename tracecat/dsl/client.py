@@ -8,7 +8,7 @@ from tenacity import (
 
 from tracecat import config
 from tracecat.dsl._converter import pydantic_data_converter
-from tracecat.logging import logger
+from tracecat.logger import logger
 
 _N_RETRIES = 10
 _client: Client | None = None

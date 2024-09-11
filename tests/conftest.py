@@ -18,7 +18,7 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 

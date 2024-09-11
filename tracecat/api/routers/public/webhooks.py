@@ -6,7 +6,7 @@ from tracecat.api.routers.public.dependencies import validate_incoming_webhook
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 

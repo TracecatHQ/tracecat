@@ -8,7 +8,7 @@ from tracecat.api.routers.public.dependencies import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.api import ServiceCallbackAction
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 

@@ -20,7 +20,7 @@ from tracecat.authz.service import AuthorizationService
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import User
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)

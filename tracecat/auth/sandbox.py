@@ -10,7 +10,7 @@ from typing import Any, Literal, Self
 
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Secret
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
 from tracecat.secrets.models import SearchSecretsParams, SecretKeyValue

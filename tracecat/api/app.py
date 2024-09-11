@@ -35,7 +35,7 @@ from tracecat.db.engine import (
     get_engine,
 )
 from tracecat.db.schemas import UDFSpec
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry import registry
 from tracecat.secrets.router import router as secrets_router
