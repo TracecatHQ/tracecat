@@ -38,6 +38,7 @@ jobs:
           images: |
             ghcr.io/tracecathq/tracecat
           tags: |
+            type=sha
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
@@ -82,6 +83,7 @@ jobs:
           images: |
             ghcr.io/tracecathq/tracecat-ui
           tags: |
+            type=sha
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
