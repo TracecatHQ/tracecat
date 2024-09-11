@@ -396,9 +396,9 @@ _FUNCTION_MAPPING = {
     "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": lambda x, unit,: from_timestamp(x, unit),
-    "now": datetime.now,
     "minutes": lambda x: timedelta(minutes=x),
     "to_datetime": to_datetime,
+    "strftime": lambda x, format: x.strftime(format),
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
