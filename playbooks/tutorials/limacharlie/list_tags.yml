@@ -1,4 +1,4 @@
-defintion:
+definition:
   title: List Limacharlie tags and sensors
   description: |
     Given an organization ID, list all tags and sensors in the organization
