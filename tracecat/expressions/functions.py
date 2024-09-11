@@ -373,6 +373,9 @@ _FUNCTION_MAPPING = {
     "jsonpath": eval_jsonpath,
     # Generators
     "uuid4": lambda: str(uuid4()),
+    # Extract JSON keys and values
+    "json_to_keys": lambda x: list(x.keys()),
+    "json_to_values": lambda x: list(x.values()),
     # Logical
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
