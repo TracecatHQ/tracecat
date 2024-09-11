@@ -153,6 +153,44 @@ variable "db_instance_size" {
   default = "medium"
 }
 
+### RDS Settings
+
+variable "rds_multi_az" {
+  type        = bool
+  description = "Enable Multi-AZ for RDS instances"
+  default     = false
+}
+
+variable "rds_skip_final_snapshot" {
+  type        = bool
+  description = "Skip final snapshot when deleting RDS instances"
+  default     = true
+}
+
+variable "rds_deletion_protection" {
+  type        = bool
+  description = "Enable deletion protection for RDS instances"
+  default     = false
+}
+
+variable "rds_apply_immediately" {
+  type        = bool
+  description = "Apply changes immediately to RDS instances"
+  default     = true
+}
+
+variable "rds_backup_retention_period" {
+  type        = number
+  description = "The number of days to retain backups for RDS instances"
+  default     = 0
+}
+
+variable "rds_performance_insights_enabled" {
+  type        = bool
+  description = "Enable Performance Insights for RDS instances"
+  default     = false
+}
+
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
