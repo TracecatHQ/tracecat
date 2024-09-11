@@ -44,6 +44,12 @@ variable "tracecat_image_tag" {
   default = "0.10.1"
 }
 
+variable "use_git_commit_sha" {
+  type        = bool
+  description = "Use the git commit SHA as the image tag"
+  default     = false
+}
+
 variable "force_new_deployment" {
   type        = bool
   description = "Force a new deployment of Tracecat services. Used to update services with new images."
