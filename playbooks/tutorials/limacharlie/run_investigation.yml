@@ -12,8 +12,9 @@ definition:
   inputs:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
-    investigation_id: ${{ FN.uuid4() }}
     payload_dir_path:
+    child_workflow_id:
+    sensors_batch_size: 10
 
   actions:
     - action: core.http_request
@@ -42,3 +43,17 @@ definition:
           tasks: ["run --shell-command 'del ${{ INPUTS.payload_dir_path }}\\*.exe'"]
         headers:
           Content-Type: application/x-www-form-urlencoded
+
+    - action: core.workflow.execute
+      ref: run_tests_on_sensor
+      for_each: ${{ for var.sensor_id in ACTIONS.extract_sensor_ids.data }}
+      args:
+        workflow_id: ${{ INPUTS.child_workflow_id }}
+        loop_strategy: parallel
+        fail_strategy: isolated
+        batch_size: ${{ INPUTS.batch_size }}
+        trigger_inputs:
+          sensor_id: ${{ var.sensor_id }}
+          investigation_id: ${{ FN.uuid4() }}
+          test_ids: ${{ INPUTS.test_ids }}
+          payload_dir_path: ${{ INPUTS.payload_dir_path }}
