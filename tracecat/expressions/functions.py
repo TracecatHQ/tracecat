@@ -371,11 +371,14 @@ _FUNCTION_MAPPING = {
     "format": format_string,
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
+    # Map-zip-reduce
+    "map": lambda func, items: list(map(func, items)),
+    "zip": lambda *iterables: list(zip(*iterables, strict=False)),
     # Generators
     "uuid4": lambda: str(uuid4()),
     # Extract JSON keys and values
-    "json_to_keys": lambda x: list(x.keys()),
-    "json_to_values": lambda x: list(x.values()),
+    "to_keys": lambda x: list(x.keys()),
+    "to_values": lambda x: list(x.values()),
     # Logical
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
