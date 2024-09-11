@@ -371,9 +371,10 @@ _FUNCTION_MAPPING = {
     "format": format_string,
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
-    # Map-zip-reduce
+    # Iteration
     "map": lambda func, items: list(map(func, items)),
     "zip": lambda *iterables: list(zip(*iterables, strict=False)),
+    "iter_product": lambda *iterables: list(itertools.product(*iterables)),
     # Generators
     "uuid4": lambda: str(uuid4()),
     # Extract JSON keys and values
