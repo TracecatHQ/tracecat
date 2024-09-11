@@ -12,6 +12,7 @@ from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, ParamSpec, TypedDict, TypeVar
+from uuid import uuid4
 
 import jsonpath_ng
 import orjson
@@ -370,6 +371,8 @@ _FUNCTION_MAPPING = {
     "format": format_string,
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
+    # Generators
+    "uuid4": lambda: str(uuid4()),
     # Logical
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
