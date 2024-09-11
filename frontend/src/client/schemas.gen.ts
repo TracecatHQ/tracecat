@@ -185,6 +185,73 @@ export const $ActionStatement = {
     title: 'ActionStatement'
 } as const;
 
+export const $ActionStatement_Any_ = {
+    properties: {
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref',
+            description: 'Unique reference for the task'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            default: ''
+        },
+        action: {
+            type: 'string',
+            pattern: '^[a-z0-9_.]+$',
+            title: 'Action',
+            description: 'Action type. Equivalent to the UDF key.'
+        },
+        args: {
+            title: 'Args',
+            description: 'Arguments for the action'
+        },
+        depends_on: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Depends On',
+            description: 'Task dependencies'
+        },
+        run_if: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run If',
+            description: 'Condition to run the task'
+        },
+        for_each: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'For Each',
+            description: 'Iterate over a list of items and run the task for each item.'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action'],
+    title: 'ActionStatement[Any]'
+} as const;
+
 export const $ActionTest = {
     properties: {
         ref: {
@@ -1036,7 +1103,14 @@ export const $DSLRunArgs = {
             '$ref': '#/components/schemas/Role'
         },
         dsl: {
-            '$ref': '#/components/schemas/DSLInput'
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/DSLInput'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         },
         wf_id: {
             type: 'string',
@@ -1077,10 +1151,23 @@ export const $DSLRunArgs = {
             format: 'duration',
             title: 'Timeout',
             description: 'The maximum time to wait for the workflow to complete.'
+        },
+        schedule_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: 'sch-[0-9a-f]{32}'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Schedule Id',
+            description: 'The schedule ID that triggered this workflow, if any.'
         }
     },
     type: 'object',
-    required: ['role', 'dsl', 'wf_id'],
+    required: ['role', 'wf_id'],
     title: 'DSLRunArgs'
 } as const;
 
@@ -1283,9 +1370,6 @@ export const $GetWorkflowDefinitionActivityInputs = {
         role: {
             '$ref': '#/components/schemas/Role'
         },
-        task: {
-            '$ref': '#/components/schemas/ActionStatement'
-        },
         workflow_id: {
             type: 'string',
             pattern: 'wf-[0-9a-f]{32}',
@@ -1301,10 +1385,20 @@ export const $GetWorkflowDefinitionActivityInputs = {
                 }
             ],
             title: 'Version'
+        },
+        task: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ActionStatement_Any_'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',
-    required: ['role', 'task', 'workflow_id'],
+    required: ['role', 'workflow_id'],
     title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 

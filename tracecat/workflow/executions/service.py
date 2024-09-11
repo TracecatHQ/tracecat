@@ -230,7 +230,8 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
-                    group = EventGroup.from_scheduled_activity(event)
+                    if not (group := EventGroup.from_scheduled_activity(event)):
+                        continue
                     event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(
@@ -246,7 +247,8 @@ class WorkflowExecutionsService:
                     parent_event_id = (
                         event.activity_task_started_event_attributes.scheduled_event_id
                     )
-                    group = event_group_names.get(parent_event_id)
+                    if not (group := event_group_names.get(parent_event_id)):
+                        continue
                     event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(
@@ -260,7 +262,8 @@ class WorkflowExecutionsService:
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
                     # The task completiong comes with the scheduled event ID and the started event id
                     gparent_event_id = event.activity_task_completed_event_attributes.scheduled_event_id
-                    group = event_group_names.get(gparent_event_id)
+                    if not (group := event_group_names.get(gparent_event_id)):
+                        continue
                     event_group_names[event.event_id] = group
                     result = _extract_first(
                         event.activity_task_completed_event_attributes.result
@@ -279,7 +282,8 @@ class WorkflowExecutionsService:
                     gparent_event_id = (
                         event.activity_task_failed_event_attributes.scheduled_event_id
                     )
-                    group = event_group_names.get(gparent_event_id)
+                    if not (group := event_group_names.get(gparent_event_id)):
+                        continue
                     event_group_names[event.event_id] = group
                     events.append(
                         EventHistoryResponse(

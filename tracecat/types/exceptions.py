@@ -40,3 +40,11 @@ class TracecatAuthorizationError(TracecatException):
 
 class TracecatManagementError(TracecatException):
     """Tracecat user-facing management error"""
+
+
+class TracecatNotFoundError(TracecatException):
+    """Raised when a resource is not found in the Tracecat database."""
+
+
+class TracecatServiceError(TracecatException):
+    """Tracecat generic user-facing service error"""

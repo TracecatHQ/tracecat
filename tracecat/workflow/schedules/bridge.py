@@ -1,13 +1,11 @@
 from datetime import datetime, timedelta
-from typing import Any
 
 import temporalio.client
 
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.workflow.schedules.models import ScheduleUpdate
 
@@ -20,29 +18,32 @@ async def _get_handle(schedule_id: ScheduleID) -> temporalio.client.ScheduleHand
 async def create_schedule(
     workflow_id: WorkflowID,
     schedule_id: ScheduleID,
-    dsl: DSLInput,
-    # Schedule config
+    *,
     every: timedelta,
     offset: timedelta | None = None,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
-    trigger_inputs: dict[str, Any] | None = None,
-    **kwargs: Any,
 ) -> temporalio.client.ScheduleHandle:
+    # Importing here to avoid circular imports...
+    from tracecat.dsl.workflow import DSLWorkflow
+
     client = await get_temporal_client()
 
     workflow_schedule_id = f"{workflow_id}:{schedule_id}"
+
     return await client.create_schedule(
         schedule_id,
         temporalio.client.Schedule(
             action=temporalio.client.ScheduleActionStartWorkflow(
                 DSLWorkflow.run,
-                # The args that should run in the scheduled workflow
+                # Scheduled workflow only needs to know the workflow ID
+                # and the role of the user who scheduled it. Everything else
+                # is pulled inside the workflow itself.
                 DSLRunArgs(
-                    dsl=dsl,
                     role=ctx_role.get(),
                     wf_id=workflow_id,
-                    trigger_inputs=trigger_inputs,
+                    schedule_id=schedule_id,
+                    timeout=timedelta(minutes=5),
                 ),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
@@ -55,16 +56,15 @@ async def create_schedule(
                 end_at=end_at,
             ),
         ),
-        **kwargs,
     )
 
 
 async def delete_schedule(schedule_id: ScheduleID) -> None:
     handle = await _get_handle(schedule_id)
     try:
-        return await handle.delete()
+        await handle.delete()
     except Exception as e:
-        if "workflow execution already completed" not in str(e):
+        if "workflow execution already completed" not in str(e).lower():
             raise RuntimeError(f"Error deleting schedule: {e}") from e
     return None
 
