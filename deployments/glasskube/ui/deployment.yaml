@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-ui
+spec:
+  selector: {}
+  template:
+    spec:
+      containers:
+        - name: tracecat-ui
+          image: ui
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: tracecat-config
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: TRACECAT__APP_ENV
+            # Important: environment variables prefixed with `NEXT_PUBLIC_` are exposed to the browser client
+            - name: NEXT_PUBLIC_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_APP_URL
+            - name: NEXT_PUBLIC_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_API_URL
+            - name: NEXT_PUBLIC_APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: TRACECAT__APP_ENV

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-worker
+  labels:
+    app.kubernetes.io/component: tracecat-worker
+spec:
+  selector: {}
+  template:
+    spec:
+      containers:
+        - name: tracecat-worker
+          image: server
+          command: ["python", "tracecat/dsl/worker.py"]
+          envFrom:
+            - secretRef:
+                name: tracecat-db-app
+            - configMapRef:
+                name: tracecat-config
+          env:
+            - name: TRACECAT__DB_URI
+              value: "postgresql+psycopg://$(username):$(password)@$(host):$(port)/$(dbname)"

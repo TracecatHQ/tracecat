@@ -1,0 +1,8 @@
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/component: tracecat-ui

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tracecat-config
+data:
+  LOG_LEVEL: "INFO"
+  TRACECAT__APP_ENV: "production" # not yet configurable, not sure if that would make sense?
+  TRACECAT__AUTH_TYPES: "basic,google_oauth" # not yet configurable
+  TRACECAT__DB_SSLMODE: "require" # not sure?
+  TRACECAT__API_ROOT_PATH: "/api"
