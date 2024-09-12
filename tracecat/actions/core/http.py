@@ -20,12 +20,23 @@ class HTTPResponse(TypedDict):
     data: str | dict[str, Any] | list[Any] | None
 
 
-def get_jwt_token(
+async def get_jwt_token(
     url: str,
     json: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> str:
-    token = httpx.get(url, json=json, headers=headers).json()["token"]
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, json=json, headers=headers)
+            response.raise_for_status()
+            token = response.json()["token"]
+        except KeyError as e:
+            logger.error(
+                "Tried to get JWT token. `token` key not found in response JSON."
+            )
+            return HTTPResponse(
+                status_code=500, headers=dict(response.headers.items()), data=repr(e)
+            )
     return token
 
 
@@ -43,7 +54,7 @@ async def http_request(
     ],
     headers: Annotated[
         dict[str, str],
-        Field(description="HTTP request headers."),
+        Field(description="HTTP request headers"),
     ] = None,
     payload: Annotated[
         JSONObjectOrArray,
@@ -80,7 +91,7 @@ async def http_request(
     jwt_headers: Annotated[
         dict[str, str],
         Field(description="Headers to obtain a JWT token"),
-    ] = "Authorization",
+    ] = None,
     jwt_authorization_header: Annotated[
         dict[str, str],
         Field(
