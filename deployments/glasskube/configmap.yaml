@@ -18,3 +18,7 @@ data:
   SMTP_AUTH_ENABLED: "1"
   SMTP_USER: ""
   SMTP_PASS: ""
+  LDAP_HOST: ""
+  LDAP_PORT: ""
+  LDAP_SSL: ""
+  LDAP_TYPE: ""
