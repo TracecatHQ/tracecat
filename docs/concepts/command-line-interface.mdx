@@ -46,24 +46,6 @@ done! ✨ 🌟 ✨
 /Users/daryllim/.local/bin/tracecat
 ```
 
-### Docker
-
-To use the CLI through Docker, you will have to use the following commands:
-
-```bash
-# Pull the latest image
-docker pull ghcr.io/tracecathq/tracecat-cli
-
-# Create an alias to run the CLI in a container
-# IMPORTANT: Please replace `/path/to/playbooks` with the path to your playbooks
-echo 'alias tracecat="docker run -v /path/to/playbooks:/playbooks --network host --rm ghcr.io/tracecathq/tracecat-cli \"\$@\""' >> ~/.bashrc
-
-
-# Finally source your shell profile
-# NOTE: can be ~/.bashrc, ~/.zshrc, etc.
-source ~/.bashrc
-```
-
 ## Workflow Management
 
 The `tracecat workflow` command suite allows you to manage workflows within the system. Below are the available commands and options to control and interact with workflow processes.
