@@ -2,8 +2,6 @@ kind: Service
 apiVersion: v1
 metadata:
   name: tracecat-api
-  labels:
-    app.kubernetes.io/component: tracecat-api
 spec:
   ports:
     - port: 8000

@@ -2,6 +2,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: tracecat-ui
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-next-upstream-tries: "10"
 spec:
   rules:
     - host: ""
@@ -21,4 +23,6 @@ spec:
                 name: tracecat-ui
                 port:
                   number: 3000
+  tls:
+    - hosts: []
 # TODO TLS?

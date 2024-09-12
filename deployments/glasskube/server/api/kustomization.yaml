@@ -10,3 +10,7 @@ configMapGenerator:
     files:
       - tracecat-key-manager.sh
       - fernet-key-generator.sh
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/component: tracecat-api

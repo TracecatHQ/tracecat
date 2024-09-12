@@ -2,8 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tracecat-api
-  labels:
-    app.kubernetes.io/component: tracecat-api
 spec:
   selector: {}
   template:
