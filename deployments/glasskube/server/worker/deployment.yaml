@@ -60,7 +60,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.labels['packages.glasskube.dev/instance']
             - name: TEMPORAL__CLUSTER_URL
-              value: "$(GLASSKUBE_INSTANCE_NAME)-temporal-temporal-frontend.tracecat:7233" # TODO ????
+              value: "$(GLASSKUBE_INSTANCE_NAME)-temporal-temporal-frontend:7233"
             - name: TEMPORAL__CLUSTER_QUEUE
               value: "tracecat-task-queue"
             - name: TEMPORAL__CLUSTER_NAMESPACE
