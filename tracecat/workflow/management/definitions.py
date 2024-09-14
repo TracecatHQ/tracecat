@@ -127,7 +127,7 @@ class WorkflowDefinitionsService:
         defn = WorkflowDefinition(
             owner_id=self.role.workspace_id,
             workflow_id=workflow_id,
-            content=dsl.model_dump(),
+            content=dsl.model_dump(exclude_unset=True),
             version=version,
         )
         if commit:

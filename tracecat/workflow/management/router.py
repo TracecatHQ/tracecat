@@ -158,7 +158,7 @@ async def create_workflow(
     )
 
 
-@router.get("/{workflow_id}", tags=["workflows"])
+@router.get("/{workflow_id}", tags=["workflows"], response_model_exclude_unset=True)
 async def get_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
