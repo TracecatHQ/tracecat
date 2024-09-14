@@ -354,7 +354,7 @@ export function useWorkflowManager() {
         case 400:
           toast({
             title: "Cannot delete workflow",
-            description: error.body.detail,
+            description: String(error.body.detail),
           })
           break
         default:
@@ -639,7 +639,8 @@ export function useSecrets() {
           console.error("Secret already exists", error)
           toast({
             title: "Secret already exists",
-            description: "Secrets with the same name and environment are not supported.",
+            description:
+              "Secrets with the same name and environment are not supported.",
           })
           break
         default:

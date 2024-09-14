@@ -179,7 +179,7 @@ export function WorkspaceProvider({
           console.error("Error updating user", error)
           toast({
             title: "Error updating user",
-            description: error.body.detail,
+            description: String(error.body.detail),
           })
           break
         case 403:
