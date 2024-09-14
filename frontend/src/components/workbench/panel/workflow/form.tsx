@@ -299,7 +299,7 @@ export function WorkflowForm({
               </div>
             </AccordionContent>
           </AccordionItem>
-          <AccordionItem value="workflow-static-inputs">
+          <AccordionItem value="workflow-returns">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
                 <Undo2Icon className="mr-3 size-4" />
@@ -344,7 +344,7 @@ export function WorkflowForm({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="workflow-returns">
+          <AccordionItem value="workflow-static-inputs">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
                 <FileInputIcon className="mr-3 size-4" />
