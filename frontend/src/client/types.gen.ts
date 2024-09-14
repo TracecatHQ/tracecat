@@ -325,9 +325,11 @@ export type DSLEntrypoint = {
      */
     ref: string;
     /**
-     * Expected trigger input shape
+     * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
      */
-    expects?: unknown | null;
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
 };
 
 /**
@@ -446,6 +448,12 @@ export type EventHistoryResponse = {
  * The event types we care about.
  */
 export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
+
+export type ExpectedField = {
+    type: string;
+    description?: string | null;
+    default?: unknown | null;
+};
 
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
