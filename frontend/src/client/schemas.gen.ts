@@ -2476,6 +2476,20 @@ export const $UpdateWorkflowParams = {
             ],
             title: 'Static Inputs'
         },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
+        },
         returns: {
             anyOf: [
                 {},
@@ -3182,6 +3196,20 @@ export const $WorkflowResponse = {
         static_inputs: {
             type: 'object',
             title: 'Static Inputs'
+        },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
         },
         returns: {
             title: 'Returns'

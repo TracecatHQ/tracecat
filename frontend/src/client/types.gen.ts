@@ -735,6 +735,9 @@ export type UpdateWorkflowParams = {
     static_inputs?: {
     [key: string]: unknown;
 } | null;
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
     returns?: unknown | null;
     config?: DSLConfig_Input | null;
 };
@@ -914,6 +917,9 @@ export type WorkflowResponse = {
     static_inputs: {
         [key: string]: unknown;
     };
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
     returns: unknown;
     config: DSLConfig_Output | null;
 };
