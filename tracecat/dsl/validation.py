@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from temporalio import activity
 
+from tracecat.dsl.common import DSLInput
+from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.validation import VALIDATION_TYPES, ValidationResult
-
-if TYPE_CHECKING:
-    from tracecat.dsl.common import DSLInput
 
 LIST_PATTERN = re.compile(r"list\[(?P<inner>(\$)?[a-zA-Z]+)\]")
 
@@ -110,7 +110,11 @@ class SchemaValidatorFactory:
 
 
 def validate_trigger_inputs(
-    dsl: DSLInput, payload: dict[str, Any] | None = None
+    dsl: DSLInput,
+    payload: dict[str, Any] | None = None,
+    *,
+    raise_exceptions: bool = False,
+    model_name: str = "TriggerInputsValidator",
 ) -> ValidationResult:
     if not dsl.entrypoint.expects:
         # If there's no expected trigger input schema, we don't validate it
@@ -118,34 +122,38 @@ def validate_trigger_inputs(
         return ValidationResult(
             status="success", msg="No trigger input schema, skipping validation."
         )
-    logger.trace("DSL entrypoint expects", expects=dsl.entrypoint.expects)
-    validator_factory = SchemaValidatorFactory(dsl.entrypoint.expects)
+    logger.trace(
+        "DSL entrypoint expects", expects=dsl.entrypoint.expects, payload=payload
+    )
 
-    TriggerInputsValidator = validator_factory.create(raise_exceptions=False)
-    if validator_creation_errors := validator_factory.errors():
-        logger.error(validator_creation_errors)
-        return ValidationResult(
-            status="error",
-            msg="Error creating trigger input schema validator",
-            detail=[str(e) for e in validator_creation_errors],
-        )
-
-    if payload is None:
-        return ValidationResult(
-            status="error",
-            msg="Trigger input schema is defined but no payload was provided.",
-            detail={"schema": TriggerInputsValidator.model_json_schema()},
-        )
-
+    expects_schema = {
+        field_name: ExpectedField.model_validate(field_schema)
+        for field_name, field_schema in dsl.entrypoint.expects.items()
+    }
+    validator = create_expectation_model(expects_schema, model_name=model_name)
     try:
-        TriggerInputsValidator.model_validate(payload)
-        return ValidationResult(status="success", msg="Trigger inputs are valid.")
+        validator(**payload)
     except ValidationError as e:
+        if raise_exceptions:
+            raise
         return ValidationResult(
             status="error",
             msg=f"Validation error in trigger inputs ({e.title}). Please refer to the schema for more details.",
-            detail={
-                "errors": e.errors(),
-                "schema": TriggerInputsValidator.model_json_schema(),
-            },
+            detail={"errors": e.errors()},
         )
+    return ValidationResult(status="success", msg="Trigger inputs are valid.")
+
+
+class ValidateTriggerInputsActivityInputs(BaseModel):
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    dsl: DSLInput
+    trigger_inputs: dict[str, Any]
+
+
+@activity.defn
+async def validate_trigger_inputs_activity(
+    inputs: ValidateTriggerInputsActivityInputs,
+) -> ValidationResult:
+    return validate_trigger_inputs(
+        inputs.dsl, inputs.trigger_inputs, raise_exceptions=True
+    )

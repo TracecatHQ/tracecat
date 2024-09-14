@@ -104,6 +104,8 @@ EventInput = TypeVar(
     "EventInput", UDFActionInput, DSLRunArgs, GetWorkflowDefinitionActivityInputs
 )
 
+IGNORED_UTILITY_ACTIONS = {"get_schedule_activity", "validate_trigger_inputs_activity"}
+
 
 class EventGroup(BaseModel, Generic[EventInput]):
     event_id: int
@@ -134,7 +136,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
         act_type = event.activity_task_scheduled_event_attributes.activity_type.name
         if act_type == "get_workflow_definition_activity":
             action_input = GetWorkflowDefinitionActivityInputs(**action_stmt_data)
-        elif act_type == "get_schedule_activity":
+        elif act_type in IGNORED_UTILITY_ACTIONS:
             return None
         else:
             action_input = UDFActionInput(**action_stmt_data)

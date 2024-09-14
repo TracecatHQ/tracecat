@@ -9,6 +9,7 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
+from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.logger import logger
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
@@ -59,6 +60,7 @@ async def main() -> None:
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),
+        validate_trigger_inputs_activity,
     ]
     logger.debug(
         "Activities loaded",
