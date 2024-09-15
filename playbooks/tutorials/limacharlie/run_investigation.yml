@@ -12,6 +12,7 @@ definition:
   inputs:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
+    token_response_key: token
     payload_dir_path: "C:\\F0"
     child_workflow_id:
     batch_size: 10
@@ -21,6 +22,7 @@ definition:
       ref: list_sensors_by_tags
       args:
         url: "{{ INPUTS.api_url }}/tags/{{ SECRETS.limacharlie.LIMACHARLIE_OID }}/{ TRIGGER.tags }"
+        token_response_key: ${{ INPUTS.token_response_key }}
         jwt_url: "{{ INPUTS.jwt_url }}?oid={{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret={{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         method: GET
 
@@ -39,6 +41,7 @@ definition:
       for_each: ${{ for var.sensor_id in ACTIONS.extract_sensor_ids.result.sensor_ids }}
       args:
         url: "${{ INPUTS.api_url }}/${{ var.sensor_id }}/"
+        token_response_key: ${{ INPUTS.token_response_key }}
         jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
           tasks: ["run --shell-command 'del ${{ INPUTS.payload_dir_path }}\\*.exe'"]
