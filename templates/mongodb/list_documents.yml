@@ -14,8 +14,7 @@ definition:
     - type: webhook
       ref: receive_mongodb_query
       entrypoint: get_document
-  returns:
-    documents: ${{ ACTIONS.get_document.result }}
+  returns: ${{ ACTIONS.get_document.result }}
 
   actions:
     - ref: list_documents
