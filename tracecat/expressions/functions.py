@@ -12,6 +12,7 @@ from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, ParamSpec, TypedDict, TypeVar
+from uuid import uuid4
 
 import jsonpath_ng
 import orjson
@@ -370,6 +371,14 @@ _FUNCTION_MAPPING = {
     "format": format_string,
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
+    # Iteration
+    "zip": lambda *iterables: list(zip(*iterables, strict=False)),
+    "iter_product": lambda *iterables: list(itertools.product(*iterables)),
+    # Generators
+    "uuid4": lambda: str(uuid4()),
+    # Extract JSON keys and values
+    "to_keys": lambda x: list(x.keys()),
+    "to_values": lambda x: list(x.values()),
     # Logical
     "and": lambda a, b: a and b,
     "or": lambda a, b: a or b,
@@ -386,8 +395,9 @@ _FUNCTION_MAPPING = {
     "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": lambda x, unit,: from_timestamp(x, unit),
-    "now": datetime.now,
     "minutes": lambda x: timedelta(minutes=x),
+    "now": datetime.now,
+    "to_datestring": lambda x, format: x.strftime(format),
     "to_datetime": to_datetime,
     # Base64
     "to_base64": str_to_b64,

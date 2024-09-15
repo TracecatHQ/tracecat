@@ -78,6 +78,9 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
         "respond/notify_users/slack.yml",
         # Quickstart
         "tutorials/virustotal_quickstart.yml",
+        "tutorials/limacharlie/list_tags.yml",
+        "tutorials/limacharlie/run_investigation.yml",
+        "tutorials/limacharlie/run_tests.yml",
     ],
     ids=lambda x: x,
 )
