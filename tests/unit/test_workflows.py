@@ -19,7 +19,7 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -27,7 +27,6 @@ from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import DSLConfig
-from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
@@ -36,17 +35,12 @@ from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.workflow.management.definitions import (
-    WorkflowDefinitionsService,
-    get_workflow_definition_activity,
-)
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
 ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
-
-DSL_UTILITIES = [get_workflow_definition_activity, validate_trigger_inputs_activity]
 
 
 @pytest.fixture
@@ -149,7 +143,7 @@ async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -212,7 +206,7 @@ async def test_workflow_ordering_is_correct(dsl, temporal_cluster, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -268,7 +262,7 @@ async def test_workflow_completes_and_correct(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -310,7 +304,7 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role):
         Worker(
             client,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=DSLActivities.load() + [validate_trigger_inputs_activity],
+            activities=DSLActivities.load() + DSL_UTILITIES,
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
         ),
@@ -347,7 +341,7 @@ async def test_conditional_execution_fails(dsl, temporal_cluster, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):

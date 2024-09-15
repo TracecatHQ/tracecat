@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
@@ -17,10 +17,7 @@ from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
-from tracecat.workflow.management.definitions import (
-    WorkflowDefinitionsService,
-    get_workflow_definition_activity,
-)
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
@@ -158,7 +155,7 @@ async def test_playbook_live_run(
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
