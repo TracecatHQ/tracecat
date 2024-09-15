@@ -10,7 +10,7 @@ from sqlmodel import select
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.parse import parse_child_webhook
 from tracecat.types.api import ServiceCallbackAction
 from tracecat.types.auth import Role

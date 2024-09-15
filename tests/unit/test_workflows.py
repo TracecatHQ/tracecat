@@ -30,7 +30,7 @@ from tracecat.dsl.models import DSLConfig
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role

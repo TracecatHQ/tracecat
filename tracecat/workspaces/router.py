@@ -17,7 +17,7 @@ from tracecat.auth.credentials import (
 from tracecat.authz.service import MembershipService
 from tracecat.db.engine import get_async_session
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,

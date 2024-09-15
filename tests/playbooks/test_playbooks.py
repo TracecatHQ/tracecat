@@ -14,7 +14,7 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprType
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
 from tracecat.workflow.management.definitions import (

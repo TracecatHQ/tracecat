@@ -6,7 +6,7 @@ from lark.exceptions import VisitError
 
 from tracecat.expressions import functions
 from tracecat.expressions.shared import ExprContext, ExprContextType, IterableExpr
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 LiteralT = TypeVar("LiteralT", int, float, str, bool)

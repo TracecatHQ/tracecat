@@ -9,7 +9,7 @@ from tracecat import validation
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import validate_trigger_inputs
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError

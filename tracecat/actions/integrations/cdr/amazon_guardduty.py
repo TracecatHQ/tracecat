@@ -82,7 +82,7 @@ from tqdm.asyncio import tqdm, trange
 from types_aiobotocore_guardduty.client import GuardDutyClient
 
 from tracecat.actions.io import retry
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.registry import Field, RegistrySecret, registry
 
 GUARDDUTY_MAX_RESULTS = 50

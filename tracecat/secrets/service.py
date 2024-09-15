@@ -13,7 +13,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Secret
 from tracecat.identifiers import SecretID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import (
     CreateSecretParams,

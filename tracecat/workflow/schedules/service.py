@@ -14,7 +14,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.schedules import bridge

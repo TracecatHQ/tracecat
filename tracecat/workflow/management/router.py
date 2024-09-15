@@ -25,7 +25,7 @@ from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.identifiers import WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.api import (
     ActionResponse,
     CommitWorkflowResponse,

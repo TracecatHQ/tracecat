@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.types.validation import VALIDATION_TYPES, ValidationResult
 

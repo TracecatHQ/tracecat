@@ -9,7 +9,7 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 # We always want to pass through external modules to the sandbox that we know

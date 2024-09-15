@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.telemetry.events import ErrorEvent, FeatureUsageEvent
 from tracecat.telemetry.posthog import telemetry_client
 
