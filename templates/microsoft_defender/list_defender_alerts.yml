@@ -23,6 +23,7 @@ definition:
     base_url: https://graph.microsoft.com/v1.0
     endpoint: security/alerts_v2
     oauth2_endpoint: /oauth2/v2.0/token
+  returns: ${{ ACTIONS.list_defender_alerts.result }}
 
   actions:
     - ref: list_defender_alerts
