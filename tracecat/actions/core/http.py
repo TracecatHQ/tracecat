@@ -150,15 +150,20 @@ async def http_request(
         str,
         Field(description="Key to access the token in the JWT / OAuth2 response JSON"),
     ] = "access_token",
-    authorization_header: Annotated[
+    auth_header_key: Annotated[
         dict[str, str],
         Field(
-            description='Additional authorization header to pass into HTTP headers. If None, defaults to {"Authorization": "Bearer {token}"}'
+            description="Authorization header key to pass into HTTP headers. If None, defaults to 'Authorization'}"
+        ),
+    ] = None,
+    auth_header_value: Annotated[
+        dict[str, str],
+        Field(
+            description="Authorization header value (must contain `{token}` in the string) to pass into HTTP headers. If None, defaults to 'Bearer {token}'}"
         ),
     ] = None,
 ) -> HTTPResponse:
     access_token = None
-    auth_header = authorization_header or {"Authorization": "Bearer {token}"}
     if jwt_url is not None:
         access_token = get_jwt_token(
             url=jwt_url,
@@ -180,9 +185,7 @@ async def http_request(
         )
 
     if access_token is not None:
-        key = auth_header.keys()[0]
-        auth_header[key] = auth_header[key].format(access_token)
-        headers = {**headers, **auth_header}
+        headers[auth_header_key] = auth_header_value.format(token=access_token)
 
     try:
         async with httpx.AsyncClient(
