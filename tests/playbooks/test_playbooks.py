@@ -66,10 +66,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
     "filename",
     [
         # Detect
-        "detect/list_alerts/aws_guardduty.yml",
-        "detect/list_alerts/crowdstrike_alerts.yml",
-        "detect/list_alerts/crowdstrike_detection_summaries.yml",
-        "detect/list_alerts/sentinel_one.yml",
+        "detect/webhook_alerts/elastic.yml",
         "detect/webhook_alerts/panther.yml",
         "detect/extract_iocs.yml",
         "detect/enrich_iocs/ipv4.yml",

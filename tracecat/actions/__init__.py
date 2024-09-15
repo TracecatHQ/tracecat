@@ -16,7 +16,7 @@ from tracecat.actions.core import (
     transform,
     workflow,
 )
-from tracecat.actions.etl import extraction, normalization
+from tracecat.actions.etl import extraction
 
 __all__ = [
     "cases",
@@ -26,7 +26,6 @@ __all__ = [
     "http",
     "integrations",
     "llm",
-    "normalization",
     "transform",
     "workflow",
 ]
