@@ -25,8 +25,8 @@ definition:
     - ref: list_detectors
       action: integrations.aws.call_boto3_client
       args:
-        service: guardduty
-        method: list_detectors
+        service_name: guardduty
+        method_name: list_detectors
 
     - ref: list_finding_ids
       action: integrations.aws.call_boto3_paginator
@@ -34,8 +34,8 @@ definition:
         - list_detectors
       for_each: ${{ for var.detector_id in ACTIONS.list_detectors.result.DetectorIds }}
       args:
-        service: guardduty
-        method: list_findings
+        service_name: guardduty
+        method_name: list_findings
         params:
           DetectorId: ${{ var.detector_id }}
           FindingCritieria:
@@ -54,5 +54,8 @@ definition:
       depends_on:
         - list_finding_ids
       args:
-        DetectorId: ${{ var.detector_id }}
-        FindingIds: ${{ var.finding_ids }}
+        service_name: guardduty
+        method_name: get_findings
+        params:
+          DetectorId: ${{ var.detector_id }}
+          FindingIds: ${{ var.finding_ids }}

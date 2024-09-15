@@ -86,14 +86,14 @@ async def get_session():
     secrets=[aws_secret],
 )
 async def call_boto3_client(
-    service: Annotated[
+    service_name: Annotated[
         str,
         Field(
             ...,
             description="AWS service name to create Boto3 Client, e.g. 's3', 'ec2', 'guardduty'.",
         ),
     ],
-    method: Annotated[
+    method_name: Annotated[
         str,
         Field(
             ...,
@@ -107,8 +107,8 @@ async def call_boto3_client(
 ) -> dict[str, Any]:
     params = params or {}
     session = await get_session()
-    async with session.client(service) as client:
-        response = await getattr(client, method)(**params)
+    async with session.client(service_name) as client:
+        response = await getattr(client, method_name)(**params)
         return response
 
 
@@ -120,7 +120,7 @@ async def call_boto3_client(
     secrets=[aws_secret],
 )
 async def call_boto3_paginator(
-    service: Annotated[
+    service_name: Annotated[
         str,
         Field(
             ...,
@@ -141,7 +141,7 @@ async def call_boto3_paginator(
 ) -> list[dict[str, Any]]:
     params = params or {}
     session = await get_session()
-    async with session.client(service) as client:
+    async with session.client(service_name) as client:
         paginator = client.get_paginator(paginator)
         pages = paginator.paginate(**params)
 
