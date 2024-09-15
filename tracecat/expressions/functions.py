@@ -372,7 +372,6 @@ _FUNCTION_MAPPING = {
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
     # Iteration
-    "map": lambda func, items: list(map(func, items)),
     "zip": lambda *iterables: list(zip(*iterables, strict=False)),
     "iter_product": lambda *iterables: list(itertools.product(*iterables)),
     # Generators
