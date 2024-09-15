@@ -41,7 +41,13 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.10.1"
+  default = "0.10.2"
+}
+
+variable "use_git_commit_sha" {
+  type        = bool
+  description = "Use the git commit SHA as the image tag"
+  default     = false
 }
 
 variable "force_new_deployment" {
@@ -151,6 +157,44 @@ variable "db_instance_class" {
 variable "db_instance_size" {
   type    = string
   default = "medium"
+}
+
+### RDS Settings
+
+variable "rds_multi_az" {
+  type        = bool
+  description = "Enable Multi-AZ for RDS instances"
+  default     = false
+}
+
+variable "rds_skip_final_snapshot" {
+  type        = bool
+  description = "Skip final snapshot when deleting RDS instances"
+  default     = true
+}
+
+variable "rds_deletion_protection" {
+  type        = bool
+  description = "Enable deletion protection for RDS instances"
+  default     = false
+}
+
+variable "rds_apply_immediately" {
+  type        = bool
+  description = "Apply changes immediately to RDS instances"
+  default     = true
+}
+
+variable "rds_backup_retention_period" {
+  type        = number
+  description = "The number of days to retain backups for RDS instances"
+  default     = 0
+}
+
+variable "rds_performance_insights_enabled" {
+  type        = bool
+  description = "Enable Performance Insights for RDS instances"
+  default     = false
 }
 
 ### Container Env Vars
