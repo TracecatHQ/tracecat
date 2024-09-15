@@ -53,7 +53,7 @@ No-code workflows are automatically synced into code, and vice versa. Tracecat e
 
 The easiest way to get started is to meet one of our cofounders on an open-source [onboarding call](https://cal.com/team/tracecat/onboarding). We'll help you install Tracecat self-hosted via `docker compose` and run your first workflow in 30 minutes.
 
-More of a DIY hacker? Check out the self-serve [installation guide here](https://docs.tracecat.com/installation).
+More of a DIY hacker? Check out the self-serve [installation guide here](https://docs.tracecat.com/self-hosting/introduction).
 
 ## Community & Support
 
@@ -69,4 +69,4 @@ More of a DIY hacker? Check out the self-serve [installation guide here](https:/
 
 ## Partner With Us
 
-Tracecat is now open to MDRs and MSSPs. [Sign up](https://tracecat.com/#deal) over at our website or [book a call](https://cal.com/team/tracecat/hello) with one of our cofounders.
+Tracecat is now open to MDRs and MSSPs. [Sign up](https://tracecat.com/#deal) over at our website or [book a call](https://cal.com/team/tracecat) with one of our cofounders.
