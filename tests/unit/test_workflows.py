@@ -27,6 +27,7 @@ from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import DSLConfig
+from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
@@ -44,6 +45,8 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 SHARED_TEST_DEFNS = list(DATA_PATH.glob("shared_*.yml"))
 ORDERING_TEST_DEFNS = list(DATA_PATH.glob("unit_ordering_*.yml"))
+
+DSL_UTILITIES = [get_workflow_definition_activity, validate_trigger_inputs_activity]
 
 
 @pytest.fixture
@@ -146,7 +149,7 @@ async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
+        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -209,7 +212,7 @@ async def test_workflow_ordering_is_correct(dsl, temporal_cluster, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
+        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -265,7 +268,7 @@ async def test_workflow_completes_and_correct(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
+        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -307,7 +310,7 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role):
         Worker(
             client,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=DSLActivities.load(),
+            activities=DSLActivities.load() + [validate_trigger_inputs_activity],
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
         ),
@@ -344,7 +347,7 @@ async def test_conditional_execution_fails(dsl, temporal_cluster, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
+        activities=DSLActivities.load() + [validate_trigger_inputs_activity],
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -414,7 +417,7 @@ async def test_workflow_set_environment_correct(
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -475,7 +478,7 @@ async def test_workflow_override_environment_correct(
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -534,7 +537,7 @@ async def test_workflow_default_environment_correct(
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -576,7 +579,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
     async with Worker(
         client,
         task_queue=queue,
-        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
