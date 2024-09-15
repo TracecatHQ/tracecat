@@ -25,7 +25,7 @@ definition:
       action: core.transform.reshape
       args:
         value:
-          alerts: ${{ FN.deserialize_ndjson(TRIGGER.ndjson) )}}
+          alerts: ${{ FN.deserialize_ndjson(TRIGGER.ndjson) }}
 
     - ref: redirect_elastic_alerts
       action: core.workflow.execute
