@@ -15,7 +15,6 @@ definition:
       ref: receive_mongodb_query
       entrypoint: get_document
   returns:
-    _id: ${{ str(ACTIONS.get_document.result._id) }}
     documents: ${{ ACTIONS.get_document.result }}
 
   actions:

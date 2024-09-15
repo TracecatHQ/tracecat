@@ -57,6 +57,12 @@ async def perform_mongodb_crud(
     result = getattr(collection, operation)(**params)
 
     if isinstance(result, Cursor):
-        result = list(result)
+        # Stringify the ObjectIDs
+        result = [
+            {**item, "_id": str(item["_id"])} if "_id" in item else item
+            for item in list(result)
+        ]
+    else:
+        result["_id"] = str(result["_id"])
 
     return result
