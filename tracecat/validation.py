@@ -52,7 +52,7 @@ from tracecat.expressions.parser.validator import (
     ExprValidator,
 )
 from tracecat.expressions.shared import ExprType, context_locator
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
 from tracecat.secrets.models import SearchSecretsParams
 from tracecat.secrets.service import SecretsService

@@ -28,7 +28,7 @@ from tracecat.db.adapter import (
 )
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
-from tracecat.logging import logger
+from tracecat.logger import logger
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):

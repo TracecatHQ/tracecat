@@ -19,7 +19,7 @@ from jsonpath_ng.exceptions import JsonPathParserError
 
 from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import is_iterable
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 OPERATORS = {

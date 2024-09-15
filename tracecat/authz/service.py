@@ -13,7 +13,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Membership, Ownership
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 
 

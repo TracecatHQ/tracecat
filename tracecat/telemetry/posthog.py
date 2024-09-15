@@ -2,7 +2,7 @@ import os
 
 import posthog
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.telemetry.events import BaseTelemetryEvent
 
 

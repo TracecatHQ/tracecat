@@ -5,7 +5,7 @@ from tracecat.auth.dependencies import WorkspaceUserOrServiceRole, WorkspaceUser
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Secret
 from tracecat.identifiers import SecretID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.secrets.models import (
     CreateSecretParams,
     SearchSecretsParams,

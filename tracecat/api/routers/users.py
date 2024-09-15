@@ -9,7 +9,7 @@ from tracecat.auth.credentials import authenticate_user_access_level
 from tracecat.auth.schemas import UserRead
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import User
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 
 router = APIRouter(prefix="/users")

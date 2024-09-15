@@ -16,7 +16,7 @@ from tracecat.db.schemas import Action, Webhook, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
 from tracecat.identifiers import WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.api import UDFArgsValidationResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError

@@ -5,7 +5,7 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.schedules.models import (
     ScheduleCreate,

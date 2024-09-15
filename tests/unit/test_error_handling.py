@@ -10,7 +10,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
-from tracecat.logging import logger
+from tracecat.logger import logger
 
 
 @pytest.mark.asyncio

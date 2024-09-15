@@ -2,7 +2,7 @@ from lark import Lark, Tree
 from lark.exceptions import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
 from tracecat.expressions.parser.grammar import grammar
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 
