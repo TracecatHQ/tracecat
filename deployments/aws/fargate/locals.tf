@@ -2,8 +2,8 @@
 locals {
 
   # Tracecat version
-  sha256_image_tag   = "sha256:${var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA}"
-  tracecat_image_tag = coalesce(local.sha256_image_tag, var.tracecat_image_tag)
+  sha256_image_tag   = "sha-${substr(var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA, 0, 7)}"
+  tracecat_image_tag = var.use_git_commit_sha ? local.sha256_image_tag : var.tracecat_image_tag
 
   # Tracecat common URLs
   public_app_url         = "https://${var.domain_name}"
