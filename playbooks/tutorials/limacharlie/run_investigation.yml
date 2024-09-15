@@ -12,6 +12,7 @@ definition:
   inputs:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
+    token_response_key: token
     payload_dir_path: "C:\\F0"
     child_workflow_id:
     batch_size: 10
