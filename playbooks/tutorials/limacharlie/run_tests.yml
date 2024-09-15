@@ -13,6 +13,7 @@ definition:
   inputs:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
+    token_response_key: token
     datetime_format: "%Y-%m-%d %H:%M:%S"
     event_type: RECEIPT
 
