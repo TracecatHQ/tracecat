@@ -1,0 +1,58 @@
+definition:
+  title: List Amazon GuardDuty alerts
+  description: Return Amazon GuardDuty alerts by time range.
+  entrypoint:
+    ref: list_detectors
+    expects:
+      start_time:
+        type: datetime
+        description: Start timestamp (ISO format) for the query.
+      end_time:
+        type: datetime
+        description: End timestamp (ISO format) for the query.
+      limit:
+        type: int
+        description: Maximum number of alerts to return.
+  triggers:
+    - type: webhook
+      ref: receive_guardduty_alerts
+      entrypoint: list_detectors
+  returns:
+    detector_ids: ${{ ACTIONS.list_detectors.result.DetectorIds }}
+    findings: ${{ ACTIONS.get_findings.result }}
+
+  actions:
+    - ref: list_detectors
+      action: integrations.aws.call_boto3_client
+      args:
+        service: guardduty
+        method: list_detectors
+
+    - ref: list_finding_ids
+      action: integrations.aws.call_boto3_paginator
+      depends_on:
+        - list_detectors
+      for_each: ${{ for var.detector_id in ACTIONS.list_detectors.result.DetectorIds }}
+      args:
+        service: guardduty
+        method: list_findings
+        params:
+          DetectorId: ${{ var.detector_id }}
+          FindingCritieria:
+            Criterion:
+              createdAt:
+                Gte: ${{ TRIGGER.start_time * 1000 }}
+                Lt: ${{ TRIGGER.end_time * 1000 }}
+            PaginationConfig:
+              MaxItems: ${{ TRIGGER.limit }}
+
+    - ref: get_findings
+      action: integrations.aws.call_boto3_client
+      for_each:
+        - ${{ for var.detector_id in ACTIONS.list_detectors.result.DetectorIds }}
+        - ${{ for var.finding_ids in ACTIONS.list_finding_ids.result.FindingIds }}
+      depends_on:
+        - list_finding_ids
+      args:
+        DetectorId: ${{ var.detector_id }}
+        FindingIds: ${{ var.finding_ids }}
