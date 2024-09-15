@@ -400,6 +400,7 @@ _FUNCTION_MAPPING = {
     "now": datetime.now,
     "to_datestring": lambda x, format: x.strftime(format),
     "to_datetime": to_datetime,
+    "to_isoformat": lambda x: x.isoformat(),
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
