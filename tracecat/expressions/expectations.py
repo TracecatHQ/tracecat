@@ -4,7 +4,7 @@ from typing import Any, Union
 from lark import Lark, Transformer, v_args
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 
 # Define the Lark grammar for parsing types
 type_grammar = r"""
