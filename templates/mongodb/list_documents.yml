@@ -1,0 +1,30 @@
+definition:
+  title: Query MongoDB documents
+  description: |
+    Query documents from a MongoDB collection.
+    Returns stringified ObjectID `_id` and the doc `document`.
+  entrypoint:
+    ref: get_document
+    expects:
+      database_name: str
+      collection_name: str
+      filter: any
+      projection: any
+  triggers:
+    - type: webhook
+      ref: receive_mongodb_query
+      entrypoint: get_document
+  returns:
+    _id: ${{ str(ACTIONS.get_document.result._id) }}
+    documents: ${{ ACTIONS.get_document.result }}
+
+  actions:
+    - ref: list_documents
+      action: integrations.mongodb.perform_mongodb_crud
+      args:
+        operation: find
+        database_name: ${{ TRIGGER.database }}
+        collection_name: ${{ TRIGGER.collection }}
+        params:
+          filter: ${{ TRIGGER.filter }}
+          projection: ${{ TRIGGER.projection }}
