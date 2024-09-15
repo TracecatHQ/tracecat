@@ -151,13 +151,13 @@ async def http_request(
         Field(description="Key to access the token in the JWT / OAuth2 response JSON"),
     ] = "access_token",
     auth_header_key: Annotated[
-        dict[str, str],
+        str,
         Field(
             description="Authorization header key to pass into HTTP headers. If None, defaults to 'Authorization'}"
         ),
     ] = None,
     auth_header_value: Annotated[
-        dict[str, str],
+        str,
         Field(
             description="Authorization header value (must contain `{token}` in the string) to pass into HTTP headers. If None, defaults to 'Bearer {token}'}"
         ),
