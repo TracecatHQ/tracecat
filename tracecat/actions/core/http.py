@@ -22,6 +22,7 @@ class HTTPResponse(TypedDict):
 
 async def get_jwt_token(
     url: str,
+    token_response_key: str,
     json: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> str:
@@ -29,13 +30,11 @@ async def get_jwt_token(
         try:
             response = await client.get(url, json=json, headers=headers)
             response.raise_for_status()
-            token = response.json()["token"]
-        except KeyError as e:
-            logger.error(
-                "Tried to get JWT token. `token` key not found in response JSON."
-            )
+            token = response.json()[token_response_key]
+        except KeyError:
+            msg = f"Tried to get JWT token. `{token_response_key}` key not found in response JSON."
             return HTTPResponse(
-                status_code=500, headers=dict(response.headers.items()), data=repr(e)
+                status_code=500, headers=dict(response.headers.items()), data=msg
             )
     return token
 
@@ -92,19 +91,24 @@ async def http_request(
         dict[str, str],
         Field(description="Headers to obtain a JWT token"),
     ] = None,
-    jwt_authorization_header: Annotated[
+    token_response_key: Annotated[
+        str,
+        Field(description="Key to access the token in the JWT / OAuth2 response JSON"),
+    ] = "access_token",
+    authorization_header: Annotated[
         dict[str, str],
         Field(
-            description='Additional JWT header to pass into HTTP headers. If None, defaults to {"Authorization": "Bearer {token}"}'
+            description='Additional authorization header to pass into HTTP headers. If None, defaults to {"Authorization": "Bearer {token}"}'
         ),
     ] = None,
 ) -> HTTPResponse:
     auth_header = (
-        jwt_authorization_header or {"Authorization": "Bearer {token}"}
+        authorization_header or {"Authorization": "Bearer {token}"}
     ).copy()  # Defensive copy
     if jwt_url is not None:
         token = get_jwt_token(
             url=jwt_url,
+            token_response_key=token_response_key,
             json=jwt_payload,
             headers=jwt_headers,
         )
