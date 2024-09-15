@@ -8,7 +8,7 @@ definition:
     }
     Triggers a child workflow for each alert in the ndjson payload.
   entrypoint:
-    ref: receive_elastic_alerts
+    ref: deserialize_elastic_alerts
     expects:
       ndjson: str  # serialized ndjson payload of alerts
   triggers:
