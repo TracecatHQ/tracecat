@@ -204,8 +204,7 @@ class WorkflowsManagementService:
             entrypoint={
                 # XXX: Sus
                 "ref": graph.logical_entrypoint.ref,
-                # TODO: Add expects for UI -> DSL
-                "expects": {},
+                "expects": workflow.expects,
             },
             actions=action_statements,
             inputs=workflow.static_inputs,
@@ -250,6 +249,7 @@ class WorkflowsManagementService:
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
         logger.info("Creating workflow from DSL", dsl=dsl)
+        entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
             "title": dsl.title,
             "description": dsl.description,
@@ -257,6 +257,7 @@ class WorkflowsManagementService:
             "static_inputs": dsl.inputs,
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
+            "expects": entrypoint.get("expects"),
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id

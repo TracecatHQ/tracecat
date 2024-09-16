@@ -62,7 +62,8 @@ const workflowConfigFormSchema = z.object({
     } catch (error) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format. Please check workflow definition for errors.",
+        message:
+          "Invalid YAML format. Please check workflow definition for errors.",
       })
       return z.NEVER
     }
@@ -78,6 +79,19 @@ const workflowConfigFormSchema = z.object({
       return z.NEVER
     }
   }),
+  /* Input Schema */
+  expects: z.string().transform((val, ctx) => {
+    try {
+      return YAML.parse(val) || {}
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid YAML format",
+      })
+      return z.NEVER
+    }
+  }),
+  /* Output Schema */
   returns: z.string().transform((val, ctx) => {
     try {
       return YAML.parse(val) || null
@@ -114,8 +128,12 @@ export function WorkflowForm({
       static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
         ? ""
         : YAML.stringify(workflow.static_inputs),
-
-      returns: !workflow.returns ? "" : YAML.stringify(workflow.returns),
+      expects: isEmptyObjectOrNullish(workflow.expects)
+        ? ""
+        : YAML.stringify(workflow.expects),
+      returns: isEmptyObjectOrNullish(workflow.returns)
+        ? ""
+        : YAML.stringify(workflow.returns),
     },
   })
 
@@ -162,6 +180,7 @@ export function WorkflowForm({
             "workflow-settings",
             "workflow-config",
             "workflow-static-inputs",
+            "workflow-expects",
             "workflow-returns",
           ]}
         >
@@ -299,7 +318,52 @@ export function WorkflowForm({
               </div>
             </AccordionContent>
           </AccordionItem>
-          <AccordionItem value="workflow-static-inputs">
+          <AccordionItem value="workflow-expects">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-center">
+                <Undo2Icon className="mr-3 size-4" />
+                <span className="capitalize">Input Schema</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="flex flex-col space-y-4 px-4">
+                <div className="flex items-center">
+                  <HoverCard openDelay={100} closeDelay={100}>
+                    <HoverCardTrigger asChild className="hover:border-none">
+                      <Info className="mr-1 size-3 stroke-muted-foreground" />
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                      side="left"
+                      sideOffset={20}
+                    >
+                      <WorkflowInputSchemaTooltip />
+                    </HoverCardContent>
+                  </HoverCard>
+                  <span className="text-xs text-muted-foreground">
+                    Define the schema for the workflow trigger inputs.
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  If undefined, the workflow will not validate the trigger
+                  inputs.
+                </span>
+                <Controller
+                  name="expects"
+                  control={form.control}
+                  render={({ field }) => (
+                    <CustomEditor
+                      className="h-48 w-full"
+                      defaultLanguage="yaml"
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="workflow-returns">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
                 <Undo2Icon className="mr-3 size-4" />
@@ -344,7 +408,7 @@ export function WorkflowForm({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="workflow-returns">
+          <AccordionItem value="workflow-static-inputs">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-center">
                 <FileInputIcon className="mr-3 size-4" />
@@ -432,6 +496,43 @@ function WorkflowReturnValueTooltip() {
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
           {"${{ ACTIONS.my_action.result }}"}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+const exampleExpects = `\
+my_param:
+  type: str
+  description: This is a string
+  default: My default value
+
+my_list:
+  type: list[int]
+  description: This is a list of integers without a default value
+my_union:
+  type: str | int | None
+  description: This is a union of a string, an integer, and None
+`
+function WorkflowInputSchemaTooltip() {
+  return (
+    <div className="flex w-full flex-col space-y-4">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
+        <span className="font-mono text-sm font-semibold">Input Schema</span>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <span className="w-full text-muted-foreground">
+        Define the workflow input schema. This will be used to validate the
+        trigger inputs to the workflow.
+      </span>
+      <span className="w-full text-muted-foreground">
+        Passing a default value makes the field optional.
+      </span>
+      <span className="w-full text-muted-foreground">Usage example:</span>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-wrap text-xs text-foreground/70">
+          {exampleExpects}
         </pre>
       </div>
     </div>

@@ -297,6 +297,11 @@ class Workflow(Resource, table=True):
         sa_column=Column(JSONB),
         description="Static inputs for the workflow",
     )
+    expects: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Input schema for the workflow",
+    )
     returns: Any | None = Field(
         None,
         sa_column=Column(JSONB),

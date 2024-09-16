@@ -4,8 +4,12 @@ description: Test sending a Slack notification
 entrypoint:
   ref: send_slack_notifications
   expects:
-    header: str
-    description: str
+    header:
+      type: str
+      description: The header text for the Slack message
+    description:
+      type: str
+      description: The description text for the Slack message
 
 triggers:
   - type: webhook

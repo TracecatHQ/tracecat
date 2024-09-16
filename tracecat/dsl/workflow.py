@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 from collections import defaultdict
 from collections.abc import (
     Awaitable,
@@ -21,8 +22,6 @@ from temporalio.exceptions import (
     ChildWorkflowError,
     FailureError,
 )
-
-from tracecat.types.exceptions import TracecatNotFoundError
 
 with workflow.unsafe.imports_passed_through():
     import httpx
@@ -45,6 +44,10 @@ with workflow.unsafe.imports_passed_through():
         DSLConfig,
         DSLNodeResult,
     )
+    from tracecat.dsl.validation import (
+        ValidateTriggerInputsActivityInputs,
+        validate_trigger_inputs_activity,
+    )
     from tracecat.expressions.core import TemplateExpression
     from tracecat.expressions.eval import (
         eval_templated_object,
@@ -62,8 +65,10 @@ with workflow.unsafe.imports_passed_through():
         TracecatDSLError,
         TracecatException,
         TracecatExpressionError,
+        TracecatNotFoundError,
         TracecatValidationError,
     )
+    from tracecat.types.validation import ValidationResult
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -395,6 +400,20 @@ class DSLWorkflow:
             self.logger.debug("Using provided trigger inputs")
             trigger_inputs = args.trigger_inputs or {}
 
+        try:
+            validation_result = await self._validate_trigger_inputs(trigger_inputs)
+            logger.info("Trigger inputs are valid", validation_result=validation_result)
+        except ValidationError as e:
+            logger.error("Failed to validate trigger inputs", error=e.errors())
+            raise ApplicationError(
+                (
+                    "Failed to validate trigger inputs"
+                    f"\n\n{json.dumps(e.errors(), indent=2)}"
+                ),
+                non_retryable=True,
+                type=e.__class__.__name__,
+            ) from e
+
         self.context = DSLContext(
             ACTIONS={},
             INPUTS=self.dsl.inputs,
@@ -691,6 +710,28 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
         )
+
+    async def _validate_trigger_inputs(
+        self, trigger_inputs: dict[str, Any]
+    ) -> ValidationResult:
+        """Validate trigger inputs.
+
+        Note
+        ----
+        Not sure why we can't just run the function directly here.
+        Pydantic throws an invalid JsonSchema error when we do so.
+        """
+
+        validation_result = await workflow.execute_activity(
+            validate_trigger_inputs_activity,
+            arg=ValidateTriggerInputsActivityInputs(
+                dsl=self.dsl,
+                trigger_inputs=trigger_inputs,
+            ),
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
+        return validation_result
 
     async def _get_schedule_trigger_inputs(
         self, schedule_id: identifiers.ScheduleID, worflow_id: identifiers.WorkflowID

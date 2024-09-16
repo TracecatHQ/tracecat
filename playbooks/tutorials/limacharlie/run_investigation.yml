@@ -6,8 +6,12 @@ definition:
     Requires secret named `limacharlie` with keys `LIMACHARLIE_API_SECRET` and `LIMACHARLIE_OID`.
   entrypoint:
     expects:
-      tags: list[str]
-      test_ids: list[str]
+      tags:
+        type: list[str]
+        description: List of tags to filter sensors.
+      test_ids:
+        type: list[str]
+        description: List of Atomic Red Team test IDs to run.
     ref: list_sensors_by_tags
   inputs:
     api_url: https://api.limacharlie.io/v1

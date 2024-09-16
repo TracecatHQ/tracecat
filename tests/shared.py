@@ -10,7 +10,9 @@ import httpx
 from slugify import slugify
 
 from tracecat.db.schemas import Secret
+from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.identifiers.resource import ResourcePrefix
+from tracecat.workflow.management.definitions import get_workflow_definition_activity
 
 
 def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
@@ -129,3 +131,6 @@ def generate_test_exec_id(name: str) -> str:
         + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
         + slugify(name, separator="_")
     )
+
+
+DSL_UTILITIES = [get_workflow_definition_activity, validate_trigger_inputs_activity]

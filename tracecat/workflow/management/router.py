@@ -179,7 +179,19 @@ async def get_workflow(
     }
     # Add webhook/schedules
     return WorkflowResponse(
-        **workflow.model_dump(),
+        id=workflow.id,
+        owner_id=workflow.owner_id,
+        title=workflow.title,
+        description=workflow.description,
+        icon_url=workflow.icon_url,
+        status=workflow.status,
+        version=workflow.version,
+        expects=workflow.expects,
+        returns=workflow.returns,
+        entrypoint=workflow.entrypoint,
+        object=workflow.object,
+        static_inputs=workflow.static_inputs,
+        config=workflow.config,
         actions=actions_responses,
         webhook=WebhookResponse(**workflow.webhook.model_dump()),
         schedules=workflow.schedules,

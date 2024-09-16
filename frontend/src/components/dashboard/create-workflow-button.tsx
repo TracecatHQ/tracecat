@@ -88,7 +88,7 @@ export function CreateWorkflowButton() {
             })
 
             setValidationErrors(
-              YAML.stringify(YAML.parse(apiError.body.detail))
+              YAML.stringify(YAML.parse(String(apiError.body.detail)))
             )
             break
           case 409:

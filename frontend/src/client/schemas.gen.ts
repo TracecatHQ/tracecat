@@ -996,13 +996,18 @@ export const $DSLEntrypoint = {
         },
         expects: {
             anyOf: [
-                {},
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
                 {
                     type: 'null'
                 }
             ],
             title: 'Expects',
-            description: 'Expected trigger input shape'
+            description: 'Expected trigger input schema. Use this to specify the expected shape of the trigger input.'
         }
     },
     type: 'object',
@@ -1363,6 +1368,38 @@ export const $EventHistoryType = {
     enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'WORKFLOW_EXECUTION_TERMINATED', 'WORKFLOW_EXECUTION_CANCELED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED', 'CHILD_WORKFLOW_EXECUTION_STARTED', 'CHILD_WORKFLOW_EXECUTION_COMPLETED', 'CHILD_WORKFLOW_EXECUTION_FAILED', 'START_CHILD_WORKFLOW_EXECUTION_INITIATED'],
     title: 'EventHistoryType',
     description: 'The event types we care about.'
+} as const;
+
+export const $ExpectedField = {
+    properties: {
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        default: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default'
+        }
+    },
+    type: 'object',
+    required: ['type'],
+    title: 'ExpectedField'
 } as const;
 
 export const $GetWorkflowDefinitionActivityInputs = {
@@ -2439,6 +2476,20 @@ export const $UpdateWorkflowParams = {
             ],
             title: 'Static Inputs'
         },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
+        },
         returns: {
             anyOf: [
                 {},
@@ -3145,6 +3196,20 @@ export const $WorkflowResponse = {
         static_inputs: {
             type: 'object',
             title: 'Static Inputs'
+        },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
         },
         returns: {
             title: 'Returns'

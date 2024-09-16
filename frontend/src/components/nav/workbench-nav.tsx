@@ -22,8 +22,10 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
+import YAML from "yaml"
 import { z } from "zod"
 
+import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
 import { useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -143,6 +145,7 @@ export function WorkbenchNav() {
         {/* Workflow tabs */}
         <TabSwitcher workflowId={workflow.id} />
         {/* Workflow manual trigger */}
+
         <WorkflowManualTrigger
           disabled={manualTriggerDisabled}
           workflowId={workflow.id}
@@ -351,14 +354,25 @@ function WorkflowManualTrigger({
 }) {
   const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
+  const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
+    null
+  )
+  const [manualTriggerErrors, setManualTriggerErrors] = React.useState<Record<
+    string,
+    string
+  > | null>(null)
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
-    defaultValues: { payload: '{"sampleWebhookParam": "sampleValue"}' },
+    defaultValues: {
+      payload: lastTriggerInput || '{"sampleWebhookParam": "sampleValue"}',
+    },
   })
 
   const handleSubmit = async (values: TWorkflowControlsForm) => {
     // Make the API call to start the workflow
     const { payload } = values
+    setLastTriggerInput(payload)
+    setManualTriggerErrors(null)
     try {
       const response = await workflowExecutionsCreateWorkflowExecution({
         workspaceId,
@@ -372,15 +386,29 @@ function WorkflowManualTrigger({
         title: `Workflow run started`,
         description: `${response.wf_exec_id} ${response.message}`,
       })
-      setOpen(false)
     } catch (error) {
       if (error instanceof ApiError) {
-        console.error("Error details", error.body)
-        toast({
-          title: "Error starting workflow",
-          description: error.message,
-          variant: "destructive",
-        })
+        const tracecatError = error as TracecatApiError
+        console.error("Error details", tracecatError.body.detail)
+        switch (tracecatError.status) {
+          case 400:
+            toast({
+              title: "Invalid workflow trigger inputs",
+              description: "Please hover over the run button for details.",
+              variant: "destructive",
+            })
+            setManualTriggerErrors(
+              tracecatError.body.detail as Record<string, string>
+            )
+            break
+          default:
+            console.error("Unexpected error starting workflow", error)
+            toast({
+              title: "Unexpected error starting workflow",
+              description: "Please check the run logs for more information",
+              variant: "destructive",
+            })
+        }
       } else {
         console.error("Unexpected error starting workflow", error)
         toast({
@@ -389,6 +417,8 @@ function WorkflowManualTrigger({
           variant: "destructive",
         })
       }
+    } finally {
+      setOpen(false)
     }
   }
 
@@ -405,11 +435,19 @@ function WorkflowManualTrigger({
                 <Button
                   type="button"
                   variant="outline"
-                  className="group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white disabled:pointer-events-none"
+                  className={cn(
+                    "group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white disabled:pointer-events-none",
+                    manualTriggerErrors &&
+                      "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+                  )}
                   disabled={disabled}
                   onClick={() => !disabled && setOpen(true)}
                 >
-                  <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
+                  {manualTriggerErrors ? (
+                    <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
+                  ) : (
+                    <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
+                  )}
                   <span>Run</span>
                 </Button>
               </PopoverTrigger>
@@ -453,11 +491,27 @@ function WorkflowManualTrigger({
         </TooltipTrigger>
         <TooltipContent
           side="bottom"
-          className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
+          className={cn(
+            "w-[300px] border bg-background text-xs text-muted-foreground shadow-lg",
+            manualTriggerErrors && "p-0"
+          )}
         >
-          {disabled
-            ? "Please commit changes to enable manual trigger."
-            : "Run the workflow manually without a webhook. Click to configure inputs."}
+          {manualTriggerErrors ? (
+            <div className="space-y-2 overflow-auto rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
+              <span className="text-xs font-bold text-rose-500">
+                Trigger Validation Errors
+              </span>
+              <div className="mt-1 space-y-1">
+                <pre className="text-wrap text-rose-500">
+                  {YAML.stringify(manualTriggerErrors)}
+                </pre>
+              </div>
+            </div>
+          ) : disabled ? (
+            "Please commit changes to enable manual trigger."
+          ) : (
+            "Run the workflow manually without a webhook. Click to configure inputs."
+          )}
         </TooltipContent>
       </Tooltip>
     </Form>

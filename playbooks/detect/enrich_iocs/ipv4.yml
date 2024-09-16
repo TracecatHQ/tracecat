@@ -6,7 +6,9 @@ definition:
   entrypoint:
     ref: select_ip_addresses
     expects:
-      ipv4: list[str]
+      ipv4:
+        type: list[str]
+        description: A list of IPv4 addresses to enrich
   triggers:
     - type: webhook
       ref: receive_json
