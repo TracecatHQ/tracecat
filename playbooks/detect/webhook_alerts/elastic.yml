@@ -10,7 +10,9 @@ definition:
   entrypoint:
     ref: deserialize_elastic_alerts
     expects:
-      ndjson: str  # serialized ndjson payload of alerts
+      ndjson:
+        type: str
+        description: A newline-delimited JSON string containing alerts
   triggers:
     - type: webhook
       ref: receive_elastic_alerts

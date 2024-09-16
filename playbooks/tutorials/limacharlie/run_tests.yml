@@ -5,10 +5,18 @@ definition:
     Requires secret named `limacharlie` with keys `LIMACHARLIE_API_SECRET` and `LIMACHARLIE_OID`.
   entrypoint:
     expects:
-      sensor_id: str
-      investigation_id: str
-      test_ids: list[str]
-      payload_dir_path: str
+      sensor_id:
+        type: str
+        description: The ID of the sensor to run the tests on.
+      investigation_id:
+        type: str
+        description: The ID of the investigation associated with the tests.
+      test_ids:
+        type: list[str]
+        description: A list of test IDs to be executed.
+      payload_dir_path:
+        type: str
+        description: The directory path where the payloads are stored.
     ref: upload_emulation_tests
   inputs:
     api_url: https://api.limacharlie.io/v1

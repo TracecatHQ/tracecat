@@ -6,7 +6,9 @@ definition:
   entrypoint:
     ref: select_urls
     expects:
-      urls: list[str]
+      urls:
+        type: list[str]
+        description: A list of URLs to enrich
   triggers:
     - type: webhook
       ref: receive_json
