@@ -21,6 +21,7 @@ definition:
   inputs:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
+    token_response_key: token
     datetime_format: "%Y-%m-%d %H:%M:%S"
     event_type: RECEIPT
 
@@ -30,6 +31,7 @@ definition:
       for_each: ${{ for var.test_id in TRIGGER.test_ids }}
       args:
         url: "${{ INPUTS.api_url }}/${{ TRIGGER.sensor_id }}/"
+        token_response_key: ${{ INPUTS.token_response_key }}
         jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
           tasks: ["put --payload-name ${{ var.test_id }} --payload-path ${{ TRIGGER.payload_dir_path }}\\${{ var.test_id }}.exe"]
@@ -44,6 +46,7 @@ definition:
       for_each: ${{ for var.test_id in TRIGGER.test_ids }}
       args:
         url: "${{ INPUTS.api_url }}/${{ TRIGGER.sensor_id }}/"
+        token_response_key: ${{ INPUTS.token_response_key }}
         jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
           tasks: ["run --shell-command '${{ TRIGGER.payload_dir_path }}\\${{ var.test_id }}.exe'"]
