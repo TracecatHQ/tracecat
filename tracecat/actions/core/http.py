@@ -164,6 +164,8 @@ async def http_request(
     ] = None,
 ) -> HTTPResponse:
     access_token = None
+    auth_header_key = auth_header_key or "Authorization"
+    auth_header_value = auth_header_value or "Bearer {token}"
     if jwt_url is not None:
         access_token = get_jwt_token(
             url=jwt_url,
