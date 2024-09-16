@@ -82,7 +82,7 @@ const workflowConfigFormSchema = z.object({
   /* Input Schema */
   expects: z.string().transform((val, ctx) => {
     try {
-      return YAML.parse(val) || null
+      return YAML.parse(val) || {}
     } catch (error) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -128,8 +128,12 @@ export function WorkflowForm({
       static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
         ? ""
         : YAML.stringify(workflow.static_inputs),
-      expects: !workflow.expects ? "" : YAML.stringify(workflow.expects),
-      returns: !workflow.returns ? "" : YAML.stringify(workflow.returns),
+      expects: isEmptyObjectOrNullish(workflow.expects)
+        ? ""
+        : YAML.stringify(workflow.expects),
+      returns: isEmptyObjectOrNullish(workflow.returns)
+        ? ""
+        : YAML.stringify(workflow.returns),
     },
   })
 
