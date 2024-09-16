@@ -12,13 +12,19 @@ class TracecatEnum(StrEnum):
 
 
 class ExprContext(TracecatEnum):
+    """Global contexts"""
+
     ACTIONS = "ACTIONS"
     SECRETS = "SECRETS"
     FN = "FN"
     INPUTS = "INPUTS"
     ENV = "ENV"
     TRIGGER = "TRIGGER"
-    LOCAL_VARS = "var"  # Action-local variables
+
+    """Action-local variables"""
+    LOCAL_VARS = "var"
+    TEMPLATE_ACTION_INPUTS = "inputs"
+    TEMPLATE_ACTION_LAYERS = "layers"
 
 
 class ExprType(TracecatEnum):

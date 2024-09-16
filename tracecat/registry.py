@@ -7,20 +7,31 @@ import functools
 import inspect
 import re
 from collections.abc import Callable, Coroutine, Iterator
-from types import FunctionType, GenericAlias
-from typing import Annotated, Any, Generic, Self, TypedDict, TypeVar
+from pathlib import Path
+from types import FunctionType, GenericAlias, MethodType
+from typing import Annotated, Any, Generic, Literal, Self, TypedDict, TypeVar, cast
 
-from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
+import yaml
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    create_model,
+    model_validator,
+)
 from pydantic_core import ValidationError
 from typing_extensions import Doc
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.db.schemas import UDFSpec
-from tracecat.dsl.models import ArgsT
+from tracecat.dsl.models import ArgsT, DSLNodeResult
+from tracecat.expressions.eval import eval_templated_object
+from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.identifiers import OwnerID
+from tracecat.logger import logger
 from tracecat.secrets.models import SecretKey, SecretName
 from tracecat.types.exceptions import TracecatException
 
@@ -63,6 +74,7 @@ ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
 class RegisteredUDFMetadata(TypedDict, total=False):
     """Metadata for a registered UDF."""
 
+    is_template: bool = False
     default_title: str | None
     display_group: str | None
     include_in_schema: bool
@@ -70,7 +82,7 @@ class RegisteredUDFMetadata(TypedDict, total=False):
 
 class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    fn: FunctionType
+    fn: FunctionType | MethodType
     key: str
     description: str
     namespace: str
@@ -130,11 +142,21 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
                 key=self.key,
             ) from e
 
-    async def run_async(self, args: ArgsT) -> Coroutine[Any, Any, Any]:
-        """Run a UDF async."""
+    async def run_async(
+        self, *, args: ArgsT, context: dict[str, Any] | None = None
+    ) -> Coroutine[Any, Any, Any]:
+        """Run a UDF async.
+
+        You only need to pass `base_context` if the UDF is a template.
+        """
+        if self.metadata.get("is_template"):
+            kwargs = {"args": args, "base_context": context or {}}
+        else:
+            kwargs = args
+        logger.warning("Running UDF async", kwargs=kwargs)
         if self.is_async:
-            return await self.fn(**args)
-        return await asyncio.to_thread(self.fn, **args)
+            return await self.fn(**kwargs)
+        return await asyncio.to_thread(self.fn, **kwargs)
 
     def to_udf_spec(
         self, owner_id: OwnerID = config.TRACECAT__DEFAULT_USER_ID
@@ -191,11 +213,69 @@ class _Registry:
         """Initialize the registry."""
         logger.warning("Initializing registry")
         if not _Registry._done_init:
-            from tracecat import actions  # noqa: F401
-
-            # Load default workflows
+            # Load udfs
+            self.load_udfs()
+            # Load template actions
+            self._load_template_actions()
 
             _Registry._done_init = True
+
+    def load_udfs(self) -> None:
+        """Load all udfs and template actions into the registry."""
+        # Load udfs
+        logger.info("Loading UDFs")
+        from tracecat import actions  # noqa: F401
+
+    def _load_template_actions(self) -> None:
+        """Load template actions from the actions/templates directory."""
+
+        # TODO: Load this in using fsspec
+        path = Path(__file__).parent.parent / "templates"
+        logger.info(f"Loading default templates from {path!s}")
+        for file in path.iterdir():
+            if not (
+                file.is_file()
+                and file.suffix in (".yml", ".yaml")
+                and not file.name.startswith("_")
+            ):
+                logger.info(f"Skipping template {file!s}")
+                continue
+            logger.info(f"Loading template {file!s}")
+            # Load TemplateActionDefinition
+            template_action = TemplateAction.from_yaml(file)
+
+            key = template_action.definition.action
+            if key in self._udf_registry:
+                # Already registered, skip
+                logger.info(f"Template {key!r} already registered, skipping")
+                continue
+
+            # Register the action
+            defn = template_action.definition
+            expectation = defn.expects
+            self._udf_registry[key] = RegisteredUDF(
+                fn=template_action.run,
+                key=key,
+                namespace=defn.namespace,
+                version=None,
+                description=defn.description,
+                secrets=defn.secrets,
+                args_cls=create_expectation_model(expectation, key.replace(".", "__"))
+                if expectation
+                else None,
+                args_docs={
+                    key: schema.description or "-"
+                    for key, schema in expectation.items()
+                },
+                rtype_cls=Any,
+                rtype_adapter=TypeAdapter(Any),
+                metadata=RegisteredUDFMetadata(
+                    is_template=True,
+                    default_title=defn.title,
+                    display_group=defn.display_group,
+                    include_in_schema=True,
+                ),
+            )
 
     def register(
         self,
@@ -418,3 +498,93 @@ def _get_signature_docs(fn: FunctionType) -> dict[str, str]:
 def init() -> None:
     """Initialize the registry."""
     registry.init()
+
+
+class ActionLayer(BaseModel):
+    ref: str = Field(..., description="The reference of the layer")
+    action: str
+    args: ArgsT
+
+    async def run(self, *, registry: _Registry, context: dict[str, Any]) -> Any:
+        udf = registry.get(self.action)
+        udf.validate_args(**self.args)
+        concrete_args = cast(ArgsT, eval_templated_object(self.args, operand=context))
+        return await udf.run_async(args=concrete_args, context=context)
+
+
+class TemplateActionDefinition(BaseModel):
+    action: str = Field(..., description="The action key")
+    namespace: str = Field(..., description="The namespace of the action")
+    title: str = Field(..., description="The title of the action")
+    description: str = Field("", description="The description of the action")
+    display_group: str = Field(..., description="The display group of the action")
+    secrets: list[RegistrySecret] | None = Field(
+        None, description="The secrets to pass to the action"
+    )
+    expects: dict[str, ExpectedField] = Field(
+        ..., description="The arguments to pass to the action"
+    )
+    layers: list[ActionLayer] = Field(
+        ..., description="The internal layers of the action"
+    )
+    returns: str | list[str] | dict[str, Any] = Field(
+        ..., description="The result of the action"
+    )
+
+    # Validate layers
+    @model_validator(mode="after")
+    def validate_layers(self) -> TemplateActionDefinition:
+        layer_refs = [layer.ref for layer in self.layers]
+        unique_layer_refs = set(layer_refs)
+
+        if len(layer_refs) != len(unique_layer_refs):
+            duplicate_layer_refs = [
+                ref for ref in layer_refs if layer_refs.count(ref) > 1
+            ]
+            raise ValueError(
+                f"Duplicate layer references found: {duplicate_layer_refs}"
+            )
+
+        return self
+
+
+class TemplateAction(BaseModel):
+    type: Literal["action"] = Field("action", frozen=True)
+    definition: TemplateActionDefinition
+
+    @staticmethod
+    def from_yaml(path: Path) -> TemplateAction:
+        with path.open("r") as f:
+            template = yaml.safe_load(f)
+
+        return TemplateAction(**template)
+
+    async def run(
+        self,
+        *,
+        args: dict[str, Any],
+        base_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run the layers of the action.
+
+        Assumptions:
+        - Args have been validated against the expected arguments
+        - All expressions are deterministic
+
+        Returns
+        -------
+        - If no return is specified, we return the last layer's result
+        - If a return is specified, we return the result of the expression
+        """
+
+        context = base_context.copy() | {"inputs": args, "layers": {}}
+        logger.info("Running template action", action=self.definition.action)
+        for layer in self.definition.layers:
+            result = await layer.run(context=context, registry=registry)
+            context["layers"][layer.ref] = DSLNodeResult(
+                result=result,
+                result_typename=type(result).__name__,
+            )
+
+        # Handle returns
+        return eval_templated_object(self.definition.returns, operand=context)

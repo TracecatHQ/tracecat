@@ -148,6 +148,24 @@ class ExprEvaluator(Transformer):
         )
 
     @v_args(inline=True)
+    def template_action_inputs(self, jsonpath: str):
+        logger.trace("Visiting template_action_inputs:", args=jsonpath)
+        return functions.eval_jsonpath(
+            ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath,
+            self._context,
+            strict=self._strict,
+        )
+
+    @v_args(inline=True)
+    def template_action_layers(self, jsonpath: str):
+        logger.trace("Visiting template_action_layers:", args=jsonpath)
+        return functions.eval_jsonpath(
+            ExprContext.TEMPLATE_ACTION_LAYERS + jsonpath,
+            self._context,
+            strict=self._strict,
+        )
+
+    @v_args(inline=True)
     def function(self, fn_name: str, fn_args: Sequence[Any]):
         is_mapped = fn_name.endswith(".map")
         fn_name = fn_name.rsplit(".", 1)[0] if is_mapped else fn_name
