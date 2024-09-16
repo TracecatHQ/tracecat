@@ -1,0 +1,14 @@
+definition:
+  title: List Slack users
+  expects:
+    team_id: str
+    limit: int
+  actions:
+    - ref: list_users
+      action: integrations.slack.call_paginated_slack_api
+      args:
+        sdk_method: users_list
+        params:
+          team_id: ${{ TRIGGER.team_id }}
+          limit: ${{ TRIGGER.limit }}
+  returns: ${{ FN.flatten(ACTIONS.list_users.result[*].member) }}

@@ -1,0 +1,18 @@
+definition:
+  title: List Slack conversations
+  expects:
+    channel: str
+    latest: datetime
+    oldest: datetime
+    limit: int
+  actions:
+    - ref: list_conversations
+      action: integrations.slack.call_paginated_slack_api
+      args:
+        sdk_method: conversations_history
+        params:
+          channel: ${{ TRIGGER.channel }}
+          latest: ${{ str(FN.to_timestamp(TRIGGER.latest)) }}
+          oldest: ${{ str(FN.to_timestamp(TRIGGER.oldest)) }}
+          limit: ${{ TRIGGER.limit }}
+  returns: ${{ FN.flatten(ACTIONS.list_conversations.result[*].messages) }}

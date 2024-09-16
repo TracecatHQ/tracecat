@@ -1,0 +1,19 @@
+definition:
+  title: Post Slack message
+  expects:
+    channel: str
+    thread_ts: str
+    message: str
+    text: str
+    blocks: any
+  actions:
+    - ref: post_message
+      action: integrations.slack.call_slack_api
+      args:
+        sdk_method: chat_postMessage
+        params:
+          channel: ${{ TRIGGER.channel }}
+          thread_ts: ${{ TRIGGER.thread_ts }}
+          text: ${{ TRIGGER.text }}
+          blocks: ${{ TRIGGER.blocks }}
+  returns: ${{ ACTIONS.post_message.result.message }}
