@@ -1,0 +1,131 @@
+definition:
+  title: List Wiz issues
+  description: |
+    Given Wiz `service_source` (e.g. 'wiz'), return list of issues filtered by `start_time` and `end_time`.
+    Requires secret named `wiz` with keys:
+    - WIZ_GRAPHQL_URL
+    - WIZ_AUTH_URL
+    - WIZ_CLIENT_ID
+    - WIZ_CLIENT_SECRET
+  entrypoint:
+    ref: list_alerts
+    expects:
+      start_time: datetime
+      end_time: datetime
+      limit: int
+  triggers:
+    - type: webhook
+      ref: receive_defender_query
+      entrypoint: list_alerts
+  inputs:
+    status: [ "OPEN", "IN_PROGRESS", "RESOLVED", "REJECTED" ]
+    severity: [ "INFORMATIONAL", "LOW", "MEDIUM", "HIGH", "CRITICAL" ]
+    type: ["TOXIC_COMBINATION", "THREAT_DETECTION", "CLOUD_CONFIGURATION"]
+    dt_format: "%Y-%m-%dT%H:%M:%SZ"
+  returns: ${{ ACTIONS.list_alerts.result }}
+
+  actions:
+    - ref: list_alerts
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ SECRETS.wiz.WIZ_GRAPHQL_URL }}
+        oauth2_url: ${{ SECRETS.wiz.WIZ_AUTH_URL }}
+        oauth2_client_id: ${{ SECRETS.wiz.WIZ_CLIENT_ID }}
+        oauth2_client_secret: ${{ SECRETS.wiz.WIZ_CLIENT_SECRET }}
+        oauth2_headers:
+          audience: wiz-api
+        oauth2_grant_type: client_credentials
+        payload:
+          query: >-
+            query IssuesTable($first: Int, $after: String, $filterBy: IssueFilters) {
+              issues: issuesV2(first: $first, after: $after, filterBy: $filterBy) {
+                nodes {
+                  id
+                  control {
+                    id
+                    name
+                    description
+                    resolutionRecommendation
+                    securitySubCategories {
+                      title
+                      category {
+                        name
+                        framework {
+                          name
+                        }
+                      }
+                    }
+                  }
+                  createdAt
+                  updatedAt
+                  sourceRule {
+                    id
+                    name
+                  }
+                  dueAt
+                  resolvedAt
+                  statusChangedAt
+                  project {
+                    id
+                    name
+                    slug
+                    businessUnit
+                    riskProfile {
+                      businessImpact
+                    }
+                  }
+                  status
+                  severity
+                  type
+                  entitySnapshot {
+                    id
+                    type
+                    nativeType
+                    name
+                    status
+                    cloudPlatform
+                    cloudProviderURL
+                    providerId
+                    region
+                    resourceGroupExternalId
+                    subscriptionExternalId
+                    subscriptionName
+                    subscriptionTags
+                    tags
+                    externalId
+                  }
+                  notes {
+                    createdAt
+                    updatedAt
+                    text
+                    user {
+                      name
+                      email
+                    }
+                    serviceAccount {
+                      name
+                    }
+                  }
+                  serviceTickets {
+                    externalId
+                    name
+                    url
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+            }
+          variables:
+            first: ${{ TRIGGER.limit }}
+            after: ${{ TRIGGER.endCursor || null }}
+            filterBy:
+              status: ${{ INPUTS.status }}
+              severity: ${{ INPUTS.severity }}
+              type: ${{ INPUTS.type }}
+              createdAt:
+                after: ${{ FN.to_datestring(TRIGGER.start_time, INPUTS.dt_format) }}
+                before: ${{ FN.to_datestring(TRIGGER.end_time, INPUTS.dt_format) }}
