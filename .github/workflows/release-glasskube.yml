@@ -1,0 +1,23 @@
+name: Publish Glasskube Manifest
+on:
+  push:
+    tags:
+      - "*.*.*"
+jobs:
+  publish-manifest:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.5"
+      - name: Build Manifest
+        run: kubectl kustomize deployments/glasskube > deployments/glasskube/glasskube-manifest.yaml
+      - name: Upload Release Artifact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} deployments/glasskube/glasskube-manifest.yaml
