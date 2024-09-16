@@ -155,17 +155,15 @@ async def http_request(
         Field(
             description="Authorization header key to pass into HTTP headers. If None, defaults to 'Authorization'}"
         ),
-    ] = None,
+    ] = "Authorization",
     auth_header_value: Annotated[
         str,
         Field(
             description="Authorization header value (must contain `{token}` in the string) to pass into HTTP headers. If None, defaults to 'Bearer {token}'}"
         ),
-    ] = None,
+    ] = "Bearer {token}",
 ) -> HTTPResponse:
     access_token = None
-    auth_header_key = auth_header_key or "Authorization"
-    auth_header_value = auth_header_value or "Bearer {token}"
     if jwt_url is not None:
         access_token = get_jwt_token(
             url=jwt_url,
