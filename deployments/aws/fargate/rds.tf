@@ -15,12 +15,13 @@ resource "aws_db_instance" "core_database" {
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
   performance_insights_enabled = var.rds_performance_insights_enabled
+  auto_minor_version_upgrade   = var.rds_auto_minor_version_upgrade
 }
 
 resource "aws_db_instance" "temporal_database" {
   identifier                   = "temporal-database"
   engine                       = "postgres"
-  engine_version               = "13.13"
+  engine_version               = "13.15"
   instance_class               = "${var.db_instance_class}.${var.db_instance_size}"
   allocated_storage            = 5
   storage_type                 = "gp2"
@@ -34,6 +35,7 @@ resource "aws_db_instance" "temporal_database" {
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
   performance_insights_enabled = var.rds_performance_insights_enabled
+  auto_minor_version_upgrade   = var.rds_auto_minor_version_upgrade
 }
 
 resource "aws_db_subnet_group" "tracecat_db_subnet" {

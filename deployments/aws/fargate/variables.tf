@@ -170,7 +170,7 @@ variable "rds_multi_az" {
 variable "rds_skip_final_snapshot" {
   type        = bool
   description = "Skip final snapshot when deleting RDS instances"
-  default     = true
+  default     = false
 }
 
 variable "rds_deletion_protection" {
@@ -188,12 +188,18 @@ variable "rds_apply_immediately" {
 variable "rds_backup_retention_period" {
   type        = number
   description = "The number of days to retain backups for RDS instances"
-  default     = 0
+  default     = 7
 }
 
 variable "rds_performance_insights_enabled" {
   type        = bool
   description = "Enable Performance Insights for RDS instances"
+  default     = false
+}
+
+variable "rds_auto_minor_version_upgrade" {
+  type        = bool
+  description = "Enable auto minor version upgrades for RDS instances"
   default     = false
 }
 
