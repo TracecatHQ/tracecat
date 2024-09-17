@@ -978,7 +978,11 @@ class DSLActivities:
                 try:
                     async with GatheringTaskGroup() as tg:
                         for patched_args in iterator:
-                            tg.create_task(udf.run_async(patched_args))
+                            tg.create_task(
+                                udf.run_async(
+                                    args=patched_args, context=context_with_secrets
+                                )
+                            )
 
                     result = tg.results()
                 except* Exception as eg:
@@ -994,8 +998,8 @@ class DSLActivities:
                     ) from eg
 
             else:
-                args = eval_templated_object(task.args, operand=context_with_secrets)
-                result = await udf.run_async(args)
+                args = _evaluate_templated_args(task, context_with_secrets)
+                result = await udf.run_async(args=args, context=context_with_secrets)
 
             if mask_values:
                 result = apply_masks_object(result, masks=mask_values)

@@ -25,6 +25,8 @@ binary_op: expression OPERATOR expression
         | local_vars
         | trigger
         | function
+        | template_action_inputs
+        | template_action_layers
 
 arg_list: (expression ("," expression)*)?
 
@@ -37,6 +39,9 @@ local_vars: "var" jsonpath_expression
 trigger: "TRIGGER" jsonpath_expression
 function: "FN." FN_NAME_WITH_TRANSFORM "(" [arg_list] ")"
 local_vars_assignment: "var" ATTRIBUTE_PATH
+
+template_action_inputs: "inputs" jsonpath_expression
+template_action_layers: "layers" jsonpath_expression
 
 
 

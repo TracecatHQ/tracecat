@@ -12,6 +12,7 @@ WORKDIR /app
 
 # Copy the application files into the container
 COPY ./tracecat /app/tracecat
+COPY ./templates /app/templates
 COPY ./pyproject.toml /app/pyproject.toml
 COPY ./README.md /app/README.md
 COPY ./LICENSE /app/LICENSE
