@@ -25,6 +25,9 @@ RUN chmod +x /app/entrypoint.sh
 # Install package
 RUN pip install --upgrade pip && pip install -e .
 
+# Install git
+RUN apt-get update && apt-get install -y git
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Command to run the application
