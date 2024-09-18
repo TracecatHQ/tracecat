@@ -278,7 +278,7 @@ class _Registry:
         display_group: str | None,
         include_in_schema: bool,
     ):
-        logger.warning(f"Registering UDF {key=}")
+        logger.debug(f"Registering UDF {key=}")
 
         secret_names = [secret.name for secret in secrets or []]
 
@@ -386,7 +386,7 @@ class _Registry:
             for _, submodule_name, _is_pkg in pkgutil.iter_modules(module.__path__):
                 full_submodule_name = f"{module.__name__}.{submodule_name}"
                 if full_submodule_name not in visited_modules:
-                    logger.debug(f"Importing submodule: {full_submodule_name}")
+                    logger.trace(f"Importing submodule: {full_submodule_name}")
                     submodule = importlib.import_module(full_submodule_name)
                     new_base_path = (
                         f"{base_path}.{submodule_name}" if base_path else submodule_name
