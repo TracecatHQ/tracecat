@@ -21,6 +21,7 @@ from pydantic import (
     ConfigDict,
     Field,
     TypeAdapter,
+    computed_field,
     create_model,
     model_validator,
 )
@@ -714,7 +715,7 @@ class ActionLayer(BaseModel):
 
 
 class TemplateActionDefinition(BaseModel):
-    action: str = Field(..., description="The action key")
+    name: str = Field(..., description="The action name")
     namespace: str = Field(..., description="The namespace of the action")
     title: str = Field(..., description="The title of the action")
     description: str = Field("", description="The description of the action")
@@ -748,6 +749,11 @@ class TemplateActionDefinition(BaseModel):
 
         return self
 
+    @computed_field
+    @property
+    def action(self) -> str:
+        return f"{self.namespace}.{self.name}"
+
 
 class TemplateAction(BaseModel):
     type: Literal["action"] = Field("action", frozen=True)
@@ -779,7 +785,7 @@ class TemplateAction(BaseModel):
         """
 
         context = base_context.copy() | {"inputs": args, "layers": {}}
-        logger.info("Running template action", action=self.definition.action)
+        logger.info("Running template action", action=self.definition.name)
         for layer in self.definition.layers:
             result = await layer.run(context=context, registry=registry)
             context["layers"][layer.ref] = DSLNodeResult(
