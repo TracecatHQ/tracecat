@@ -1,27 +1,25 @@
+type: action
 definition:
   title: List Amazon GuardDuty findings
-  description: Return Amazon GuardDuty findings given time range.
-  entrypoint:
-    ref: list_detectors
-    expects:
-      start_time:
-        type: datetime
-        description: Start timestamp (ISO format) for the query.
-      end_time:
-        type: datetime
-        description: End timestamp (ISO format) for the query.
-      limit:
-        type: int
-        description: Maximum number of alerts to return.
-  triggers:
-    - type: webhook
-      ref: receive_guardduty_alerts
-      entrypoint: list_detectors
-  returns:
-    detector_ids: ${{ ACTIONS.list_detectors.result.DetectorIds }}
-    findings: ${{ ACTIONS.get_findings.result }}
+  description:
+    Given a time range, list all GuardDuty findings.
+    Returns list of detector IDs and findings.
+  display_group: Amazon GuardDuty
+  namespace: integrations.aws
+  name: list_findings
+  expects:
+    start_time:
+      type: datetime
+      description: Start ISO timestamp for the query
+    end_time:
+      type: datetime
+      description: End ISO timestamp for the query
+    limit:
+      type: int
+      description: Maximum number of alerts to return
+      default: 100
 
-  actions:
+  layers:
     - ref: list_detectors
       action: integrations.aws.call_boto3_client
       args:
@@ -59,3 +57,7 @@ definition:
         params:
           DetectorId: ${{ var.detector_id }}
           FindingIds: ${{ var.finding_ids }}
+
+  returns:
+    detector_ids: ${{ ACTIONS.list_detectors.result.DetectorIds }}
+    findings: ${{ ACTIONS.get_findings.result }}
