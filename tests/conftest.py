@@ -75,6 +75,11 @@ def env_sandbox(
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
+    monkeysession.setattr(
+        config,
+        "TRACECAT__REMOTE_REGISTRY_URL",
+        "git+https://github.com/TracecatHQ/udfs",
+    )
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",

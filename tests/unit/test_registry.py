@@ -67,16 +67,15 @@ def test_load_base_udfs():
 
 
 @pytest.mark.webtest
-def test_load_remote_udfs(monkeysession: pytest.MonkeyPatch):
-    monkeysession.setattr(
-        config,
-        "TRACECAT__REMOTE_REGISTRY_URL",
-        "git+https://github.com/TracecatHQ/udfs",
-    )
-    registry._reset()
+def test_load_remote_udfs(blank_registry: _Registry, env_sandbox):
+    from tracecat.logger import logger
 
-    keys_before = set(registry.keys.copy())
-    registry.init(include_base=False, include_templates=False, include_remote=True)
+    logger.info("Remote url", url=config.TRACECAT__REMOTE_REGISTRY_URL)
+    keys_before = set(blank_registry.keys.copy())
+    blank_registry._remote = config.TRACECAT__REMOTE_REGISTRY_URL
+    blank_registry.init(
+        include_base=False, include_templates=False, include_remote=True
+    )
     keys_after = set(registry.keys.copy())
     diff = keys_after - keys_before
     assert diff == {
