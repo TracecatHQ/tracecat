@@ -13,18 +13,20 @@ definition:
   namespace: integrations.microsoft_defender
   name: list_alerts
   expects:
-    service_source:
-      type: str
-      description: The source service of the alerts (e.g. 'microsoftDefenderForCloud')
     start_time:
       type: datetime
-      description: Start ISO timestamp for the query (inclusive)
+      description: Start ISO datetime for the query (inclusive)
     end_time:
       type: datetime
-      description: End ISO timestamp for the query (inclusive)
+      description: End ISO datetime for the query (inclusive)
+    service_source:
+      type: str
+      description: The source service of the alerts. Defaults to "microsoftDefenderForCloud"
+      default: microsoftDefenderForCloud
     limit:
       type: int
       description: Maximum number of alerts to return
+      default: 100
   layers:
     - ref: list_alerts
       action: core.http_request
