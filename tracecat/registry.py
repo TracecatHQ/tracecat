@@ -231,8 +231,8 @@ class _Registry:
     def init(
         self,
         include_base: bool = True,
-        include_remote: bool = False,
-        include_templates: bool = False,
+        include_remote: bool = True,
+        include_templates: bool = True,
     ) -> None:
         """Initialize the registry."""
         if not _Registry._done_init:
