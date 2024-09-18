@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Update Elastic Alert Status by IDs
+  description: Update the status of Elastic Security alerts that match the specified list of signal IDs or query.
+  display_group: Elastic
+  namespace: integrations.elastic
+  name: update_alert_status
+  expects:
+    signal_ids:
+      type: any
+      description: Query to filter alerts to update
+    status:
+      type: str
+      description: New status for the alerts
+  layers:
+    - ref: update_alerts
+      action: core.http_request
+      args:
+        method: POST
+        url: ${{ SECRETS.elastic.ELASTIC_API_URL }}/api/detection_engine/signals/status
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic.ELASTIC_API_KEY }}
+        payload:
+          signal_ids: ${{ inputs.signal_ids }}
+          status: ${{ inputs.status }}
+  returns: ${{ layers.update_alerts.result }}
