@@ -25,8 +25,8 @@ definition:
       args:
         sdk_method: conversations_history
         params:
-          channel: ${{ TRIGGER.channel }}
-          latest: ${{ str(FN.to_timestamp(TRIGGER.latest)) }}
-          oldest: ${{ str(FN.to_timestamp(TRIGGER.oldest)) }}
-          limit: ${{ TRIGGER.limit }}
-  returns: ${{ FN.flatten(ACTIONS.list_conversations.result[*].messages) }}
+          channel: ${{ inputs.channel }}
+          latest: ${{ str(FN.to_timestamp(inputs.latest)) }}
+          oldest: ${{ str(FN.to_timestamp(inputs.oldest)) }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ FN.flatten(layers.list_conversations.result[*].messages) }}

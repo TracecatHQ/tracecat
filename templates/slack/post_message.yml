@@ -28,8 +28,8 @@ definition:
       args:
         sdk_method: chat_postMessage
         params:
-          channel: ${{ TRIGGER.channel }}
-          text: ${{ TRIGGER.text }}
-          blocks: ${{ TRIGGER.blocks }}
-          thread_ts: ${{ TRIGGER.thread_ts }}
-  returns: ${{ ACTIONS.post_message.result.message }}
+          channel: ${{ inputs.channel }}
+          text: ${{ inputs.text }}
+          blocks: ${{ inputs.blocks }}
+          thread_ts: ${{ inputs.thread_ts }}
+  returns: ${{ layers.post_message.result.message }}
