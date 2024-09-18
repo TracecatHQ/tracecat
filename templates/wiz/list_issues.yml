@@ -14,9 +14,12 @@ definition:
   namespace: integrations.wiz
   name: list_issues
   expects:
-    start_time: datetime
-    end_time: datetime
-    limit: int
+    start_time:
+      type: datetime
+      description: Start ISO datetime for the query (inclusive)
+    end_time:
+      type: datetime
+      description: End ISO datetime for the query (exclusive)
     status:
       type: list[str]
       description: Status of the issue (OPEN, IN_PROGRESS, RESOLVED, or REJECTED)
@@ -42,6 +45,10 @@ definition:
         - TOXIC_COMBINATION
         - THREAT_DETECTION
         - CLOUD_CONFIGURATION
+    limit:
+      type: int
+      description: Maximum number of issues to return
+      default: 100
   layers:
     - ref: list_alerts
       action: core.http_request
