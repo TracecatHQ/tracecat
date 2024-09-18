@@ -1,11 +1,25 @@
+type: action
 definition:
   title: List Slack conversations
+  description: List messages from a Slack channel
+  display_group: Slack
+  namespace: integrations.slack
+  name: list_conversations
   expects:
-    channel: str
-    latest: datetime
-    oldest: datetime
-    limit: int
-  actions:
+    channel:
+      type: str
+      description: ID of the channel to list conversations from
+    latest:
+      type: datetime
+      description: Latest ISO datetime to include in the list
+    oldest:
+      type: datetime
+      description: Oldest ISO datetime to include in the list
+    limit:
+      type: int
+      description: Maximum number of messages to return
+      default: 100
+  layers:
     - ref: list_conversations
       action: integrations.slack.call_paginated_slack_api
       args:
