@@ -84,7 +84,7 @@ def test_load_remote_udfs(blank_registry: _Registry, env_sandbox):
     }
 
 
-def blank_registry_function_can_be_called():
+def test_registry_function_can_be_called():
     """We need to test that the ordering of the workflow tasks is correct."""
     import sys
     from importlib.machinery import ModuleSpec
@@ -130,7 +130,7 @@ def blank_registry_function_can_be_called():
 
 
 @pytest.mark.asyncio
-async def blank_registry_async_function_can_be_called():
+async def test_registry_async_function_can_be_called():
     import sys
     from importlib.machinery import ModuleSpec
     from types import ModuleType
