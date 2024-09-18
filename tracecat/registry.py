@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import CoroutineType, FunctionType, GenericAlias, MethodType, ModuleType
 from typing import Annotated, Any, Generic, Literal, Self, TypedDict, TypeVar, cast
+from urllib.parse import urlparse, urlunparse
 
 import yaml
 from pydantic import (
@@ -90,6 +91,7 @@ class RegisteredUDFMetadata(TypedDict, total=False):
     default_title: str | None
     display_group: str | None
     include_in_schema: bool
+    origin: str
 
 
 class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
@@ -274,19 +276,19 @@ class _Registry:
         version: str | None,
         description: str,
         secrets: list[RegistrySecret] | None,
+        args_cls: ArgsClsT,
+        args_docs: dict[str, str],
+        rtype: type,
+        rtype_adapter: TypeAdapter,
         default_title: str | None,
         display_group: str | None,
         include_in_schema: bool,
+        is_template: bool = False,
+        origin: str = "base",
     ):
         logger.debug(f"Registering UDF {key=}")
 
         secret_names = [secret.name for secret in secrets or []]
-
-        _attach_validators(fn, TemplateValidator())
-        args_docs = _get_signature_docs(fn)
-        args_cls, rtype, rtype_adapter = _generate_model_from_function(
-            func=fn, namespace=namespace
-        )
 
         wrapped_fn: FunctionType
         if inspect.iscoroutinefunction(fn):
@@ -326,9 +328,11 @@ class _Registry:
             rtype_cls=rtype,
             rtype_adapter=rtype_adapter,
             metadata=RegisteredUDFMetadata(
+                is_template=is_template,
                 default_title=default_title,
                 display_group=display_group,
                 include_in_schema=include_in_schema,
+                origin=origin,
             ),
         )
 
@@ -338,6 +342,7 @@ class _Registry:
         *,
         visited_modules: set[str],
         base_path: str = "",
+        origin: str = "base",
     ) -> None:
         """Recursively register all UDFs from a given module and its submodules."""
         if module.__name__ in visited_modules:
@@ -347,20 +352,21 @@ class _Registry:
         visited_modules.add(module.__name__)
 
         logger.trace(f"Registering UDFs from module: {module.__name__}")
-        for name, obj in inspect.getmembers(module):
-            if inspect.isfunction(obj) and hasattr(obj, "__tracecat_udf"):
+        for name, maybe_fn in inspect.getmembers(module):
+            if inspect.isfunction(maybe_fn) and hasattr(maybe_fn, "__tracecat_udf"):
                 key = getattr(
-                    obj,
+                    maybe_fn,
                     "__tracecat_udf_key",
                     f"{base_path}.{name}" if base_path else name,
                 )
-                kwargs = getattr(obj, "__tracecat_udf_kwargs", None)
+                kwargs = getattr(maybe_fn, "__tracecat_udf_kwargs", None)
                 if kwargs is None:
                     logger.warning(
                         f"Skipping UDF {key!r}. Missing __tracecat_udf_kwargs",
                         key=key,
                         name=name,
                         base_path=base_path,
+                        origin=origin,
                     )
                     continue
                 logger.trace(
@@ -370,8 +376,14 @@ class _Registry:
                 if key in self._udf_registry:
                     logger.trace(f"UDF {key!r} is already registered, skipping")
                     continue
+
+                _attach_validators(maybe_fn, TemplateValidator())
+                args_docs = _get_signature_docs(maybe_fn)
+                args_cls, rtype, rtype_adapter = _generate_model_from_function(
+                    func=maybe_fn, namespace=validated_kwargs.namespace
+                )
                 self._register_udf(
-                    fn=obj,
+                    fn=maybe_fn,
                     key=key,
                     namespace=validated_kwargs.namespace,
                     version=validated_kwargs.version,
@@ -380,6 +392,12 @@ class _Registry:
                     default_title=validated_kwargs.default_title,
                     display_group=validated_kwargs.display_group,
                     include_in_schema=validated_kwargs.include_in_schema,
+                    args_cls=args_cls,
+                    args_docs=args_docs,
+                    rtype=rtype,
+                    rtype_adapter=rtype_adapter,
+                    is_template=False,
+                    origin=origin,
                 )
 
         if hasattr(module, "__path__"):  # Check if the module is a package
@@ -395,6 +413,7 @@ class _Registry:
                         submodule,
                         base_path=new_base_path,
                         visited_modules=visited_modules,
+                        origin=origin,
                     )
 
     def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
@@ -404,15 +423,9 @@ class _Registry:
             try:
                 logger.trace("BEFORE", keys=self.keys)
                 # TODO(perf): Use asyncio
-                logger.info("Installing remote udfs")
+                logger.info("Installing remote udfs", remote=remote_registry_url)
                 subprocess.run(
-                    [
-                        "uv",
-                        "pip",
-                        "install",
-                        "--system",
-                        remote_registry_url,
-                    ],
+                    ["uv", "pip", "install", "--system", remote_registry_url],
                     check=True,
                 )
             except subprocess.CalledProcessError as e:
@@ -424,7 +437,15 @@ class _Registry:
                 module = importlib.import_module(module_name)
 
                 # # Reload the module to ensure fresh execution
-                self._register_udfs_from_module(module, visited_modules=set())
+                url_obj = urlparse(remote_registry_url)
+                # XXX(safety): Reconstruct url without credentials.
+                # Note that we do not recommend passing credentials in the url.
+                cleaned_url = urlunparse(
+                    (url_obj.scheme, url_obj.netloc, url_obj.path, "", "", "")
+                )
+                self._register_udfs_from_module(
+                    module, visited_modules=set(), origin=cleaned_url
+                )
 
                 logger.trace("AFTER", keys=self.keys)
             except ImportError as e:
@@ -458,7 +479,8 @@ class _Registry:
             # Register the action
             defn = template_action.definition
             expectation = defn.expects
-            self._udf_registry[key] = RegisteredUDF(
+
+            self._register_udf(
                 fn=template_action.run,
                 key=key,
                 namespace=defn.namespace,
@@ -467,19 +489,18 @@ class _Registry:
                 secrets=defn.secrets,
                 args_cls=create_expectation_model(expectation, key.replace(".", "__"))
                 if expectation
-                else None,
+                else BaseModel,
                 args_docs={
                     key: schema.description or "-"
                     for key, schema in expectation.items()
                 },
-                rtype_cls=Any,
+                rtype=Any,
                 rtype_adapter=TypeAdapter(Any),
-                metadata=RegisteredUDFMetadata(
-                    is_template=True,
-                    default_title=defn.title,
-                    display_group=defn.display_group,
-                    include_in_schema=True,
-                ),
+                default_title=defn.title,
+                display_group=defn.display_group,
+                include_in_schema=True,
+                is_template=True,
+                origin="base",
             )
 
     def register(
