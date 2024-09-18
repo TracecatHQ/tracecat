@@ -19,6 +19,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logger import logger
+from tracecat.registry import _Registry
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
@@ -344,3 +345,23 @@ def temporal_client():
     loop = asyncio.get_event_loop()
     client = loop.run_until_complete(get_temporal_client())
     return client
+
+
+@pytest.fixture
+def blank_registry() -> _Registry:
+    """Reset the registry before each test."""
+    from tracecat.registry import registry
+
+    registry._reset()
+    return registry
+
+
+@pytest.fixture
+def base_registry():
+    from tracecat.registry import registry
+
+    try:
+        registry.init(include_base=True)
+        yield registry
+    finally:
+        registry._reset()
