@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Unisolate SentinelOne Agents
+  description: Reconnects SentinelOne agents to the network by IDs
+  display_group: SentinelOne
+  namespace: integrations.sentinel_one
+  action: integrations.sentinel_one.unisolate_agents
+  expects:
+    agent_ids:
+      type: list[str]
+      description: The IDs of the agents to unisolate
+  layers:
+    - ref: unisolate_agents
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/agents/actions/connect
+        method: POST
+        headers:
+          Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Content-Type: application/json
+        payload:
+          filter:
+            ids: ${{ inputs.agent_ids }}
+  returns: ${{ layers.unisolate_agents.result }}

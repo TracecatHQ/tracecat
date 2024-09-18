@@ -11,7 +11,7 @@ definition:
       description: Start ISO timestamp for the query (inclusive)
     end_time:
       type: datetime
-      description: End ISO timestamp for the query (exclusive)
+      description: End ISO timestamp for the query (inclusive)
     filter:
       type: str
       description: |
