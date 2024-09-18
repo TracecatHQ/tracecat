@@ -28,7 +28,7 @@ def file_logger(
     logger.setLevel(level)
 
     # Create file handler
-    file_path = Path(file_path)
+    file_path = Path(os.path.abspath(os.path.normpath(file_path)))
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.touch(exist_ok=True)
 
