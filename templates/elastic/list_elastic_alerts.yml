@@ -19,6 +19,7 @@ definition:
     limit:
       type: int
       description: Maximum number of alerts to return
+      default: 100
   layers:
     - ref: search_alerts
       action: core.http_request
