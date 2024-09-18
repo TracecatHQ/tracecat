@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Update Jira Issue
+  description: Update an existing issue in Jira
+  display_group: Jira
+  namespace: integrations.jira
+  action: integrations.jira.update_issue
+  expects:
+    domain:
+      type: str
+      description: Domain of the Jira instance
+    issue_id:
+      type: str
+      description: Jira issue id
+    fields:
+      type: any
+      description: Key-value pairs of issue screen fields to update
+    update:
+      type: any
+      description: Key-value pairs of issue screen fields mapped to a list of operations to perform on issue
+    return_issue:
+      type: bool
+      description: If true, returns the updated issue
+      default: false
+  layers:
+    - ref: edit_issue
+      action: core.http_request
+      args:
+        url: http://${{ inputs.domain }}/rest/api/2/issue/${{ inputs.issue_id }}?returnIssue=${{ inputs.return_issue }}
+        method: PUT
+        headers:
+          Content-Type: application/json
+          Authorization: Basic ${{ secrets.jira_auth }}
+        payload:
+          fields: ${{ inputs.fields }}
+          update: ${{ inputs.update }}
+  returns: ${{ layers.edit_issue.result }}

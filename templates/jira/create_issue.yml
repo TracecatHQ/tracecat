@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Create Jira Issue
+  description: Create a new issue in Jira
+  display_group: Jira
+  namespace: integrations.jira
+  action: integrations.jira.create_issue
+  expects:
+    domain:
+      type: str
+      description: Domain of the Jira instance
+    project_id:
+      type: str
+      description: Jira project id
+    summary:
+      type: str
+      description: Summary of the issue
+    priority_id:
+      type: str
+      description: Priority ID
+    issue_type_id:
+      type: str
+      description: Issue Type ID
+  layers:
+    - ref: create_issue
+      action: core.http_request
+      args:
+        url: http://${{ inputs.domain }}/rest/api/2/issue/
+        method: POST
+        headers:
+          Content-Type: application/json
+          Authorization: Basic ${{ secrets.jira_auth }}
+        payload:
+          data:
+            fields:
+              project:
+                id: ${{ inputs.project_id }}
+              summary: ${{ inputs.summary }}
+              priority:
+                id: ${{ inputs.priority_id }}
+              issuetype:
+                id: ${{ inputs.issue_type_id }}
+  returns: ${{ layers.create_issue.result }}
