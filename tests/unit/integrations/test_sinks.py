@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from tracecat.actions.integrations.sinks import write_to_database
+from tracecat.actions.etl.sinks import write_to_database
 
 
 @pytest.fixture
