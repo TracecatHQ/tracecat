@@ -18,4 +18,4 @@ definition:
         headers:
           Key: ${{ SECRETS.emailrep.EMAILREP_API_KEY }}
           User-Agent: tracecat-client
-  return: ${{ layers.search_email.result }}
+  returns: ${{ layers.search_email.result }}

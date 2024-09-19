@@ -6,8 +6,9 @@ definition:
   namespace: integrations.okta
   name: expire_sessions
   expects:
-    user_id: str
-    description: ID of the user whose sessions to expire
+    user_id:
+      type: str
+      description: ID of the user whose sessions to expire
   layers:
     - ref: expire_sessions
       action: core.http_request

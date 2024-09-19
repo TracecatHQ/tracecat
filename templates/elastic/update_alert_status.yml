@@ -13,8 +13,6 @@ definition:
       type: str
       description: New status for the alerts
   layers:
-    - ref: build_query
-
     - ref: update_alerts
       action: core.http_request
       args:

@@ -20,7 +20,7 @@ definition:
     projection:
       type: any
       description: Fields to include in the result
-  actions:
+  layers:
     - ref: get_document
       action: integrations.mongodb.perform_mongodb_crud
       args:

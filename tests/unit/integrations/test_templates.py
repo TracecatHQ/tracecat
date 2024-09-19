@@ -8,7 +8,6 @@ from tracecat.registry import TemplateAction
 
 def get_template_action_paths(dir_path: Path):
     paths = list(dir_path.rglob("*.yml"))
-    print(paths)
     return paths
 
 
@@ -16,7 +15,7 @@ def get_template_action_paths(dir_path: Path):
 @pytest.mark.parametrize(
     "file_path",
     get_template_action_paths(Path(__file__).parents[3] / "templates"),
-    ids=lambda x: x.stem,
+    ids=lambda path: str(path.parts[-2:]),
 )
 async def test_template_action_validation(file_path):
     with open(file_path) as file:

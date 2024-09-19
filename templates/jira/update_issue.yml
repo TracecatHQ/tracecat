@@ -4,7 +4,7 @@ definition:
   description: Update an existing issue in Jira
   display_group: Jira
   namespace: integrations.jira
-  action: integrations.jira.update_issue
+  name: update_issue
   expects:
     domain:
       type: str

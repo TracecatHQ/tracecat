@@ -22,7 +22,7 @@ definition:
       type: str
       description: Timestamp of the thread to post the message to
       default: null
-  actions:
+  layers:
     - ref: post_message
       action: integrations.slack.call_slack_api
       args:

@@ -1,13 +1,14 @@
 type: action
-defintion:
+definition:
   title: Find Okta Users
   description: Find Okta users by username or email address
   display_group: Okta
   namespace: integrations.okta
   name: find_users
   expects:
-    username_or_email: str
-    description: Username or email address of the user to find
+    username_or_email:
+      type: str
+      description: Username or email address of the user to find
   layers:
     - ref: find_users
       action: core.http_request

@@ -6,8 +6,9 @@ definition:
   namespace: integrations.okta
   name: suspend_user
   expects:
-    user_id: str
-    description: ID of the user to suspend
+    user_id:
+      type: str
+      description: ID of the user to suspend
   layers:
     - ref: suspend_user
       action: core.http_request

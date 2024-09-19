@@ -6,8 +6,9 @@ definition:
   namespace: integrations.okta
   name: unsuspend_user
   expects:
-    user_id: str
-    description: ID of the user to unsuspend
+    user_id:
+      type: str
+      description: ID of the user to unsuspend
   layers:
     - ref: unsuspend_user
       action: core.http_request
