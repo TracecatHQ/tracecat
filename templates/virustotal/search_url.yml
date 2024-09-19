@@ -1,0 +1,20 @@
+type: action
+definition:
+  title: Search URL with VirusTotal
+  description: Get threat intel report for a URL from VirusTotal.
+  display_group: VirusTotal
+  namespace: integrations.virustotal
+  name: search_url
+  expects:
+    url:
+      type: str
+      description: The URL to search
+  layers:
+    - ref: search_url
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/urls/${{ inputs.url }}
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+  returns: ${{ layers.search_url.result }}
