@@ -905,7 +905,7 @@ class DSLActivities:
         task = input.task
 
         act_logger = logger.bind(
-            task_ref=task.ref,  # wf_id=input.run_context.wf_id, role=input.role
+            task_ref=task.ref, wf_id=input.run_context.wf_id, role=input.role
         )
         env_context = DSLEnvironment(**input.exec_context[ExprContext.ENV])
 
