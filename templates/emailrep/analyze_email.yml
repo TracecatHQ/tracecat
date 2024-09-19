@@ -1,16 +1,16 @@
 type: action
 definition:
-  title: Analyze Email with Emailrep
+  title: Search Email with Emailrep
   description: Get threat intel report for an email address from Emailrep.
   display_group: Emailrep
   namespace: integrations.emailrep
-  name: analyze_email
+  name: search_email
   expects:
     email:
       type: str
-      description: The email address to analyze
+      description: The email address to search
   layers:
-    - ref: analyze_email
+    - ref: search_email
       action: core.http_request
       args:
         url: https://emailrep.io/${{ inputs.email }}
@@ -18,4 +18,4 @@ definition:
         headers:
           Key: ${{ SECRETS.emailrep.EMAILREP_API_KEY }}
           User-Agent: tracecat-client
-  return: ${{ layers.analyze_email.result }}
+  return: ${{ layers.search_email.result }}
