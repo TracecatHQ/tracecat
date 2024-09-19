@@ -4,7 +4,7 @@ definition:
   description: List alerts from SentinelOne
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.list_alerts
+  name: list_alerts
   expects:
     start_time:
       type: datetime

@@ -4,7 +4,7 @@ definition:
   description: Get summaries of CrowdStrike detects by IDs.
   display_group: CrowdStrike
   namespace: integrations.crowdstrike
-  action: integrations.crowdstrike.get_detect_summaries
+  name: get_detect_summaries
   expects:
     detection_ids:
       type: list[str]

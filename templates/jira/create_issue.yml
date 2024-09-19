@@ -4,7 +4,7 @@ definition:
   description: Create a new issue in Jira
   display_group: Jira
   namespace: integrations.jira
-  action: integrations.jira.create_issue
+  name: create_issue
   expects:
     domain:
       type: str

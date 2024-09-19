@@ -4,7 +4,7 @@ definition:
   description: Get SentinelOne agents by exact match on hostname
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.get_agents_by_hostname_exact
+  name: get_agents_by_hostname_exact
   expects:
     hostname:
       type: str

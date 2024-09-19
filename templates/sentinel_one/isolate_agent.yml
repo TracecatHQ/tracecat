@@ -4,7 +4,7 @@ definition:
   description: Disconnects SentinelOne agents from the network by IDs
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.isolate_agents
+  name: isolate_agents
   expects:
     agent_ids:
       type: list[str]

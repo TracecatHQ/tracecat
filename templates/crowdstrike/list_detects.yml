@@ -4,7 +4,7 @@ definition:
   description: Query for CrowdStrike detects via the Falcon SIEM API.
   display_group: CrowdStrike
   namespace: integrations.crowdstrike
-  action: integrations.crowdstrike.list_detects
+  name: list_detects
   expects:
     start_time:
       type: datetime

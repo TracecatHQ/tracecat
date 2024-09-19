@@ -4,7 +4,7 @@ definition:
   description: Update SentinelOne firewall rule by ID and scope.
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.update_firewall_rule
+  name: update_firewall_rule
   expects:
     rule_id:
       type: str

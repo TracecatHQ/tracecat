@@ -4,7 +4,7 @@ definition:
   description: Get SentinelOne firewall rule by ID and scope.
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.get_firewall_rules
+  name: get_firewall_rules
   expects:
     rule_ids:
       type: list[str]

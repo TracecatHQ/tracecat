@@ -4,7 +4,7 @@ definition:
   description: Reconnects SentinelOne agents to the network by IDs
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.unisolate_agents
+  name: unisolate_agents
   expects:
     agent_ids:
       type: list[str]

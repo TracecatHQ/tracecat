@@ -3,7 +3,7 @@ type: action
 definition:
   title: Example Template Action
   description: This is just an example template action
-  action: integrations.test.wrapper
+  name: wrapper
   namespace: integrations.test
   display_group: Testing
   secrets:

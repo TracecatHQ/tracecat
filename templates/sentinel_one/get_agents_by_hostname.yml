@@ -4,7 +4,7 @@ definition:
   description: Get SentinelOne agents by partial match on hostname
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.get_agents_by_hostname
+  name: get_agents_by_hostname
   expects:
     hostname:
       type: str

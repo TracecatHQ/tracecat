@@ -3,7 +3,7 @@ type: action
 definition:
   title: Hit localhost server
   description: Make a http request to a localhost server
-  action: integrations.test.localhost
+  name: localhost
   namespace: integrations.test
   display_group: Testing
   expects:

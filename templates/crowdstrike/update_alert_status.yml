@@ -4,7 +4,7 @@ definition:
   description: Update the status of a CrowdStrike alert.
   display_group: CrowdStrike
   namespace: integrations.crowdstrike
-  action: integrations.crowdstrike.update_alert_status
+  name: update_alert_status
   expects:
     alert_ids:
       type: list[str]

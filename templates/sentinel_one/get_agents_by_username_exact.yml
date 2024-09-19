@@ -4,7 +4,7 @@ definition:
   description: Get SentinelOne agents by exact match on username
   display_group: SentinelOne
   namespace: integrations.sentinel_one
-  action: integrations.sentinel_one.get_agents_by_username_exact
+  name: get_agents_by_username_exact
   expects:
     username:
       type: str
