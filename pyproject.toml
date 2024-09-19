@@ -62,6 +62,7 @@ dependencies = [
     "uvicorn==0.29.0",
     "pymongo==4.8.0",
     "dnspython==2.6.1",
+    "uv==0.4.10",
 ]
 dynamic = ["version"]
 

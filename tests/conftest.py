@@ -19,6 +19,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logger import logger
+from tracecat.registry import _Registry
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
@@ -74,6 +75,11 @@ def env_sandbox(
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
+    monkeysession.setattr(
+        config,
+        "TRACECAT__REMOTE_REGISTRY_URL",
+        "git+https://github.com/TracecatHQ/udfs",
+    )
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -344,3 +350,23 @@ def temporal_client():
     loop = asyncio.get_event_loop()
     client = loop.run_until_complete(get_temporal_client())
     return client
+
+
+@pytest.fixture
+def blank_registry() -> _Registry:
+    """Reset the registry before each test."""
+    from tracecat.registry import registry
+
+    registry._reset()
+    return registry
+
+
+@pytest.fixture
+def base_registry():
+    from tracecat.registry import registry
+
+    try:
+        registry.init(include_base=True)
+        yield registry
+    finally:
+        registry._reset()

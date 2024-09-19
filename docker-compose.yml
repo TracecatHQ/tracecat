@@ -42,6 +42,8 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      # Remote registry
+      TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.11.0}
@@ -78,6 +80,8 @@ services:
       LDAP_PORT: ${LDAP_PORT}
       LDAP_SSL: ${LDAP_SSL}
       LDAP_TYPE: ${LDAP_TYPE}
+      # Remote registry
+      TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
 
     command: ["python", "tracecat/dsl/worker.py"]
 

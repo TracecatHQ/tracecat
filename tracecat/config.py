@@ -134,3 +134,8 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     WARNING: This is only be used for testing and debugging purposes during
     development and should never be enabled in production.
 """
+
+# === Remote registry === #
+# If you wish to use a remote registry, set the URL here
+# If the url is unset, this will be set to None
+TRACECAT__REMOTE_REGISTRY_URL = os.environ.get("TRACECAT__REMOTE_REGISTRY_URL") or None

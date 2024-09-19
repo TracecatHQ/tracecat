@@ -1,7 +1,7 @@
 import pytest
 
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry import ActionLayer, RegistrySecret, TemplateAction
+from tracecat.registry import ActionLayer, RegistrySecret, TemplateAction, _Registry
 
 
 def test_construct_template_action():
@@ -97,7 +97,9 @@ def test_construct_template_action():
 
 
 @pytest.mark.asyncio
-async def test_template_action_run():
+async def test_template_action_run(blank_registry: _Registry):
+    blank_registry.init(include_base=True)
+    assert "core.transform.reshape" in blank_registry
     action = TemplateAction(
         **{
             "type": "action",

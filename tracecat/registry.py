@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import importlib
 import inspect
+import pkgutil
 import re
-from collections.abc import Callable, Coroutine, Iterator
+import subprocess
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from types import FunctionType, GenericAlias, MethodType
+from types import CoroutineType, FunctionType, GenericAlias, MethodType, ModuleType
 from typing import Annotated, Any, Generic, Literal, Self, TypedDict, TypeVar, cast
+from urllib.parse import urlparse, urlunparse
 
 import yaml
 from pydantic import (
@@ -36,6 +40,8 @@ from tracecat.secrets.models import SecretKey, SecretName
 from tracecat.types.exceptions import TracecatException
 
 DEFAULT_NAMESPACE = "core"
+
+ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
 
 
 class RegistrySecret(BaseModel):
@@ -67,22 +73,30 @@ class UDFSchema(BaseModel):
     metadata: RegisteredUDFMetadata
 
 
-ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
+class _RegisterKwargs(BaseModel):
+    default_title: str | None
+    display_group: str | None
+    namespace: str
+    description: str
+    secrets: list[RegistrySecret] | None
+    version: str | None
+    include_in_schema: bool
 
 
 # total=False allows for additional fields in the TypedDict
 class RegisteredUDFMetadata(TypedDict, total=False):
     """Metadata for a registered UDF."""
 
-    is_template: bool = False
+    is_template: bool
     default_title: str | None
     display_group: str | None
     include_in_schema: bool
+    origin: str
 
 
 class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    fn: FunctionType | MethodType
+    fn: FunctionType | MethodType | CoroutineType
     key: str
     description: str
     namespace: str
@@ -91,7 +105,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
     args_cls: ArgsClsT
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
-    rtype_adapter: TypeAdapter | None = None
+    rtype_adapter: TypeAdapter[Any] | None = None
     metadata: RegisteredUDFMetadata = Field(default_factory=dict)
 
     @property
@@ -118,7 +132,9 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
         2. The input arguments must be validated against the UDF's model.
         """
         if len(args) > 0:
-            raise RegistryValidationError("UDF must be called with keyword arguments.")
+            raise RegistryValidationError(
+                "UDF must be called with keyword arguments.", key=self.key
+            )
 
         # Validate the input arguments, fail early if the input is invalid
         # Note that we've added TemplateValidator to the list of validators
@@ -128,7 +144,7 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
             validated: BaseModel = self.args_cls.model_validate(kwargs)
-            return validated.model_dump()
+            return cast(T, validated.model_dump())
         except ValidationError as e:
             logger.error(f"Validation error for UDF {self.key!r}. {e.errors()!r}")
             raise RegistryValidationError(
@@ -144,13 +160,13 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
 
     async def run_async(
         self, *, args: ArgsT, context: dict[str, Any] | None = None
-    ) -> Coroutine[Any, Any, Any]:
+    ) -> Any:
         """Run a UDF async.
 
         You only need to pass `base_context` if the UDF is a template.
         """
         if self.metadata.get("is_template"):
-            kwargs = {"args": args, "base_context": context or {}}
+            kwargs = cast(ArgsT, {"args": args, "base_context": context or {}})
         else:
             kwargs = args
         logger.warning("Running UDF async", kwargs=kwargs)
@@ -176,60 +192,270 @@ class _Registry:
     """Singleton class to store and manage all registered udfs."""
 
     _instance: Self | None = None
-    _udf_registry: dict[str, RegisteredUDF]
+    _udf_registry: dict[str, RegisteredUDF[ArgsClsT]]
+    _remote: str | None
     _done_init: bool = False
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._udf_registry = {}
+            cls._remote = config.TRACECAT__REMOTE_REGISTRY_URL
         return cls._instance
 
     def __contains__(self, name: str) -> bool:
         return name in self._udf_registry
 
-    def __getitem__(self, name: str) -> RegisteredUDF:
+    def __getitem__(self, name: str) -> RegisteredUDF[ArgsClsT]:
         return self.get(name)
 
     def __iter__(self):
         return iter(self._udf_registry.items())
 
+    def __len__(self) -> int:
+        return len(self._udf_registry)
+
     @property
-    def store(self) -> dict[str, RegisteredUDF]:
+    def store(self) -> dict[str, RegisteredUDF[ArgsClsT]]:
         return self._udf_registry
 
     @property
     def keys(self) -> list[str]:
         return list(self._udf_registry.keys())
 
-    def get(self, name: str) -> RegisteredUDF:
+    def get(self, name: str) -> RegisteredUDF[ArgsClsT]:
         """Retrieve a registered udf."""
         return self._udf_registry[name]
 
     def get_schemas(self) -> dict[str, dict]:
         return {key: udf.construct_schema() for key, udf in self._udf_registry.items()}
 
-    def init(self) -> None:
+    def init(
+        self,
+        include_base: bool = True,
+        include_remote: bool = True,
+        include_templates: bool = True,
+    ) -> None:
         """Initialize the registry."""
-        logger.warning("Initializing registry")
         if not _Registry._done_init:
+            logger.warning("Initializing registry")
             # Load udfs
-            self.load_udfs()
+            if include_base:
+                self._load_base_udfs()
+
+            # Load remote udfs
+            if include_remote and self._remote:
+                self._load_remote_udfs(self._remote, module_name="udfs")
+
             # Load template actions
-            self._load_template_actions()
+            if include_templates:
+                self._load_template_actions()
 
             _Registry._done_init = True
 
-    def load_udfs(self) -> None:
+    @classmethod
+    def _reset(cls) -> None:
+        logger.warning("Resetting registry")
+        cls._udf_registry = {}
+        cls._done_init = False
+
+    def _load_base_udfs(self) -> None:
         """Load all udfs and template actions into the registry."""
         # Load udfs
-        logger.info("Loading UDFs")
-        from tracecat import actions  # noqa: F401
+        logger.info("Loading base UDFs")
+        from tracecat import actions
+
+        self._register_udfs_from_module(actions, visited_modules=set())
+
+    def _register_udf(
+        self,
+        *,
+        fn: FunctionType,
+        key: str,
+        namespace: str,
+        version: str | None,
+        description: str,
+        secrets: list[RegistrySecret] | None,
+        args_cls: ArgsClsT,
+        args_docs: dict[str, str],
+        rtype: type,
+        rtype_adapter: TypeAdapter,
+        default_title: str | None,
+        display_group: str | None,
+        include_in_schema: bool,
+        is_template: bool = False,
+        origin: str = "base",
+    ):
+        logger.debug(f"Registering UDF {key=}")
+
+        secret_names = [secret.name for secret in secrets or []]
+
+        wrapped_fn: FunctionType
+        if inspect.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def wrapped_fn(*args, **kwargs) -> Any:
+                """Asynchronous wrapper function for the UDF.
+
+                This wrapper handles argument validation and secret injection for async UDFs.
+                """
+
+                validated_kwargs = self[key].validate_args(*args, **kwargs)
+                async with AuthSandbox(secrets=secret_names, target="env"):
+                    return await fn(**validated_kwargs)
+        else:
+
+            @functools.wraps(fn)
+            def wrapped_fn(*args, **kwargs) -> Any:
+                """Synchronous wrapper function for the UDF.
+
+                This wrapper handles argument validation and secret injection for sync UDFs.
+                """
+
+                validated_kwargs = self[key].validate_args(*args, **kwargs)
+                with AuthSandbox(secrets=secret_names, target="env"):
+                    return fn(**validated_kwargs)
+
+        self._udf_registry[key] = RegisteredUDF(
+            fn=wrapped_fn,
+            key=key,
+            namespace=namespace,
+            version=version,
+            description=description,
+            secrets=secrets,
+            args_cls=args_cls,
+            args_docs=args_docs,
+            rtype_cls=rtype,
+            rtype_adapter=rtype_adapter,
+            metadata=RegisteredUDFMetadata(
+                is_template=is_template,
+                default_title=default_title,
+                display_group=display_group,
+                include_in_schema=include_in_schema,
+                origin=origin,
+            ),
+        )
+
+    def _register_udfs_from_module(
+        self,
+        module: ModuleType,
+        *,
+        visited_modules: set[str],
+        base_path: str = "",
+        origin: str = "base",
+    ) -> None:
+        """Recursively register all UDFs from a given module and its submodules."""
+        if module.__name__ in visited_modules:
+            logger.debug("Skipping visited module", module=module.__name__)
+            return
+
+        visited_modules.add(module.__name__)
+
+        logger.trace(f"Registering UDFs from module: {module.__name__}")
+        for name, maybe_fn in inspect.getmembers(module):
+            if inspect.isfunction(maybe_fn) and hasattr(maybe_fn, "__tracecat_udf"):
+                key = getattr(
+                    maybe_fn,
+                    "__tracecat_udf_key",
+                    f"{base_path}.{name}" if base_path else name,
+                )
+                kwargs = getattr(maybe_fn, "__tracecat_udf_kwargs", None)
+                if kwargs is None:
+                    logger.warning(
+                        f"Skipping UDF {key!r}. Missing __tracecat_udf_kwargs",
+                        key=key,
+                        name=name,
+                        base_path=base_path,
+                        origin=origin,
+                    )
+                    continue
+                logger.trace(
+                    f"Registering UDF: {key}", key=key, name=name, base_path=base_path
+                )
+                validated_kwargs = _RegisterKwargs.model_validate(kwargs)
+                if key in self._udf_registry:
+                    logger.trace(f"UDF {key!r} is already registered, skipping")
+                    continue
+
+                _attach_validators(maybe_fn, TemplateValidator())
+                args_docs = _get_signature_docs(maybe_fn)
+                args_cls, rtype, rtype_adapter = _generate_model_from_function(
+                    func=maybe_fn, namespace=validated_kwargs.namespace
+                )
+                self._register_udf(
+                    fn=maybe_fn,
+                    key=key,
+                    namespace=validated_kwargs.namespace,
+                    version=validated_kwargs.version,
+                    description=validated_kwargs.description,
+                    secrets=validated_kwargs.secrets,
+                    default_title=validated_kwargs.default_title,
+                    display_group=validated_kwargs.display_group,
+                    include_in_schema=validated_kwargs.include_in_schema,
+                    args_cls=args_cls,
+                    args_docs=args_docs,
+                    rtype=rtype,
+                    rtype_adapter=rtype_adapter,
+                    is_template=False,
+                    origin=origin,
+                )
+
+        if hasattr(module, "__path__"):  # Check if the module is a package
+            for _, submodule_name, _is_pkg in pkgutil.iter_modules(module.__path__):
+                full_submodule_name = f"{module.__name__}.{submodule_name}"
+                if full_submodule_name not in visited_modules:
+                    logger.trace(f"Importing submodule: {full_submodule_name}")
+                    submodule = importlib.import_module(full_submodule_name)
+                    new_base_path = (
+                        f"{base_path}.{submodule_name}" if base_path else submodule_name
+                    )
+                    self._register_udfs_from_module(
+                        submodule,
+                        base_path=new_base_path,
+                        visited_modules=visited_modules,
+                        origin=origin,
+                    )
+
+    def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
+        """Load udfs from a remote source."""
+        with logger.contextualize(remote=remote_registry_url):
+            logger.info("Loading remote udfs")
+            try:
+                logger.trace("BEFORE", keys=self.keys)
+                # TODO(perf): Use asyncio
+                logger.info("Installing remote udfs", remote=remote_registry_url)
+                subprocess.run(
+                    ["uv", "pip", "install", "--system", remote_registry_url],
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                logger.error("Error installing remote udfs", error=e)
+                raise
+            try:
+                # Import the module
+                logger.info("Importing remote udfs", module_name=module_name)
+                module = importlib.import_module(module_name)
+
+                # # Reload the module to ensure fresh execution
+                url_obj = urlparse(remote_registry_url)
+                # XXX(safety): Reconstruct url without credentials.
+                # Note that we do not recommend passing credentials in the url.
+                cleaned_url = urlunparse(
+                    (url_obj.scheme, url_obj.netloc, url_obj.path, "", "", "")
+                )
+                self._register_udfs_from_module(
+                    module, visited_modules=set(), origin=cleaned_url
+                )
+
+                logger.trace("AFTER", keys=self.keys)
+            except ImportError as e:
+                logger.error("Error importing remote udfs", error=e)
+                raise
 
     def _load_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
-        # TODO: Load this in using fsspec
+        # Load the default templates
         path = Path(__file__).parent.parent / "templates"
         logger.info(f"Loading default templates from {path!s}")
         for file in path.iterdir():
@@ -253,7 +479,8 @@ class _Registry:
             # Register the action
             defn = template_action.definition
             expectation = defn.expects
-            self._udf_registry[key] = RegisteredUDF(
+
+            self._register_udf(
                 fn=template_action.run,
                 key=key,
                 namespace=defn.namespace,
@@ -262,131 +489,105 @@ class _Registry:
                 secrets=defn.secrets,
                 args_cls=create_expectation_model(expectation, key.replace(".", "__"))
                 if expectation
-                else None,
+                else BaseModel,
                 args_docs={
                     key: schema.description or "-"
                     for key, schema in expectation.items()
                 },
-                rtype_cls=Any,
+                rtype=Any,
                 rtype_adapter=TypeAdapter(Any),
-                metadata=RegisteredUDFMetadata(
-                    is_template=True,
-                    default_title=defn.title,
-                    display_group=defn.display_group,
-                    include_in_schema=True,
-                ),
+                default_title=defn.title,
+                display_group=defn.display_group,
+                include_in_schema=True,
+                is_template=True,
+                origin="base",
             )
 
     def register(
         self,
         *,
-        description: str,
-        secrets: list[RegistrySecret] | None = None,
-        namespace: str = DEFAULT_NAMESPACE,
-        version: str | None = None,
         default_title: str | None = None,
         display_group: str | None = None,
+        namespace: str = DEFAULT_NAMESPACE,
+        description: str,
+        secrets: list[RegistrySecret] | None = None,
+        version: str | None = None,
         include_in_schema: bool = True,
-    ):
-        """Decorator factory to register a new udf function with additional parameters.
+    ) -> Callable[[FunctionType], FunctionType]:
+        """Decorator factory to register a new UDF (User-Defined Function) with additional parameters.
+
+        This method creates a decorator that can be used to register a function as a UDF in the Tracecat system.
+        It handles the registration process, including metadata assignment, argument validation, and execution wrapping.
 
         Parameters
         ----------
-        description : str
-            A description of the udf.
-        secrets : list[str] | None, optional
-            Required secrets, by default None
-        namespace : str, optional
-            The namespace to register the UDF, by default `core`
-        version : str | None, optional
-            The UDF version, by default None
         default_title : str | None, optional
-            The default title (also the catalog name) for the UDF, by default None
+            The default title for the UDF in the catalog, by default None.
         display_group : str | None, optional
-            The group under which the UDF should be displayed in the catalog, by default None
+            The group under which the UDF should be displayed in the catalog, by default None.
+        namespace : str, optional
+            The namespace to register the UDF under, by default 'core'.
+        description : str
+            A detailed description of the UDF's purpose and functionality.
+        secrets : list[RegistrySecret] | None, optional
+            A list of secret keys required by the UDF, by default None.
+        version : str | None, optional
+            The version of the UDF, by default None.
+        include_in_schema : bool, optional
+            Whether to include this UDF in the API schema, by default True.
+
+        Returns
+        -------
+        Callable[[FunctionType], FunctionType]
+            A decorator function that registers the decorated function as a UDF.
+
+        Notes
+        -----
+        The decorated function will be wrapped to handle argument validation and secret injection.
+        Both synchronous and asynchronous functions are supported.
         """
 
-        def decorator_register(fn: FunctionType):
-            """The decorator function to register a new udf.
+        def decorator_register(fn: FunctionType) -> FunctionType:
+            """The decorator function to register a new UDF.
 
-            Responsibilities
-            ----------------
-            1. [x] Mark the function as a tracecat udf.
-            2. [x] Register the udf in the registry.
-            3. [x] Construct pydantic models for this udf.
-                - [x] Dynamically create a model from the function signature.
-                - [x] Register the return type of the function.
-            4. [x] Using the model from 3,  create a specification (jsonschema/oas3) for the udf.
-            5. [x] Parse out annotated argument docstrings from the function signature.
-            6. [x] Store other metadata about the udf.
-            7. [x] Add TemplateValidator to the function annotations.
+            This inner function handles the actual registration process for a given function.
+
+            Parameters
+            ----------
+            fn : FunctionType
+                The function to be registered as a UDF.
+
+            Returns
+            -------
+            FunctionType
+                The wrapped and registered UDF function.
+
+            Raises
+            ------
+            ValueError
+                If the UDF key is already registered or if the provided object is not callable.
             """
-            key = f"{namespace}.{fn.__name__}"
-            logger.debug(f"Registering udf {key=}")
-
-            wrapped_fn: FunctionType
-            secret_names = [secret.name for secret in secrets or []]
-
-            if inspect.iscoroutinefunction(fn):
-
-                @functools.wraps(fn)
-                async def wrapped_fn(*args, **kwargs) -> Any:
-                    """Wrapper function for the udf.
-
-                    Responsibilities
-                    ----------------
-                    Before invoking the function:
-                    1. Grab all the secrets from the secrets API.
-                    2. Inject all secret keys into the execution environment.
-                    3. Clean up the environment after the function has executed.
-                    """
-
-                    validated_kwargs = self[key].validate_args(*args, **kwargs)
-                    async with AuthSandbox(secrets=secret_names, target="env"):
-                        return await fn(**validated_kwargs)
-            else:
-
-                @functools.wraps(fn)
-                def wrapped_fn(*args, **kwargs) -> Any:
-                    """Sync version of the wrapper function for the udf."""
-
-                    validated_kwargs = self[key].validate_args(*args, **kwargs)
-                    with AuthSandbox(secrets=secret_names, target="env"):
-                        return fn(**validated_kwargs)
-
-            if key in self:
-                raise ValueError(f"UDF {key!r} is already registered.")
             if not callable(fn):
-                raise ValueError("Provided object is not a callable function.")
-            # Store function and decorator arguments in a dict
+                raise ValueError("The provided object is not callable.")
 
-            _attach_validators(fn, TemplateValidator())
-            args_cls, rtype_cls, rtype_adapter = _generate_model_from_function(
-                fn, namespace=namespace
-            )
-            # TODO: Remove this
-            args_docs = _get_signature_docs(fn)
-            self._udf_registry[key] = RegisteredUDF(
-                fn=wrapped_fn,
-                key=key,
-                namespace=namespace,
-                version=version,
-                description=description,
-                secrets=secrets,
-                args_cls=args_cls,
-                args_docs=args_docs,
-                rtype_cls=rtype_cls,
-                rtype_adapter=rtype_adapter,
-                metadata=RegisteredUDFMetadata(
-                    default_title=default_title,
-                    display_group=display_group,
-                    include_in_schema=include_in_schema,
-                ),
-            )
+            key = f"{namespace}.{fn.__name__}"
 
-            setattr(wrapped_fn, "__tracecat_udf", True)
-            setattr(wrapped_fn, "__tracecat_udf_key", key)
-            return wrapped_fn
+            setattr(fn, "__tracecat_udf", True)
+            setattr(fn, "__tracecat_udf_key", key)
+            setattr(
+                fn,
+                "__tracecat_udf_kwargs",
+                {
+                    "default_title": default_title,
+                    "display_group": display_group,
+                    "include_in_schema": include_in_schema,
+                    "namespace": namespace,
+                    "version": version,
+                    "description": description,
+                    "secrets": secrets,
+                },
+            )
+            return fn
 
         return decorator_register
 
@@ -395,7 +596,7 @@ class _Registry:
         namespace: str | None = None,
         include_marked: bool = False,
         include_keys: set[str] | None = None,
-    ) -> Iterator[tuple[str, RegisteredUDF]]:
+    ) -> Iterator[tuple[str, RegisteredUDF[ArgsClsT]]]:
         """Filter the registry.
 
         If namespace is provided, only return UDFs in that namespace.
@@ -408,7 +609,7 @@ class _Registry:
         # Get the net set of keys to include
         include_keys = include_keys or set()
 
-        def include(udf: RegisteredUDF) -> bool:
+        def include(udf: RegisteredUDF[ArgsClsT]) -> bool:
             inc = True
             inc &= udf.key in include_keys
             if not include_marked:
