@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Analyze IP Address with AlienVault
+  description: Get threat intel report for an IP address from AlienVault.
+  display_group: AlienVault
+  namespace: integrations.alienvault
+  name: analyze_ip_address
+  expects:
+    ip_address:
+      type: str
+      description: The IP address to analyze
+  layers:
+    - ref: check_ip_version
+      action: core.transform.reshape
+      args:
+        value:
+          version: ${{ FN.check_ip_version(inputs.ip_address) }}
+    - ref: analyze_ip_address
+      action: core.http_request
+      args:
+        url: https://otx.alienvault.com/api/v1/indicators/IPv${{ layers.check_ip_version.version }}/${{ inputs.ip_address }}/general
+        method: GET
+        headers:
+          X-OTX-API-KEY: ${{ SECRETS.alienvault.OTX_API_KEY }}
+  returns: ${{ layers.analyze_ip_address.result }}

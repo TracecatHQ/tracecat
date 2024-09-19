@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Analyze IP Address with Censys
+  description: Get threat intel report for an IP address from Censys.
+  display_group: Censys
+  namespace: integrations.censys
+  name: analyze_ip_address
+  expects:
+    ip_address:
+      type: str
+      description: The IP address to analyze
+  layers:
+    - ref: analyze_ip_address
+      action: core.http_request
+      args:
+        url: https://censys.io/ipv4/${{ inputs.ip_address }}
+        method: GET
+        headers:
+          Authorization: ${{ SECRETS.censys.CENSYS_API_KEY }}
+    - ref: extract_censys_data
+      action: core.transform.extract
+      args:
+        value: ${{ layers.analyze_ip_address.result }}
