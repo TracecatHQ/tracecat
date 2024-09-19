@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import ipaddress
 import itertools
 import json
 import operator
@@ -411,6 +412,7 @@ _FUNCTION_MAPPING = {
     "ipv6_in_subnet": lambda ip, subnet: ipv4_in_subnet(ip, subnet),
     "ipv4_is_public": ipv4_is_public,
     "ipv6_is_public": ipv6_is_public,
+    "check_ip_version": lambda ip: ipaddress.ip_address(ip).version,
 }
 
 
