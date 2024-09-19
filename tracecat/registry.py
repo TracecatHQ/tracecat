@@ -459,17 +459,12 @@ class _Registry:
         # Load the default templates
         path = Path(__file__).parent.parent / "templates"
         logger.info(f"Loading default templates from {path!s}")
-        for file in path.iterdir():
-            if not (
-                file.is_file()
-                and file.suffix in (".yml", ".yaml")
-                and not file.name.startswith("_")
-            ):
-                logger.info(f"Skipping template {file!s}")
-                continue
-            logger.info(f"Loading template {file!s}")
+        # Load all .yml files using rglob
+        file_paths = []
+        for file_path in path.rglob("*.yml"):
+            logger.info(f"Loading template {file_path!s}")
             # Load TemplateActionDefinition
-            template_action = TemplateAction.from_yaml(file)
+            template_action = TemplateAction.from_yaml(file_path)
 
             key = template_action.definition.action
             if key in self._udf_registry:
@@ -503,6 +498,9 @@ class _Registry:
                 is_template=True,
                 origin="base",
             )
+            file_paths.append(file_path)
+
+        logger.info(f"✅ Registered {len(file_paths)} template actions")
 
     def register(
         self,
