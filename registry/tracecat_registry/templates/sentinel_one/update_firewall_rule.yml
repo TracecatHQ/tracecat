@@ -5,6 +5,9 @@ definition:
   display_group: SentinelOne
   namespace: integrations.sentinel_one
   name: update_firewall_rule
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN", "SENTINEL_ONE_BASE_URL"]
   expects:
     rule_id:
       type: str
