@@ -4,7 +4,6 @@ import os
 from typing import Annotated, Any
 
 from slack_sdk.web.async_client import AsyncWebClient
-
 from tracecat.registry import Field, RegistrySecret, registry
 
 slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])

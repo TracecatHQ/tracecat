@@ -4,7 +4,6 @@ import os
 from typing import Annotated, Any
 
 from falconpy import APIHarnessV2
-
 from tracecat.registry import Field, RegistrySecret, registry
 
 crowdstrike_secret = RegistrySecret(

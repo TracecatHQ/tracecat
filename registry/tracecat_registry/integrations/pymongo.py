@@ -5,7 +5,6 @@ from typing import Annotated, Any
 
 from pymongo import MongoClient
 from pymongo.cursor import Cursor
-
 from tracecat.registry import Field, RegistrySecret, registry
 
 mongodb_secret = RegistrySecret(
