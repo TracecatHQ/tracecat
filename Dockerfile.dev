@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Copy the application files into the container
 COPY ./tracecat /app/tracecat
-COPY ./templates /app/templates
+COPY ./registry /app/registry
 COPY ./pyproject.toml /app/pyproject.toml
 COPY ./README.md /app/README.md
 COPY ./LICENSE /app/LICENSE
@@ -22,8 +22,10 @@ COPY ./alembic /app/alembic
 COPY scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Install package
+# Install package in editable mode
 RUN pip install --upgrade pip && pip install -e .
+# Install registry in editable mode
+RUN pip install -e ./registry
 
 # Install git
 RUN apt-get update && apt-get install -y git
