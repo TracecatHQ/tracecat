@@ -116,8 +116,8 @@ class SmtpMailProvider(AsyncMailProvider):
         try:
             if SMTP_SSL_ENABLED:
                 context = None
-                if SMTP_IGNORE_CERT_ERRORS:
-                    context = ssl._create_unverified_context()
+                if not SMTP_IGNORE_CERT_ERRORS:
+                    context = ssl.create_default_context()
                 server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context)
             else:
                 server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
@@ -126,8 +126,8 @@ class SmtpMailProvider(AsyncMailProvider):
 
             if SMTP_STARTTLS_ENABLED:
                 context = None
-                if SMTP_IGNORE_CERT_ERRORS:
-                    context = ssl._create_unverified_context()
+                if not SMTP_IGNORE_CERT_ERRORS:
+                    context = ssl.create_default_context()
                 server.starttls(context=context)
 
             if SMTP_AUTH_ENABLED:
