@@ -8,7 +8,11 @@ definition:
   expects:
     ip_address:
       type: str
-      description: The IP address to search
+      description: The IP address to search.
+    section:
+      type: str
+      description: The section of the report to return.
+      default: general
   layers:
     - ref: check_ip_version
       action: core.transform.reshape
@@ -18,7 +22,7 @@ definition:
     - ref: search_ip_address
       action: core.http_request
       args:
-        url: https://otx.alienvault.com/api/v1/indicators/IPv${{ layers.check_ip_version.version }}/${{ inputs.ip_address }}/general
+        url: https://otx.alienvault.com/api/v1/indicators/IPv${{ layers.check_ip_version.version }}/${{ inputs.ip_address }}/${{ inputs.section }}
         method: GET
         headers:
           X-OTX-API-KEY: ${{ SECRETS.alienvault.OTX_API_KEY }}
