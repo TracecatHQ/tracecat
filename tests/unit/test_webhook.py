@@ -7,16 +7,16 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "filename, trigger_data",
+    "file_path, trigger_data",
     [
         (
-            "integration_webhook_concat",
+            "tests/data/workflows/integration_webhook_concat",
             {"text": "hello"},
         ),
     ],
 )
-def test_webhook_runs_successfully(filename, trigger_data):
-    path = Path("tests/data/workflows") / f"{filename}.yml"
+def test_webhook_runs_successfully(file_path, trigger_data):
+    path = Path(file_path)
     # Extract the filename without extension
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"

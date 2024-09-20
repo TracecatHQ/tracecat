@@ -56,7 +56,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 
 
 @pytest.mark.parametrize(
-    "filename",
+    "file_path",
     [
         # Detect
         "playbooks/detect/webhook_alerts/elastic.yml",

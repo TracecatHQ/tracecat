@@ -8,7 +8,7 @@ import os
 from typing import Annotated, Any
 
 import aioboto3
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.registry import Field, RegistrySecret, registry
 
 # TODO: Support possible sets of secrets

@@ -20,8 +20,7 @@ from tracecat.config import (
     SMTP_STARTTLS_ENABLED,
     SMTP_USER,
 )
-
-from .tracecat.registry import registry
+from tracecat.registry import registry
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
