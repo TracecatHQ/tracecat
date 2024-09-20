@@ -385,7 +385,7 @@ class _Registry:
         # Use rglob to find all python files
         base_path = module.__path__[0]
         base_package = module.__name__
-        udf_names = []
+        num_udfs = 0
         # Ignore __init__.py
         module_paths = [
             path for path in Path(base_path).rglob("*.py") if path.stem != "__init__"
@@ -406,10 +406,12 @@ class _Registry:
                 has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
                 if is_func and is_udf and has_udf_kwargs:
                     self._register_udf_from_function(obj, name=name, origin=origin)
-                    udf_names.append(name)
-        end_time = default_timer()
+                    n_udfs += 1
+        time_elapsed = default_timer() - start_time
         logger.info(
-            f"✅ Registered {len(udf_names)} UDFs in {end_time - start_time:.2f}s"
+            f"✅ Registered {n_udfs} UDFs in {time_elapsed:.2f}s",
+            num_udfs=num_udfs,
+            time_elapsed=time_elapsed
         )
 
     def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
@@ -456,7 +458,7 @@ class _Registry:
         # Load the default templates
         logger.info(f"Loading template actions in {pkg_path!s}")
         # Load all .yml files using rglob
-        file_paths = []
+        num_templates = 0
         for file_path in pkg_path.rglob("*.yml"):
             logger.info(f"Loading template {file_path!s}")
             # Load TemplateActionDefinition
@@ -494,11 +496,13 @@ class _Registry:
                 is_template=True,
                 origin="base",
             )
-            file_paths.append(file_path)
+            num_templates += 1
 
-        end_time = default_timer()
+        time_elapsed = default_timer() - start_time
         logger.info(
-            f"✅ Registered {len(file_paths)} template actions in {end_time - start_time:.2f}s"
+            f"✅ Registered {num_templates} template actions in {time_elapsed:.2f}s",
+            num_templates=num_templates,
+            time_elapsed=time_elapsed
         )
 
     def register(
