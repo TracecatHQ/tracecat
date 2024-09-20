@@ -167,10 +167,13 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
 
         You only need to pass `base_context` if the UDF is a template.
         """
+        validated_args = self.validate_args(**args)
         if self.metadata.get("is_template"):
-            kwargs = cast(ArgsT, {"args": args, "base_context": context or {}})
+            kwargs = cast(
+                ArgsT, {"args": validated_args, "base_context": context or {}}
+            )
         else:
-            kwargs = args
+            kwargs = validated_args
         logger.warning("Running UDF async", kwargs=kwargs)
         if self.is_async:
             return await self.fn(**kwargs)
@@ -301,10 +304,8 @@ class _Registry:
 
                 This wrapper handles argument validation and secret injection for async UDFs.
                 """
-
-                validated_kwargs = self[key].validate_args(*args, **kwargs)
                 async with AuthSandbox(secrets=secret_names, target="env"):
-                    return await fn(**validated_kwargs)
+                    return await fn(**kwargs)
         else:
 
             @functools.wraps(fn)
@@ -313,10 +314,8 @@ class _Registry:
 
                 This wrapper handles argument validation and secret injection for sync UDFs.
                 """
-
-                validated_kwargs = self[key].validate_args(*args, **kwargs)
                 with AuthSandbox(secrets=secret_names, target="env"):
-                    return fn(**validated_kwargs)
+                    return fn(**kwargs)
 
         self._udf_registry[key] = RegisteredUDF(
             fn=wrapped_fn,
