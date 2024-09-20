@@ -5,6 +5,9 @@ definition:
   display_group: Jira
   namespace: integrations.jira
   name: create_issue
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
   expects:
     domain:
       type: str
@@ -28,8 +31,7 @@ definition:
         url: http://${{ inputs.domain }}/rest/api/2/issue/
         method: POST
         headers:
-          Content-Type: application/json
-          Authorization: Basic ${{ secrets.jira_auth }}
+          Authorization: Basic ${{ FN.str_to_b64(secrets.JIRA_USEREMAIL + ":" + secrets.JIRA_API_TOKEN) }}
         payload:
           data:
             fields:
