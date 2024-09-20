@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import uuid
+from pathlib import Path
 
 import pytest
 import rich
@@ -225,7 +226,7 @@ def test_create_workflow_with_file(capture_cli):
         "Scan a malicious hash on Virustotal and send the results to an email address"
     )
 
-    file = "tests/unit/data/workflows/playbook_virustotal_email.yml"
+    file = Path("tests/data/workflows/playbook_virustotal_email.yml")
     wf = _create_workflow(file=file)
     captured_output = capture_cli()
 
