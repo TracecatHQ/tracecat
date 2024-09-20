@@ -786,7 +786,7 @@ class TemplateAction(BaseModel):
         """
 
         context = base_context.copy() | {"inputs": args, "layers": {}}
-        logger.info("Running template action", action=self.definition.name)
+        logger.info("Running template action", action=self.definition.action)
         for layer in self.definition.layers:
             result = await layer.run(context=context, registry=registry)
             context["layers"][layer.ref] = DSLNodeResult(
