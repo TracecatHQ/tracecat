@@ -9,9 +9,6 @@ definition:
     channel:
       type: str
       description: ID of the channel to post the message to
-    message:
-      type: str
-      description: Message to post
     text:
       type: str
       description: Text of the message to post
