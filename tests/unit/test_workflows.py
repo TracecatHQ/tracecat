@@ -34,7 +34,6 @@ from tracecat.logger import logger
 from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -83,10 +82,12 @@ def runtime_config() -> DSLConfig:
     return config
 
 
-simple_test_cases = ["shared_adder_tree", "shared_kite", "shared_tree"]
-
-
-@pytest.mark.parametrize("dsl", simple_test_cases, indirect=True, ids=simple_test_cases)
+@pytest.mark.parametrize(
+    "dsl",
+    ["shared_adder_tree", "shared_kite", "shared_tree"],
+    indirect=True,
+    ids=lambda x: x.title,
+)
 @pytest.mark.asyncio
 async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
@@ -122,14 +123,11 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
             assert source_order < target_order
 
 
-ordering_test_cases = ["unit_ordering_kite", "unit_ordering_kite2"]
-
-
 @pytest.mark.parametrize(
     "dsl",
-    ordering_test_cases,
+    ["unit_ordering_kite", "unit_ordering_kite2"],
     indirect=True,
-    ids=ordering_test_cases,
+    ids=lambda x: x.title,
 )
 @pytest.mark.asyncio
 async def test_workflow_ordering_is_correct(
@@ -163,30 +161,26 @@ async def test_workflow_ordering_is_correct(
     assert_respectful_exec_order(dsl, result)
 
 
-# Get the paths from the test name
-correctness_test_cases = [
-    "unit_conditional_adder_tree_skips",
-    "unit_conditional_adder_tree_continues",
-    "unit_conditional_adder_tree_skip_propagates",
-    "unit_conditional_adder_diamond_skip_with_join_weak_dep",
-    "unit_transform_reshape_loop",
-    "unit_transform_reshape_loop_chained",
-    "unit_transform_reshape_arrange",
-    "unit_transform_reshape_arrange_loop",
-    "unit_transform_reshape_zip",
-    "unit_transform_reshape_map_loop",
-    "unit_runtime_test_adder_tree",
-    "unit_runtime_test_chain",
-    "unit_transform_filter_dict",
-    "unit_transform_filter_function",
-]
-
-
 @pytest.mark.parametrize(
     "dsl_with_expected",
-    correctness_test_cases,
+    [
+        "unit_conditional_adder_tree_skips",
+        "unit_conditional_adder_tree_continues",
+        "unit_conditional_adder_tree_skip_propagates",
+        "unit_conditional_adder_diamond_skip_with_join_weak_dep",
+        "unit_transform_reshape_loop",
+        "unit_transform_reshape_loop_chained",
+        "unit_transform_reshape_arrange",
+        "unit_transform_reshape_arrange_loop",
+        "unit_transform_reshape_zip",
+        "unit_transform_reshape_map_loop",
+        "unit_runtime_test_adder_tree",
+        "unit_runtime_test_chain",
+        "unit_transform_filter_dict",
+        "unit_transform_filter_function",
+    ],
     indirect=True,
-    ids=correctness_test_cases,
+    ids=lambda x: x.title,
 )
 @pytest.mark.asyncio
 async def test_workflow_completes_and_correct(
@@ -226,10 +220,9 @@ async def test_workflow_completes_and_correct(
     assert result == expected
 
 
-stress_test_cases = ["stress_adder_tree"]
-
-
-@pytest.mark.parametrize("dsl", stress_test_cases, indirect=True, ids=stress_test_cases)
+@pytest.mark.parametrize(
+    "dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x.title
+)
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
@@ -263,49 +256,6 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
                 tasks.append(task)
 
     assert all(task.done() for task in tasks)
-
-
-@pytest.mark.parametrize(
-    "dsl",
-    [
-        "tests/data/workflows/unit_conditional_adder_diamond_skip_with_join_strong_dep_fails.yml"
-    ],
-    indirect=True,
-)
-@pytest.mark.asyncio
-@pytest.mark.skip
-async def test_conditional_execution_fails(
-    dsl, temporal_cluster, test_role, base_registry
-):
-    dsl = Path(dsl)
-    test_name = f"test_conditional_execution-{dsl.title}"
-    wf_exec_id = generate_test_exec_id(test_name)
-    client = await get_temporal_client()
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
-        # NOTE: I can't seem to figure out how to catch the exception thrown by the workflow
-        # We need to figure out how to bubble up certain exceptions to the client
-        # Or allow certain exceptions to control workflow execution
-        with pytest.raises(TracecatExpressionError) as e:
-            await client.execute_workflow(
-                DSLWorkflow.run,
-                DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-                id=wf_exec_id,
-                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                retry_policy=RetryPolicy(
-                    maximum_attempts=0,
-                    non_retryable_error_types=[
-                        "tracecat.types.exceptions.TracecatExpressionError"
-                        "TracecatValidationError"
-                    ],
-                ),
-            )
-        assert "Operand has no path" in str(e)
 
 
 @pytest.mark.asyncio
@@ -534,8 +484,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
 async def test_child_workflow_success(
     temporal_cluster, test_role, temporal_client, base_registry
 ):
-    test_name = "unit_child_workflow_parent"
-
+    test_name = f"{test_child_workflow_success.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Child
     child_dsl = DSLInput(
@@ -619,7 +568,7 @@ async def test_child_workflow_context_passing(
     temporal_cluster, test_role, temporal_client, base_registry
 ):
     # Setup
-    test_name = "test_child_workflow_context_passing"
+    test_name = f"{test_child_workflow_context_passing.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
 
     # Child
