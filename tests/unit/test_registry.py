@@ -22,42 +22,43 @@ def mock_package(tmp_path):
     # Set __path__ to the temporary directory
     test_module.__path__ = [str(tmp_path)]
 
-    # Add the module to sys.modules
-    sys.modules["test_module"] = test_module
-    # Create a file for the sync function
-    with open(os.path.join(tmp_path, "sync_function.py"), "w") as f:
-        f.write(
-            textwrap.dedent("""
-            from tracecat.registry import registry
+    try:
+        # Add the module to sys.modules
+        sys.modules["test_module"] = test_module
+        # Create a file for the sync function
+        with open(os.path.join(tmp_path, "sync_function.py"), "w") as f:
+            f.write(
+                textwrap.dedent("""
+                from tracecat.registry import registry
 
-            @registry.register(
-                description="This is a test function",
-                namespace="test",
+                @registry.register(
+                    description="This is a test function",
+                    namespace="test",
+                )
+                def test_function(num: int) -> int:
+                    return num
+            """)
             )
-            def test_function(num: int) -> int:
-                return num
-        """)
-        )
 
-    # Create a file for the async function
-    with open(os.path.join(tmp_path, "async_function.py"), "w") as f:
-        f.write(
-            textwrap.dedent("""
-            from tracecat.registry import registry
+        # Create a file for the async function
+        with open(os.path.join(tmp_path, "async_function.py"), "w") as f:
+            f.write(
+                textwrap.dedent("""
+                from tracecat.registry import registry
 
-            @registry.register(
-                description="This is an async test function",
-                namespace="test",
+                @registry.register(
+                    description="This is an async test function",
+                    namespace="test",
+                )
+                async def async_test_function(num: int) -> int:
+                    return num
+            """)
             )
-            async def async_test_function(num: int) -> int:
-                return num
-        """)
-        )
 
-    yield test_module
-
-    # Clean up
-    del sys.modules["test_module"]
+        yield test_module
+    finally:
+        # Clean up
+        del sys.modules["test_module"]
 
 
 def test_udf_validate_args(mock_package):
