@@ -67,8 +67,6 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
         "detect/webhook_alerts/elastic.yml",
         "detect/webhook_alerts/panther.yml",
         "detect/extract_iocs.yml",
-        "detect/enrich_iocs/ipv4.yml",
-        "detect/enrich_iocs/urls.yml",
         # Respond
         "respond/notify_users/slack.yml",
         # Quickstart
