@@ -10,6 +10,7 @@ import pkgutil
 import re
 import subprocess
 from collections.abc import Callable, Iterator
+from importlib.resources import files
 from pathlib import Path
 from types import CoroutineType, FunctionType, GenericAlias, MethodType, ModuleType
 from typing import Annotated, Any, Generic, Literal, Self, TypedDict, TypeVar, cast
@@ -264,9 +265,9 @@ class _Registry:
         """Load all udfs and template actions into the registry."""
         # Load udfs
         logger.info("Loading base UDFs")
-        from registry.tracecat_registry import base
+        import tracecat_registry
 
-        self._register_udfs_from_module(base, visited_modules=set())
+        self._register_udfs_from_module(tracecat_registry, visited_modules=set())
 
     def _register_udf(
         self,
@@ -456,12 +457,15 @@ class _Registry:
     def _load_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
+        # Use importlib to find path to tracecat_registry package
+        pkg_root = files("tracecat_registry")
+        pkg_path = Path(pkg_root)
+
         # Load the default templates
-        path = Path(__file__).parent.parent / "templates"
-        logger.info(f"Loading default templates from {path!s}")
+        logger.info(f"Loading template actions in {pkg_path!s}")
         # Load all .yml files using rglob
         file_paths = []
-        for file_path in path.rglob("*.yml"):
+        for file_path in pkg_path.rglob("*.yml"):
             logger.info(f"Loading template {file_path!s}")
             # Load TemplateActionDefinition
             template_action = TemplateAction.from_yaml(file_path)
