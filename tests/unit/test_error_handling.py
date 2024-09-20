@@ -14,10 +14,8 @@ from tracecat.logger import logger
 
 
 @pytest.mark.asyncio
-async def test_execution_fails_fatal(test_workflows_path, temporal_cluster, test_role):
-    # Load
-    dsl = DSLInput.from_yaml(test_workflows_path / "unit_error_fatal.yml")
-
+async def test_execution_fails_fatal(temporal_cluster, test_role):
+    dsl = DSLInput.from_yaml("tests/data/workflows/unit_error_fatal.yml")
     test_name = f"test_fatal_execution-{dsl.title}"
     wf_exec_id = shared.generate_test_exec_id(test_name)
     client = await get_temporal_client()
