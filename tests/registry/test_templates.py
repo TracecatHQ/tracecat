@@ -6,15 +6,10 @@ import yaml
 from tracecat.registry import TemplateAction
 
 
-def get_template_action_paths(dir_path: Path):
-    paths = list(dir_path.rglob("*.yml"))
-    return paths
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "file_path",
-    get_template_action_paths(Path(__file__).parents[3] / "templates"),
+    list(Path("registry/tracecat_registry/templates").rglob("*.yml")),
     ids=lambda path: str(path.parts[-2:]),
 )
 async def test_template_action_validation(file_path):

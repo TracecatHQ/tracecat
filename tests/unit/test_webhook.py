@@ -5,8 +5,6 @@ from pathlib import Path
 
 import pytest
 
-DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
-
 
 @pytest.mark.parametrize(
     "filename, trigger_data",
@@ -18,7 +16,7 @@ DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
     ],
 )
 def test_webhook_runs_successfully(filename, trigger_data):
-    path = DATA_PATH / f"{filename}.yml"
+    path = Path("tests/data/workflows") / f"{filename}.yml"
     # Extract the filename without extension
     # 1. Create an commit workflow
     # Output is a JSON where the workflow ID is stored under the key "id"

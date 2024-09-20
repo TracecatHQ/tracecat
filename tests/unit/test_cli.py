@@ -5,15 +5,12 @@ import json
 import logging
 import re
 import uuid
-from pathlib import Path
 
 import pytest
 import rich
 from rich.console import Console
 
 logger = logging.getLogger(__name__)
-
-DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
 
 
 @pytest.fixture(scope="session")
@@ -228,7 +225,7 @@ def test_create_workflow_with_file(capture_cli):
         "Scan a malicious hash on Virustotal and send the results to an email address"
     )
 
-    file = DATA_PATH.joinpath("playbook_virustotal_email.yml")
+    file = "tests/unit/data/workflows/playbook_virustotal_email.yml"
     wf = _create_workflow(file=file)
     captured_output = capture_cli()
 

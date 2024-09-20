@@ -1,6 +1,5 @@
 import pytest
-
-from tracecat.actions.etl.extraction import (
+from tracecat_registry.base.etl.extraction import (
     extract_emails,
     extract_ipv4_addresses,
     extract_urls,

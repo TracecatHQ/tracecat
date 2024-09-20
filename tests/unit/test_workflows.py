@@ -38,13 +38,11 @@ from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
-DATA_PATH = Path(__file__).parent.parent.joinpath("data/workflows")
-
 
 @pytest.fixture
 def dsl(request: pytest.FixtureRequest) -> DSLInput:
     test_name = request.param
-    data_path = DATA_PATH / f"{test_name}.yml"
+    data_path = Path("tests/data/workflows") / f"{test_name}.yml"
     dsl = DSLInput.from_yaml(data_path)
     return dsl
 
@@ -64,8 +62,8 @@ def dsl_with_expected(
     request: pytest.FixtureRequest,
 ) -> tuple[DSLInput, dict[str, Any]]:
     test_name = request.param
-    data_path = DATA_PATH / f"{test_name}.yml"
-    expected_path = DATA_PATH / f"{test_name}_expected.yml"
+    data_path = Path("tests/data/workflows") / f"{test_name}.yml"
+    expected_path = Path("tests/data/workflows") / f"{test_name}_expected.yml"
     dsl = DSLInput.from_yaml(data_path)
     expected = load_expected_dsl_output(expected_path)
     return dsl, expected
@@ -269,7 +267,9 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
 
 @pytest.mark.parametrize(
     "dsl",
-    [DATA_PATH / "unit_conditional_adder_diamond_skip_with_join_strong_dep_fails.yml"],
+    [
+        "tests/data/workflows/unit_conditional_adder_diamond_skip_with_join_strong_dep_fails.yml"
+    ],
     indirect=True,
 )
 @pytest.mark.asyncio
@@ -277,6 +277,7 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
 async def test_conditional_execution_fails(
     dsl, temporal_cluster, test_role, base_registry
 ):
+    dsl = Path(dsl)
     test_name = f"test_conditional_execution-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()

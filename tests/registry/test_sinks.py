@@ -1,8 +1,7 @@
 import sqlite3
 
 import pytest
-
-from tracecat.actions.etl.sinks import write_to_database
+from tracecat_registry.base.etl.sinks import write_to_database
 
 
 @pytest.fixture
