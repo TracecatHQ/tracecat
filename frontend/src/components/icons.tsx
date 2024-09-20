@@ -340,7 +340,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
     // Emailrep namespace
-    emailrep: (props: IconProps) => (
+    "integrations.emailrep": (props: IconProps) => (
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="150"
@@ -359,7 +359,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </svg>
     ),
     // Sublime namespace
-    sublime: (props: IconProps) => (
+    "integrations.sublime": (props: IconProps) => (
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="150"
