@@ -406,12 +406,12 @@ class _Registry:
                 has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
                 if is_func and is_udf and has_udf_kwargs:
                     self._register_udf_from_function(obj, name=name, origin=origin)
-                    n_udfs += 1
+                    num_udfs += 1
         time_elapsed = default_timer() - start_time
         logger.info(
-            f"✅ Registered {n_udfs} UDFs in {time_elapsed:.2f}s",
+            f"✅ Registered {num_udfs} UDFs in {time_elapsed:.2f}s",
             num_udfs=num_udfs,
-            time_elapsed=time_elapsed
+            time_elapsed=time_elapsed,
         )
 
     def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
@@ -502,7 +502,7 @@ class _Registry:
         logger.info(
             f"✅ Registered {num_templates} template actions in {time_elapsed:.2f}s",
             num_templates=num_templates,
-            time_elapsed=time_elapsed
+            time_elapsed=time_elapsed,
         )
 
     def register(
