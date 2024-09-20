@@ -4,7 +4,6 @@ import subprocess
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from pathlib import Path
 
 import httpx
 import pytest
@@ -336,11 +335,6 @@ async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
     logger.info("Creating test session")
     async with get_async_session_context_manager() as session:
         yield session
-
-
-@pytest.fixture
-def test_workflows_path():
-    return Path(__file__).parent.joinpath("data/workflows")
 
 
 @pytest.fixture(scope="session")
