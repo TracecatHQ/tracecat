@@ -5,6 +5,9 @@ definition:
   display_group: Okta
   namespace: integrations.okta
   name: list_user_events
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
   expects:
     user_id:
       type: str
