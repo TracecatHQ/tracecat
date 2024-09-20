@@ -7,6 +7,9 @@ definition:
   display_group: Emailrep
   namespace: integrations.emailrep
   name: report_email
+  secrets:
+    - name: emailrep
+      keys: ["EMAILREP_API_KEY"]
   expects:
     email:
       type: str

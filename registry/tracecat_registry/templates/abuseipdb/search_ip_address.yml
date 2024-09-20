@@ -5,6 +5,9 @@ definition:
   display_group: AbuseIPDB
   namespace: integrations.abuseipdb
   name: search_ip_address
+  secrets:
+    - name: abuseipdb
+      keys: ["ABUSEIPDB_API_KEY"]
   expects:
     ip_address:
       type: str

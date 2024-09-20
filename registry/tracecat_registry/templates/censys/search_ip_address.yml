@@ -5,6 +5,9 @@ definition:
   display_group: Censys
   namespace: integrations.censys
   name: search_ip_address
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_KEY"]
   expects:
     ip_address:
       type: str
