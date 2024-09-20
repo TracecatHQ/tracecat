@@ -5,6 +5,9 @@ definition:
   display_group: Pulsedive
   namespace: integrations.pulsedive
   name: search_ioc
+  secrets:
+    - name: pulsedive
+      keys: ["PULSEDIVE_API_KEY"]
   expects:
     ioc:
       type: str
