@@ -10,7 +10,7 @@ import pytest
     "file_path, trigger_data",
     [
         (
-            "tests/data/workflows/integration_webhook_concat",
+            "tests/data/workflows/integration_webhook_concat.yml",
             {"text": "hello"},
         ),
     ],
