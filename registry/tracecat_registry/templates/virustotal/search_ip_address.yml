@@ -5,6 +5,9 @@ definition:
   display_group: VirusTotal
   namespace: integrations.virustotal
   name: search_ip_address
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
   expects:
     ip_address:
       type: str

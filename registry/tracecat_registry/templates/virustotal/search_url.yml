@@ -5,6 +5,9 @@ definition:
   display_group: VirusTotal
   namespace: integrations.virustotal
   name: search_url
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
   expects:
     url:
       type: str
