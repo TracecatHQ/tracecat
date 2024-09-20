@@ -12,16 +12,3 @@ actions:
     action: core.ai_action
     args:
       prompt: ${{ INPUTS.prompt }}
-
-  - ref: open_case
-    action: core.open_case
-    depends_on:
-      - tell_me_something_intereesting
-    args:
-      case_title: Interesting Case
-      payload:
-        text: ${{ ACTIONS.tell_me_something_intereesting.result }}
-      malice: benign
-      status: open
-      priority: low
-      action: informational

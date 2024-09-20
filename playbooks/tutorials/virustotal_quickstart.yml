@@ -8,22 +8,6 @@ definition:
       for_each: null
       ref: search_url
       run_if: null
-    - action: core.open_case
-      args:
-        action: informational
-        case_title: ${{ TRIGGER.url_input }}
-        malice: malicious
-        payload: ${{ ACTIONS.search_url.result.data }}
-        priority:
-          ${{ 'high' if ACTIONS.search_url.result.data.attributes.last_analysis_stats.malicious
-          > 30 else 'medium' }}
-        status: open
-      depends_on:
-        - search_url
-      description: ""
-      for_each: null
-      ref: open_case
-      run_if: ${{ ACTIONS.search_url.result.data.attributes.last_analysis_stats.malicious > 10 }}
   config:
     enable_runtime_tests: false
     scheduler: dynamic
