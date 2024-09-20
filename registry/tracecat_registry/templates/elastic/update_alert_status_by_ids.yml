@@ -4,7 +4,7 @@ definition:
   description: Update the status of Elastic Security alerts that match the specified list of signal IDs or query.
   display_group: Elastic
   namespace: integrations.elastic
-  name: update_alert_status
+  name: update_alert_status_by_ids
   expects:
     signal_ids:
       type: any
