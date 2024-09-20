@@ -1,6 +1,5 @@
 from tenacity import retry as tenacity_retry
 from tenacity import stop_after_attempt, wait_exponential
-
 from tracecat.config import (
     RETRY_EXPONENTIAL_MULTIPLIER,
     RETRY_MAX_WAIT_TIME,

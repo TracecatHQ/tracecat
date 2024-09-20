@@ -1,7 +1,6 @@
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
-
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.registry import RegistryUDFError, registry

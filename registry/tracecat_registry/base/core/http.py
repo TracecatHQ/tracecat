@@ -8,7 +8,6 @@ import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from loguru import logger
 from pydantic import Field, UrlConstraints
-
 from tracecat.registry import registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]

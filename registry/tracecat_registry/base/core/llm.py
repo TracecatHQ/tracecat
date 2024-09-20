@@ -5,7 +5,6 @@
 from typing import Annotated, Any
 
 from pydantic import Field
-
 from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
 from tracecat.registry import RegistrySecret, registry
 

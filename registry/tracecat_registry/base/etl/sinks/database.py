@@ -3,7 +3,6 @@
 from typing import Annotated, Literal
 
 import polars as pl
-
 from tracecat.registry import Field, registry
 
 

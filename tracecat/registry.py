@@ -264,9 +264,9 @@ class _Registry:
         """Load all udfs and template actions into the registry."""
         # Load udfs
         logger.info("Loading base UDFs")
-        from tracecat import actions
+        from registry.tracecat_registry import base
 
-        self._register_udfs_from_module(actions, visited_modules=set())
+        self._register_udfs_from_module(base, visited_modules=set())
 
     def _register_udf(
         self,

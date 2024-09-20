@@ -5,7 +5,6 @@
 from typing import Annotated, Any
 
 from pydantic import Field
-
 from tracecat.expressions import functions
 from tracecat.expressions.functions import (
     FunctionConstraint,

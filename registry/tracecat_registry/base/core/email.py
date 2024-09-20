@@ -10,7 +10,6 @@ from email.message import EmailMessage
 from typing import Any
 
 from loguru import logger
-
 from tracecat.config import (
     SMTP_AUTH_ENABLED,
     SMTP_HOST,
@@ -21,7 +20,8 @@ from tracecat.config import (
     SMTP_STARTTLS_ENABLED,
     SMTP_USER,
 )
-from tracecat.registry import registry
+
+from .tracecat.registry import registry
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
