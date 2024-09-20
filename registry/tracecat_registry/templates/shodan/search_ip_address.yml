@@ -5,6 +5,9 @@ definition:
   display_group: Shodan
   namespace: integrations.shodan
   name: search_ip_address
+  secrets:
+    - name: shodan
+      keys: ["SHODAN_API_KEY"]
   expects:
     ip_address:
       type: str
