@@ -5,6 +5,9 @@ definition:
   display_group: Elastic
   namespace: integrations.elastic
   name: update_alert_status
+  secrets:
+    - name: elastic
+      keys: ["ELASTIC_API_KEY", "ELASTIC_API_URL"]
   expects:
     query:
       type: any

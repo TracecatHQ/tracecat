@@ -7,6 +7,9 @@ definition:
   display_group: Datadog
   namespace: integrations.datadog
   name: list_alerts
+  secrets:
+    - name: datadog
+      keys: ["DATADOG_API_KEY", "DATADOG_APP_KEY"]
   expects:
     start_time:
       type: datetime

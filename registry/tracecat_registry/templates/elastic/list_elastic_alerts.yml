@@ -5,6 +5,9 @@ definition:
   display_group: Elastic
   namespace: integrations.elastic
   name: list_alerts
+  secrets:
+    - name: elastic
+      keys: ["ELASTIC_API_KEY", "ELASTIC_API_URL"]
   expects:
     start_time:
       type: datetime
