@@ -10,7 +10,7 @@ def test_construct_template_action():
         "definition": {
             "title": "Test Action",
             "description": "This is just a test",
-            "action": "integrations.test.wrapper",
+            "name": "wrapper",
             "namespace": "integrations.test",
             "display_group": "Testing",
             "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
@@ -106,7 +106,7 @@ async def test_template_action_run(blank_registry: _Registry):
             "definition": {
                 "title": "Test Action",
                 "description": "This is just a test",
-                "action": "integrations.test.wrapper",
+                "name": "wrapper",
                 "namespace": "integrations.test",
                 "display_group": "Testing",
                 "secrets": [{"name": "test_secret", "keys": ["KEY"]}],

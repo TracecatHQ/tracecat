@@ -32,7 +32,7 @@ WORKDIR /app
 
 # Copy the application files into the container and set ownership
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
-COPY --chown=apiuser:apiuser ./templates /app/templates
+COPY --chown=apiuser:apiuser ./registry /app/registry
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
@@ -48,6 +48,8 @@ USER apiuser
 
 # Install package
 RUN pip install --upgrade pip && pip install .
+# Install registry
+RUN pip install ./registry
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 

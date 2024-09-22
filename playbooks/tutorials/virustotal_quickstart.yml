@@ -1,36 +1,20 @@
 definition:
   actions:
-    - action: integrations.virustotal.analyze_url
+    - action: integrations.virustotal.search_url
       args:
         url: ${{ TRIGGER.url_input }}
       depends_on: []
       description: ""
       for_each: null
-      ref: analyze_url
+      ref: search_url
       run_if: null
-    - action: core.open_case
-      args:
-        action: informational
-        case_title: ${{ TRIGGER.url_input }}
-        malice: malicious
-        payload: ${{ ACTIONS.analyze_url.result.data }}
-        priority:
-          ${{ 'high' if ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious
-          > 30 else 'medium' }}
-        status: open
-      depends_on:
-        - analyze_url
-      description: ""
-      for_each: null
-      ref: open_case
-      run_if: ${{ ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 10 }}
   config:
     enable_runtime_tests: false
     scheduler: dynamic
   description: Virustotal quickstart
   entrypoint:
     expects: {}
-    ref: analyze_url
+    ref: search_url
   inputs: {}
   returns: null
   tests: []

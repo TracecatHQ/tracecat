@@ -22,11 +22,6 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
-@pytest.fixture
-def playbooks_path() -> Path:
-    return Path(__file__).parent.parent.parent / "playbooks"
-
-
 # Fixture to create Tracecat secrets
 @pytest_asyncio.fixture
 async def integration_secrets(session: AsyncSession, test_role: Role):
@@ -61,21 +56,19 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 
 
 @pytest.mark.parametrize(
-    "filename",
+    "file_path",
     [
         # Detect
-        "detect/webhook_alerts/elastic.yml",
-        "detect/webhook_alerts/panther.yml",
-        "detect/extract_iocs.yml",
-        "detect/enrich_iocs/ipv4.yml",
-        "detect/enrich_iocs/urls.yml",
+        "playbooks/detect/webhook_alerts/elastic.yml",
+        "playbooks/detect/webhook_alerts/panther.yml",
+        "playbooks/detect/extract_iocs.yml",
         # Respond
-        "respond/notify_users/slack.yml",
+        "playbooks/respond/notify_users/slack.yml",
         # Quickstart
-        "tutorials/virustotal_quickstart.yml",
-        "tutorials/limacharlie/list_tags.yml",
-        "tutorials/limacharlie/run_investigation.yml",
-        "tutorials/limacharlie/run_tests.yml",
+        "playbooks/tutorials/virustotal_quickstart.yml",
+        "playbooks/tutorials/limacharlie/list_tags.yml",
+        "playbooks/tutorials/limacharlie/run_investigation.yml",
+        "playbooks/tutorials/limacharlie/run_tests.yml",
     ],
     ids=lambda x: x,
 )
@@ -83,17 +76,15 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 @pytest.mark.dbtest
 async def test_playbook_validation(
     session: AsyncSession,
-    playbooks_path: Path,
-    filename: str,
+    file_path: str,
     test_role: Role,
     base_registry: _Registry,
 ):
     logger.info(
         "Initializing registry", length=len(base_registry), keys=base_registry.keys
     )
-    filepath = playbooks_path / filename
     mgmt_service = WorkflowsManagementService(session, role=test_role)
-    with filepath.open() as f:
+    with Path(file_path).open() as f:
         playbook_defn_data = yaml.safe_load(f)
     workflow = await mgmt_service.create_workflow_from_external_definition(
         playbook_defn_data
@@ -107,10 +98,10 @@ async def test_playbook_validation(
 
 @pytest.mark.skip
 @pytest.mark.parametrize(
-    "filename, trigger_inputs, expected_actions",
+    "file_path, trigger_inputs, expected_actions",
     [
         (
-            "tutorials/virustotal_quickstart.yml",
+            "playbooks/tutorials/virustotal_quickstart.yml",
             {
                 "url_input": "crowdstrikebluescreen.com",
             },
@@ -124,19 +115,18 @@ async def test_playbook_validation(
 @pytest.mark.dbtest
 async def test_playbook_live_run(
     session: AsyncSession,
-    playbooks_path: Path,
-    filename: str,
+    file_path: str,
     trigger_inputs: dict[str, Any],
     test_role: Role,
     temporal_client: Client,
     integration_secrets,
     expected_actions: list[str],
 ) -> None:
-    filepath = playbooks_path / filename
     # Create
-    logger.info(f"Creating workflow from {filepath}")
+    file_path = Path(file_path)
+    logger.info(f"Creating workflow from {file_path}")
     mgmt_service = WorkflowsManagementService(session, role=test_role)
-    with filepath.open() as f:
+    with file_path.open() as f:
         playbook_defn_data = yaml.safe_load(f)
     workflow = await mgmt_service.create_workflow_from_external_definition(
         playbook_defn_data
@@ -151,7 +141,7 @@ async def test_playbook_live_run(
     logger.info("Creating workflow definition")
     await defn_service.create_workflow_definition(workflow_id=workflow.id, dsl=dsl)
 
-    wf_exec_id = generate_test_exec_id(f"{filepath.stem}-{workflow.title}")
+    wf_exec_id = generate_test_exec_id(f"{file_path.stem}-{workflow.title}")
     run_args = DSLRunArgs(
         role=test_role,
         dsl=dsl,

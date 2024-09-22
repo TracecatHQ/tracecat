@@ -55,6 +55,7 @@ services:
       TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
     volumes:
       - ./tracecat:/app/tracecat
+      - ./registry:/app/registry
       - ./alembic:/app/alembic
 
   worker:
@@ -91,6 +92,7 @@ services:
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
     volumes:
       - ./tracecat:/app/tracecat
+      - ./registry:/app/registry
     entrypoint: ["python", "tracecat/dsl/worker.py"]
 
   ui:

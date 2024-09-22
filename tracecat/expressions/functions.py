@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import ipaddress
 import itertools
 import json
 import operator
@@ -395,10 +396,12 @@ _FUNCTION_MAPPING = {
     "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": lambda x, unit,: from_timestamp(x, unit),
+    "to_timestamp": lambda x: x.timestamp(),
     "minutes": lambda x: timedelta(minutes=x),
     "now": datetime.now,
     "to_datestring": lambda x, format: x.strftime(format),
     "to_datetime": to_datetime,
+    "to_isoformat": lambda x: x.isoformat(),
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
@@ -409,6 +412,7 @@ _FUNCTION_MAPPING = {
     "ipv6_in_subnet": lambda ip, subnet: ipv4_in_subnet(ip, subnet),
     "ipv4_is_public": ipv4_is_public,
     "ipv6_is_public": ipv6_is_public,
+    "check_ip_version": lambda ip: ipaddress.ip_address(ip).version,
 }
 
 

@@ -6,11 +6,12 @@ import asyncio
 import functools
 import importlib
 import inspect
-import pkgutil
 import re
 import subprocess
 from collections.abc import Callable, Iterator
+from importlib.resources import files
 from pathlib import Path
+from timeit import default_timer
 from types import CoroutineType, FunctionType, GenericAlias, MethodType, ModuleType
 from typing import Annotated, Any, Generic, Literal, Self, TypedDict, TypeVar, cast
 from urllib.parse import urlparse, urlunparse
@@ -21,6 +22,7 @@ from pydantic import (
     ConfigDict,
     Field,
     TypeAdapter,
+    computed_field,
     create_model,
     model_validator,
 )
@@ -165,10 +167,13 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
 
         You only need to pass `base_context` if the UDF is a template.
         """
+        validated_args = self.validate_args(**args)
         if self.metadata.get("is_template"):
-            kwargs = cast(ArgsT, {"args": args, "base_context": context or {}})
+            kwargs = cast(
+                ArgsT, {"args": validated_args, "base_context": context or {}}
+            )
         else:
-            kwargs = args
+            kwargs = validated_args
         logger.warning("Running UDF async", kwargs=kwargs)
         if self.is_async:
             return await self.fn(**kwargs)
@@ -238,7 +243,7 @@ class _Registry:
     ) -> None:
         """Initialize the registry."""
         if not _Registry._done_init:
-            logger.warning("Initializing registry")
+            logger.info("Initializing registry")
             # Load udfs
             if include_base:
                 self._load_base_udfs()
@@ -263,9 +268,9 @@ class _Registry:
         """Load all udfs and template actions into the registry."""
         # Load udfs
         logger.info("Loading base UDFs")
-        from tracecat import actions
+        import tracecat_registry
 
-        self._register_udfs_from_module(actions, visited_modules=set())
+        self._register_udfs_from_package(tracecat_registry)
 
     def _register_udf(
         self,
@@ -299,10 +304,8 @@ class _Registry:
 
                 This wrapper handles argument validation and secret injection for async UDFs.
                 """
-
-                validated_kwargs = self[key].validate_args(*args, **kwargs)
                 async with AuthSandbox(secrets=secret_names, target="env"):
-                    return await fn(**validated_kwargs)
+                    return await fn(**kwargs)
         else:
 
             @functools.wraps(fn)
@@ -311,10 +314,8 @@ class _Registry:
 
                 This wrapper handles argument validation and secret injection for sync UDFs.
                 """
-
-                validated_kwargs = self[key].validate_args(*args, **kwargs)
                 with AuthSandbox(secrets=secret_names, target="env"):
-                    return fn(**validated_kwargs)
+                    return fn(**kwargs)
 
         self._udf_registry[key] = RegisteredUDF(
             fn=wrapped_fn,
@@ -336,85 +337,81 @@ class _Registry:
             ),
         )
 
-    def _register_udfs_from_module(
+    def _register_udf_from_function(
+        self,
+        fn: FunctionType,
+        *,
+        name: str,
+        origin: str = "base",
+    ) -> None:
+        # Get function metadata
+        key = getattr(fn, "__tracecat_udf_key")
+        kwargs = getattr(fn, "__tracecat_udf_kwargs")
+        logger.info(f"Registering UDF: {key}", key=key, name=name)
+        # Add validators to the function
+        validated_kwargs = _RegisterKwargs.model_validate(kwargs)
+        _attach_validators(fn, TemplateValidator())
+        args_docs = _get_signature_docs(fn)
+        # Generate the model from the function signature
+        args_cls, rtype, rtype_adapter = _generate_model_from_function(
+            func=fn, namespace=validated_kwargs.namespace
+        )
+        self._register_udf(
+            fn=fn,
+            key=key,
+            namespace=validated_kwargs.namespace,
+            version=validated_kwargs.version,
+            description=validated_kwargs.description,
+            secrets=validated_kwargs.secrets,
+            default_title=validated_kwargs.default_title,
+            display_group=validated_kwargs.display_group,
+            include_in_schema=validated_kwargs.include_in_schema,
+            args_cls=args_cls,
+            args_docs=args_docs,
+            rtype=rtype,
+            rtype_adapter=rtype_adapter,
+            is_template=False,
+            origin=origin,
+        )
+
+    def _register_udfs_from_package(
         self,
         module: ModuleType,
         *,
-        visited_modules: set[str],
-        base_path: str = "",
         origin: str = "base",
     ) -> None:
-        """Recursively register all UDFs from a given module and its submodules."""
-        if module.__name__ in visited_modules:
-            logger.debug("Skipping visited module", module=module.__name__)
-            return
-
-        visited_modules.add(module.__name__)
-
-        logger.trace(f"Registering UDFs from module: {module.__name__}")
-        for name, maybe_fn in inspect.getmembers(module):
-            if inspect.isfunction(maybe_fn) and hasattr(maybe_fn, "__tracecat_udf"):
-                key = getattr(
-                    maybe_fn,
-                    "__tracecat_udf_key",
-                    f"{base_path}.{name}" if base_path else name,
-                )
-                kwargs = getattr(maybe_fn, "__tracecat_udf_kwargs", None)
-                if kwargs is None:
-                    logger.warning(
-                        f"Skipping UDF {key!r}. Missing __tracecat_udf_kwargs",
-                        key=key,
-                        name=name,
-                        base_path=base_path,
-                        origin=origin,
-                    )
-                    continue
-                logger.trace(
-                    f"Registering UDF: {key}", key=key, name=name, base_path=base_path
-                )
-                validated_kwargs = _RegisterKwargs.model_validate(kwargs)
-                if key in self._udf_registry:
-                    logger.trace(f"UDF {key!r} is already registered, skipping")
-                    continue
-
-                _attach_validators(maybe_fn, TemplateValidator())
-                args_docs = _get_signature_docs(maybe_fn)
-                args_cls, rtype, rtype_adapter = _generate_model_from_function(
-                    func=maybe_fn, namespace=validated_kwargs.namespace
-                )
-                self._register_udf(
-                    fn=maybe_fn,
-                    key=key,
-                    namespace=validated_kwargs.namespace,
-                    version=validated_kwargs.version,
-                    description=validated_kwargs.description,
-                    secrets=validated_kwargs.secrets,
-                    default_title=validated_kwargs.default_title,
-                    display_group=validated_kwargs.display_group,
-                    include_in_schema=validated_kwargs.include_in_schema,
-                    args_cls=args_cls,
-                    args_docs=args_docs,
-                    rtype=rtype,
-                    rtype_adapter=rtype_adapter,
-                    is_template=False,
-                    origin=origin,
-                )
-
-        if hasattr(module, "__path__"):  # Check if the module is a package
-            for _, submodule_name, _is_pkg in pkgutil.iter_modules(module.__path__):
-                full_submodule_name = f"{module.__name__}.{submodule_name}"
-                if full_submodule_name not in visited_modules:
-                    logger.trace(f"Importing submodule: {full_submodule_name}")
-                    submodule = importlib.import_module(full_submodule_name)
-                    new_base_path = (
-                        f"{base_path}.{submodule_name}" if base_path else submodule_name
-                    )
-                    self._register_udfs_from_module(
-                        submodule,
-                        base_path=new_base_path,
-                        visited_modules=visited_modules,
-                        origin=origin,
-                    )
+        start_time = default_timer()
+        # Use rglob to find all python files
+        base_path = module.__path__[0]
+        base_package = module.__name__
+        num_udfs = 0
+        # Ignore __init__.py
+        module_paths = [
+            path for path in Path(base_path).rglob("*.py") if path.stem != "__init__"
+        ]
+        for path in module_paths:
+            logger.info(f"Loading UDFs from {path!s}")
+            # Convert path to relative path
+            relative_path = path.relative_to(base_path)
+            # Create fully qualified module name
+            udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
+            udf_module_name = f"{base_package}.{'.'.join(udf_module_parts)}"
+            udf_module = importlib.import_module(udf_module_name)
+            # Get all functions in the module
+            for name, obj in inspect.getmembers(udf_module):
+                # Register the UDF if it is a function and has UDF metadata
+                is_func = inspect.isfunction(obj)
+                is_udf = hasattr(obj, "__tracecat_udf_key")
+                has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
+                if is_func and is_udf and has_udf_kwargs:
+                    self._register_udf_from_function(obj, name=name, origin=origin)
+                    num_udfs += 1
+        time_elapsed = default_timer() - start_time
+        logger.info(
+            f"✅ Registered {num_udfs} UDFs in {time_elapsed:.2f}s",
+            num_udfs=num_udfs,
+            time_elapsed=time_elapsed,
+        )
 
     def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
         """Load udfs from a remote source."""
@@ -443,10 +440,7 @@ class _Registry:
                 cleaned_url = urlunparse(
                     (url_obj.scheme, url_obj.netloc, url_obj.path, "", "", "")
                 )
-                self._register_udfs_from_module(
-                    module, visited_modules=set(), origin=cleaned_url
-                )
-
+                self._register_udfs_from_package(module, origin=cleaned_url)
                 logger.trace("AFTER", keys=self.keys)
             except ImportError as e:
                 logger.error("Error importing remote udfs", error=e)
@@ -455,20 +449,19 @@ class _Registry:
     def _load_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
+        start_time = default_timer()
+        # Use importlib to find path to tracecat_registry package
+        pkg_root = files("tracecat_registry")
+        pkg_path = Path(pkg_root)
+
         # Load the default templates
-        path = Path(__file__).parent.parent / "templates"
-        logger.info(f"Loading default templates from {path!s}")
-        for file in path.iterdir():
-            if not (
-                file.is_file()
-                and file.suffix in (".yml", ".yaml")
-                and not file.name.startswith("_")
-            ):
-                logger.info(f"Skipping template {file!s}")
-                continue
-            logger.info(f"Loading template {file!s}")
+        logger.info(f"Loading template actions in {pkg_path!s}")
+        # Load all .yml files using rglob
+        num_templates = 0
+        for file_path in pkg_path.rglob("*.yml"):
+            logger.info(f"Loading template {file_path!s}")
             # Load TemplateActionDefinition
-            template_action = TemplateAction.from_yaml(file)
+            template_action = TemplateAction.from_yaml(file_path)
 
             key = template_action.definition.action
             if key in self._udf_registry:
@@ -502,6 +495,14 @@ class _Registry:
                 is_template=True,
                 origin="base",
             )
+            num_templates += 1
+
+        time_elapsed = default_timer() - start_time
+        logger.info(
+            f"✅ Registered {num_templates} template actions in {time_elapsed:.2f}s",
+            num_templates=num_templates,
+            time_elapsed=time_elapsed,
+        )
 
     def register(
         self,
@@ -714,7 +715,7 @@ class ActionLayer(BaseModel):
 
 
 class TemplateActionDefinition(BaseModel):
-    action: str = Field(..., description="The action key")
+    name: str = Field(..., description="The action name")
     namespace: str = Field(..., description="The namespace of the action")
     title: str = Field(..., description="The title of the action")
     description: str = Field("", description="The description of the action")
@@ -747,6 +748,11 @@ class TemplateActionDefinition(BaseModel):
             )
 
         return self
+
+    @computed_field
+    @property
+    def action(self) -> str:
+        return f"{self.namespace}.{self.name}"
 
 
 class TemplateAction(BaseModel):
