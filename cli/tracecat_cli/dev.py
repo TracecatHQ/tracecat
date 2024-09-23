@@ -337,13 +337,13 @@ def generate_udf_docs():
         pass
     path.mkdir(parents=True, exist_ok=True)
 
-    from tracecat.registry import registry
+    from tracecat.registry import store
 
-    registry.init()
+    store.init()
 
     rich.print(f"Generating API reference paths in {config.docs_path!s}")
 
-    for key, udf in registry:
+    for key, udf in store:
         if not udf.metadata["include_in_schema"]:
             continue
 
@@ -385,7 +385,7 @@ def generate_udf_docs():
     # Overwrite the 'navigation' property with the new JSON data
     gname = "Schemas"
     # Find 'Schemas' group
-    filtered_keys = [key for key in registry.keys if udf.metadata["include_in_schema"]]
+    filtered_keys = [key for key in store.keys if udf.metadata["include_in_schema"]]
     new_mint_pages = key_tree_to_pages(filtered_keys, int_relpath).model_dump()["pages"]
     try:
         schemas_ref = next(
@@ -434,15 +434,15 @@ def generate_secret_tables(
         help="Output file path",
     ),
 ):
-    from tracecat.registry import registry
+    from tracecat.registry import store
 
-    registry.init()
+    store.init()
 
     # Table of core UDFs required secrets
     secrets = defaultdict(list)
     # Get UDF -> Secrets mapping
     blacklist = {"example"}
-    for key, udf in registry:
+    for key, udf in store:
         top_level_ns, *stem, func = key.split(".")
         if top_level_ns in blacklist:
             continue
@@ -458,7 +458,7 @@ def generate_secret_tables(
 
     # Get all secrets -> secret keys
     api_credentials = set()
-    for secret in chain.from_iterable(udf.secrets or [] for _, udf in registry):
+    for secret in chain.from_iterable(udf.secrets or [] for _, udf in store):
         api_credentials.add(
             (
                 wrap(secret.name, "`"),

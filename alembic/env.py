@@ -8,7 +8,6 @@ from sqlmodel import SQLModel
 from alembic import context
 from tracecat.db import schemas  # noqa: F401
 
-
 TRACECAT__DB_URI = os.getenv("TRACECAT__DB_URI")
 if not TRACECAT__DB_URI:
     username = os.getenv("TRACECAT__DB_USER", "postgres")
@@ -16,7 +15,9 @@ if not TRACECAT__DB_URI:
     host = os.getenv("TRACECAT__DB_ENDPOINT")
     port = os.getenv("TRACECAT__DB_PORT", 5432)
     database = os.getenv("TRACECAT__DB_NAME", "postgres")
-    TRACECAT__DB_URI = f"postgresql+psycopg://{username}:{password}@{host}:{port!s}/{database}"
+    TRACECAT__DB_URI = (
+        f"postgresql+psycopg://{username}:{password}@{host}:{port!s}/{database}"
+    )
 
 
 # this is the Alembic Config object, which provides
@@ -59,7 +60,7 @@ def run_migrations_online() -> None:
         configuration=config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        url=TRACECAT__DB_URI
+        url=TRACECAT__DB_URI,
     )
 
     with connectable.connect() as connection:
