@@ -2,7 +2,6 @@ import asyncio
 import inspect
 from types import CoroutineType, FunctionType, MethodType
 from typing import Any, Generic, cast
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_core import ValidationError
@@ -11,10 +10,9 @@ from tracecat_registry import RegistrySecret, RegistryValidationError
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.db.schemas import UDFSpec
+from tracecat.identifiers import OwnerID
 from tracecat.logger import logger
 from tracecat.registry.models import ArgsClsT, ArgsT, RegisteredUDFMetadata
-
-OwnerID = UUID
 
 
 class UDFSchema(BaseModel):
