@@ -3,6 +3,7 @@ from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
 
+from tracecat import __version__ as TRACECAT_VERSION
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
@@ -79,6 +80,10 @@ class DSLConfig(BaseModel):
             "This is used to isolate secrets across different environments."
             "If not provided, the default environment (default) is used."
         ),
+    )
+    registry_version: str = Field(
+        default=TRACECAT_VERSION,
+        description="The registry version to use for the workflow.",
     )
 
 

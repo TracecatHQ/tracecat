@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import Session, delete
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat import __version__ as TRACECAT_VERSION
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
 from tracecat.api.routers.public.callbacks import router as callback_router
@@ -37,7 +38,8 @@ from tracecat.db.engine import (
 from tracecat.db.schemas import UDFSpec
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry import registry
+from tracecat.registry.manager import RegistryManager
+from tracecat.registry.router import router as registry_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
@@ -50,10 +52,12 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    registry.init()
     initialize_db()
     await setup_defaults()
-    yield
+    try:
+        yield
+    finally:
+        RegistryManager.shutdown()
 
 
 async def setup_defaults():
@@ -83,6 +87,7 @@ async def setup_defaults():
 
 def initialize_db() -> Engine:
     engine = get_engine()
+    registry = RegistryManager().get_registry(TRACECAT_VERSION)
 
     with Session(engine) as session:
         # Add integrations to integrations table regardless of whether it's empty
@@ -96,8 +101,8 @@ def initialize_db() -> Engine:
 
 
 async def async_initialize_db() -> AsyncEngine:
-    registry.init()
     engine = get_async_engine()
+    registry = RegistryManager().get_registry(TRACECAT_VERSION)
 
     async with AsyncSession(engine) as session:
         await session.exec(delete(UDFSpec))
@@ -208,6 +213,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(schedules_router)
     app.include_router(validation_router)
     app.include_router(users_router)
+    app.include_router(registry_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

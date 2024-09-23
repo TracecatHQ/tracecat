@@ -18,7 +18,6 @@ from tracecat.workflow.schedules.service import WorkflowSchedulesService
 with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
-    from tracecat.registry import registry
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -51,11 +50,9 @@ interrupt_event = asyncio.Event()
 
 
 async def main() -> None:
-    registry.init()
     client = await get_temporal_client()
 
     # Run a worker for the activities and workflow
-    DSLActivities.init()
     activities = [
         *DSLActivities.load(),
         get_workflow_definition_activity,

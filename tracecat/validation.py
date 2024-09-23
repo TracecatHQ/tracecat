@@ -43,7 +43,9 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
+from tracecat_registry import RegistryValidationError
 
+from tracecat import __version__ as TRACECAT_VERSION
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import (
@@ -53,7 +55,8 @@ from tracecat.expressions.parser.validator import (
 )
 from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logger import logger
-from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
+from tracecat.registry.manager import RegistryManager
+from tracecat.registry.udfs import RegisteredUDF
 from tracecat.secrets.models import SearchSecretsParams
 from tracecat.secrets.service import SecretsService
 from tracecat.types.validation import (
@@ -135,6 +138,7 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
 def vadliate_udf_args(udf_key: str, args: dict[str, Any]) -> RegistryValidationResult:
     """Validate arguments against a UDF spec."""
     try:
+        registry = RegistryManager().get_registry(TRACECAT_VERSION)
         udf = registry.get(udf_key)
         validated_args = udf.validate_args(**args)
         return RegistryValidationResult(
@@ -305,6 +309,7 @@ async def validate_actions_have_defined_secrets(
         return results
 
     udf_keys = {a.action for a in dsl.actions}
+    registry = RegistryManager().get_registry(TRACECAT_VERSION)
     async with GatheringTaskGroup() as tg:
         for _, udf in registry.filter(include_keys=udf_keys):
             tg.create_task(check_udf_secrets_defined(udf))

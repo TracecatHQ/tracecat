@@ -57,7 +57,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.shared import ExprContext, context_locator
     from tracecat.logger import logger
     from tracecat.parse import traverse_leaves
-    from tracecat.registry import registry
+    from tracecat.registry.manager import RegistryManager
     from tracecat.secrets.common import apply_masks_object
     from tracecat.types.auth import Role
     from tracecat.types.exceptions import (
@@ -116,6 +116,9 @@ class DSLEnvironment(TypedDict, total=False):
 
     variables: dict[str, Any]
     """Environment variables."""
+
+    registry_version: str
+    """The registry version to use for the workflow."""
 
 
 class DSLExecutionError(TypedDict, total=False):
@@ -425,8 +428,11 @@ class DSLWorkflow:
                 },
                 environment=self.runtime_config.environment,
                 variables={},
+                registry_version=self.runtime_config.registry_version,
             ),
         )
+
+        self.registry_version = self.runtime_config.registry_version
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
@@ -763,7 +769,7 @@ class DSLWorkflow:
     ) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
-        validated_args = _validate_action_args(task)
+        validated_args = _validate_action_args(task, self.registry_version)
         # environment is None here. This is coming from the action
         self.logger.trace(
             "Validated child workflow args", validated_args=validated_args
@@ -808,10 +814,11 @@ class DSLWorkflow:
             run_context=self.run_ctx,
             exec_context=self.context,
             action_test=action_test,
+            registry_version=self.registry_version,
         )
         self.logger.debug("RUN UDF ACTIVITY", arg=arg)
         return workflow.execute_activity(
-            _udf_key_to_activity_name(task.action),
+            DSLActivities.run_action,
             arg=arg,
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
@@ -855,10 +862,7 @@ class UDFActionInput(BaseModel, Generic[ArgsT]):
     exec_context: DSLContext
     run_context: RunContext
     action_test: ActionTest | None = None
-
-
-def _udf_key_to_activity_name(key: str) -> str:
-    return key.replace(".", "__")
+    registry_version: str
 
 
 class DSLActivities:
@@ -868,38 +872,25 @@ class DSLActivities:
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod
-    def init(cls) -> type[DSLActivities]:
-        """Create activity methods from the UDF registry and attach them to DSLActivities."""
-        global registry
-        for key in registry.keys:
-            # path.to.method_name -> path__to__method_name
-            method_name = _udf_key_to_activity_name(key)
-
-            async def async_wrapper(input: UDFActionInput[ArgsT]) -> Any:
-                return await cls.run_udf(input)
-
-            fn = activity.defn(name=method_name)(async_wrapper)
-            setattr(cls, method_name, staticmethod(fn))
-
-        return cls
-
-    @classmethod
-    def get_activities(cls) -> list[Callable[[UDFActionInput[ArgsT]], Any]]:
-        """Get all loaded UDFs in the class."""
+    def load(cls) -> list[Callable[[UDFActionInput[ArgsT]], Any]]:
+        """Load and return all UDFs in the class."""
         return [
             getattr(cls, method_name)
             for method_name in dir(cls)
-            if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
+            if hasattr(
+                getattr(cls, method_name),
+                "__temporal_activity_definition",
+            )
         ]
 
-    @classmethod
-    def load(cls) -> list[Callable[[UDFActionInput[ArgsT]], Any]]:
-        """Load and return all UDFs in the class."""
-        cls.init()
-        return cls.get_activities()
-
     @staticmethod
-    async def run_udf(input: UDFActionInput[ArgsT]) -> Any:
+    @activity.defn
+    async def run_action(input: UDFActionInput[ArgsT]) -> Any:
+        """Run an action.
+        Goals:
+        - Think of this as a controller activity that will orchestrate the execution of the action.
+        - The implementation of the action is located elsewhere (registry service on API)
+        """
         ctx_run.set(input.run_context)
         ctx_role.set(input.role)
         task = input.task
@@ -948,21 +939,22 @@ class DSLActivities:
                 mask_values = {s for _, s in traverse_leaves(secrets)}
 
             # When we're here, we've populated the task arguments with shared context values
-            type = task.action
+            action_name = task.action
             ctx_logger.set(act_logger)
 
-            udf = registry[type]
+            # NOTE: Replace with REST call
+            registry = RegistryManager().get_registry(input.registry_version)
+            udf = registry[action_name]
             act_logger.info(
                 "Run udf",
                 task_ref=task.ref,
-                type=type,
+                action_name=action_name,
                 is_async=udf.is_async,
                 args=task.args,
             )
 
-            # We manually control the cache here for now.
-            act_test = input.action_test
-            if act_test and act_test.enable:
+            # Short circuit if mocking the output
+            if (act_test := input.action_test) and act_test.enable:
                 # XXX: This will fail if we run it against a loop
                 act_logger.warning(
                     f"Action test enabled, mocking the output of {task.ref!r}."
@@ -971,9 +963,9 @@ class DSLActivities:
                 if act_test.validate_args:
                     args = _evaluate_templated_args(task, context_with_secrets)
                     udf.validate_args(**args)
-                result = await resolve_success_output(act_test)
+                return await resolve_success_output(act_test)
 
-            elif task.for_each:
+            if task.for_each:
                 iterator = iter_for_each(task=task, context=context_with_secrets)
                 try:
                     async with GatheringTaskGroup() as tg:
@@ -1105,7 +1097,8 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
     obj[leaf] = value
 
 
-def _validate_action_args(task: ActionStatement[ArgsT]) -> ArgsT:
+def _validate_action_args(task: ActionStatement[ArgsT], registry_version: str) -> ArgsT:
+    registry = RegistryManager().get_registry(registry_version)
     udf = registry.get(task.action)
     res = cast(ArgsT, udf.validate_args(**task.args))
     return res

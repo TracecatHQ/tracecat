@@ -14,7 +14,7 @@ base_logger.add(
     sink=sys.stderr,
     colorize=True,
     level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="{time} | <level>{level: <8}</level> <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | {extra}",
+    format="{time} | <level>{level: <8}</level> [{process}] <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | {extra}",
 )
 
 logger = base_logger
