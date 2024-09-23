@@ -9,18 +9,7 @@ from abc import abstractmethod
 from email.message import EmailMessage
 from typing import Any
 
-from loguru import logger
-from tracecat.config import (
-    SMTP_AUTH_ENABLED,
-    SMTP_HOST,
-    SMTP_IGNORE_CERT_ERRORS,
-    SMTP_PASS,
-    SMTP_PORT,
-    SMTP_SSL_ENABLED,
-    SMTP_STARTTLS_ENABLED,
-    SMTP_USER,
-)
-from tracecat.registry import registry
+from tracecat_registry import config, logger, registry
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
@@ -113,24 +102,26 @@ class SmtpMailProvider(AsyncMailProvider):
             msg["Reply-To"] = reply_to
 
         try:
-            if SMTP_SSL_ENABLED:
+            if config.SMTP_SSL_ENABLED:
                 context = None
-                if SMTP_IGNORE_CERT_ERRORS:
+                if config.SMTP_IGNORE_CERT_ERRORS:
                     context = ssl._create_unverified_context()
-                server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context)
+                server = smtplib.SMTP_SSL(
+                    config.SMTP_HOST, config.SMTP_PORT, context=context
+                )
             else:
-                server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+                server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT)
 
             server.ehlo()
 
-            if SMTP_STARTTLS_ENABLED:
+            if config.SMTP_STARTTLS_ENABLED:
                 context = None
-                if SMTP_IGNORE_CERT_ERRORS:
+                if config.SMTP_IGNORE_CERT_ERRORS:
                     context = ssl._create_unverified_context()
                 server.starttls(context=context)
 
-            if SMTP_AUTH_ENABLED:
-                server.login(SMTP_USER, SMTP_PASS)
+            if config.SMTP_AUTH_ENABLED:
+                server.login(config.SMTP_USER, config.SMTP_PASS)
 
             # Send the email
             server.send_message(msg)
@@ -185,7 +176,7 @@ async def send_email_smtp(
         }
     except Exception as e:
         msg = "Failed to send email"
-        logger.opt(exception=e).error(msg, exc_info=e)
+        logger.error(msg, exc_info=e)
         email_response = {
             "status": "error",
             "message": msg,

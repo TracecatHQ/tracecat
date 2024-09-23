@@ -6,17 +6,15 @@
 from typing import Annotated, Any, TypedDict
 
 from pydantic import Field
-from tracecat.registry import registry
 from typing_extensions import Doc
+
+from tracecat_registry import registry
 
 
 class Member(TypedDict):
     name: str
     age: int
     is_member: bool
-
-
-CONST = "test_"
 
 
 @registry.register(

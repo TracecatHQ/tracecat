@@ -8,8 +8,9 @@ import os
 from typing import Annotated, Any
 
 import aioboto3
-from tracecat.logger import logger
-from tracecat.registry import Field, RegistrySecret, registry
+from pydantic import Field
+
+from tracecat_registry import RegistrySecret, logger, registry
 
 # TODO: Support possible sets of secrets
 # e.g. AWS_PROFILE_NAME or AWS_ROLE_ARN

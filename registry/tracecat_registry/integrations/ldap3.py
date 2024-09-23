@@ -13,7 +13,9 @@ import os
 from typing import Annotated, Any
 
 import ldap3
-from tracecat.registry import Field, RegistrySecret, registry
+from pydantic import Field
+
+from tracecat_registry import RegistrySecret, registry
 
 ldap_secret = RegistrySecret(
     name="ldap",

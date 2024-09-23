@@ -2,8 +2,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 from tracecat import identifiers
-from tracecat.dsl.common import DSLRunArgs
-from tracecat.registry import RegistryUDFError, registry
+
+from tracecat_registry import RegistryUDFError, registry
 
 
 @registry.register(
@@ -63,7 +63,7 @@ async def execute(
             description="Fail strategy to use when a child workflow fails.",
         ),
     ] = "isolated",
-) -> DSLRunArgs:
+) -> Any:
     raise RegistryUDFError(
         "This UDF only defines a controller interface and cannot be invoked directly."
         "If you are seeing this error, please contact your administrator."

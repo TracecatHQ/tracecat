@@ -3,9 +3,11 @@
 import os
 from typing import Annotated, Any
 
+from pydantic import Field
 from pymongo import MongoClient
 from pymongo.cursor import Cursor
-from tracecat.registry import Field, RegistrySecret, registry
+
+from tracecat_registry import RegistrySecret, registry
 
 mongodb_secret = RegistrySecret(
     name="mongodb",

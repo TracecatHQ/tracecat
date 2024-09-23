@@ -6,9 +6,9 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from loguru import logger
 from pydantic import Field, UrlConstraints
-from tracecat.registry import registry
+
+from tracecat_registry import logger, registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]

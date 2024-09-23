@@ -3,8 +3,10 @@
 import os
 from typing import Annotated, Any
 
+from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
-from tracecat.registry import Field, RegistrySecret, registry
+
+from tracecat_registry import RegistrySecret, registry
 
 slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
 """Slack secret.
