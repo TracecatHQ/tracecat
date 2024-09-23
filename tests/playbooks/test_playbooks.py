@@ -15,7 +15,7 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
-from tracecat.registry import _Registry
+from tracecat.registry.store import Registry
 from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -78,7 +78,7 @@ async def test_playbook_validation(
     session: AsyncSession,
     file_path: str,
     test_role: Role,
-    base_registry: _Registry,
+    base_registry: Registry,
 ):
     logger.info(
         "Initializing registry", length=len(base_registry), keys=base_registry.keys
