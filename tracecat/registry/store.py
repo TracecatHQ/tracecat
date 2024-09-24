@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
 
-from tracecat import __version__ as DEFAULT_VERSION
+from tracecat import __version__ as TRACECAT_VERSION
 from tracecat import config
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
@@ -41,7 +41,7 @@ class _RegisterKwargs(BaseModel):
 class Registry:
     """Class to store and manage all registered udfs."""
 
-    def __init__(self, version: str = DEFAULT_VERSION):
+    def __init__(self, version: str = TRACECAT_VERSION):
         self._store: dict[str, RegisteredUDF[ArgsClsT]] = {}
         self._remote = config.TRACECAT__REMOTE_REGISTRY_URL
         self._is_initialized: bool = False
