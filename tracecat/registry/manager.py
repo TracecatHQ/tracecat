@@ -17,11 +17,12 @@ class RegistryManager:
     _instance = None
     _base_version = REGISTRY_VERSION
     _registries: dict[str, Registry] = {}
+    _executor: CloudpickleProcessPoolExecutor | None = None
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super().__new__(cls, *args, **kwargs)
-            cls._executor = CloudpickleProcessPoolExecutor()
+            # cls._executor = CloudpickleProcessPoolExecutor()
         return cls._instance
 
     def __repr__(self) -> str:
@@ -106,7 +107,8 @@ class RegistryManager:
     @classmethod
     def shutdown(cls):
         logger.info("Shutting down registry manager")
-        cls._executor.shutdown()
+        if cls._executor:
+            cls._executor.shutdown()
 
 
 if __name__ == "__main__":
