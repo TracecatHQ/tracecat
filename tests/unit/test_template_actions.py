@@ -2,6 +2,7 @@ import pytest
 from tracecat_registry import RegistrySecret
 
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry import executor
 from tracecat.registry.models import ActionLayer, TemplateAction
 from tracecat.registry.store import Registry
 
@@ -146,7 +147,11 @@ async def test_template_action_run(base_registry: Registry):
         }
     )
 
-    result = await action.run(
+    registry = Registry(version="TEST")
+    registry.register_template_action(action)
+    udf = registry.get(action.definition.action)
+    result = await executor.run_template(
+        udf=udf,
         args={"service_source": "elastic"},
         base_context={},
         registry=base_registry,

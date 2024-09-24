@@ -130,19 +130,6 @@ class Registry:
             for x in self._store.values()
         ]
 
-    def _reset(self) -> None:
-        logger.warning("Resetting registry")
-        self._store = {}
-        self._is_initialized = False
-
-    def _load_base_udfs(self) -> None:
-        """Load all udfs and template actions into the registry."""
-        # Load udfs
-        logger.info("Loading base UDFs")
-        import tracecat_registry
-
-        self._register_udfs_from_package(tracecat_registry)
-
     def register_udf(
         self,
         *,
@@ -211,6 +198,52 @@ class Registry:
             ),
             template_action=template_action,
         )
+
+    def register_template_action(
+        self, template_action: TemplateAction, origin: str = "base"
+    ) -> None:
+        """Register a template action."""
+        key = template_action.definition.action
+
+        # Register the action
+        defn = template_action.definition
+        expectation = defn.expects
+
+        self.register_udf(
+            fn=Registry._not_implemented,
+            key=key,
+            namespace=defn.namespace,
+            version=self.version,  # Use the registry version
+            description=defn.description,
+            secrets=defn.secrets,
+            args_cls=create_expectation_model(expectation, key.replace(".", "__"))
+            if expectation
+            else BaseModel,
+            args_docs={
+                key: schema.description or "-" for key, schema in expectation.items()
+            },
+            rtype=Any,
+            rtype_adapter=TypeAdapter(Any),
+            default_title=defn.title,
+            display_group=defn.display_group,
+            include_in_schema=True,
+            is_template=True,
+            template_action=template_action,
+            origin=origin,
+        )
+
+    def _reset(self) -> None:
+        logger.warning("Resetting registry")
+        self._store = {}
+        self._is_initialized = False
+
+    def _load_base_udfs(self) -> None:
+        """Load all udfs and template actions into the registry."""
+        # Load udfs
+        logger.info("Loading base UDFs")
+        import tracecat_registry
+
+        self._register_udfs_from_package(tracecat_registry)
 
     def _register_udf_from_function(
         self,
@@ -344,33 +377,7 @@ class Registry:
                 logger.info(f"Template {key!r} already registered, skipping")
                 continue
 
-            # Register the action
-            defn = template_action.definition
-            expectation = defn.expects
-
-            self.register_udf(
-                fn=Registry._not_implemented,
-                key=key,
-                namespace=defn.namespace,
-                version=self.version,  # Use the registry version
-                description=defn.description,
-                secrets=defn.secrets,
-                args_cls=create_expectation_model(expectation, key.replace(".", "__"))
-                if expectation
-                else BaseModel,
-                args_docs={
-                    key: schema.description or "-"
-                    for key, schema in expectation.items()
-                },
-                rtype=Any,
-                rtype_adapter=TypeAdapter(Any),
-                default_title=defn.title,
-                display_group=defn.display_group,
-                include_in_schema=True,
-                is_template=True,
-                template_action=template_action,
-                origin="base",
-            )
+            self.register_template_action(template_action, origin=str(pkg_path))
             num_templates += 1
 
         time_elapsed = default_timer() - start_time
