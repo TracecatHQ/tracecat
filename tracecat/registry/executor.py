@@ -11,6 +11,7 @@ from tracecat.registry.client import RegistryClient
 from tracecat.registry.manager import RegistryManager
 from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
 from tracecat.registry.store import Registry
+from tracecat.secrets.secrets_manager import env_sandbox
 
 
 async def run_template(
@@ -59,10 +60,7 @@ async def run_async(
     context: dict[str, Any] | None = None,
     remote: bool = False,
 ) -> Any:
-    """Run a UDF async.
-
-    You only need to pass `base_context` if the UDF is a template.
-    """
+    """Run a UDF async."""
     validated_args = udf.validate_args(**args)
     if udf.metadata.get("is_template"):
         logger.warning("Running template UDF async")
@@ -72,8 +70,8 @@ async def run_async(
 
     logger.warning("Running regular UDF async")
     secret_names = [secret.name for secret in udf.secrets or []]
-    # XXX(concurrency): AuthSandbox isn't threadsafe. NEEDS TO BE FIXED
     if remote:
+        # NOTE!!!: Avoid using this if possible
         # This runs the UDF in the API server
         async with (
             AuthSandbox(secrets=secret_names, target="context") as sandbox,
@@ -88,9 +86,27 @@ async def run_async(
                 secrets=secrets,
             )
     else:
-        # Run the UDF in the caller process (usually the worker)
-        return await RegistryManager().run_action(
-            action_name=udf.key,
-            params=RunActionParams(args=validated_args, context=context),
-            version=udf.version,
-        )
+        async with (
+            AuthSandbox(secrets=secret_names, target="context") as sandbox,
+        ):
+            # Flatten the secrets to a dict[str, str]
+            secret_context = sandbox.secrets.copy()
+            flattened_secrets: dict[str, str] = {}
+            for name, keyvalues in secret_context.items():
+                for key, value in keyvalues.items():
+                    if key in flattened_secrets:
+                        raise ValueError(
+                            f"Key {key!r} is duplicated in {name!r}! "
+                            "Please ensure only one secret with a given name is set. "
+                            "e.g. If you have `first_secret.KEY` set, then you cannot "
+                            "also set `second_secret.KEY` as `KEY` is duplicated."
+                        )
+                    flattened_secrets[key] = value
+
+            with env_sandbox(flattened_secrets):
+                # Run the UDF in the caller process (usually the worker)
+                return await RegistryManager().run_action(
+                    action_name=udf.key,
+                    params=RunActionParams(args=validated_args, context=context),
+                    version=udf.version,
+                )

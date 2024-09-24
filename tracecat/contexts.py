@@ -21,3 +21,6 @@ class RunContext(BaseModel):
 ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)
 ctx_role: ContextVar[Role] = ContextVar("role", default=None)
 ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)
+
+SecretContextEnv = dict[str, dict[str, str]]
+ctx_env: ContextVar[SecretContextEnv] = ContextVar("env", default={})
