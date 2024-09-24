@@ -44,6 +44,7 @@ class RegistryManager:
         params: RunActionParams,
         version: str = REGISTRY_VERSION,
     ):
+        """Decides how to run the action based on the type of UDF."""
         udf = self.get_action(action_name, version)
         validated_args = udf.validate_args(**params.args)
         if udf.metadata.get("is_template"):
@@ -58,10 +59,7 @@ class RegistryManager:
                 logger.info("Running UDF async")
                 return await udf.fn(**params.args)
             logger.info("Running udf in sync executor pool")
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                self._executor, udf.fn, params.args, params.context
-            )
+            return asyncio.to_thread(udf.fn, **params.args)
         except Exception as e:
             logger.error(f"Error running UDF {udf.key!r}: {e}")
             raise
