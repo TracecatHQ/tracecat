@@ -984,7 +984,6 @@ class DSLActivities:
                                     udf=udf,
                                     args=patched_args,
                                     context=context_with_secrets,
-                                    registry=registry,
                                 )
                             )
 
@@ -1004,7 +1003,7 @@ class DSLActivities:
             else:
                 args = _evaluate_templated_args(task, context_with_secrets)
                 result = await executor.run_async(
-                    udf=udf, args=args, context=context_with_secrets, registry=registry
+                    udf=udf, args=args, context=context_with_secrets
                 )
 
             if mask_values:

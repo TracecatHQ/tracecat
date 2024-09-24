@@ -10,7 +10,6 @@ from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
 from tracecat.registry.manager import RegistryManager
 from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
-from tracecat.registry.store import Registry
 from tracecat.secrets.secrets_manager import env_sandbox
 
 
@@ -19,7 +18,7 @@ async def run_template(
     udf: RegisteredUDF,
     args: ArgsT,
     base_context: dict[str, Any] | None = None,
-    registry: Registry,
+    version: str | None = None,
 ) -> Any:
     """Handle template execution
 
@@ -32,6 +31,8 @@ async def run_template(
     }
     defn = udf.template_action.definition
     logger.info("Running template action", action=defn.action)
+    registry = RegistryManager().get_registry(version)
+
     for layer in defn.layers:
         # Evaluate a layer
         layer_udf = registry.get(layer.action)
@@ -40,9 +41,14 @@ async def run_template(
             ArgsT, eval_templated_object(validated_args, operand=context)
         )
         result = await run_async(
-            udf=layer_udf, args=concrete_args, context=context, registry=registry
+            udf=layer_udf,
+            args=concrete_args,
+            context=context,
+            version=version,
+            remote=False,
         )
         # Store the result of the layer
+        logger.info("Storing layer result", layer=layer.ref, result=result)
         context[ExprContext.TEMPLATE_ACTION_LAYERS][layer.ref] = DSLNodeResult(
             result=result,
             result_typename=type(result).__name__,
@@ -56,16 +62,16 @@ async def run_async(
     *,
     udf: RegisteredUDF,
     args: ArgsT,
-    registry: Registry,
     context: dict[str, Any] | None = None,
     remote: bool = False,
+    version: str | None = None,
 ) -> Any:
     """Run a UDF async."""
     validated_args = udf.validate_args(**args)
     if udf.metadata.get("is_template"):
         logger.warning("Running template UDF async")
         return await run_template(
-            udf=udf, args=validated_args, base_context=context or {}, registry=registry
+            udf=udf, args=validated_args, base_context=context or {}
         )
 
     logger.warning("Running regular UDF async")
@@ -108,5 +114,5 @@ async def run_async(
                 return await RegistryManager().run_action(
                     action_name=udf.key,
                     params=RunActionParams(args=validated_args, context=context),
-                    version=udf.version,
+                    version=version,
                 )

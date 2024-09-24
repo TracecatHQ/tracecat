@@ -3,6 +3,7 @@ from tracecat_registry import RegistrySecret
 
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry import executor
+from tracecat.registry.manager import RegistryManager
 from tracecat.registry.models import ActionLayer, TemplateAction
 from tracecat.registry.store import Registry
 
@@ -100,8 +101,7 @@ def test_construct_template_action():
 
 
 @pytest.mark.asyncio
-async def test_template_action_run(base_registry: Registry):
-    assert "core.transform.reshape" in base_registry
+async def test_template_action_run():
     action = TemplateAction(
         **{
             "type": "action",
@@ -147,13 +147,20 @@ async def test_template_action_run(base_registry: Registry):
         }
     )
 
-    registry = Registry(version="TEST")
+    version = test_template_action_run.__name__
+    registry = Registry(version)
+    registry.init(include_base=True, include_remote=False, include_templates=False)
     registry.register_template_action(action)
+    assert action.definition.action == "integrations.test.wrapper"
+    assert "core.transform.reshape" in registry
+    assert action.definition.action in registry
+
+    RegistryManager().add_registry(registry)
     udf = registry.get(action.definition.action)
     result = await executor.run_template(
         udf=udf,
         args={"service_source": "elastic"},
         base_context={},
-        registry=base_registry,
+        version=version,
     )
     assert result == [200, "elastic"]
