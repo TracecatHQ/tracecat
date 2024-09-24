@@ -109,6 +109,21 @@ def test_async_aware_environ_basic():
 
 
 @pytest.mark.asyncio
+async def test_async_aware_environ_context_sharing():
+    async def child():
+        return os.environ["TEST_VAR"]
+
+    with AsyncAwareEnviron.sandbox():
+        os.environ["TEST_VAR"] = "test_value"
+        assert os.environ["TEST_VAR"] == "test_value"
+
+        child_result = await child()
+        assert child_result == "test_value"
+
+    assert "TEST_VAR" not in os.environ
+
+
+@pytest.mark.asyncio
 async def test_async_aware_environ_multiple_coroutines():
     async def set_env(key: str, value: str):
         # The environment variable is set in the local scope
