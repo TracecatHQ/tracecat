@@ -90,15 +90,31 @@ class Registry:
     def get_schemas(self) -> dict[str, dict]:
         return {key: udf.construct_schema() for key, udf in self._store.items()}
 
+    def safe_remote_url(self, remote_registry_url: str) -> str:
+        """Clean a remote registry url."""
+        url_obj = urlparse(remote_registry_url)
+        # XXX(safety): Reconstruct url without credentials.
+        # Note that we do not recommend passing credentials in the url.
+        cleaned_url = urlunparse(
+            (url_obj.scheme, url_obj.netloc, url_obj.path, "", "", "")
+        )
+        return cleaned_url
+
     def init(
         self,
         include_base: bool = True,
-        include_remote: bool = False,
+        include_remote: bool = True,
         include_templates: bool = True,
     ) -> None:
         """Initialize the registry."""
         if not self._is_initialized:
-            logger.info("Initializing registry")
+            logger.info(
+                "Initializing registry",
+                version=self.version,
+                include_base=include_base,
+                include_remote=include_remote,
+                include_templates=include_templates,
+            )
             # Load udfs
             if include_base:
                 self._load_base_udfs()
@@ -323,12 +339,13 @@ class Registry:
 
     def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
         """Load udfs from a remote source."""
-        with logger.contextualize(remote=remote_registry_url):
+        cleaned_url = self.safe_remote_url(remote_registry_url)
+        with logger.contextualize(remote=cleaned_url):
             logger.info("Loading remote udfs")
             try:
                 logger.trace("BEFORE", keys=self.keys)
                 # TODO(perf): Use asyncio
-                logger.info("Installing remote udfs", remote=remote_registry_url)
+                logger.info("Installing remote udfs", remote=cleaned_url)
                 subprocess.run(
                     ["uv", "pip", "install", "--system", remote_registry_url],
                     check=True,
@@ -342,12 +359,6 @@ class Registry:
                 module = importlib.import_module(module_name)
 
                 # # Reload the module to ensure fresh execution
-                url_obj = urlparse(remote_registry_url)
-                # XXX(safety): Reconstruct url without credentials.
-                # Note that we do not recommend passing credentials in the url.
-                cleaned_url = urlunparse(
-                    (url_obj.scheme, url_obj.netloc, url_obj.path, "", "", "")
-                )
                 self._register_udfs_from_package(module, origin=cleaned_url)
                 logger.trace("AFTER", keys=self.keys)
             except ImportError as e:
