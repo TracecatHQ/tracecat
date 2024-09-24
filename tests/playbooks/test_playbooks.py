@@ -1,4 +1,5 @@
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
+from tracecat.registry.manager import RegistryManager
 from tracecat.registry.store import Registry
 from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
@@ -78,11 +80,12 @@ async def test_playbook_validation(
     session: AsyncSession,
     file_path: str,
     test_role: Role,
-    base_registry: Registry,
 ):
-    logger.info(
-        "Initializing registry", length=len(base_registry), keys=base_registry.keys
-    )
+    version = f"test-{uuid.uuid4()}"
+    registry = Registry(version)
+    RegistryManager().add_registry(registry)
+    registry.init(include_base=True, include_templates=True)
+    logger.info("Initializing registry", length=len(registry), keys=registry.keys)
     mgmt_service = WorkflowsManagementService(session, role=test_role)
     with Path(file_path).open() as f:
         playbook_defn_data = yaml.safe_load(f)
@@ -90,6 +93,9 @@ async def test_playbook_validation(
         playbook_defn_data
     )
     dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+
+    # Override the registry version
+    dsl.config.registry_version = version
     validation_results = await validate_dsl(
         dsl, validate_secrets=False, exclude_exprs={ExprType.SECRET}
     )

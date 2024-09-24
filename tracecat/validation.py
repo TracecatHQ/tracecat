@@ -84,7 +84,9 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
         # We validate the action args, but keep them as is
         # These will be coerced properly when the workflow is run
         # We store the DSL as is to ensure compatibility with with string reprs
-        result = vadliate_udf_args(act_stmt.action, act_stmt.args)
+        result = vadliate_udf_args(
+            act_stmt.action, act_stmt.args, version=dsl.config.registry_version
+        )
         if result.status == "error":
             result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
             val_res.append(result)
@@ -135,10 +137,12 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
     return val_res
 
 
-def vadliate_udf_args(udf_key: str, args: dict[str, Any]) -> RegistryValidationResult:
+def vadliate_udf_args(
+    udf_key: str, args: dict[str, Any], version: str = REGISTRY_VERSION
+) -> RegistryValidationResult:
     """Validate arguments against a UDF spec."""
     try:
-        registry = RegistryManager().get_registry(REGISTRY_VERSION)
+        registry = RegistryManager().get_registry(version)
         udf = registry.get(udf_key)
         validated_args = udf.validate_args(**args)
         return RegistryValidationResult(
