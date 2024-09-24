@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-from tracecat import __version__ as TRACECAT_VERSION
+from tracecat_registry import __version__ as REGISTRY_VERSION
+
 from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.logger import logger
 from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
@@ -14,7 +15,7 @@ class RegistryManager:
     """Singleton class that manages different versions of registries."""
 
     _instance = None
-    _base_version = TRACECAT_VERSION
+    _base_version = REGISTRY_VERSION
     _registries: dict[str, Registry] = {}
 
     def __new__(cls, *args, **kwargs):
@@ -27,7 +28,7 @@ class RegistryManager:
         return f"RegistryManager(registries={self._registries})"
 
     def get_action(
-        self, action_name: str, version: str = TRACECAT_VERSION
+        self, action_name: str, version: str = REGISTRY_VERSION
     ) -> RegisteredUDF:
         registry = self.get_registry(version)
         try:
@@ -41,7 +42,7 @@ class RegistryManager:
         self,
         action_name: str,
         params: RunActionParams,
-        version: str = TRACECAT_VERSION,
+        version: str = REGISTRY_VERSION,
     ):
         udf = self.get_action(action_name, version)
         validated_args = udf.validate_args(**params.args)
@@ -65,7 +66,7 @@ class RegistryManager:
             logger.error(f"Error running UDF {udf.key!r}: {e}")
             raise
 
-    def get_registry(self, version: str = TRACECAT_VERSION) -> Registry:
+    def get_registry(self, version: str = REGISTRY_VERSION) -> Registry:
         registry = self._registries.get(version)
         if registry is None:
             if version != self._base_version:

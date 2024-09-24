@@ -2,8 +2,8 @@ from collections.abc import Mapping
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
+from tracecat_registry import __version__ as REGISTRY_VERSION
 
-from tracecat import __version__ as TRACECAT_VERSION
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
@@ -82,7 +82,7 @@ class DSLConfig(BaseModel):
         ),
     )
     registry_version: str = Field(
-        default=TRACECAT_VERSION,
+        default=REGISTRY_VERSION,
         description="The registry version to use for the workflow.",
     )
 

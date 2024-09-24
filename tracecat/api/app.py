@@ -11,8 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import Session, delete
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry import __version__ as REGISTRY_VERSION
 
-from tracecat import __version__ as TRACECAT_VERSION
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
 from tracecat.api.routers.public.callbacks import router as callback_router
@@ -87,7 +87,7 @@ async def setup_defaults():
 
 def initialize_db() -> Engine:
     engine = get_engine()
-    registry = RegistryManager().get_registry(TRACECAT_VERSION)
+    registry = RegistryManager().get_registry(REGISTRY_VERSION)
 
     with Session(engine) as session:
         # Add integrations to integrations table regardless of whether it's empty
@@ -102,7 +102,7 @@ def initialize_db() -> Engine:
 
 async def async_initialize_db() -> AsyncEngine:
     engine = get_async_engine()
-    registry = RegistryManager().get_registry(TRACECAT_VERSION)
+    registry = RegistryManager().get_registry(REGISTRY_VERSION)
 
     async with AsyncSession(engine) as session:
         await session.exec(delete(UDFSpec))
