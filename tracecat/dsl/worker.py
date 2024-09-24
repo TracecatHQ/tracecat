@@ -18,6 +18,7 @@ from tracecat.workflow.schedules.service import WorkflowSchedulesService
 with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
+    from tracecat.registry.manager import RegistryManager
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -72,8 +73,11 @@ async def main() -> None:
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
-        # Wait until interrupted
         logger.info("Worker started, ctrl+c to exit")
+        # Load the registry
+        manager = RegistryManager()
+        manager.get_registry()
+        # Wait until interrupted
         await interrupt_event.wait()
         logger.info("Shutting down")
 
