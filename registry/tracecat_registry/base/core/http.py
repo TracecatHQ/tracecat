@@ -69,7 +69,6 @@ async def get_oauth2_token(
 
 @registry.register(
     namespace="core",
-    version="0.1.0",
     description="Perform a HTTP request to a given URL.",
     default_title="HTTP Request",
 )

@@ -12,7 +12,7 @@ def register(
     namespace: str = DEFAULT_NAMESPACE,
     description: str,
     secrets: list[RegistrySecret] | None = None,
-    version: str | None = None,
+    version: str | None = None,  # Backwards compatibility
     include_in_schema: bool = True,
 ) -> Callable[[FunctionType], FunctionType]:
     """Decorator factory to register a new UDF (User-Defined Function) with additional parameters.
@@ -47,6 +47,11 @@ def register(
     The decorated function will be wrapped to handle argument validation and secret injection.
     Both synchronous and asynchronous functions are supported.
     """
+    if version is not None:
+        raise ValueError(
+            "Setting version is no longer supported. UDFs are versioned by their registry."
+            "If you are seeing this, please remove the `version` parameter from your registry decorator."
+        )
 
     def decorator_register(fn: FunctionType) -> FunctionType:
         """The decorator function to register a new UDF.
@@ -83,6 +88,7 @@ def register(
                 "display_group": display_group,
                 "include_in_schema": include_in_schema,
                 "namespace": namespace,
+                # TODO: Remove this once we have a version field in the registry
                 "version": version,
                 "description": description,
                 "secrets": secrets,

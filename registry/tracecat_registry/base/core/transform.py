@@ -17,7 +17,6 @@ from tracecat_registry import registry
 
 @registry.register(
     namespace="core.transform",
-    version="0.1.0",
     description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
     default_title="Reshape",
     display_group="Data Transform",
@@ -30,7 +29,6 @@ def reshape(
 
 # @registry.register(
 #     namespace="core.transform",
-#     version="0.1.0",
 #     description="Filter a collection based on a condition.",
 #     default_title="Filter",
 #     display_group="Data Transform",
@@ -55,7 +53,6 @@ def reshape(
 
 # @registry.register(
 #     namespace="core.transform",
-#     version="0.1.0",
 #     description="Build a reference table from a collection of items.",
 #     default_title="Build Reference Table",
 #     display_group="Data Transform",

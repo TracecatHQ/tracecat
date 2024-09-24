@@ -8,7 +8,6 @@ from tracecat_registry import RegistryUDFError, registry
 
 @registry.register(
     namespace="core.workflow",
-    version="0.1.0",
     description="Execute a child workflow. The child workflow inherits the parent's execution context.",
     default_title="Execute Child Workflow",
     display_group="Workflows",

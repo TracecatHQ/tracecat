@@ -20,7 +20,6 @@ class Member(TypedDict):
 @registry.register(
     description="For testing the registry",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def passthrough(
@@ -32,7 +31,6 @@ def passthrough(
 @registry.register(
     description="Adder example",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def add(
@@ -45,7 +43,6 @@ def add(
 @registry.register(
     description="This is a test function",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def my_function(
@@ -75,7 +72,6 @@ def my_function(
 @registry.register(
     description="This is another test function",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def another_function(

@@ -44,7 +44,6 @@ openai_secret = RegistrySecret(
 
 @registry.register(
     namespace="core",
-    version="0.1.0",
     description="Call an LLM.",
     default_title="AI Action",
     secrets=[openai_secret],
