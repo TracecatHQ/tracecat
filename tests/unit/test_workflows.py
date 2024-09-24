@@ -10,7 +10,11 @@ Objectives
 
 import asyncio
 import os
+import textwrap
+from datetime import timedelta
+from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -21,6 +25,7 @@ from temporalio.worker import Worker
 
 from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
@@ -31,6 +36,8 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLActivities, DSLContext, DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
+from tracecat.registry.manager import RegistryManager
+from tracecat.registry.store import Registry
 from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
@@ -256,6 +263,124 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
                 tasks.append(task)
 
     assert all(task.done() for task in tasks)
+
+
+@pytest.mark.parametrize("runs", [100])
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_stress_workflow_udf_secret_manager_correctness(
+    runs, temporal_cluster, test_role, temporal_client
+):
+    """Test that we can have multiple executions of the same workflow running at the same time.
+
+    This UDF sets an environment variable, sleeps a bit then returns the values
+    over its two calls. We should see that the environment variable is
+    correctly set in the sandbox and doesn't change over the two calls.
+    """
+    test_name = test_stress_workflow_udf_secret_manager_correctness.__name__
+    registry_version = "TEST"
+    registry = Registry(registry_version)
+    test_module = ModuleType("test_module")
+
+    # Create a module spec for the test module
+    module_spec = ModuleSpec("test_module", None)
+    test_module.__spec__ = module_spec
+    code = textwrap.dedent("""
+        import asyncio
+        import random
+        from typing import Any
+
+        from tracecat_registry import RegistrySecret, registry, secrets
+
+        @registry.register(
+            default_title="Set environment variable",
+            display_group="Testing",
+            description="Set an environment variable and return it",
+            namespace="core.testing",
+        )
+        async def set_environment(value: str) -> dict[str, Any]:
+            secrets.set("SET_IN_ENV", value)
+            await asyncio.sleep(random.random())
+            first = secrets.get("SET_IN_ENV")
+            await asyncio.sleep(random.random())
+            second = secrets.get("SET_IN_ENV")
+            return {
+                "first": first,
+                "second": second,
+            }
+    """)
+    exec(code, test_module.__dict__)
+    registry._register_udfs_from_module(test_module)
+    logger.info("Registry", keys=registry.keys)
+    manager = RegistryManager()
+    manager.add_registry(registry)
+    dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "a"},
+            "actions": [
+                {
+                    "ref": "a",
+                    "action": "core.testing.set_environment",
+                    "args": {
+                        "value": "${{ TRIGGER.value }}",
+                    },
+                    "depends_on": [],
+                },
+            ],
+            "description": "Stress testing",
+            "inputs": {},
+            "returns": "${{ ACTIONS.a.result }}",
+            "tests": [],
+            "title": f"{test_name}",
+            "triggers": [],
+            # When the environment is set in the config, it should override the default
+            "config": {
+                "environment": "__TEST_ENVIRONMENT__",
+                # NOTE: Set the registry version in the DSL config
+                "registry_version": registry_version,
+            },
+        }
+    )
+
+    async with Worker(
+        temporal_client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        max_concurrent_activities=1000,
+        max_concurrent_workflow_tasks=1000,
+    ):
+        async with GatheringTaskGroup() as tg:
+            # We can have multiple executions of the same workflow running at the same time
+            for i in range(runs):
+                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
+                run_args = DSLRunArgs(
+                    dsl=dsl,
+                    role=ctx_role.get(),
+                    wf_id=TEST_WF_ID,
+                    trigger_inputs={"value": f"value-{i}"},
+                )
+                tg.create_task(
+                    temporal_client.execute_workflow(
+                        DSLWorkflow.run,
+                        run_args,
+                        id=wf_exec_id,
+                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=timedelta(seconds=30),
+                    )
+                )
+
+    results = tg.results()
+    assert len(results) == runs
+    assert list(results) == [
+        {  # Should stay constant over the udf
+            "first": f"value-{i}",
+            "second": f"value-{i}",
+        }
+        for i in range(runs)
+    ]
 
 
 @pytest.mark.asyncio
