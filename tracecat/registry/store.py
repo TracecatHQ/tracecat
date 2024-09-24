@@ -101,8 +101,8 @@ class Registry:
     def init(
         self,
         include_base: bool = True,
-        include_remote: bool = True,
-        include_templates: bool = True,
+        include_remote: bool = False,
+        include_templates: bool = False,
     ) -> None:
         """Initialize the registry."""
         if not self._is_initialized:
@@ -270,7 +270,7 @@ class Registry:
             origin=origin,
         )
 
-    def _register_udf_from_module(
+    def _register_udfs_from_module(
         self,
         module: ModuleType,
         *,
@@ -494,12 +494,9 @@ def init() -> None:
     registry.init()
 
 
-registry = Registry()
-
-
 def _enforce_restrictions(fn: FunctionType) -> FunctionType:
     """
-    Ensure that the decorated function does not access os.environ, os.getenv, or import os.
+    Ensure that a function does not access os.environ, os.getenv, or import os.
 
     Parameters
     ----------
@@ -518,26 +515,30 @@ def _enforce_restrictions(fn: FunctionType) -> FunctionType:
     """
     code = fn.__code__
     names = code.co_names
+    path = f"{fn.__module__}.{fn.__qualname__}"
     # consts = code.co_consts
     # Check for import statements of os
     if "os" in names:
         # What would you even need it for?
         logger.warning(
-            f"Importing `os` module - use at your own risk! {fn.__module__}.{fn.__qualname__}"
+            f"Importing `os` module - use at your own risk! Found in: {path}"
         )
 
     # Check for direct access to os.environ
     if "os" in names and "environ" in names:
         raise ValueError(
             "`os.environ` usage is not allowed in user-defined code."
-            f" Found in: {fn.__module__}.{fn.__qualname__}"
+            f" Found in: {path}"
         )
 
     # Check for invocations of os.getenv
     if "os" in names and "getenv" in names:
         raise ValueError(
             "`os.getenv()` usage is not allowed in user-defined code."
-            f" Found in: {fn.__module__}.{fn.__qualname__}"
+            f" Found in: {path}"
         )
 
     return fn
+
+
+registry = Registry()
