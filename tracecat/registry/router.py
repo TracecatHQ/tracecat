@@ -54,6 +54,7 @@ async def run_action(
 ) -> Any:
     logger.info(f"Running action {action_name} with params {params}")
     version = version or manager.get_registry().version
+
     result = await manager.run_action(
         action_name=action_name, version=version, params=params
     )

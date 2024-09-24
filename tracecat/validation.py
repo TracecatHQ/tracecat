@@ -56,7 +56,7 @@ from tracecat.expressions.parser.validator import (
 from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logger import logger
 from tracecat.registry.manager import RegistryManager
-from tracecat.registry.udfs import RegisteredUDF
+from tracecat.registry.models import RegisteredUDF
 from tracecat.secrets.models import SearchSecretsParams
 from tracecat.secrets.service import SecretsService
 from tracecat.types.validation import (

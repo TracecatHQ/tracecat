@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tracecat.registry.template_actions import TemplateAction
+from tracecat.registry.models import TemplateAction
 
 
 @pytest.mark.asyncio

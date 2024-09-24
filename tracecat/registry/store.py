@@ -21,9 +21,13 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
-from tracecat.registry.models import ArgsClsT, RegisteredUDFMetadata, RegisteredUDFRead
-from tracecat.registry.template_actions import TemplateAction
-from tracecat.registry.udfs import RegisteredUDF
+from tracecat.registry.models import (
+    ArgsClsT,
+    RegisteredUDF,
+    RegisteredUDFMetadata,
+    RegisteredUDFRead,
+    TemplateAction,
+)
 
 
 class _RegisterKwargs(BaseModel):

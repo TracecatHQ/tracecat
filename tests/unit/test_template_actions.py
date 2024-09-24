@@ -1,9 +1,9 @@
 import pytest
-from tracecat_registry._internal.models import RegistrySecret
+from tracecat_registry import RegistrySecret
 
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.models import ActionLayer, TemplateAction
 from tracecat.registry.store import Registry
-from tracecat.registry.template_actions import ActionLayer, TemplateAction
 
 
 def test_construct_template_action():

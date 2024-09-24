@@ -57,6 +57,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.shared import ExprContext, context_locator
     from tracecat.logger import logger
     from tracecat.parse import traverse_leaves
+    from tracecat.registry import executor
     from tracecat.registry.manager import RegistryManager
     from tracecat.secrets.common import apply_masks_object
     from tracecat.types.auth import Role
@@ -900,6 +901,11 @@ class DSLActivities:
         )
         env_context = DSLEnvironment(**input.exec_context[ExprContext.ENV])
 
+        # NOTE(arch): Should we move this to the registry service?
+        # - Reasons for
+        #   - Process secrets in the registry executors in a fully isolated environment
+        #   - We can reuse the same logic for local execution
+        #   - We can add more context to the expression resolution (e.g. loop iteration)
         try:
             # Multi-phase expression resolution
             # ---------------------------------
@@ -918,6 +924,7 @@ class DSLActivities:
             # 3. Inject the secrets into the task arguments using an enriched context
             # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
             secret_refs = extract_templated_secrets(task.args)
+
             async with AuthSandbox(
                 secrets=secret_refs,
                 target="context",
@@ -973,7 +980,8 @@ class DSLActivities:
                     async with GatheringTaskGroup() as tg:
                         for patched_args in iterator:
                             tg.create_task(
-                                udf.run_async(
+                                executor.run_async(
+                                    udf=udf,
                                     args=patched_args,
                                     context=context_with_secrets,
                                     registry=registry,
@@ -995,8 +1003,8 @@ class DSLActivities:
 
             else:
                 args = _evaluate_templated_args(task, context_with_secrets)
-                result = await udf.run_async(
-                    args=args, context=context_with_secrets, registry=registry
+                result = await executor.run_async(
+                    udf=udf, args=args, context=context_with_secrets, registry=registry
                 )
 
             if mask_values:

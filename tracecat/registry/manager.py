@@ -1,12 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 from typing import cast
 
 from tracecat import __version__ as TRACECAT_VERSION
+from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.logger import logger
-from tracecat.registry.executor import CloudpickleProcessPoolExecutor
-from tracecat.registry.models import ArgsT, RunActionParams
+from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
 from tracecat.registry.store import Registry
-from tracecat.registry.udfs import RegisteredUDF
 
 
 class RegistryManager:

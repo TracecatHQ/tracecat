@@ -2,7 +2,7 @@ import asyncio
 
 from pydantic import BaseModel
 
-from tracecat.registry.executor import CloudpickleProcessPoolExecutor
+from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.registry.manager import RegistryManager
 from tracecat.registry.store import Registry
 

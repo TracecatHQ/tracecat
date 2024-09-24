@@ -53,7 +53,7 @@ def _run_serialized_fn(ser_fn: bytes, /, *args: Any, **kwargs: Any) -> Any:
         udf_ctx=udf_ctx,
     )
 
-    res = fn(args=udf_args, context=udf_ctx)
+    res = fn(**udf_args)
     return res
 
 
