@@ -58,6 +58,7 @@ async def test_auth_sandbox_without_secrets(test_role, mock_user_id):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip("Deprecating env target")
 async def test_auth_sandbox_env_target(mocker: pytest_mock.MockFixture, test_role):
     role = ctx_role.get()
     assert role is not None
@@ -116,7 +117,7 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
 
 
 @pytest.mark.asyncio
-async def test_auth_sandbox_custom_env_target(
+async def test_auth_sandbox_custom_runtime_env_target(
     mocker: pytest_mock.MockFixture, test_role
 ):
     # Add secrets to the db
@@ -138,21 +139,23 @@ async def test_auth_sandbox_custom_env_target(
 
     # Verify that the correct secret is picked up
     async with AuthSandbox(
-        secrets=["test_secret"], target="env", environment="__FIRST__"
-    ):
-        assert "KEY" in os.environ
-        assert os.environ["KEY"] == "FIRST_VALUE"
+        secrets=["test_secret"], target="context", environment="__FIRST__"
+    ) as sandbox:
+        assert "test_secret" in sandbox.secrets
+        assert "KEY" in sandbox.secrets["test_secret"]
+        assert sandbox.secrets["test_secret"]["KEY"] == "FIRST_VALUE"
 
-    assert "KEY" not in os.environ
+    assert "KEY" not in sandbox.secrets
 
     # Verify that if we change the environment, the incorrect secret is picked up
     async with AuthSandbox(
-        secrets=["test_secret"], target="env", environment="__SECOND__"
-    ):
-        assert "KEY" in os.environ
-        assert os.environ["KEY"] == "SECOND_VALUE"
+        secrets=["test_secret"], target="context", environment="__SECOND__"
+    ) as sandbox:
+        assert "test_secret" in sandbox.secrets
+        assert "KEY" in sandbox.secrets["test_secret"]
+        assert sandbox.secrets["test_secret"]["KEY"] == "SECOND_VALUE"
 
-    assert "KEY" not in os.environ
+    assert "KEY" not in sandbox.secrets
 
 
 def test_env_sandbox_initial_env():
