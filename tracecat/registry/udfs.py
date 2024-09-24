@@ -1,7 +1,8 @@
-import asyncio
+from __future__ import annotations
+
 import inspect
 from types import CoroutineType, FunctionType, MethodType
-from typing import Any, Generic, cast
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_core import ValidationError
@@ -10,9 +11,17 @@ from tracecat_registry import RegistrySecret, RegistryValidationError
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.db.schemas import UDFSpec
+from tracecat.dsl.models import DSLNodeResult
+from tracecat.expressions.eval import eval_templated_object
+from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers import OwnerID
 from tracecat.logger import logger
+from tracecat.registry.client import RegistryClient
 from tracecat.registry.models import ArgsClsT, ArgsT, RegisteredUDFMetadata
+from tracecat.registry.template_actions import TemplateAction
+
+if TYPE_CHECKING:
+    from tracecat.registry.store import Registry
 
 
 class UDFSchema(BaseModel):
@@ -32,13 +41,14 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
     key: str
     description: str
     namespace: str
-    version: str | None = None
+    version: str
     secrets: list[RegistrySecret] | None = None
     args_cls: ArgsClsT
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter[Any] | None = None
     metadata: RegisteredUDFMetadata = Field(default_factory=dict)
+    template_action: TemplateAction | None = None
 
     @property
     def is_async(self) -> bool:
@@ -55,6 +65,19 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
             key=self.key,
             metadata=self.metadata,
         ).model_dump(mode="json")
+
+    def to_udf_spec(
+        self, owner_id: OwnerID = config.TRACECAT__DEFAULT_USER_ID
+    ) -> UDFSpec:
+        return UDFSpec(
+            owner_id=owner_id,
+            key=self.key,
+            description=self.description,
+            namespace=self.namespace,
+            version=self.version,
+            json_schema=self.construct_schema(),
+            meta=self.metadata,
+        )
 
     def validate_args[T](self, *args, **kwargs) -> T:
         """Validate the input arguments for a UDF.
@@ -90,8 +113,49 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
                 key=self.key,
             ) from e
 
+    async def _run_template(
+        self,
+        *,
+        args: ArgsT,
+        base_context: dict[str, Any] | None = None,
+        registry: Registry,
+    ) -> Any:
+        """Handle template execution
+
+        Move the template action execution here, so we can
+        override run_async's implementation
+        """
+        context = base_context.copy() | {
+            ExprContext.TEMPLATE_ACTION_INPUTS: args,
+            ExprContext.TEMPLATE_ACTION_LAYERS: {},
+        }
+        defn = self.template_action.definition
+        logger.info("Running template action", action=defn.action)
+        for layer in defn.layers:
+            # Evaluate a layer
+            layer_udf = registry.get(layer.action)
+            validated_args = layer_udf.validate_args(**layer.args)
+            concrete_args = cast(
+                ArgsT, eval_templated_object(validated_args, operand=context)
+            )
+            result = await layer_udf.run_async(
+                args=concrete_args, context=context, registry=registry
+            )
+            # Store the result of the layer
+            context[ExprContext.TEMPLATE_ACTION_LAYERS][layer.ref] = DSLNodeResult(
+                result=result,
+                result_typename=type(result).__name__,
+            )
+
+        # Handle returns
+        return eval_templated_object(defn.returns, operand=context)
+
     async def run_async(
-        self, *, args: ArgsT, context: dict[str, Any] | None = None
+        self,
+        *,
+        args: ArgsT,
+        context: dict[str, Any] | None = None,
+        registry: Registry,
     ) -> Any:
         """Run a UDF async.
 
@@ -99,40 +163,23 @@ class RegisteredUDF(BaseModel, Generic[ArgsClsT]):
         """
         validated_args = self.validate_args(**args)
         if self.metadata.get("is_template"):
-            kwargs = cast(
-                ArgsT, {"args": validated_args, "base_context": context or {}}
+            logger.warning("Running template UDF async")
+            return await self._run_template(
+                args=validated_args, base_context=context or {}, registry=registry
             )
-        else:
-            kwargs = validated_args
-        logger.warning("Running UDF async", kwargs=kwargs)
+
+        logger.warning("Running regular UDF async")
         secret_names = [secret.name for secret in self.secrets or []]
         # XXX(concurrency): AuthSandbox isn't threadsafe. NEEDS TO BE FIXED
-        async with AuthSandbox(secrets=secret_names, target="env"):
-            if self.is_async:
-                return await self.fn(**kwargs)
-            return await asyncio.to_thread(self.fn, **kwargs)
-
-    def run_sync(self, *, args: ArgsT, context: dict[str, Any] | None = None) -> Any:
-        loop = asyncio.get_event_loop()
-        loop.set_task_factory(asyncio.eager_task_factory)
-        try:
-            return loop.run_until_complete(self.run_async(args=args, context=context))
-        except asyncio.CancelledError:
-            logger.error(f"UDF {self.key!r} was cancelled")
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        except Exception as e:
-            logger.error(f"Error running UDF {self.key!r}: {e}")
-            raise
-
-    def to_udf_spec(
-        self, owner_id: OwnerID = config.TRACECAT__DEFAULT_USER_ID
-    ) -> UDFSpec:
-        return UDFSpec(
-            owner_id=owner_id,
-            key=self.key,
-            description=self.description,
-            namespace=self.namespace,
-            version=self.version,
-            json_schema=self.construct_schema(),
-            meta=self.metadata,
-        )
+        async with (
+            AuthSandbox(secrets=secret_names, target="context") as sandbox,
+            RegistryClient() as registry_client,
+        ):
+            secrets = sandbox.secrets.copy()
+            return await registry_client.call_action(
+                key=self.key,
+                version=self.version,
+                args=validated_args,
+                context=context,
+                secrets=secrets,
+            )

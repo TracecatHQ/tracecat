@@ -1,9 +1,10 @@
 import asyncio
+from typing import cast
 
 from tracecat import __version__ as TRACECAT_VERSION
 from tracecat.logger import logger
 from tracecat.registry.executor import CloudpickleProcessPoolExecutor
-from tracecat.registry.models import RunActionParams
+from tracecat.registry.models import ArgsT, RunActionParams
 from tracecat.registry.store import Registry
 from tracecat.registry.udfs import RegisteredUDF
 
@@ -42,13 +43,30 @@ class RegistryManager:
         version: str = TRACECAT_VERSION,
     ):
         udf = self.get_action(action_name, version)
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self._executor, udf.run_sync, params.args, params.context
-        )
+        validated_args = udf.validate_args(**params.args)
+        if udf.metadata.get("is_template"):
+            kwargs = cast(
+                ArgsT, {"args": validated_args, "base_context": params.context or {}}
+            )
+        else:
+            kwargs = validated_args
+        logger.warning("Running action in manager", kwargs=kwargs)
+        try:
+            if udf.is_async:
+                logger.info("Running UDF async")
+                return await udf.fn(**params.args)
+            logger.info("Running udf in sync executor pool")
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                self._executor, udf.fn, params.args, params.context
+            )
+        except Exception as e:
+            logger.error(f"Error running UDF {udf.key!r}: {e}")
+            raise
 
     def get_registry(self, version: str = TRACECAT_VERSION) -> Registry:
-        if (registry := self._registries.get(version)) is None:
+        registry = self._registries.get(version)
+        if registry is None:
             if version != self._base_version:
                 raise ValueError(f"Registry {version} not found")
             registry = Registry(version)

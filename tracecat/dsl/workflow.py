@@ -965,6 +965,8 @@ class DSLActivities:
                     udf.validate_args(**args)
                 return await resolve_success_output(act_test)
 
+            # Actual execution
+
             if task.for_each:
                 iterator = iter_for_each(task=task, context=context_with_secrets)
                 try:
@@ -972,7 +974,9 @@ class DSLActivities:
                         for patched_args in iterator:
                             tg.create_task(
                                 udf.run_async(
-                                    args=patched_args, context=context_with_secrets
+                                    args=patched_args,
+                                    context=context_with_secrets,
+                                    registry=registry,
                                 )
                             )
 
@@ -991,7 +995,9 @@ class DSLActivities:
 
             else:
                 args = _evaluate_templated_args(task, context_with_secrets)
-                result = await udf.run_async(args=args, context=context_with_secrets)
+                result = await udf.run_async(
+                    args=args, context=context_with_secrets, registry=registry
+                )
 
             if mask_values:
                 result = apply_masks_object(result, masks=mask_values)

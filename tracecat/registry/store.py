@@ -18,7 +18,6 @@ from typing_extensions import Doc
 from tracecat import __version__ as DEFAULT_VERSION
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
-from tracecat.concurrency import apartial
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
@@ -146,7 +145,6 @@ class Registry:
         fn: FunctionType,
         key: str,
         namespace: str,
-        version: str | None,
         description: str,
         secrets: list[RegistrySecret] | None,
         args_cls: ArgsClsT,
@@ -156,7 +154,9 @@ class Registry:
         default_title: str | None,
         display_group: str | None,
         include_in_schema: bool,
+        version: str | None = None,
         is_template: bool = False,
+        template_action: TemplateAction | None = None,
         origin: str = "base",
     ):
         logger.debug(f"Registering UDF {key=}")
@@ -164,6 +164,7 @@ class Registry:
         secret_names = [secret.name for secret in secrets or []]
 
         wrapped_fn: FunctionType
+        # NOTE: Move auth outside of this
         # Authsandbox isn't threadsafe. Don't do this
         if inspect.iscoroutinefunction(fn):
 
@@ -190,7 +191,7 @@ class Registry:
             fn=wrapped_fn,
             key=key,
             namespace=namespace,
-            version=version,
+            version=version or self.version,
             description=description,
             secrets=secrets,
             args_cls=args_cls,
@@ -204,6 +205,7 @@ class Registry:
                 include_in_schema=include_in_schema,
                 origin=origin,
             ),
+            template_action=template_action,
         )
 
     def _register_udf_from_function(
@@ -229,7 +231,7 @@ class Registry:
             fn=fn,
             key=key,
             namespace=validated_kwargs.namespace,
-            version=validated_kwargs.version,
+            version=self.version,  # Use the registry version
             description=validated_kwargs.description,
             secrets=validated_kwargs.secrets,
             default_title=validated_kwargs.default_title,
@@ -343,10 +345,10 @@ class Registry:
             expectation = defn.expects
 
             self.register_udf(
-                fn=apartial(template_action.run, registry=self),
+                fn=Registry._not_implemented,
                 key=key,
                 namespace=defn.namespace,
-                version=None,
+                version=self.version,  # Use the registry version
                 description=defn.description,
                 secrets=defn.secrets,
                 args_cls=create_expectation_model(expectation, key.replace(".", "__"))
@@ -362,6 +364,7 @@ class Registry:
                 display_group=defn.display_group,
                 include_in_schema=True,
                 is_template=True,
+                template_action=template_action,
                 origin="base",
             )
             num_templates += 1
@@ -372,6 +375,10 @@ class Registry:
             num_templates=num_templates,
             time_elapsed=time_elapsed,
         )
+
+    @staticmethod
+    def _not_implemented():
+        raise NotImplementedError("Template actions has no direct implementation")
 
     def filter(
         self,
