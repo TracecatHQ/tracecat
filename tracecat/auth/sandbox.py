@@ -32,7 +32,7 @@ class AuthSandbox:
         self,
         role: Role | None = None,
         secrets: list[str] | None = None,
-        target: Literal["env", "context"] = "env",
+        target: Literal["env", "context"] = "context",
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     ):
         self._role = role or ctx_role.get()
