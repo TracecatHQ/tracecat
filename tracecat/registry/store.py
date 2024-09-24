@@ -1,4 +1,3 @@
-import functools
 import importlib
 import inspect
 import re
@@ -17,7 +16,6 @@ from typing_extensions import Doc
 
 from tracecat import __version__ as DEFAULT_VERSION
 from tracecat import config
-from tracecat.auth.sandbox import AuthSandbox
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
@@ -168,34 +166,8 @@ class Registry:
     ):
         logger.debug(f"Registering UDF {key=}")
 
-        secret_names = [secret.name for secret in secrets or []]
-
-        wrapped_fn: FunctionType
-        # NOTE: Move auth outside of this
-        # Authsandbox isn't threadsafe. Don't do this
-        if inspect.iscoroutinefunction(fn):
-
-            @functools.wraps(fn)
-            async def wrapped_fn(*args, **kwargs) -> Any:
-                """Asynchronous wrapper function for the UDF.
-
-                This wrapper handles argument validation and secret injection for async UDFs.
-                """
-                async with AuthSandbox(secrets=secret_names, target="env"):
-                    return await fn(**kwargs)
-        else:
-
-            @functools.wraps(fn)
-            def wrapped_fn(*args, **kwargs) -> Any:
-                """Synchronous wrapper function for the UDF.
-
-                This wrapper handles argument validation and secret injection for sync UDFs.
-                """
-                with AuthSandbox(secrets=secret_names, target="env"):
-                    return fn(**kwargs)
-
         self._store[key] = RegisteredUDF(
-            fn=wrapped_fn,
+            fn=fn,
             key=key,
             namespace=namespace,
             version=version or self.version,
