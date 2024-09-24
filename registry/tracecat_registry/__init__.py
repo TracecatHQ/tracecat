@@ -1,11 +1,4 @@
-"""Tracecat managed actions and integrations registry.
-
-
-Answers: How do I run an action?
-
-This should only keep the registry class and only things required to run the registry.
-
-"""
+"""Tracecat managed actions and integrations registry."""
 
 __version__ = "0.1.0"
 

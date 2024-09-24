@@ -134,7 +134,6 @@ class SmtpMailProvider(AsyncMailProvider):
 
 @registry.register(
     namespace="core",
-    version="0.1.0",
     description="Perform a send email action using SMTP",
     default_title="Send Email (SMTP)",
 )
