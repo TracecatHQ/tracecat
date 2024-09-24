@@ -58,8 +58,8 @@ class RegistryManager:
             if udf.is_async:
                 logger.info("Running UDF async")
                 return await udf.fn(**params.args)
-            logger.info("Running udf in sync executor pool")
-            return asyncio.to_thread(udf.fn, **params.args)
+            logger.info("Running UDF sync")
+            return await asyncio.to_thread(udf.fn, **params.args)
         except Exception as e:
             logger.error(f"Error running UDF {udf.key!r}: {e}")
             raise
