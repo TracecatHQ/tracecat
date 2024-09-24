@@ -3,7 +3,14 @@
 __version__ = "0.1.0"
 
 
-from tracecat_registry._internal import config, registry
+try:
+    import tracecat  # noqa: F401
+except ImportError:
+    raise ImportError(
+        "Could not import tracecat. Please install `tracecat` to use the registry."
+    ) from None
+
+from tracecat_registry._internal import config, registry, secrets
 from tracecat_registry._internal.exceptions import (
     RegistryUDFError,
     RegistryValidationError,
@@ -15,6 +22,7 @@ __all__ = [
     "registry",
     "RegistrySecret",
     "logger",
+    "secrets",
     "config",
     "exceptions",
     "RegistryValidationError",

@@ -1,13 +1,12 @@
 """Generic interface to MongoDB objects and their methods (e.g. Collection) via PyMongo."""
 
-import os
 from typing import Annotated, Any
 
 from pydantic import Field
 from pymongo import MongoClient
 from pymongo.cursor import Cursor
 
-from tracecat_registry import RegistrySecret, registry
+from tracecat_registry import RegistrySecret, registry, secrets
 
 mongodb_secret = RegistrySecret(
     name="mongodb",
@@ -51,7 +50,7 @@ async def perform_mongodb_crud(
     ] = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     params = params or {}
-    connection_string = os.getenv("MONGODB_CONNECTION_STRING")
+    connection_string = secrets.get("MONGODB_CONNECTION_STRING")
     client = MongoClient(connection_string)
     db = client[database_name]
     collection = db[collection_name]

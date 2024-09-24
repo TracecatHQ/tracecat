@@ -1,12 +1,11 @@
 """Generic interface for Slack SDK."""
 
-import os
 from typing import Annotated, Any
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
 
-from tracecat_registry import RegistrySecret, registry
+from tracecat_registry import RegistrySecret, registry, secrets
 
 slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
 """Slack secret.
@@ -35,7 +34,7 @@ async def call_slack_api(
         dict, Field(..., description="Slack Python SDK method parameters")
     ],
 ) -> dict[str, Any]:
-    bot_token = os.environ.get("SLACK_BOT_TOKEN")
+    bot_token = secrets.get("SLACK_BOT_TOKEN")
     client = AsyncWebClient(token=bot_token)
     result = await getattr(client, sdk_method)(**params)
     return result
@@ -67,7 +66,7 @@ async def call_paginated_slack_api(
         ),
     ] = 200,
 ) -> dict[str, Any]:
-    bot_token = os.environ.get("SLACK_BOT_TOKEN")
+    bot_token = secrets.get("SLACK_BOT_TOKEN")
     client = AsyncWebClient(token=bot_token)
     cursor = None
     items = []
