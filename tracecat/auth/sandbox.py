@@ -39,6 +39,8 @@ class AuthSandbox:
         self._secret_paths: list[str] = secrets or []
         self._secret_objs: Sequence[Secret] = []
         self._target = target
+        if self._target == "env":
+            raise ValueError("Target env is no longer supported.")
         self._context: dict[str, Any] = {}
         self._environment = environment
         try:
