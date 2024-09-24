@@ -298,6 +298,26 @@ class Registry:
             origin=origin,
         )
 
+    def _register_udf_from_module(
+        self,
+        module: ModuleType,
+        *,
+        origin: str = "base",
+    ) -> int:
+        num_udfs = 0
+        for name, obj in inspect.getmembers(module):
+            # Get all functions in the module
+            if not inspect.isfunction(obj):
+                continue
+            _enforce_restrictions(obj)
+            is_udf = hasattr(obj, "__tracecat_udf_key")
+            has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
+            # Register the UDF if it is a function and has UDF metadata
+            if is_udf and has_udf_kwargs:
+                self._register_udf_from_function(obj, name=name, origin=origin)
+                num_udfs += 1
+        return num_udfs
+
     def _register_udfs_from_package(
         self,
         module: ModuleType,
@@ -321,15 +341,8 @@ class Registry:
             udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
             udf_module_name = f"{base_package}.{'.'.join(udf_module_parts)}"
             udf_module = importlib.import_module(udf_module_name)
-            # Get all functions in the module
-            for name, obj in inspect.getmembers(udf_module):
-                # Register the UDF if it is a function and has UDF metadata
-                is_func = inspect.isfunction(obj)
-                is_udf = hasattr(obj, "__tracecat_udf_key")
-                has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
-                if is_func and is_udf and has_udf_kwargs:
-                    self._register_udf_from_function(obj, name=name, origin=origin)
-                    num_udfs += 1
+            num_registered = self._register_udfs_from_module(udf_module, origin=origin)
+            num_udfs += num_registered
         time_elapsed = default_timer() - start_time
         logger.info(
             f"✅ Registered {num_udfs} UDFs in {time_elapsed:.2f}s",
@@ -510,3 +523,49 @@ def init() -> None:
 
 
 registry = Registry()
+
+
+def _enforce_restrictions(fn: FunctionType) -> FunctionType:
+    """
+    Ensure that the decorated function does not access os.environ, os.getenv, or import os.
+
+    Parameters
+    ----------
+    fn : FunctionType
+        The function to be checked.
+
+    Returns
+    -------
+    FunctionType
+        The original function if no access to os.environ, os.getenv, or import os is found.
+
+    Raises
+    ------
+    ValueError
+        If the function accesses os.environ, os.getenv, or imports os.
+    """
+    code = fn.__code__
+    names = code.co_names
+    # consts = code.co_consts
+    # Check for import statements of os
+    if "os" in names:
+        # What would you even need it for?
+        logger.warning(
+            f"Importing `os` module - use at your own risk! {fn.__module__}.{fn.__qualname__}"
+        )
+
+    # Check for direct access to os.environ
+    if "os" in names and "environ" in names:
+        raise ValueError(
+            "`os.environ` usage is not allowed in user-defined code."
+            f" Found in: {fn.__module__}.{fn.__qualname__}"
+        )
+
+    # Check for invocations of os.getenv
+    if "os" in names and "getenv" in names:
+        raise ValueError(
+            "`os.getenv()` usage is not allowed in user-defined code."
+            f" Found in: {fn.__module__}.{fn.__qualname__}"
+        )
+
+    return fn
