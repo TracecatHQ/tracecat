@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from tracecat.auth.sandbox import AuthSandbox
+from tracecat.contexts import ctx_run
 from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.expressions.shared import ExprContext
@@ -10,6 +11,7 @@ from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
 from tracecat.registry.manager import RegistryManager
 from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 
 
@@ -71,7 +73,10 @@ async def run_async(
     if udf.metadata.get("is_template"):
         logger.warning("Running template UDF async")
         return await run_template(
-            udf=udf, args=validated_args, base_context=context or {}
+            udf=udf,
+            args=validated_args,
+            base_context=context or {},
+            version=version,
         )
 
     logger.warning("Running regular UDF async")
@@ -92,8 +97,12 @@ async def run_async(
                 secrets=secrets,
             )
     else:
+        run_context = ctx_run.get()
+        environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
         async with (
-            AuthSandbox(secrets=secret_names, target="context") as sandbox,
+            AuthSandbox(
+                secrets=secret_names, target="context", environment=environment
+            ) as sandbox,
         ):
             # Flatten the secrets to a dict[str, str]
             secret_context = sandbox.secrets.copy()

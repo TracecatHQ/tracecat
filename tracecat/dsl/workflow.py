@@ -347,20 +347,18 @@ class DSLWorkflow:
         ctx_role.set(self.role)
         wf_info = workflow.info()
 
-        self.run_ctx = RunContext(
+        self.logger = logger.bind(
             wf_id=args.wf_id,
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=wf_info.run_id,
-        )
-        ctx_run.set(self.run_ctx)
-
-        self.logger = logger.bind(
-            run_ctx=self.run_ctx, role=self.role, unit="dsl-workflow-runner"
+            role=self.role,
+            unit="dsl-workflow-runner",
         )
         ctx_logger.set(self.logger)
         self.logger.debug("DSL workflow started", args=args)
 
-        # Setup DSL context
+        # Figure out what this worker will be running
+        # Setup workflow definition
         if args.dsl:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
@@ -380,14 +378,36 @@ class DSLWorkflow:
                 ) from e
             self.dispatch_type = "pull"
 
+        # Consolidate runtime config
         if "runtime_config" in args.model_fields_set:
+            # XXX(warning): This section must be handled with care.
+            # Particularly because of how Pydantic handles unset fields.
+            # We allow incoming runtime config in args to override the DSL config.
+
             # Use the override runtime config if it's set
-            self.runtime_config = args.runtime_config
+            # If we receive runtime config in args, we must
+            # consolidate the args in this order:
+            # 1. runtime_config.environment (override by caller)
+            # 2. dsl.config.environment (set in wf defn)
+
+            logger.warning(
+                "Runtime config was set",
+                args_config=args.runtime_config,
+                dsl_config=self.dsl.config,
+            )
+            set_fields = args.runtime_config.model_dump(exclude_unset=True)
+            self.runtime_config = self.dsl.config.model_copy(update=set_fields)
         else:
             # Otherwise default to the DSL config
+            logger.warning(
+                "Runtime config was not set, using DSL config",
+                dsl_config=self.dsl.config,
+            )
             self.runtime_config = self.dsl.config
+        logger.warning("Runtime config after", runtime_config=self.runtime_config)
+        self.registry_version = self.runtime_config.registry_version
 
-        # Set trigger inputs
+        # Consolidate trigger inputs
         if args.schedule_id:
             self.logger.debug("Fetching schedule trigger inputs")
             try:
@@ -418,6 +438,7 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             ) from e
 
+        # Prepare user facing context
         self.context = DSLContext(
             ACTIONS={},
             INPUTS=self.dsl.inputs,
@@ -429,11 +450,22 @@ class DSLWorkflow:
                 },
                 environment=self.runtime_config.environment,
                 variables={},
-                registry_version=self.runtime_config.registry_version,
+                registry_version=self.registry_version,
             ),
         )
 
-        self.registry_version = self.runtime_config.registry_version
+        # All the starting config has been consolidated, can safely set the run context
+        # Internal facing context
+        self.run_context = RunContext(
+            wf_id=args.wf_id,
+            wf_exec_id=wf_info.workflow_id,
+            wf_run_id=wf_info.run_id,
+            environment=self.runtime_config.environment,
+            registry_version=self.runtime_config.registry_version,
+        )
+        ctx_run.set(self.run_context)
+
+        self.logger = self.logger.bind(registry_version=self.registry_version)
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
@@ -812,10 +844,9 @@ class DSLWorkflow:
         arg = UDFActionInput(
             task=task,
             role=self.role,
-            run_context=self.run_ctx,
+            run_context=self.run_context,
             exec_context=self.context,
             action_test=action_test,
-            registry_version=self.registry_version,
         )
         self.logger.debug("RUN UDF ACTIVITY", arg=arg)
         return workflow.execute_activity(
@@ -863,7 +894,6 @@ class UDFActionInput(BaseModel, Generic[ArgsT]):
     exec_context: DSLContext
     run_context: RunContext
     action_test: ActionTest | None = None
-    registry_version: str
 
 
 class DSLActivities:
@@ -895,10 +925,13 @@ class DSLActivities:
         ctx_run.set(input.run_context)
         ctx_role.set(input.role)
         task = input.task
-        registry_version = input.registry_version
+        registry_version = input.run_context.registry_version
 
         act_logger = logger.bind(
-            task_ref=task.ref, wf_id=input.run_context.wf_id, role=input.role
+            task_ref=task.ref,
+            wf_id=input.run_context.wf_id,
+            role=input.role,
+            version=registry_version,
         )
         env_context = DSLEnvironment(**input.exec_context[ExprContext.ENV])
 
@@ -952,8 +985,10 @@ class DSLActivities:
 
             # NOTE: Replace with REST call
             # We should ensure that we have the correct registry version on this worker by now
-            registry = RegistryManager().get_registry(registry_version)
-            udf = registry[action_name]
+            logger.info(
+                "Getting action", action_name=action_name, version=registry_version
+            )
+            udf = RegistryManager().get_action(action_name, registry_version)
             act_logger.info(
                 "Run udf",
                 task_ref=task.ref,
