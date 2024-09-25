@@ -895,6 +895,7 @@ class DSLActivities:
         ctx_run.set(input.run_context)
         ctx_role.set(input.role)
         task = input.task
+        registry_version = input.registry_version
 
         act_logger = logger.bind(
             task_ref=task.ref, wf_id=input.run_context.wf_id, role=input.role
@@ -950,7 +951,8 @@ class DSLActivities:
             ctx_logger.set(act_logger)
 
             # NOTE: Replace with REST call
-            registry = RegistryManager().get_registry(input.registry_version)
+            # We should ensure that we have the correct registry version on this worker by now
+            registry = RegistryManager().get_registry(registry_version)
             udf = registry[action_name]
             act_logger.info(
                 "Run udf",
@@ -984,6 +986,7 @@ class DSLActivities:
                                     udf=udf,
                                     args=patched_args,
                                     context=context_with_secrets,
+                                    version=registry_version,
                                 )
                             )
 
@@ -1003,7 +1006,10 @@ class DSLActivities:
             else:
                 args = _evaluate_templated_args(task, context_with_secrets)
                 result = await executor.run_async(
-                    udf=udf, args=args, context=context_with_secrets
+                    udf=udf,
+                    args=args,
+                    context=context_with_secrets,
+                    version=registry_version,
                 )
 
             if mask_values:
