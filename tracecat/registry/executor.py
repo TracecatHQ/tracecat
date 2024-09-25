@@ -86,7 +86,7 @@ async def run_async(
             secrets = sandbox.secrets.copy()
             return await registry_client.call_action(
                 key=udf.key,
-                version=udf.version,
+                version=version,
                 args=validated_args,
                 context=context,
                 secrets=secrets,
