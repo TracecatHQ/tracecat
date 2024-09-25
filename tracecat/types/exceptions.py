@@ -52,6 +52,10 @@ class TracecatServiceError(TracecatException):
     """Tracecat generic user-facing service error"""
 
 
+class RegistryError(TracecatException):
+    """Generic exception raised when a registry error occurs."""
+
+
 class RegistryUDFError(TracecatException):
     """Exception raised when a registry UDF error occurs."""
 
