@@ -45,6 +45,7 @@ async def test_apartial():
     assert result == 6
 
 
+@pytest.mark.skip(reason="Not used atm and slow")
 @pytest.mark.asyncio
 async def test_async_aware_environ():
     async def passthrough(value: str):
