@@ -43,6 +43,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
+from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from tracecat_registry import RegistryValidationError
 from tracecat_registry import __version__ as REGISTRY_VERSION
 
@@ -270,6 +271,7 @@ async def validate_actions_have_defined_secrets(
 
     # In memory cache to prevent duplicate checks
     checked_keys_cache: set[str] = set()
+    environment = dsl.config.environment
 
     async def check_udf_secrets_defined(
         udf: RegisteredUDF,
@@ -288,15 +290,24 @@ async def validate_actions_have_defined_secrets(
                 if registry_secret.name in checked_keys_cache:
                     continue
                 # (1) Check if the secret is defined
-                defined_secret = await service.get_secret_by_name(registry_secret.name)
-                checked_keys_cache.add(registry_secret.name)
-                if not defined_secret:
-                    msg = (
-                        f"Secret {registry_secret.name!r} is not defined in the secrets manager."
-                        f" Please add it using the CLI or UI. This secret requires keys: {registry_secret.keys}"
+                try:
+                    defined_secret = await service.get_secret_by_name(
+                        registry_secret.name,
+                        raise_on_error=True,
+                        environment=environment,
                     )
-                    results.append(SecretValidationResult(status="error", msg=msg))
+                except (NoResultFound, MultipleResultsFound) as e:
+                    results.append(
+                        SecretValidationResult(
+                            status="error",
+                            msg=str(e),
+                            detail={"environment": environment},
+                        )
+                    )
                     continue
+                finally:
+                    # This will get run even if the above fails and the loop continues
+                    checked_keys_cache.add(registry_secret.name)
                 decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
                 defined_keys = {kv.key for kv in decrypted_keys}
                 required_keys = set(registry_secret.keys)
@@ -340,7 +351,9 @@ async def validate_dsl(
     # Tier 2: UDF Args validation
     if validate_args:
         dsl_args_errs = validate_dsl_args(dsl)
-        logger.debug("DSL args validation errors", errs=dsl_args_errs)
+        logger.debug(
+            f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
+        )
         iterables.append(dsl_args_errs)
 
     # Tier 3: Expression validation
@@ -351,13 +364,18 @@ async def validate_dsl(
 
     if validate_expressions:
         expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
-        logger.debug("DSL expression validation errors", errs=expr_errs)
+        logger.debug(
+            f"{len(expr_errs)} DSL expression validation errors", errs=expr_errs
+        )
         iterables.append(expr_errs)
 
     # For secrets we also need to check if any used actions have undefined secrets
     if validate_secrets:
         udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
-        logger.debug("DSL secret validation errors", errs=expr_errs)
+        logger.debug(
+            f"{len(udf_missing_secrets)} DSL secret validation errors",
+            errs=udf_missing_secrets,
+        )
         iterables.append(udf_missing_secrets)
 
     return set(chain(*iterables))
