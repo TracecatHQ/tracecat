@@ -278,8 +278,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
     correctly set in the sandbox and doesn't change over the two calls.
     """
     test_name = test_stress_workflow_udf_secret_manager_correctness.__name__
-    registry_version = "TEST"
-    registry = Registry(registry_version)
+    registry = Registry(test_name)
     test_module = ModuleType("test_module")
 
     # Create a module spec for the test module
@@ -296,7 +295,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
             default_title="Set environment variable",
             display_group="Testing",
             description="Set an environment variable and return it",
-            namespace="core.testing",
+            namespace="__testing__.testing",
         )
         async def set_environment(value: str) -> dict[str, Any]:
             secrets.set("SET_IN_ENV", value)
@@ -311,16 +310,17 @@ async def test_stress_workflow_udf_secret_manager_correctness(
     """)
     exec(code, test_module.__dict__)
     registry._register_udfs_from_module(test_module)
-    logger.info("Registry", keys=registry.keys)
+    assert "__testing__.testing.set_environment" in registry
     manager = RegistryManager()
     manager.add_registry(registry)
+    assert test_name in manager.list_registries()
     dsl = DSLInput(
         **{
             "entrypoint": {"expects": {}, "ref": "a"},
             "actions": [
                 {
                     "ref": "a",
-                    "action": "core.testing.set_environment",
+                    "action": "__testing__.testing.set_environment",
                     "args": {
                         "value": "${{ TRIGGER.value }}",
                     },
@@ -337,7 +337,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
             "config": {
                 "environment": "__TEST_ENVIRONMENT__",
                 # NOTE: Set the registry version in the DSL config
-                "registry_version": registry_version,
+                "registry_version": test_name,
             },
         }
     )
@@ -348,8 +348,6 @@ async def test_stress_workflow_udf_secret_manager_correctness(
         activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
-        max_concurrent_activities=1000,
-        max_concurrent_workflow_tasks=1000,
     ):
         async with GatheringTaskGroup() as tg:
             # We can have multiple executions of the same workflow running at the same time
