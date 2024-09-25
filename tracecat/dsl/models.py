@@ -64,6 +64,11 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
 
 
 class DSLConfig(BaseModel):
+    """This is the runtime configuration for the workflow.
+
+    Activities don't need access to this.
+    """
+
     scheduler: Literal["static", "dynamic"] = Field(
         default="dynamic",
         description="The type of scheduler to use.",
