@@ -9,6 +9,7 @@ from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.logger import logger
 from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
 from tracecat.registry.store import Registry
+from tracecat.types.exceptions import RegistryError
 
 
 class RegistryManager:
@@ -28,24 +29,28 @@ class RegistryManager:
     def __repr__(self) -> str:
         return f"RegistryManager(registries={self._registries})"
 
-    def get_action(
-        self, action_name: str, version: str = REGISTRY_VERSION
-    ) -> RegisteredUDF:
+    def get_action(self, action_name: str, version: str | None = None) -> RegisteredUDF:
+        version = version or self._base_version
         registry = self.get_registry(version)
+        if registry is None:
+            raise RegistryError(
+                f"Registry {version!r} not found. Available registries: {self.list_registries()}"
+            )
         try:
             return registry.get(action_name)
         except KeyError as e:
-            raise ValueError(
-                f"Action {action_name} not found in registry {version}"
+            raise RegistryError(
+                f"Action {action_name!r} not found in registry {version!r}. Available actions: {registry.keys}"
             ) from e
 
     async def run_action(
         self,
         action_name: str,
         params: RunActionParams,
-        version: str = REGISTRY_VERSION,
+        version: str | None = None,
     ):
         """Decides how to run the action based on the type of UDF."""
+        version = version or self._base_version
         udf = self.get_action(action_name, version)
         validated_args = udf.validate_args(**params.args)
         if udf.metadata.get("is_template"):
@@ -65,10 +70,14 @@ class RegistryManager:
             logger.error(f"Error running UDF {udf.key!r}: {e}")
             raise
 
-    def get_registry(self, version: str = REGISTRY_VERSION) -> Registry:
+    def get_registry(self, version: str | None = None) -> Registry | None:
+        version = version or self._base_version
         registry = self._registries.get(version)
         if registry is None:
             if version != self._base_version:
+                # If the version we're looking for is not the current version
+                # We need to fetch it from a remote source
+                # We're currently just throwing an error
                 raise ValueError(f"Registry {version} not found")
             registry = Registry(version)
             registry.init()
