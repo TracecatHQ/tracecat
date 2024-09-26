@@ -9,7 +9,10 @@ from abc import abstractmethod
 from email.message import EmailMessage
 from typing import Any
 
-from tracecat_registry import config, logger, registry
+# NOTE: We use the app config here. In custom actions you may use your own config
+from tracecat import config
+
+from tracecat_registry import logger, registry
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
