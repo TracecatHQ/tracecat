@@ -12,9 +12,9 @@ from urllib.parse import urlparse, urlunparse
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from tracecat_registry import RegistrySecret
+from tracecat_registry import __version__ as REGISTRY_VERSION
 from typing_extensions import Doc
 
-from tracecat import __version__ as TRACECAT_VERSION
 from tracecat import config
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
@@ -41,7 +41,7 @@ class _RegisterKwargs(BaseModel):
 class Registry:
     """Class to store and manage all registered udfs."""
 
-    def __init__(self, version: str = TRACECAT_VERSION):
+    def __init__(self, version: str = REGISTRY_VERSION):
         self._store: dict[str, RegisteredUDF[ArgsClsT]] = {}
         self._remote = config.TRACECAT__REMOTE_REGISTRY_URL
         self._is_initialized: bool = False
@@ -102,7 +102,7 @@ class Registry:
         self,
         include_base: bool = True,
         include_remote: bool = False,
-        include_templates: bool = False,
+        include_templates: bool = True,
     ) -> None:
         """Initialize the registry."""
         if not self._is_initialized:
@@ -127,6 +127,11 @@ class Registry:
 
             logger.info("Registry initialized", num_actions=len(self._store))
             self._is_initialized = True
+
+    def reload(self) -> None:
+        """Reload the registry from the remote source."""
+        self._reset()
+        self.init()
 
     def list_actions(self) -> list[RegisteredUDFRead]:
         return [
