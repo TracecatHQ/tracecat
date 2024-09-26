@@ -78,7 +78,7 @@ async def run_single_action(
     udf = RegistryManager().get_action(action_name, version)
     validated_args = udf.validate_args(**args)
     if udf.metadata.get("is_template"):
-        logger.warning("Running template UDF async")
+        logger.info("Running template UDF async", action=action_name)
         return await run_template_action(
             udf=udf,
             args=validated_args,
@@ -86,7 +86,7 @@ async def run_single_action(
             version=version,
         )
 
-    logger.warning("Running regular UDF async")
+    logger.info("Running regular UDF async", action=action_name)
     secret_names = [secret.name for secret in udf.secrets or []]
     run_context = ctx_run.get()
     environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
