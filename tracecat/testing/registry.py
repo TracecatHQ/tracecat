@@ -1,4 +1,4 @@
-"""Use this only for testing purposes."""
+"""XXX(security): Use this only for testing purposes."""
 
 import textwrap
 from importlib.machinery import ModuleSpec
@@ -42,6 +42,9 @@ async def register_test_module(
     module_spec = ModuleSpec(params.module_name, None)
     test_module.__spec__ = module_spec
     code = textwrap.dedent(params.code)
+    # XXX(security): This is a security risk. Do not run this in production.
+    # We're using exec to load the module because that's the only way to control
+    # the remote registryfrom pytest
     exec(code, test_module.__dict__)
     registry._register_udfs_from_module(test_module)
     for key in params.validate_keys or []:

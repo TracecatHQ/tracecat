@@ -274,6 +274,7 @@ def create_app(**kwargs) -> FastAPI:
 
     # Development endpoints
     if config.TRACECAT__APP_ENV == "development":
+        # XXX(security): This is a security risk. Do not run this in production.
         from tracecat.testing.registry import router as registry_testing_router
 
         app.include_router(registry_testing_router)
