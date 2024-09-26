@@ -88,12 +88,16 @@ class AuthSandbox:
 
     def _iter_secrets(self) -> Iterator[tuple[str, SecretKeyValue]]:
         """Iterate over the secrets."""
-        for secret in self._secret_objs:
-            keyvalues = decrypt_keyvalues(
-                secret.encrypted_keys, key=self._encryption_key
-            )
-            for kv in keyvalues:
-                yield secret.name, kv
+        try:
+            for secret in self._secret_objs:
+                keyvalues = decrypt_keyvalues(
+                    secret.encrypted_keys, key=self._encryption_key
+                )
+                for kv in keyvalues:
+                    yield secret.name, kv
+        except Exception as e:
+            logger.error(f"Error decrypting secrets: {e!r}")
+            raise
 
     def _set_secrets(self) -> None:
         """Set secrets in the target."""
