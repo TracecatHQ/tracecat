@@ -117,7 +117,87 @@ export const $ActionResponse = {
     title: 'ActionResponse'
 } as const;
 
-export const $ActionStatement = {
+export const $ActionStatement_Input = {
+    properties: {
+        id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Id',
+            description: 'The action ID. If this is populated means there is a corresponding actionin the database `Action` table.'
+        },
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref',
+            description: 'Unique reference for the task'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            default: ''
+        },
+        action: {
+            type: 'string',
+            pattern: '^[a-z0-9_.]+$',
+            title: 'Action',
+            description: 'Action type. Equivalent to the UDF key.'
+        },
+        args: {
+            type: 'object',
+            title: 'Args',
+            description: 'Arguments for the action'
+        },
+        depends_on: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Depends On',
+            description: 'Task dependencies'
+        },
+        run_if: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run If',
+            description: 'Condition to run the task'
+        },
+        for_each: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'For Each',
+            description: 'Iterate over a list of items and run the task for each item.'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action'],
+    title: 'ActionStatement'
+} as const;
+
+export const $ActionStatement_Output = {
     properties: {
         ref: {
             type: 'string',
@@ -763,6 +843,39 @@ export const $CreateActionParams = {
     title: 'CreateActionParams'
 } as const;
 
+export const $CreateRegistryParams = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        include_base: {
+            type: 'boolean',
+            title: 'Include Base',
+            default: true
+        },
+        include_remote: {
+            type: 'boolean',
+            title: 'Include Remote',
+            default: true
+        },
+        include_templates: {
+            type: 'boolean',
+            title: 'Include Templates',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'CreateRegistryParams'
+} as const;
+
 export const $CreateSecretParams = {
     properties: {
         type: {
@@ -940,10 +1053,19 @@ export const $DSLConfig_Input = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version',
+            description: 'The registry version to use for the workflow.',
+            default: '0.1.0'
         }
     },
     type: 'object',
-    title: 'DSLConfig'
+    title: 'DSLConfig',
+    description: `This is the runtime configuration for the workflow.
+
+Activities don't need access to this.`
 } as const;
 
 export const $DSLConfig_Output = {
@@ -959,10 +1081,19 @@ export const $DSLConfig_Output = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version',
+            description: 'The registry version to use for the workflow.',
+            default: '0.1.0'
         }
     },
     type: 'object',
-    title: 'DSLConfig'
+    title: 'DSLConfig',
+    description: `This is the runtime configuration for the workflow.
+
+Activities don't need access to this.`
 } as const;
 
 export const $DSLContext = {
@@ -1028,6 +1159,10 @@ export const $DSLEnvironment = {
         variables: {
             type: 'object',
             title: 'Variables'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
         }
     },
     type: 'object',
@@ -1050,7 +1185,7 @@ export const $DSLInput = {
         },
         actions: {
             items: {
-                '$ref': '#/components/schemas/ActionStatement'
+                '$ref': '#/components/schemas/ActionStatement-Output'
             },
             type: 'array',
             title: 'Actions'
@@ -1273,7 +1408,7 @@ export const $EventGroup = {
         action_input: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/UDFActionInput'
+                    '$ref': '#/components/schemas/UDFActionInput-Output'
                 },
                 {
                     '$ref': '#/components/schemas/DSLRunArgs'
@@ -1465,6 +1600,125 @@ export const $OAuth2AuthorizeResponse = {
     title: 'OAuth2AuthorizeResponse'
 } as const;
 
+export const $RegisteredUDFMetadata = {
+    properties: {
+        is_template: {
+            type: 'boolean',
+            title: 'Is Template'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group'
+        },
+        include_in_schema: {
+            type: 'boolean',
+            title: 'Include In Schema'
+        },
+        origin: {
+            type: 'string',
+            title: 'Origin'
+        }
+    },
+    type: 'object',
+    title: 'RegisteredUDFMetadata',
+    description: 'Metadata for a registered UDF.'
+} as const;
+
+export const $RegisteredUDFRead = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace'
+        },
+        version: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Version'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets'
+        },
+        args_docs: {
+            additionalProperties: {
+                type: 'string'
+            },
+            type: 'object',
+            title: 'Args Docs'
+        },
+        metadata: {
+            '$ref': '#/components/schemas/RegisteredUDFMetadata'
+        }
+    },
+    type: 'object',
+    required: ['key', 'description', 'namespace'],
+    title: 'RegisteredUDFRead',
+    description: 'API read model for a registered UDF.'
+} as const;
+
+export const $RegistrySecret = {
+    properties: {
+        name: {
+            type: 'string',
+            pattern: '[a-z0-9_]+',
+            title: 'Name'
+        },
+        keys: {
+            items: {
+                type: 'string',
+                pattern: '[a-zA-Z0-9_]+'
+            },
+            type: 'array',
+            title: 'Keys'
+        }
+    },
+    type: 'object',
+    required: ['name', 'keys'],
+    title: 'RegistrySecret'
+} as const;
+
 export const $Role = {
     properties: {
         type: {
@@ -1563,11 +1817,20 @@ export const $RunContext = {
             type: 'string',
             format: 'uuid4',
             title: 'Wf Run Id'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
         }
     },
     type: 'object',
-    required: ['wf_id', 'wf_exec_id', 'wf_run_id'],
-    title: 'RunContext'
+    required: ['wf_id', 'wf_exec_id', 'wf_run_id', 'environment', 'registry_version'],
+    title: 'RunContext',
+    description: 'This is the runtime context model for a workflow run. Passed into activities.'
 } as const;
 
 export const $Schedule = {
@@ -2084,6 +2347,40 @@ export const $TerminateWorkflowExecutionParams = {
     title: 'TerminateWorkflowExecutionParams'
 } as const;
 
+export const $TestRegistryParams = {
+    properties: {
+        version: {
+            type: 'string',
+            title: 'Version'
+        },
+        code: {
+            type: 'string',
+            title: 'Code'
+        },
+        module_name: {
+            type: 'string',
+            title: 'Module Name'
+        },
+        validate_keys: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Validate Keys'
+        }
+    },
+    type: 'object',
+    required: ['version', 'code', 'module_name'],
+    title: 'TestRegistryParams'
+} as const;
+
 export const $Trigger = {
     properties: {
         type: {
@@ -2106,10 +2403,10 @@ export const $Trigger = {
     title: 'Trigger'
 } as const;
 
-export const $UDFActionInput = {
+export const $UDFActionInput_Input = {
     properties: {
         task: {
-            '$ref': '#/components/schemas/ActionStatement'
+            '$ref': '#/components/schemas/ActionStatement-Input'
         },
         role: {
             '$ref': '#/components/schemas/Role'
@@ -2133,7 +2430,39 @@ export const $UDFActionInput = {
     },
     type: 'object',
     required: ['task', 'role', 'exec_context', 'run_context'],
-    title: 'UDFActionInput'
+    title: 'UDFActionInput',
+    description: 'This object contains all the information needed to execute an action.'
+} as const;
+
+export const $UDFActionInput_Output = {
+    properties: {
+        task: {
+            '$ref': '#/components/schemas/ActionStatement-Output'
+        },
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        exec_context: {
+            '$ref': '#/components/schemas/DSLContext'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        },
+        action_test: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ActionTest'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'UDFActionInput',
+    description: 'This object contains all the information needed to execute an action.'
 } as const;
 
 export const $UDFArgsValidationResponse = {
@@ -2843,6 +3172,22 @@ export const $UserUpdate = {
     },
     type: 'object',
     title: 'UserUpdate'
+} as const;
+
+export const $ValidateActionParams = {
+    properties: {
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
+        },
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['registry_version', 'args'],
+    title: 'ValidateActionParams'
 } as const;
 
 export const $ValidationError = {
