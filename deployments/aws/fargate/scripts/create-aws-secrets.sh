@@ -3,38 +3,25 @@
 # Exit immediately if a command exits with a non-zero status
 set -e
 
-# Function to clean up .env file
-cleanup() {
-    if [ -f .env ]; then
-        echo "Cleaning up .env file"
-        rm .env
-        rm .env.example
-    fi
-}
-
-# Set up trap to ensure cleanup happens on exit
-trap cleanup EXIT
-
-# Download env installation files from tracecat repo
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.7.2/.env.example
-chmod +x env.sh && ./env.sh
-
-# Extract keys from .env file
-DB_ENCRYPTION_KEY=$(grep TRACECAT__DB_ENCRYPTION_KEY .env | cut -d '=' -f2)
-SERVICE_KEY=$(grep TRACECAT__SERVICE_KEY .env | cut -d '=' -f2)
-SIGNING_SECRET=$(grep TRACECAT__SIGNING_SECRET .env | cut -d '=' -f2)
-
-# Set default KEY_NAMES if not provided
-DB_ENCRYPTION_KEY_NAME=${DB_ENCRYPTION_KEY_NAME:-"${APP_ENV:-production}/tracecat/db-encryption-key"}
-SERVICE_KEY_NAME=${SERVICE_KEY_NAME:-"${APP_ENV:-production}/tracecat/service-key"}
-SIGNING_SECRET_NAME=${SIGNING_SECRET_NAME:-"${APP_ENV:-production}/tracecat/signing-secret"}
-
 # Check if AWS_DEFAULT_REGION is set
 if [ -z "$AWS_DEFAULT_REGION" ]; then
     echo "Error: AWS_DEFAULT_REGION is not set."
     exit 1
 fi
+
+# Create service key and signing secret
+SERVICE_KEY=$(openssl rand -hex 32)
+SIGNING_SECRET=$(openssl rand -hex 32)
+
+# Create database encryption key
+DB_ENCRYPTION_KEY=$(docker run --rm python:3.12-slim-bookworm /bin/bash -c "\
+    pip install cryptography >/dev/null 2>&1; \
+    python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
+
+# Set default KEY_NAMES if not provided
+DB_ENCRYPTION_KEY_NAME=${DB_ENCRYPTION_KEY_NAME:-"${APP_ENV:-production}/tracecat/db-encryption-key"}
+SERVICE_KEY_NAME=${SERVICE_KEY_NAME:-"${APP_ENV:-production}/tracecat/service-key"}
+SIGNING_SECRET_NAME=${SIGNING_SECRET_NAME:-"${APP_ENV:-production}/tracecat/signing-secret"}
 
 # Create AWS Secrets
 aws secretsmanager create-secret --name "$DB_ENCRYPTION_KEY_NAME" --secret-string "$DB_ENCRYPTION_KEY" --region "$AWS_DEFAULT_REGION"
