@@ -20,12 +20,8 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
 
     def __init__(self, role: Role | None = None, *args, **kwargs):
         self._registry_base_url = config.TRACECAT__API_URL
-        # Parent class sets the role
-        logger.info("Initializing registry client", role=role)
         super().__init__(*args, role=role, base_url=self._registry_base_url, **kwargs)
-        logger.info("Registry client initialized", role=role)
         self.params = self.params.add("workspace_id", str(role.workspace_id))
-        logger.info("Added workspace id to registry client", role=role)
 
 
 class RegistryClient:
@@ -70,18 +66,9 @@ class RegistryClient:
         key = input.task.action
         content = input.model_dump_json()
         workspace_id = str(role.workspace_id) if role.workspace_id else None
-        logger.info(
-            f"Calling action {key!r} with content",
-            content=content,
-            role=role,
-        )
+        logger.debug(f"Calling action {key!r} with content", content=content, role=role)
         try:
             async with _RegistryHTTPClient(self.role) as client:
-                logger.info(
-                    f"Calling action {key!r} with client",
-                    headers=client.headers,
-                    params=client.params,
-                )
                 response = await client.post(
                     f"/registry-executor/{key}",
                     # NOTE(perf): Maybe serialize with orjson.dumps instead

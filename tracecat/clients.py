@@ -28,15 +28,13 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         self.role = role or ctx_role.get(
             Role(type="service", service_id="tracecat-service")
         )
-        self.headers["Service-Role"] = self.role.service_id
         try:
-            self.headers["X-API-Key"] = os.environ["TRACECAT__SERVICE_KEY"]
+            self.headers["x-tracecat-service-key"] = os.environ["TRACECAT__SERVICE_KEY"]
         except KeyError as e:
             raise TracecatCredentialsError(
                 "TRACECAT__SERVICE_KEY environment variable not set"
             ) from e
-        if self.role.workspace_id:
-            self.headers["Service-User-ID"] = str(self.role.workspace_id)
+        self.headers.update(self.role.to_headers())
 
 
 class AuthenticatedAPIClient(AuthenticatedServiceClient):
