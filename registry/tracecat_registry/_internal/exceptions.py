@@ -11,7 +11,7 @@ class TracecatException(Exception):
         self.detail = detail
 
 
-class RegistryUDFError(TracecatException):
+class RegistryActionError(TracecatException):
     """Exception raised when a registry UDF error occurs."""
 
 

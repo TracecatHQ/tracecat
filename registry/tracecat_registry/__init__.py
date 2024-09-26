@@ -12,7 +12,7 @@ except ImportError:
 
 from tracecat_registry._internal import config, registry, secrets
 from tracecat_registry._internal.exceptions import (
-    RegistryUDFError,
+    RegistryActionError,
     RegistryValidationError,
 )
 from tracecat_registry._internal.logger import logger
@@ -26,5 +26,5 @@ __all__ = [
     "config",
     "exceptions",
     "RegistryValidationError",
-    "RegistryUDFError",
+    "RegistryActionError",
 ]

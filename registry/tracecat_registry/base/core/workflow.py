@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 from pydantic import Field
 from tracecat import identifiers
 
-from tracecat_registry import RegistryUDFError, registry
+from tracecat_registry import RegistryActionError, registry
 
 
 @registry.register(
@@ -63,7 +63,7 @@ async def execute(
         ),
     ] = "isolated",
 ) -> Any:
-    raise RegistryUDFError(
+    raise RegistryActionError(
         "This UDF only defines a controller interface and cannot be invoked directly."
         "If you are seeing this error, please contact your administrator."
     )
