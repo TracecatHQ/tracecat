@@ -5,13 +5,13 @@
 from typing import Annotated, Any
 
 from pydantic import Field
-
-from tracecat_registry import RegistrySecret, registry
-from tracecat_registry._internal.llm import (
+from tracecat.llm import (
     DEFAULT_MODEL_TYPE,
     ModelType,
     async_openai_call,
 )
+
+from tracecat_registry import RegistrySecret, registry
 
 
 def _event_context_instructions(event_context: dict[str, Any]) -> str:
