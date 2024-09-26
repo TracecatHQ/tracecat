@@ -262,7 +262,10 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
     assert all(task.done() for task in tasks)
 
 
-# @pytest.mark.skip(reason="Need api calls to registry manager to test this")
+@pytest.mark.skipif(
+    os.environ.get("TRACECAT__APP_ENV") != "development",
+    reason="/test-registry endpoints only available in dev",
+)
 @pytest.mark.asyncio
 async def test_workflow_multi_environ_secret_manager_correctness(
     temporal_cluster, test_role, temporal_client
@@ -406,6 +409,10 @@ async def test_workflow_multi_environ_secret_manager_correctness(
     assert results[1] == {"secret_value": "SECOND_VALUE", "value": "__SECOND__"}
 
 
+@pytest.mark.skipif(
+    os.environ.get("TRACECAT__APP_ENV") != "development",
+    reason="/test-registry endpoints only available in dev",
+)
 @pytest.mark.parametrize("runs", [100])
 @pytest.mark.slow
 @pytest.mark.asyncio
