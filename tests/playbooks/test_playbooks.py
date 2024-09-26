@@ -11,9 +11,10 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
 from tracecat.registry.manager import RegistryManager

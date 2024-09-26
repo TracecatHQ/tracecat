@@ -157,10 +157,10 @@ async def test_template_action_run():
 
     RegistryManager().add_registry(registry)
     udf = registry.get(action.definition.action)
-    result = await executor.run_template(
+    result = await executor.run_template_action(
         udf=udf,
         args={"service_source": "elastic"},
-        base_context={},
+        context={},
         version=version,
     )
     assert result == [200, "elastic"]
