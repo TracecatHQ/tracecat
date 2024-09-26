@@ -56,8 +56,8 @@ class RegistryError(TracecatException):
     """Generic exception raised when a registry error occurs."""
 
 
-class RegistryUDFError(TracecatException):
-    """Exception raised when a registry UDF error occurs."""
+class RegistryActionError(TracecatException):
+    """Exception raised when a registry action error occurs."""
 
 
 class RegistryValidationError(TracecatException):
