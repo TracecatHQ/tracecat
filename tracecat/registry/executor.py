@@ -51,11 +51,6 @@ async def _run_action_direct(
     if udf.metadata.get("is_template"):
         # This should not be reached
         raise ValueError("Templates cannot be executed directly")
-    # if udf.metadata.get("is_template"):
-    #     kwargs = cast(ArgsT, {"args": args, "base_context": context or {}})
-    # else:
-    #     kwargs = args
-    # logger.warning("Running action in manager", args=args)
     try:
         if udf.is_async:
             logger.info("Running UDF async")
@@ -212,7 +207,6 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
 
     # When we're here, we've populated the task arguments with shared context values
 
-    # NOTE: Replace with REST call
     act_logger.info(
         "Run udf",
         task_ref=task.ref,
