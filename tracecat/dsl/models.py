@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from collections.abc import Mapping
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
 from tracecat_registry import __version__ as REGISTRY_VERSION
 
+from tracecat.contexts import RunContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.types.auth import Role
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -110,3 +114,57 @@ class ActionTest(BaseModel):
         ),
     )
     failure: Any = Field(default=None, description="Patched failure output")
+
+
+class DSLEnvironment(TypedDict, total=False):
+    """DSL Environment context. Has metadata about the workflow."""
+
+    workflow: dict[str, Any]
+    """Metadata about the workflow."""
+
+    environment: str
+    """Target environment for the workflow."""
+
+    variables: dict[str, Any]
+    """Environment variables."""
+
+    registry_version: str
+    """The registry version to use for the workflow."""
+
+
+class DSLContext(TypedDict, total=False):
+    INPUTS: dict[str, Any]
+    """DSL Static Inputs context"""
+
+    ACTIONS: dict[str, Any]
+    """DSL Actions context"""
+
+    TRIGGER: dict[str, Any]
+    """DSL Trigger dynamic inputs context"""
+
+    ENV: DSLEnvironment
+    """DSL Environment context. Has metadata about the workflow."""
+
+    @staticmethod
+    def create_default(
+        INPUTS: dict[str, Any] | None = None,
+        ACTIONS: dict[str, Any] | None = None,
+        TRIGGER: dict[str, Any] | None = None,
+        ENV: dict[str, Any] | None = None,
+    ) -> DSLContext:
+        return DSLContext(
+            INPUTS=INPUTS or {},
+            ACTIONS=ACTIONS or {},
+            TRIGGER=TRIGGER or {},
+            ENV=ENV or {},
+        )
+
+
+class UDFActionInput(BaseModel, Generic[ArgsT]):
+    """This object contains all the information needed to execute an action."""
+
+    task: ActionStatement[ArgsT]
+    role: Role
+    exec_context: DSLContext
+    run_context: RunContext
+    action_test: ActionTest | None = None

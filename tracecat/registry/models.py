@@ -130,13 +130,6 @@ class RegisteredUDFRead(BaseModel):
     metadata: RegisteredUDFMetadata = Field(default_factory=dict)
 
 
-class RunActionParams(BaseModel):
-    """Arguments for a UDF."""
-
-    args: dict[str, Any] | None = None
-    context: dict[str, Any] | None = None
-
-
 class UDFSchema(BaseModel):
     args: dict[str, Any]
     rtype: dict[str, Any] | None
@@ -205,3 +198,27 @@ class TemplateAction(BaseModel):
             template = yaml.safe_load(f)
 
         return TemplateAction(**template)
+
+
+"""API"""
+
+
+class RunActionParams(BaseModel):
+    """Arguments for a UDF."""
+
+    version: str
+    environment: str
+    args: dict[str, Any] | None = None
+    context: dict[str, Any] | None = None
+
+
+class CreateRegistryParams(BaseModel):
+    name: str | None = None
+    include_base: bool = True
+    include_remote: bool = True
+    include_templates: bool = True
+
+
+class ValidateActionParams(BaseModel):
+    registry_version: str
+    args: dict[str, Any]

@@ -39,7 +39,8 @@ from tracecat.db.schemas import UDFSpec
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.manager import RegistryManager
-from tracecat.registry.router import router as registry_router
+from tracecat.registry.router import executor_router as registry_executor_router
+from tracecat.registry.router import management_router as registry_management_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
@@ -213,7 +214,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(schedules_router)
     app.include_router(validation_router)
     app.include_router(users_router)
-    app.include_router(registry_router)
+    app.include_router(registry_management_router)
+    app.include_router(registry_executor_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
@@ -269,6 +271,13 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth",
             tags=["auth"],
         )
+
+    # Development endpoints
+    if config.TRACECAT__APP_ENV == "development":
+        from tracecat.testing.registry import router as registry_testing_router
+
+        app.include_router(registry_testing_router)
+        logger.warning("Development endpoints enabled. Do not run this in production.")
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)

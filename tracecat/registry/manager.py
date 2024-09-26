@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from typing import cast
 
 from tracecat_registry import __version__ as REGISTRY_VERSION
 
+from tracecat import config
 from tracecat.concurrency import CloudpickleProcessPoolExecutor
 from tracecat.logger import logger
-from tracecat.registry.models import ArgsT, RegisteredUDF, RunActionParams
+from tracecat.registry.models import RegisteredUDF
 from tracecat.registry.store import Registry
 from tracecat.types.exceptions import RegistryError
 
@@ -29,6 +29,9 @@ class RegistryManager:
     def __repr__(self) -> str:
         return f"RegistryManager(registries={self._registries})"
 
+    def _is_base_version(self, version: str) -> bool:
+        return version == self._base_version
+
     def get_action(self, action_name: str, version: str | None = None) -> RegisteredUDF:
         version = version or self._base_version
         registry = self.get_registry(version)
@@ -43,42 +46,16 @@ class RegistryManager:
                 f"Action {action_name!r} not found in registry {version!r}. Available actions: {registry.keys}"
             ) from e
 
-    async def run_action(
-        self,
-        action_name: str,
-        params: RunActionParams,
-        version: str | None = None,
-    ):
-        """Decides how to run the action based on the type of UDF."""
-        version = version or self._base_version
-        udf = self.get_action(action_name, version)
-        validated_args = udf.validate_args(**params.args)
-        if udf.metadata.get("is_template"):
-            kwargs = cast(
-                ArgsT, {"args": validated_args, "base_context": params.context or {}}
-            )
-        else:
-            kwargs = validated_args
-        logger.warning("Running action in manager", kwargs=kwargs)
-        try:
-            if udf.is_async:
-                logger.info("Running UDF async")
-                return await udf.fn(**params.args)
-            logger.info("Running UDF sync")
-            return await asyncio.to_thread(udf.fn, **params.args)
-        except Exception as e:
-            logger.error(f"Error running UDF {udf.key!r}: {e}")
-            raise
-
     def get_registry(self, version: str | None = None) -> Registry | None:
         version = version or self._base_version
         registry = self._registries.get(version)
         if registry is None:
-            if version != self._base_version:
+            if not self._is_base_version(version):
                 # If the version we're looking for is not the current version
                 # We need to fetch it from a remote source
                 # We're currently just throwing an error
-                raise ValueError(f"Registry {version} not found")
+                logger.warning(f"Registry {version} not found")
+                return None
             registry = Registry(version)
             registry.init()
             self.add_registry(registry)
@@ -91,11 +68,29 @@ class RegistryManager:
         if version in self._registries:
             del self._registries[version]
 
-    def create_registry(self, version: str, registry: Registry):
-        if version in self._registries:
-            raise ValueError(f"Registry {version} already exists")
-        # Need to get a different registry
-        self._registries[version] = registry
+    def create_registry(
+        self,
+        *,
+        version: str,
+        name: str | None = None,
+        include_base: bool = True,
+        include_remote: bool = False,  # Not supported yet
+        include_templates: bool = True,
+    ):
+        if config.TRACECAT__APP_ENV != "development" and not self._is_base_version(
+            version
+        ):
+            raise NotImplementedError(
+                "Non-base versioned registries not supported yet."
+            )
+
+        registry = Registry(name or version)
+        registry.init(
+            include_base=include_base,
+            include_remote=include_remote,
+            include_templates=include_templates,
+        )
+        self.add_registry(registry)
 
     def add_registry(self, registry: Registry):
         self._registries[registry.version] = registry
@@ -106,26 +101,46 @@ class RegistryManager:
             # Do fetching here using uv
         self._registries[version] = Registry(version)
 
-    def fetch_registry(self, version: str) -> Registry:
+    async def fetch_registry(
+        self, *, version: str | None = None, remote_url: str | None = None
+    ) -> Registry:
+        """This is a work in progress."""
         # Need to get a different registry
         # Install the registry using uv pip install under a different module name
         # Import the registry and return it
         # Add the registry to the manager
-        pass
+        if (version is None) and (remote_url is None):
+            raise ValueError("Either registry version or remote_url must be provided")
+
+        if version is not None:
+            # Pull a tracecat registry from github
+            remote = f"tracecat_registry @ git+https://github.com/TracecatHQ/tracecat@{version}#subdirectory=registry&egg=tracecat_registry"
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    "uv",
+                    "pip",
+                    "install",
+                    remote,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    error_message = stderr.decode().strip()
+                    logger.error(f"Failed to install registry: {error_message}")
+                    raise RuntimeError(f"Failed to install registry: {error_message}")
+
+                logger.info("Registry installed successfully")
+                return Registry(version)
+            except Exception as e:
+                logger.error(f"Error while fetching registry: {str(e)}")
+                raise RuntimeError(f"Error while fetching registry: {str(e)}") from e
+        if remote_url is not None:
+            return self.fetch_registry_from_url(remote_url)
 
     @classmethod
     def shutdown(cls):
         logger.info("Shutting down registry manager")
         if cls._executor:
             cls._executor.shutdown()
-
-
-if __name__ == "__main__":
-    from tracecat.registry.store import Registry, registry
-
-    # Default version
-    registry.init()
-    print(registry.version)
-    manager = RegistryManager()
-    manager.add_registry(registry)
-    print(manager.get_registry(registry.version))

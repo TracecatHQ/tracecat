@@ -10,11 +10,10 @@ from collections.abc import (
     Coroutine,
     Generator,
     Iterable,
-    Iterator,
 )
-from typing import Any, Generic, TypedDict, cast
+from typing import Any, TypedDict
 
-from temporalio import activity, workflow
+from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import (
     ActivityError,
@@ -24,43 +23,39 @@ from temporalio.exceptions import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    import httpx
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
-    import lark  # noqa
-    from pydantic import BaseModel, ValidationError
+    import tracecat_registry  # noqa
+    from pydantic import ValidationError
 
-    from tracecat import config, identifiers
-    from tracecat.auth.sandbox import AuthSandbox
+    from tracecat import identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import RunContext, ctx_logger, ctx_role, ctx_run
+    from tracecat.dsl.action import (
+        DSLActivities,
+        ValidateActionActivityInput,
+    )
     from tracecat.dsl.common import DSLInput, DSLRunArgs, ExecuteChildWorkflowArgs
     from tracecat.dsl.enums import FailStrategy, LoopStrategy, SkipStrategy, TaskMarker
-    from tracecat.dsl.io import resolve_success_output
     from tracecat.dsl.models import (
         ActionStatement,
         ActionTest,
         ArgsT,
         DSLConfig,
+        DSLContext,
+        DSLEnvironment,
         DSLNodeResult,
+        UDFActionInput,
     )
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
     from tracecat.expressions.core import TemplateExpression
-    from tracecat.expressions.eval import (
-        eval_templated_object,
-        extract_templated_secrets,
-        get_iterables_from_expression,
-    )
-    from tracecat.expressions.shared import ExprContext, context_locator
+    from tracecat.expressions.eval import eval_templated_object
+    from tracecat.expressions.shared import ExprContext
     from tracecat.logger import logger
-    from tracecat.parse import traverse_leaves
-    from tracecat.registry import executor
-    from tracecat.registry.manager import RegistryManager
-    from tracecat.secrets.common import apply_masks_object
-    from tracecat.types.auth import Role
+    from tracecat.registry.executor import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
         TracecatDSLError,
@@ -76,50 +71,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
-
-
-class DSLContext(TypedDict, total=False):
-    INPUTS: dict[str, Any]
-    """DSL Static Inputs context"""
-
-    ACTIONS: dict[str, Any]
-    """DSL Actions context"""
-
-    TRIGGER: dict[str, Any]
-    """DSL Trigger dynamic inputs context"""
-
-    ENV: DSLEnvironment
-    """DSL Environment context. Has metadata about the workflow."""
-
-    @staticmethod
-    def create_default(
-        INPUTS: dict[str, Any] | None = None,
-        ACTIONS: dict[str, Any] | None = None,
-        TRIGGER: dict[str, Any] | None = None,
-        ENV: dict[str, Any] | None = None,
-    ) -> DSLContext:
-        return DSLContext(
-            INPUTS=INPUTS or {},
-            ACTIONS=ACTIONS or {},
-            TRIGGER=TRIGGER or {},
-            ENV=ENV or {},
-        )
-
-
-class DSLEnvironment(TypedDict, total=False):
-    """DSL Environment context. Has metadata about the workflow."""
-
-    workflow: dict[str, Any]
-    """Metadata about the workflow."""
-
-    environment: str
-    """Target environment for the workflow."""
-
-    variables: dict[str, Any]
-    """Environment variables."""
-
-    registry_version: str
-    """The registry version to use for the workflow."""
 
 
 class DSLExecutionError(TypedDict, total=False):
@@ -470,6 +421,10 @@ class DSLWorkflow:
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
 
+        # Sync the registry
+        # self.logger.info("Syncing registry")
+        # await self._sync_registry(self.registry_version)
+
         self.logger.info(
             "Running DSL task workflow",
             runtime_config=self.runtime_config,
@@ -602,7 +557,7 @@ class DSLWorkflow:
             # At this point,
             # Child run args
             # Task args here refers to the args passed to the child
-            args = _evaluate_templated_args(task, context=self.context)
+            args = evaluate_templated_args(task, context=self.context)
             self.logger.trace(
                 "Executing child workflow",
                 child_run_args=child_run_args,
@@ -797,12 +752,24 @@ class DSLWorkflow:
         )
         return schedule_read.inputs
 
+    async def _validate_action(
+        self, task: ActionStatement[ArgsT], registry_version: str
+    ) -> ArgsT:
+        return await workflow.execute_activity(
+            DSLActivities.validate_action_activity,
+            arg=ValidateActionActivityInput(
+                role=self.role, task=task, registry_version=registry_version
+            ),
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
+
     async def _prepare_child_workflow(
         self, task: ActionStatement[ExecuteChildWorkflowArgs]
     ) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
-        validated_args = _validate_action_args(task, self.registry_version)
+        validated_args = await self._validate_action(task, self.registry_version)
         # environment is None here. This is coming from the action
         self.logger.trace(
             "Validated child workflow args", validated_args=validated_args
@@ -850,7 +817,7 @@ class DSLWorkflow:
         )
         self.logger.debug("RUN UDF ACTIVITY", arg=arg)
         return workflow.execute_activity(
-            DSLActivities.run_action,
+            DSLActivities.run_action_activity,
             arg=arg,
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
@@ -886,279 +853,3 @@ class DSLWorkflow:
 
     def _should_execute_child_workflow(self, task: ActionStatement[ArgsT]) -> bool:
         return task.action == "core.workflow.execute"
-
-
-class UDFActionInput(BaseModel, Generic[ArgsT]):
-    task: ActionStatement[ArgsT]
-    role: Role
-    exec_context: DSLContext
-    run_context: RunContext
-    action_test: ActionTest | None = None
-
-
-class DSLActivities:
-    """Container for all UDFs registered in the registry."""
-
-    def __new__(cls):  # type: ignore
-        raise RuntimeError("This class should not be instantiated")
-
-    @classmethod
-    def load(cls) -> list[Callable[[UDFActionInput[ArgsT]], Any]]:
-        """Load and return all UDFs in the class."""
-        return [
-            getattr(cls, method_name)
-            for method_name in dir(cls)
-            if hasattr(
-                getattr(cls, method_name),
-                "__temporal_activity_definition",
-            )
-        ]
-
-    @staticmethod
-    @activity.defn
-    async def run_action(input: UDFActionInput[ArgsT]) -> Any:
-        """Run an action.
-        Goals:
-        - Think of this as a controller activity that will orchestrate the execution of the action.
-        - The implementation of the action is located elsewhere (registry service on API)
-        """
-        ctx_run.set(input.run_context)
-        ctx_role.set(input.role)
-        task = input.task
-        registry_version = input.run_context.registry_version
-
-        act_logger = logger.bind(
-            task_ref=task.ref,
-            wf_id=input.run_context.wf_id,
-            role=input.role,
-            version=registry_version,
-        )
-        env_context = DSLEnvironment(**input.exec_context[ExprContext.ENV])
-
-        # NOTE(arch): Should we move this to the registry service?
-        # - Reasons for
-        #   - Process secrets in the registry executors in a fully isolated environment
-        #   - We can reuse the same logic for local execution
-        #   - We can add more context to the expression resolution (e.g. loop iteration)
-        try:
-            # Multi-phase expression resolution
-            # ---------------------------------
-            # 1. Resolve all expressions in all shared (non action-local) contexts
-            # 2. Enter loop iteration (if any)
-            # 3. Resolve all action-local expressions
-
-            # Set
-            # If there's a for loop, we need to process this action in parallel
-
-            # Evaluate `SECRETS` context (XXX: You likely should use the secrets manager instead)
-            # --------------------------
-            # Securely inject secrets into the task arguments
-            # 1. Find all secrets in the task arguments
-            # 2. Load the secrets
-            # 3. Inject the secrets into the task arguments using an enriched context
-            # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
-            secret_refs = extract_templated_secrets(task.args)
-
-            async with AuthSandbox(
-                secrets=secret_refs,
-                target="context",
-                environment=env_context["environment"],
-            ) as sandbox:
-                secrets = sandbox.secrets.copy()
-            context_with_secrets = {
-                **input.exec_context,
-                ExprContext.SECRETS: secrets,
-            }
-
-            if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-                act_logger.warning(
-                    "Secrets masking is disabled. This is unsafe in production workflows."
-                )
-                mask_values = None
-            else:
-                # Safety: Secret context leaves are all strings
-                mask_values = {s for _, s in traverse_leaves(secrets)}
-
-            # When we're here, we've populated the task arguments with shared context values
-            action_name = task.action
-            ctx_logger.set(act_logger)
-
-            # NOTE: Replace with REST call
-            # We should ensure that we have the correct registry version on this worker by now
-            logger.info(
-                "Getting action", action_name=action_name, version=registry_version
-            )
-            udf = RegistryManager().get_action(action_name, registry_version)
-            act_logger.info(
-                "Run udf",
-                task_ref=task.ref,
-                action_name=action_name,
-                is_async=udf.is_async,
-                args=task.args,
-            )
-
-            # Short circuit if mocking the output
-            if (act_test := input.action_test) and act_test.enable:
-                # XXX: This will fail if we run it against a loop
-                act_logger.warning(
-                    f"Action test enabled, mocking the output of {task.ref!r}."
-                    " You should not use this in production workflows."
-                )
-                if act_test.validate_args:
-                    args = _evaluate_templated_args(task, context_with_secrets)
-                    udf.validate_args(**args)
-                return await resolve_success_output(act_test)
-
-            # Actual execution
-
-            if task.for_each:
-                iterator = iter_for_each(task=task, context=context_with_secrets)
-                try:
-                    async with GatheringTaskGroup() as tg:
-                        for patched_args in iterator:
-                            tg.create_task(
-                                executor.run_async(
-                                    udf=udf,
-                                    args=patched_args,
-                                    context=context_with_secrets,
-                                    version=registry_version,
-                                )
-                            )
-
-                    result = tg.results()
-                except* Exception as eg:
-                    errors = [str(x) for x in eg.exceptions]
-                    logger.error("Error resolving expressions", errors=errors)
-                    raise TracecatException(
-                        (
-                            f"[{context_locator(task, 'for_each')}]"
-                            "\n\nError in loop:"
-                            f"\n\n{'\n\n'.join(errors)}"
-                        ),
-                        detail={"errors": errors},
-                    ) from eg
-
-            else:
-                args = _evaluate_templated_args(task, context_with_secrets)
-                result = await executor.run_async(
-                    udf=udf,
-                    args=args,
-                    context=context_with_secrets,
-                    version=registry_version,
-                )
-
-            if mask_values:
-                result = apply_masks_object(result, masks=mask_values)
-
-            act_logger.debug("Result", result=result)
-            return result
-
-        except TracecatException as e:
-            err_type = e.__class__.__name__
-            msg = _contextualize_message(task, e)
-            act_logger.error(
-                "Application exception occurred", error=msg, detail=e.detail
-            )
-            raise ApplicationError(
-                msg, e.detail, non_retryable=True, type=err_type
-            ) from e
-        except httpx.HTTPStatusError as e:
-            act_logger.error("HTTP status error occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(
-                    task, f"HTTP status error {e.response.status_code}"
-                ),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-        except httpx.ReadTimeout as e:
-            act_logger.error("HTTP read timeout occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(task, "HTTP read timeout"),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-        except ApplicationError as e:
-            act_logger.error("ApplicationError occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(task, e.message),
-                non_retryable=e.non_retryable,
-                type=e.type,
-            ) from e
-        except Exception as e:
-            act_logger.error("Unexpected error occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(
-                    task, f"Unexpected error {e.__class__.__name__}: {e}"
-                ),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-
-
-def _contextualize_message(
-    task: ActionStatement[ArgsT], msg: str | BaseException, *, loc: str = "run_udf"
-) -> str:
-    return f"[{context_locator(task, loc)}]\n\n{msg}"
-
-
-def iter_for_each(
-    task: ActionStatement[ArgsT],
-    context: DSLContext,
-    *,
-    assign_context: ExprContext = ExprContext.LOCAL_VARS,
-    patch: bool = True,
-) -> Iterator[ArgsT]:
-    """Yield patched contexts for each loop iteration."""
-    # Evaluate the loop expression
-    iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
-
-    # Assert that all length of the iterables are the same
-    # This is a requirement for parallel processing
-    # if len({len(expr.collection) for expr in iterators}) != 1:
-    #     raise ValueError("All iterables must be of the same length")
-
-    # Create a generator that zips the iterables together
-    for i, items in enumerate(zip(*iterators, strict=False)):
-        logger.trace("Loop iteration", iteration=i)
-        # Patch the context with the loop item and evaluate the action-local expressions
-        # We're copying this so that we don't pollute the original context
-        # Currently, the only source of action-local expressions is the loop iteration
-        # In the future, we may have other sources of action-local expressions
-        patched_context = (
-            context.copy()
-            if patch
-            # XXX: ENV is the only context that should be shared
-            else DSLContext.create_default()
-        )
-        logger.trace("Context before patch", patched_context=patched_context)
-        for iterator_path, iterator_value in items:
-            patch_object(
-                patched_context,
-                path=assign_context + iterator_path,
-                value=iterator_value,
-            )
-        logger.trace("Patched context", patched_context=patched_context)
-        patched_args = _evaluate_templated_args(task=task, context=patched_context)
-        logger.trace("Patched args", patched_args=patched_args)
-        yield patched_args
-
-
-def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
-    *stem, leaf = path.split(sep=sep)
-    for key in stem:
-        obj = obj.setdefault(key, {})
-    obj[leaf] = value
-
-
-def _validate_action_args(task: ActionStatement[ArgsT], registry_version: str) -> ArgsT:
-    registry = RegistryManager().get_registry(registry_version)
-    udf = registry.get(task.action)
-    res = cast(ArgsT, udf.validate_args(**task.args))
-    return res
-
-
-def _evaluate_templated_args(
-    task: ActionStatement[ArgsT], context: DSLContext
-) -> ArgsT:
-    return cast(ArgsT, eval_templated_object(task.args, operand=context))

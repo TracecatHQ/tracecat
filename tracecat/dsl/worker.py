@@ -2,26 +2,21 @@ import asyncio
 import dataclasses
 import os
 
-from temporalio import workflow
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
 )
 
+from tracecat.dsl.action import DSLActivities
+from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.validation import validate_trigger_inputs_activity
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
+from tracecat.workflow.management.definitions import (
+    get_workflow_definition_activity,
+)
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
-
-# We always want to pass through external modules to the sandbox that we know
-# are safe for workflow use
-with workflow.unsafe.imports_passed_through():
-    from tracecat.dsl.client import get_temporal_client
-    from tracecat.dsl.workflow import DSLActivities, DSLWorkflow
-    from tracecat.registry.manager import RegistryManager
-    from tracecat.workflow.management.definitions import (
-        get_workflow_definition_activity,
-    )
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to
@@ -74,9 +69,6 @@ async def main() -> None:
         workflow_runner=new_sandbox_runner(),
     ):
         logger.info("Worker started, ctrl+c to exit")
-        # Load the registry
-        manager = RegistryManager()
-        manager.get_registry()
         # Wait until interrupted
         await interrupt_event.wait()
         logger.info("Shutting down")

@@ -129,6 +129,9 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     development and should never be enabled in production.
 """
 
+# === M2M config === #
+TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
+
 # === Remote registry === #
 # If you wish to use a remote registry, set the URL here
 # If the url is unset, this will be set to None
