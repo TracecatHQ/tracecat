@@ -57,7 +57,6 @@ def env_sandbox(
     ...     # Use api_key...
     """
     initial_env = initial_env or {}
-    logger.debug("Initial env", initial_env=initial_env)
     token = ctx_env.set(initial_env)
     try:
         yield
