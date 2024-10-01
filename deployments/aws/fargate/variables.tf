@@ -1,8 +1,8 @@
 ## AWS provider variables
 
 variable "aws_region" {
-  type    = string
-  default = "us-west-2"
+  type        = string
+  description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
 variable "az_count" {
