@@ -4,6 +4,7 @@ resource "aws_db_instance" "core_database" {
   engine_version               = "16.3"
   instance_class               = "${var.db_instance_class}.${var.db_instance_size}"
   allocated_storage            = 5
+  storage_encrypted            = true
   storage_type                 = "gp2"
   username                     = "postgres"
   multi_az                     = var.rds_multi_az
@@ -24,6 +25,7 @@ resource "aws_db_instance" "temporal_database" {
   engine_version               = "13.15"
   instance_class               = "${var.db_instance_class}.${var.db_instance_size}"
   allocated_storage            = 5
+  storage_encrypted            = true
   storage_type                 = "gp2"
   username                     = "postgres"
   manage_master_user_password  = true
