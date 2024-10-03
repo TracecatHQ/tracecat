@@ -94,13 +94,19 @@ def api(
     endpoint: str = typer.Argument(..., help="Endpoint to hit"),
     method: str = typer.Option("GET", "-X", help="HTTP Method"),
     data: str = typer.Option(None, "--data", "-d", help="JSON Payload to send"),
+    to_json: bool = typer.Option(
+        False, "--json", "-j", help="Output the response as JSON"
+    ),
 ):
     """Commit a workflow definition to the database."""
 
     payload = read_input(data) if data else None
     result = hit_api_endpoint(method, endpoint, payload)
-    rich.print("Hit the endpoint successfully!")
-    rich.print(result, len(result))
+    if to_json:
+        rich.print(orjson.dumps(result, option=orjson.OPT_INDENT_2).decode())
+    else:
+        rich.print("Hit the endpoint successfully!")
+        rich.print(result, len(result))
 
 
 @app.command(name="generate-spec", help="Generate OpenAPI specification. Requires npx.")
@@ -337,13 +343,13 @@ def generate_udf_docs():
         pass
     path.mkdir(parents=True, exist_ok=True)
 
-    from tracecat.registry import store
+    from tracecat.registry import repository
 
-    store.init()
+    repository.init()
 
     rich.print(f"Generating API reference paths in {config.docs_path!s}")
 
-    for key, udf in store:
+    for key, udf in repository:
         if not udf.metadata["include_in_schema"]:
             continue
 
@@ -385,7 +391,9 @@ def generate_udf_docs():
     # Overwrite the 'navigation' property with the new JSON data
     gname = "Schemas"
     # Find 'Schemas' group
-    filtered_keys = [key for key in store.keys if udf.metadata["include_in_schema"]]
+    filtered_keys = [
+        key for key in repository.keys if udf.metadata["include_in_schema"]
+    ]
     new_mint_pages = key_tree_to_pages(filtered_keys, int_relpath).model_dump()["pages"]
     try:
         schemas_ref = next(
@@ -434,15 +442,15 @@ def generate_secret_tables(
         help="Output file path",
     ),
 ):
-    from tracecat.registry import store
+    from tracecat.registry import repository
 
-    store.init()
+    repository.init()
 
     # Table of core UDFs required secrets
     secrets = defaultdict(list)
     # Get UDF -> Secrets mapping
     blacklist = {"example"}
-    for key, udf in store:
+    for key, udf in repository:
         top_level_ns, *stem, func = key.split(".")
         if top_level_ns in blacklist:
             continue
@@ -458,7 +466,7 @@ def generate_secret_tables(
 
     # Get all secrets -> secret keys
     api_credentials = set()
-    for secret in chain.from_iterable(udf.secrets or [] for _, udf in store):
+    for secret in chain.from_iterable(udf.secrets or [] for _, udf in repository):
         api_credentials.add(
             (
                 wrap(secret.name, "`"),
