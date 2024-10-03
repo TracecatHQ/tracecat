@@ -207,26 +207,6 @@ class CaseEvent(Resource, table=True):
     data: dict[str, str | None] | None = Field(sa_column=Column(JSONB))
 
 
-class UDFSpec(Resource, table=True):
-    """UDF spec.
-
-    Used in:
-    1. Frontend action library
-    2. Frontend integration action form
-    """
-
-    id: str = Field(
-        default_factory=id_factory("udf"), nullable=False, unique=True, index=True
-    )
-    description: str
-    namespace: str
-    key: str
-    version: str | None = None
-    json_schema: dict[str, Any] | None = Field(sa_column=Column(JSONB))
-    # Can put the icon url in the metadata
-    meta: dict[str, Any] | None = Field(sa_column=Column(JSONB))
-
-
 class WorkflowDefinition(Resource, table=True):
     """A workflow definition.
 
@@ -443,3 +423,89 @@ class Action(Resource, table=True):
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
         return action.ref(self.title)
+
+
+class RegistryRepository(Resource, table=True):
+    """A repository of templates and actions."""
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
+    version: str = Field(..., nullable=False, description="The registry version")
+    origin: str | None = Field(
+        None,
+        description=(
+            "Tells you where the template action was created from."
+            "Can use this to track the hierarchy of templates."
+            "Depending on where the TA was created, this could be a few things:\n"
+            "- Git url if created via a git sync\n"
+            "- registry://<version>/<base template name> if it's a custom action that was created from a template"
+            "- file://<path> if it's a custom action that was created from a file"
+            "- None if it's a custom action that was created from scratch"
+        ),
+    )
+    actions: list["RegistryAction"] = Relationship(
+        back_populates="repository",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+
+
+class RegistryAction(Resource, table=True):
+    """A registry action.
+
+
+    A registry action can be a template action or a udf.
+    A udf is a python user-defined function that can be used to create new actions.
+    A template action is a reusable action that can be used to create new actions.
+    Template actions loaded from tracecat base can be cloned but not edited.
+    This is to ensure portability of templates across different users/systems.
+    Custom template actions can be edited and cloned
+
+    """
+
+    __table_args__ = (
+        UniqueConstraint(
+            "namespace",
+            "name",
+            "version",
+            name="uq_registry_action_namespace_name_version",
+        ),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
+    name: str = Field(..., description="The name of the action")
+    description: str = Field(..., description="The description of the action")
+    namespace: str = Field(..., description="The namespace of the action")
+    version: str = Field(..., description="Registry version")
+    origin: str = Field(..., description="The origin of the action as a url")
+    type: str = Field(..., description="The type of the action")
+    default_title: str | None = Field(
+        None, description="The default title of the action", nullable=True
+    )
+    display_group: str | None = Field(
+        None, description="The presentation group of the action", nullable=True
+    )
+    secrets: list[dict[str, Any]] | None = Field(
+        None, sa_column=Column(JSONB), description="The secrets required by the action"
+    )
+    interface: dict[str, Any] = Field(
+        ..., sa_column=Column(JSONB), description="The interface of the action"
+    )
+    implementation: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="The action's implementation",
+    )
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="The action's options",
+    )
+    # Relationships
+    repository_id: UUID4 = Field(
+        ...,  # This makes the field required and non-nullable
+        sa_column=Column(
+            UUID,
+            ForeignKey("registryrepository.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    repository: RegistryRepository = Relationship(back_populates="actions")
