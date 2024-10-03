@@ -67,9 +67,9 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 
-  # AWS Managed Rules - Amazon IP Reputation List
+  # AWS Managed Rules - SQL Database Rule Set
   rule {
-    name     = "AWS-AWSManagedRulesAmazonIpReputationList"
+    name     = "AWS-AWSManagedRulesSQLiRuleSet"
     priority = 3
 
     override_action {
@@ -78,14 +78,60 @@ resource "aws_wafv2_web_acl" "this" {
 
     statement {
       managed_rule_group_statement {
-        name        = "AWSManagedRulesAmazonIpReputationList"
+        name        = "AWSManagedRulesSQLiRuleSet"
         vendor_name = "AWS"
       }
     }
 
     visibility_config {
       cloudwatch_metrics_enabled = true
-      metric_name                = "AWSManagedRulesAmazonIpReputationList"
+      metric_name                = "AWSManagedRulesSQLiRuleSet"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # AWS Managed Rules - Linux Operating System Rule Set
+  rule {
+    name     = "AWS-AWSManagedRulesLinuxRuleSet"
+    priority = 4
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesLinuxRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesLinuxRuleSet"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # AWS Managed Rules - PHP Application Rule Set
+  rule {
+    name     = "AWS-AWSManagedRulesPHPRuleSet"
+    priority = 5
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesPHPRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesPHPRuleSet"
       sampled_requests_enabled   = true
     }
   }
