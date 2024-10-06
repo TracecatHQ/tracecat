@@ -234,6 +234,48 @@ async def authenticate_user_or_service_for_workspace(
     raise HTTP_EXC("Could not validate credentials")
 
 
+async def authenticate_optional_user_org(
+    user: Annotated[User | None, Depends(optional_current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> Role | None:
+    """Authenticate a user for the organization.
+
+    If no user available, return None.
+    If a user is available, `ctx_role` ContextVar is set here.
+    """
+    if not user:
+        return None
+    # Check if non-admin user is a member of the org
+    if not user.is_superuser or not user.role == UserRole.ADMIN:
+        authz_service = AuthorizationService(session)
+        if not await authz_service.user_is_organization_member(user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. User not a member of the organization",
+            )
+    role = get_role_from_user(user)
+    ctx_role.set(role)
+    return role
+
+
+async def authenticate_user_or_service_org(
+    role_from_user: Annotated[
+        Role | None, Depends(authenticate_optional_user_org)
+    ] = None,
+    api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
+    request: Request = None,
+) -> Role:
+    """Authenticate a user or service and return the role."""
+    if role_from_user:
+        logger.trace("User authentication")
+        return role_from_user
+    if api_key:
+        logger.trace("Service authentication")
+        return await authenticate_service(request, api_key)
+    logger.error("Could not validate credentials")
+    raise HTTP_EXC("Could not validate credentials")
+
+
 @contextmanager
 def TemporaryRole(
     type: Literal["user", "service"] = "service",
