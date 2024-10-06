@@ -164,12 +164,14 @@ class SecretsService:
         except MultipleResultsFound as e:
             if raise_on_error:
                 raise MultipleResultsFound(
-                    "Multiple secrets found when searching by name. Expected one secret only."
+                    "Multiple secrets found when searching by name."
+                    f" Expected one secret {secret_name!r} (env: {environment!r}) only."
                 ) from e
         except NoResultFound as e:
             if raise_on_error:
                 raise NoResultFound(
-                    "Secret not found when searching by name. Please double check that the name was correctly input."
+                    f"Secret {secret_name!r} (env: {environment!r}) not found when searching by name."
+                    " Please double check that the name was correctly input."
                 ) from e
         return None
 
