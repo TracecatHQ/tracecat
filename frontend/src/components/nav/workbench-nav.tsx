@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ApiError,
-  UDFArgsValidationResponse,
+  RegistryActionValidateResponse,
   workflowExecutionsCreateWorkflowExecution,
 } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
@@ -99,7 +99,7 @@ export function WorkbenchNav() {
   const { workspaceId, workspace, workspaceLoading } = useWorkspace()
 
   const [commitErrors, setCommitErrors] = React.useState<
-    UDFArgsValidationResponse[] | null
+    RegistryActionValidateResponse[] | null
   >(null)
 
   const handleCommit = async () => {

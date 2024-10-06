@@ -4,6 +4,7 @@ import React from "react"
 import { useParams, usePathname } from "next/navigation"
 
 import { Navbar } from "@/components/nav/navbar"
+import { RegistryNav } from "@/components/nav/registry-nav"
 import { WorkbenchNav } from "@/components/nav/workbench-nav"
 import { WorkspaceNav } from "@/components/nav/workspace-nav"
 
@@ -24,7 +25,11 @@ function getNavBar(pathname: string, params: DynamicNavbarParams) {
     console.log("Rendering workflow nav")
     return <WorkbenchNav />
   } else if (pathname.includes("/workspaces") && workspaceId) {
+    console.log("Rendering workspace nav")
     return <WorkspaceNav />
+  } else if (pathname.includes("/registry")) {
+    console.log("Rendering registry nav")
+    return <RegistryNav />
   } else {
     return null
   }
