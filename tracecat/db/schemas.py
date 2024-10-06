@@ -509,3 +509,7 @@ class RegistryAction(Resource, table=True):
         ),
     )
     repository: RegistryRepository = Relationship(back_populates="actions")
+
+    @property
+    def action(self):
+        return f"{self.namespace}/{self.name}"
