@@ -17,7 +17,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
-from tracecat.types.api import UDFArgsValidationResponse
+from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.models import (
@@ -132,24 +132,26 @@ class WorkflowsManagementService:
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_dsl_validation_error(e)
+                RegistryActionValidateResponse.from_dsl_validation_error(e)
                 for e in eg.exceptions
             )
         except* ValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_pydantic_validation_error(e)
+                RegistryActionValidateResponse.from_pydantic_validation_error(e)
                 for e in eg.exceptions
             )
         if construction_errors:
             return CreateWorkflowFromDSLResponse(errors=construction_errors)
 
         if not skip_secret_validation:
-            if val_errors := await validation.validate_dsl(dsl):
+            if val_errors := await validation.validate_dsl(
+                session=self.session, dsl=dsl
+            ):
                 logger.warning("Validation errors", errors=val_errors)
                 return CreateWorkflowFromDSLResponse(
                     errors=[
-                        UDFArgsValidationResponse.from_validation_result(val_res)
+                        RegistryActionValidateResponse.from_validation_result(val_res)
                         for val_res in val_errors
                     ]
                 )

@@ -754,8 +754,8 @@ class DSLWorkflow:
 
     async def _validate_action(
         self, task: ActionStatement[ArgsT], registry_version: str
-    ) -> ArgsT:
-        return await workflow.execute_activity(
+    ) -> None:
+        result = await workflow.execute_activity(
             DSLActivities.validate_action_activity,
             arg=ValidateActionActivityInput(
                 role=self.role, task=task, registry_version=registry_version
@@ -763,27 +763,36 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
         )
+        if not result.ok:
+            raise ApplicationError(
+                f"Action validation failed: {result.message}",
+                result.detail,
+                non_retryable=True,
+                type=TracecatValidationError.__name__,
+            )
 
     async def _prepare_child_workflow(
         self, task: ActionStatement[ExecuteChildWorkflowArgs]
     ) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
-        validated_args = await self._validate_action(task, self.registry_version)
+        await self._validate_action(task, self.registry_version)
         # environment is None here. This is coming from the action
-        self.logger.trace(
-            "Validated child workflow args", validated_args=validated_args
-        )
+        self.logger.trace("Validated child workflow args", task=task)
 
-        child_wf_id = validated_args["workflow_id"]
+        args = task.args
+        child_wf_id = args["workflow_id"]
+        # Use the override if given, else fallback to the main registry version
+        child_wfd_version = args.get("version")
+        self.logger.debug("Child using version", version=child_wfd_version)
         dsl = await self._get_workflow_definition(
-            workflow_id=child_wf_id, version=validated_args["version"]
+            workflow_id=child_wf_id, version=child_wfd_version
         )
 
         self.logger.debug(
             "Got workflow definition",
             dsl=dsl,
-            validated_args=validated_args,
+            args=args,
             dsl_config=dsl.config,
             self_config=self.runtime_config,
         )
@@ -792,7 +801,9 @@ class DSLWorkflow:
             enable_runtime_tests=self.runtime_config.enable_runtime_tests,
             # Override the environment in the runtime config,
             # otherwise use the default provided in the workflow definition
-            environment=validated_args.get("environment") or dsl.config.environment,
+            environment=args.get("environment") or dsl.config.environment,
+            # Use the same registry version as the parent
+            registry_version=self.registry_version,
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
@@ -801,7 +812,7 @@ class DSLWorkflow:
             dsl=dsl,
             wf_id=child_wf_id,
             parent_run_context=ctx_run.get(),
-            trigger_inputs=validated_args["trigger_inputs"],
+            trigger_inputs=args["trigger_inputs"],
             runtime_config=runtime_config,
         )
 

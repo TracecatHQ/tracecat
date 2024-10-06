@@ -7,10 +7,11 @@ from pydantic import ValidationError
 
 from tracecat import validation
 from tracecat.auth.credentials import authenticate_user_for_workspace
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.logger import logger
-from tracecat.types.api import UDFArgsValidationResponse
+from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 
@@ -20,9 +21,10 @@ router = APIRouter(prefix="/validate-workflow")
 @router.post("", tags=["validation"])
 async def validate_workflow(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    session: AsyncDBSession,
     definition: UploadFile = File(...),
     payload: UploadFile = File(None),
-) -> list[UDFArgsValidationResponse]:
+) -> list[RegistryActionValidateResponse]:
     """Validate a workflow.
 
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
@@ -39,7 +41,7 @@ async def validate_workflow(
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_dsl_validation_error(e).model_dump(
+                RegistryActionValidateResponse.from_dsl_validation_error(e).model_dump(
                     exclude_none=True
                 )
                 for e in eg.exceptions
@@ -47,9 +49,9 @@ async def validate_workflow(
         except* ValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_pydantic_validation_error(e).model_dump(
-                    exclude_none=True
-                )
+                RegistryActionValidateResponse.from_pydantic_validation_error(
+                    e
+                ).model_dump(exclude_none=True)
                 for e in eg.exceptions
             )
 
@@ -71,7 +73,7 @@ async def validate_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        expr_errors = await validation.validate_dsl(dsl)
+        expr_errors = await validation.validate_dsl(session=session, dsl=dsl)
         if expr_errors:
             msg = f"{len(expr_errors)} validation error(s)"
             logger.error(msg)
@@ -81,7 +83,7 @@ async def validate_workflow(
                     "status": "failure",
                     "message": msg,
                     "errors": [
-                        UDFArgsValidationResponse.from_validation_result(
+                        RegistryActionValidateResponse.from_validation_result(
                             val_res
                         ).model_dump(exclude_none=True)
                         for val_res in expr_errors
@@ -105,7 +107,7 @@ async def validate_workflow(
                         "status": "failure",
                         "message": msg,
                         "errors": [
-                            UDFArgsValidationResponse.from_validation_result(
+                            RegistryActionValidateResponse.from_validation_result(
                                 payload_val_res
                             ).model_dump(exclude_none=True)
                         ],

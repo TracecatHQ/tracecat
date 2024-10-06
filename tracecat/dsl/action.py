@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Callable
 from typing import Any
 
@@ -10,6 +12,7 @@ from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.models import ActionStatement, ArgsT, UDFActionInput
 from tracecat.expressions.shared import context_locator
 from tracecat.logger import logger
+from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.registry.client import RegistryClient
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, TracecatException
@@ -47,7 +50,9 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def validate_action_activity(input: ValidateActionActivityInput) -> Any:
+    async def validate_action_activity(
+        input: ValidateActionActivityInput,
+    ) -> RegistryActionValidateResponse:
         """Validate an action.
         Goals:
         - Validate the action arguments against the UDF spec.

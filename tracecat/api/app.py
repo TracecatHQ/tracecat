@@ -6,18 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from httpx_oauth.clients.google import GoogleOAuth2
-from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlmodel import Session, delete
-from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry import __version__ as REGISTRY_VERSION
+from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_registry import REGISTRY_VERSION
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
 from tracecat.api.routers.public.callbacks import router as callback_router
 from tracecat.api.routers.public.webhooks import router as webhook_router
-from tracecat.api.routers.udfs import router as udfs_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
@@ -30,17 +26,15 @@ from tracecat.auth.users import (
 )
 from tracecat.cases.router import router as cases_router
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import (
-    get_async_engine,
-    get_async_session_context_manager,
-    get_engine,
-)
-from tracecat.db.schemas import UDFSpec
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry.manager import RegistryManager
-from tracecat.registry.router import executor_router as registry_executor_router
-from tracecat.registry.router import management_router as registry_management_router
+from tracecat.registry.actions.router import router as registry_actions_router
+from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.router import router as registry_repos_router
+from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets.router import router as secrets_router
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
@@ -53,65 +47,57 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    initialize_db()
-    await setup_defaults()
-    try:
-        yield
-    finally:
-        RegistryManager.shutdown()
-
-
-async def setup_defaults():
     admin_role = Role(
         type="service",
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
     )
     async with get_async_session_context_manager() as session:
-        users = await list_users(session=session)
-        if len(users) == 0:
-            # Create admin user only if there are no users
-            await get_or_create_default_admin_user()
-
-        service = WorkspaceService(session, role=admin_role)
-        workspaces = await service.admin_list_workspaces()
-        n_workspaces = len(workspaces)
-        logger.info(f"{n_workspaces} workspaces found")
-        if n_workspaces == 0:
-            # Create default workspace if there are no workspaces
-            try:
-                default_workspace = await service.create_workspace("Default Workspace")
-                logger.info("Default workspace created", workspace=default_workspace)
-            except IntegrityError:
-                logger.info("Default workspace already exists, skipping")
+        await setup_defaults(session, admin_role)
+        await setup_registry(session, admin_role)
+    yield
 
 
-def initialize_db() -> Engine:
-    engine = get_engine()
-    registry = RegistryManager().get_registry(REGISTRY_VERSION)
+async def setup_registry(session: AsyncSession, admin_role: Role):
+    logger.info("Setting up base registry repository")
+    repos_service = RegistryReposService(session, role=admin_role)
+    base_version = REGISTRY_VERSION
+    # Check if the base registry repository already exists
+    if await repos_service.get_repository(base_version) is None:
+        # If it doesn't exist, create the base registry repository
+        await repos_service.create_repository(
+            RegistryRepositoryCreate(
+                version=base_version,
+                origin=DEFAULT_REGISTRY_ORIGIN,
+            )
+        )
+        logger.info("Created base registry repository", version=base_version)
+    else:
+        logger.info("Base registry repository already exists", version=base_version)
 
-    with Session(engine) as session:
-        # Add integrations to integrations table regardless of whether it's empty
-        session.exec(delete(UDFSpec))
-        udfs = [udf.to_udf_spec() for _, udf in registry]
-        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
-        session.add_all(udfs)
-        session.commit()
-
-    return engine
+    repos = await repos_service.list_repositories()
+    logger.info("Loading registry repositories", repos=repos)
+    actions_service = RegistryActionsService(session, role=admin_role)
+    await actions_service.sync_actions(repos)
 
 
-async def async_initialize_db() -> AsyncEngine:
-    engine = get_async_engine()
-    registry = RegistryManager().get_registry(REGISTRY_VERSION)
+async def setup_defaults(session: AsyncSession, admin_role: Role):
+    users = await list_users(session=session)
+    if len(users) == 0:
+        # Create admin user only if there are no users
+        await get_or_create_default_admin_user()
 
-    async with AsyncSession(engine) as session:
-        await session.exec(delete(UDFSpec))
-        udfs = [udf.to_udf_spec() for _, udf in registry]
-        logger.info("Initializing UDF registry with default UDFs.", n=len(udfs))
-        session.add_all(udfs)
-        await session.commit()
-    return engine
+    ws_service = WorkspaceService(session, role=admin_role)
+    workspaces = await ws_service.admin_list_workspaces()
+    n_workspaces = len(workspaces)
+    logger.info(f"{n_workspaces} workspaces found")
+    if n_workspaces == 0:
+        # Create default workspace if there are no workspaces
+        try:
+            default_workspace = await ws_service.create_workspace("Default Workspace")
+            logger.info("Default workspace created", workspace=default_workspace)
+        except IntegrityError:
+            logger.info("Default workspace already exists, skipping")
 
 
 def custom_generate_unique_id(route: APIRoute):
@@ -208,14 +194,13 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
     app.include_router(actions_router)
-    app.include_router(udfs_router)
     app.include_router(cases_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(validation_router)
     app.include_router(users_router)
-    app.include_router(registry_management_router)
-    app.include_router(registry_executor_router)
+    app.include_router(registry_repos_router)
+    app.include_router(registry_actions_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

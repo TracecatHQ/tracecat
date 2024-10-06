@@ -9,8 +9,7 @@ from pydantic import BaseModel
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserOrServiceRole
-from tracecat.registry.manager import RegistryManager
-from tracecat.registry.store import Registry
+from tracecat.registry.repository import Repository
 
 
 class TestRegistryParams(BaseModel):
@@ -34,7 +33,7 @@ async def register_test_module(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This endpoint is only available in development mode",
         )
-    registry = Registry(params.version)
+    registry = Repository(params.version)
 
     test_module = ModuleType(params.module_name)
 
@@ -49,6 +48,3 @@ async def register_test_module(
     registry._register_udfs_from_module(test_module)
     for key in params.validate_keys or []:
         assert key in registry
-    manager = RegistryManager()
-    manager.add_registry(registry)
-    assert params.version in manager.list_registries()

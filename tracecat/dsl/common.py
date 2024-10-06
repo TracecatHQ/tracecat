@@ -211,7 +211,7 @@ class ExecuteChildWorkflowArgs(TypedDict):
     workflow_id: WorkflowID
     trigger_inputs: dict[str, Any]
     environment: str | None = None
-    version: int | None = None
+    version: int | None = None  # Workflow defn version
     loop_strategy: LoopStrategy | None = None
     batch_size: int | None = None
     fail_strategy: FailStrategy | None = None
