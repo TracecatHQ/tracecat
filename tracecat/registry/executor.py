@@ -28,8 +28,8 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.shared import ExprContext, context_locator
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.manager import RegistryManager
-from tracecat.registry.models import ArgsClsT, ArgsT, RegisteredUDF
+from tracecat.registry.actions.models import ArgsClsT, ArgsT, BoundRegistryAction
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
@@ -39,7 +39,7 @@ from tracecat.types.exceptions import TracecatException
 
 
 async def _run_action_direct(
-    *, udf: RegisteredUDF[ArgsClsT], args: ArgsT, validate: bool = False
+    *, action: BoundRegistryAction[ArgsClsT], args: ArgsT, validate: bool = False
 ) -> Any:
     """Execute the UDF directly.
 
@@ -47,18 +47,18 @@ async def _run_action_direct(
     """
     if validate:
         # Optional, as we already validate in the caller
-        args = udf.validate_args(**args)
-    if udf.metadata.get("is_template"):
+        args = action.validate_args(**args)
+    if action.is_template:
         # This should not be reached
         raise ValueError("Templates cannot be executed directly")
     try:
-        if udf.is_async:
+        if action.is_async:
             logger.info("Running UDF async")
-            return await udf.fn(**args)
+            return await action.fn(**args)
         logger.info("Running UDF sync")
-        return await asyncio.to_thread(udf.fn, **args)
+        return await asyncio.to_thread(action.fn, **args)
     except Exception as e:
-        logger.error(f"Error running UDF {udf.key!r}: {e}")
+        logger.error(f"Error running UDF {action.action!r}: {e}")
         raise
 
 
@@ -70,19 +70,23 @@ async def run_single_action(
     version: str | None = None,
 ) -> Any:
     """Run a UDF async."""
-    udf = RegistryManager().get_action(action_name, version)
-    validated_args = udf.validate_args(**args)
-    if udf.metadata.get("is_template"):
+    # NOTE(perf): We might want to cache this, or call at a higher level
+    async with RegistryActionsService.with_session() as service:
+        action = await service.load_action_impl(
+            version=version, action_name=action_name
+        )
+    validated_args = action.validate_args(**args)
+    if action.is_template:
         logger.info("Running template UDF async", action=action_name)
         return await run_template_action(
-            udf=udf,
+            action=action,
             args=validated_args,
             context=context or {},
             version=version,
         )
 
     logger.info("Running regular UDF async", action=action_name)
-    secret_names = [secret.name for secret in udf.secrets or []]
+    secret_names = [secret.name for secret in action.secrets or []]
     run_context = ctx_run.get()
     environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
     async with (
@@ -106,12 +110,12 @@ async def run_single_action(
 
         with env_sandbox(flattened_secrets):
             # Run the UDF in the caller process (usually the worker)
-            return await _run_action_direct(udf=udf, args=validated_args)
+            return await _run_action_direct(action=action, args=validated_args)
 
 
 async def run_template_action(
     *,
-    udf: RegisteredUDF[ArgsClsT],
+    action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
     context: DSLContext,
     version: str | None = None,
@@ -123,12 +127,12 @@ async def run_template_action(
     Move the template action execution here, so we can
     override run_async's implementation
     """
-    if not udf.template_action:
+    if not action.template_action:
         raise ValueError(
             "Attempted to run a non-template UDF as a template. "
             "Please use `run_single_action` instead."
         )
-    defn = udf.template_action.definition
+    defn = action.template_action.definition
     template_context = context.copy() | {
         ExprContext.TEMPLATE_ACTION_INPUTS: args,
         ExprContext.TEMPLATE_ACTION_LAYERS: {},
@@ -208,7 +212,7 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
     # When we're here, we've populated the task arguments with shared context values
 
     act_logger.info(
-        "Run udf",
+        "Run action",
         task_ref=task.ref,
         action_name=action_name,
         args=task.args,
@@ -223,7 +227,7 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
         )
         if act_test.validate_args:
             # args = _evaluate_templated_args(task, context_with_secrets)
-            # udf.validate_args(**args)
+            # action.validate_args(**args)
             act_logger.warning("Action test validation not supported")
             pass
         return await resolve_success_output(act_test)
@@ -327,12 +331,3 @@ def iter_for_each(
         patched_args = evaluate_templated_args(task=task, context=patched_context)
         logger.trace("Patched args", patched_args=patched_args)
         yield patched_args
-
-
-def validate_action_args(
-    *, action_name: str, args: ArgsT, registry_version: str
-) -> ArgsT:
-    registry = RegistryManager().get_registry(registry_version)
-    udf = registry.get(action_name)
-    res = cast(ArgsT, udf.validate_args(**args))
-    return res

@@ -10,7 +10,11 @@ from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import UDFActionInput
 from tracecat.logger import logger
-from tracecat.registry.models import ArgsT, RegisteredUDFRead
+from tracecat.registry.actions.models import (
+    ArgsT,
+    RegistryActionRead,
+    RegistryActionValidateResponse,
+)
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, RegistryError
 
@@ -26,6 +30,9 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
 
 class RegistryClient:
     """Use this to interact with the remote registry service."""
+
+    _repos_endpoint = "/registry/repos"
+    _actions_endpoint = "/registry/actions"
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
@@ -70,7 +77,7 @@ class RegistryClient:
         try:
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.post(
-                    f"/registry-executor/{key}",
+                    f"{self._actions_endpoint}/{key}/execute",
                     # NOTE(perf): Maybe serialize with orjson.dumps instead
                     headers={
                         "Content-Type": "application/json",
@@ -108,17 +115,17 @@ class RegistryClient:
 
     async def validate_action(
         self, *, action_name: str, args: dict[str, Any], registry_version: str
-    ) -> Any:
+    ) -> RegistryActionValidateResponse:
         """Validate an action."""
         try:
             logger.warning("Validating action")
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.post(
-                    f"/registry-executor/{action_name}/validate",
+                    f"{self._actions_endpoint}/{action_name}/validate",
                     json={"registry_version": registry_version, "args": args},
                 )
             response.raise_for_status()
-            return response.json()
+            return RegistryActionValidateResponse.model_validate_json(response.content)
         except httpx.HTTPStatusError as e:
             raise RegistryError(
                 f"Failed to list registries: HTTP {e.response.status_code}"
@@ -138,7 +145,7 @@ class RegistryClient:
         try:
             logger.warning("Listing registries")
             async with _RegistryHTTPClient(self.role) as client:
-                response = await client.get("/registry")
+                response = await client.get(self._repos_endpoint)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -158,7 +165,8 @@ class RegistryClient:
         """If no name is provided, the version is used as the name."""
         try:
             response = await self.post(
-                f"/registry/{version}", json={"version": version, "name": name}
+                f"{self._repos_endpoint}/{version}",
+                json={"version": version, "name": name},
             )
             response.raise_for_status()
             return response.json()
@@ -184,13 +192,13 @@ class RegistryClient:
                 f"Unexpected error while creating registry: {str(e)}"
             ) from e
 
-    async def get_registry(self, version: str) -> list[RegisteredUDFRead]:
+    async def get_registry(self, version: str) -> list[RegistryActionRead]:
         try:
             async with _RegistryHTTPClient(self.role) as client:
-                response = await client.get(f"/registry/{version}")
+                response = await client.get(f"{self._repos_endpoint}/{version}")
             response.raise_for_status()
             data = response.json()
-            return [RegisteredUDFRead(**item) for item in data]
+            return [RegistryActionRead(**item) for item in data]
         except httpx.HTTPStatusError as e:
             raise RegistryError(
                 f"Failed to list registry actions: HTTP {e.response.status_code}"

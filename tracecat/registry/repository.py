@@ -1,5 +1,6 @@
 import importlib
 import inspect
+import json
 import re
 import subprocess
 from collections.abc import Callable, Iterator
@@ -7,50 +8,58 @@ from importlib.resources import files
 from pathlib import Path
 from timeit import default_timer
 from types import FunctionType, GenericAlias, ModuleType
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse, urlunparse
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
-from tracecat_registry import RegistrySecret
-from tracecat_registry import __version__ as REGISTRY_VERSION
+from tracecat_registry import REGISTRY_VERSION, RegistrySecret
 from typing_extensions import Doc
 
 from tracecat import config
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
-from tracecat.registry.models import (
+from tracecat.registry.actions.models import (
     ArgsClsT,
-    RegisteredUDF,
-    RegisteredUDFMetadata,
-    RegisteredUDFRead,
+    BoundRegistryAction,
     TemplateAction,
 )
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
-class _RegisterKwargs(BaseModel):
+class RegisterKwargs(BaseModel):
     default_title: str | None
     display_group: str | None
     namespace: str
     description: str
     secrets: list[RegistrySecret] | None
-    version: str | None
     include_in_schema: bool
 
 
-class Registry:
-    """Class to store and manage all registered udfs."""
+class Repository:
+    """Registry class to store UDF actions and template actions.
 
-    def __init__(self, version: str = REGISTRY_VERSION):
-        self._store: dict[str, RegisteredUDF[ArgsClsT]] = {}
+    Responsibilities
+    ----------------
+    1. Load and register UDFs and template actions from their source (python file, git repo, etc)
+    2. Maintain a mapping of each action's name to actual function implementation
+    3. Serve function execution requests from a registry manager
+    """
+
+    def __init__(
+        self, version: str = REGISTRY_VERSION, origin: str = DEFAULT_REGISTRY_ORIGIN
+    ):
+        self._store: dict[str, BoundRegistryAction[ArgsClsT]] = {}
         self._remote = config.TRACECAT__REMOTE_REGISTRY_URL
         self._is_initialized: bool = False
         self._version = version
+        self._origin = origin
+        logger.info("Registry origin", origin=self._origin, version=self._version)
 
     def __contains__(self, name: str) -> bool:
         return name in self._store
 
-    def __getitem__(self, name: str) -> RegisteredUDF[ArgsClsT]:
+    def __getitem__(self, name: str) -> BoundRegistryAction[ArgsClsT]:
         return self.get(name)
 
     def __iter__(self):
@@ -63,14 +72,14 @@ class Registry:
         return len(self._store)
 
     def __repr__(self) -> str:
-        return f"Registry(version={self._version}, store={[x.key for x in self._store.values()]})"
+        return f"Registry(version={self._version}, store={json.dumps([x.action for x in self._store.values()], indent=2)})"
 
     @property
     def is_initialized(self) -> bool:
         return self._is_initialized
 
     @property
-    def store(self) -> dict[str, RegisteredUDF[ArgsClsT]]:
+    def store(self) -> dict[str, BoundRegistryAction[ArgsClsT]]:
         return self._store
 
     @property
@@ -81,12 +90,9 @@ class Registry:
     def version(self) -> str:
         return self._version
 
-    def get(self, name: str) -> RegisteredUDF[ArgsClsT]:
+    def get(self, name: str) -> BoundRegistryAction[ArgsClsT]:
         """Retrieve a registered udf."""
         return self._store[name]
-
-    def get_schemas(self) -> dict[str, dict]:
-        return {key: udf.construct_schema() for key, udf in self._store.items()}
 
     def safe_remote_url(self, remote_registry_url: str) -> str:
         """Clean a remote registry url."""
@@ -123,37 +129,17 @@ class Registry:
 
             # Load template actions
             if include_templates:
-                self._load_template_actions()
+                self._load_base_template_actions()
 
             logger.info("Registry initialized", num_actions=len(self._store))
             self._is_initialized = True
-
-    def reload(self) -> None:
-        """Reload the registry from the remote source."""
-        self._reset()
-        self.init()
-
-    def list_actions(self) -> list[RegisteredUDFRead]:
-        return [
-            RegisteredUDFRead.model_validate(
-                x.model_dump(
-                    mode="json",
-                    exclude={
-                        "fn",
-                        "args_cls",
-                        "rtype_cls",
-                        "rtype_adapter",
-                    },
-                )
-            )
-            for x in self._store.values()
-        ]
 
     def register_udf(
         self,
         *,
         fn: FunctionType,
-        key: str,
+        name: str,
+        type: Literal["udf", "template"],
         namespace: str,
         description: str,
         secrets: list[RegistrySecret] | None,
@@ -164,52 +150,50 @@ class Registry:
         default_title: str | None,
         display_group: str | None,
         include_in_schema: bool,
-        version: str | None = None,
-        is_template: bool = False,
         template_action: TemplateAction | None = None,
-        origin: str = "base",
+        origin: str = DEFAULT_REGISTRY_ORIGIN,
     ):
-        logger.debug(f"Registering UDF {key=}")
-
-        self._store[key] = RegisteredUDF(
+        reg_action = BoundRegistryAction(
             fn=fn,
-            key=key,
+            name=name,
             namespace=namespace,
-            version=version or self.version,
+            version=self.version,
             description=description,
+            type=type,
             secrets=secrets,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype_cls=rtype,
             rtype_adapter=rtype_adapter,
-            metadata=RegisteredUDFMetadata(
-                is_template=is_template,
-                default_title=default_title,
-                display_group=display_group,
-                include_in_schema=include_in_schema,
-                origin=origin,
-            ),
+            default_title=default_title,
+            display_group=display_group,
+            origin=origin,
             template_action=template_action,
+            include_in_schema=include_in_schema,
         )
 
+        logger.debug(f"Registering UDF {reg_action.action=}")
+        self._store[reg_action.action] = reg_action
+
     def register_template_action(
-        self, template_action: TemplateAction, origin: str = "base"
+        self, template_action: TemplateAction, origin: str = DEFAULT_REGISTRY_ORIGIN
     ) -> None:
         """Register a template action."""
-        key = template_action.definition.action
 
         # Register the action
         defn = template_action.definition
         expectation = defn.expects
 
         self.register_udf(
-            fn=Registry._not_implemented,
-            key=key,
+            fn=Repository._not_implemented,
+            type="template",
+            name=defn.name,
             namespace=defn.namespace,
-            version=self.version,  # Use the registry version
             description=defn.description,
             secrets=defn.secrets,
-            args_cls=create_expectation_model(expectation, key.replace(".", "__"))
+            args_cls=create_expectation_model(
+                expectation, defn.action.replace(".", "__")
+            )
             if expectation
             else BaseModel,
             args_docs={
@@ -220,7 +204,6 @@ class Registry:
             default_title=defn.title,
             display_group=defn.display_group,
             include_in_schema=True,
-            is_template=True,
             template_action=template_action,
             origin=origin,
         )
@@ -238,30 +221,44 @@ class Registry:
 
         self._register_udfs_from_package(tracecat_registry)
 
+    def load_from_origin(self) -> None:
+        """Load the registry from the origin."""
+        if self._origin == DEFAULT_REGISTRY_ORIGIN:
+            # This is a builtin registry, nothing to load
+            logger.info("Loading builtin registry")
+            self._load_base_udfs()
+            self._load_base_template_actions()
+            return
+
+        # Load from origin
+        logger.info("Loading UDFs from origin", origin=self._origin)
+        self._register_udfs_from_package(self._origin)
+
     def _register_udf_from_function(
         self,
         fn: FunctionType,
         *,
         name: str,
-        origin: str = "base",
+        origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> None:
         # Get function metadata
         key = getattr(fn, "__tracecat_udf_key")
         kwargs = getattr(fn, "__tracecat_udf_kwargs")
         logger.info(f"Registering UDF: {key}", key=key, name=name)
         # Add validators to the function
-        validated_kwargs = _RegisterKwargs.model_validate(kwargs)
-        _attach_validators(fn, TemplateValidator())
-        args_docs = _get_signature_docs(fn)
+        validated_kwargs = RegisterKwargs.model_validate(kwargs)
+        attach_validators(fn, TemplateValidator())
+        args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
-        args_cls, rtype, rtype_adapter = _generate_model_from_function(
+        args_cls, rtype, rtype_adapter = generate_model_from_function(
             func=fn, namespace=validated_kwargs.namespace
         )
+
         self.register_udf(
             fn=fn,
-            key=key,
+            type="udf",
+            name=name,
             namespace=validated_kwargs.namespace,
-            version=self.version,  # Use the registry version
             description=validated_kwargs.description,
             secrets=validated_kwargs.secrets,
             default_title=validated_kwargs.default_title,
@@ -271,7 +268,6 @@ class Registry:
             args_docs=args_docs,
             rtype=rtype,
             rtype_adapter=rtype_adapter,
-            is_template=False,
             origin=origin,
         )
 
@@ -279,7 +275,7 @@ class Registry:
         self,
         module: ModuleType,
         *,
-        origin: str = "base",
+        origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> int:
         num_udfs = 0
         for name, obj in inspect.getmembers(module):
@@ -299,7 +295,7 @@ class Registry:
         self,
         module: ModuleType,
         *,
-        origin: str = "base",
+        origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> None:
         start_time = default_timer()
         # Use rglob to find all python files
@@ -355,7 +351,7 @@ class Registry:
                 logger.error("Error importing remote udfs", error=e)
                 raise
 
-    def _load_template_actions(self) -> None:
+    def _load_base_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
         start_time = default_timer()
@@ -378,7 +374,9 @@ class Registry:
                 logger.info(f"Template {key!r} already registered, skipping")
                 continue
 
-            self.register_template_action(template_action, origin=str(pkg_path))
+            self.register_template_action(
+                template_action, origin=DEFAULT_REGISTRY_ORIGIN
+            )
             num_templates += 1
 
         time_elapsed = default_timer() - start_time
@@ -397,7 +395,7 @@ class Registry:
         namespace: str | None = None,
         include_marked: bool = False,
         include_keys: set[str] | None = None,
-    ) -> Iterator[tuple[str, RegisteredUDF[ArgsClsT]]]:
+    ) -> Iterator[tuple[str, BoundRegistryAction[ArgsClsT]]]:
         """Filter the registry.
 
         If namespace is provided, only return UDFs in that namespace.
@@ -410,11 +408,11 @@ class Registry:
         # Get the net set of keys to include
         include_keys = include_keys or set()
 
-        def include(udf: RegisteredUDF[ArgsClsT]) -> bool:
+        def include(udf: BoundRegistryAction[ArgsClsT]) -> bool:
             inc = True
-            inc &= udf.key in include_keys
+            inc &= udf.action in include_keys
             if not include_marked:
-                inc &= udf.metadata.get("include_in_schema", True)
+                inc &= udf.include_in_schema
             if namespace:
                 inc &= udf.namespace.startswith(namespace)
             return inc
@@ -422,7 +420,7 @@ class Registry:
         return ((key, udf) for key, udf in self.__iter__() if include(udf))
 
 
-def _attach_validators(func: FunctionType, *validators: Callable):
+def attach_validators(func: FunctionType, *validators: Callable):
     sig = inspect.signature(func)
 
     new_annotations = {
@@ -437,7 +435,7 @@ def _attach_validators(func: FunctionType, *validators: Callable):
     func.__annotations__ = new_annotations
 
 
-def _generate_model_from_function(
+def generate_model_from_function(
     func: FunctionType, namespace: str
 ) -> tuple[type[BaseModel], type | GenericAlias | None, TypeAdapter | None]:
     # Get the signature of the function
@@ -470,7 +468,7 @@ def _generate_model_from_function(
     return input_model, rtype, rtype_adapter
 
 
-def _get_signature_docs(fn: FunctionType) -> dict[str, str]:
+def get_signature_docs(fn: FunctionType) -> dict[str, str]:
     param_docs = {}
 
     sig = inspect.signature(fn)
@@ -492,11 +490,6 @@ def _udf_slug_camelcase(func: FunctionType, namespace: str) -> str:
     # Capitalize the first letter of each word except the first word
     # Join the words together without spaces
     return "".join(word.capitalize() for word in words)
-
-
-def init() -> None:
-    """Initialize the registry."""
-    registry.init()
 
 
 def _enforce_restrictions(fn: FunctionType) -> FunctionType:
@@ -544,6 +537,3 @@ def _enforce_restrictions(fn: FunctionType) -> FunctionType:
         )
 
     return fn
-
-
-registry = Registry()
