@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Resource
-from tracecat.types.exceptions import TracecatValidationError
-from tracecat.types.validation import ValidationResult
 
 # TODO: Consistent API design
 # Action and Workflow create / update params
@@ -71,74 +68,6 @@ class WebhookResponse(Resource):
     method: Literal["GET", "POST"]
     workflow_id: str
     url: str
-
-
-class SearchWebhooksParams(BaseModel):
-    action_id: str | None = None
-    workflow_id: str | None = None
-    limit: int = 100
-    order_by: str = "created_at"
-    query: str | None = None
-    group_by: list[str] | None = None
-    agg: str | None = None
-
-
-class TriggerWorkflowRunParams(BaseModel):
-    action_key: str
-    payload: dict[str, Any]
-
-
-class StartWorkflowParams(BaseModel):
-    entrypoint_key: str
-    entrypoint_payload: dict[str, Any]
-
-
-class StartWorkflowResponse(BaseModel):
-    status: str
-    message: str
-    id: str
-
-
-class UDFArgsValidationResponse(BaseModel):
-    ok: bool
-    message: str
-    detail: Any | None = None
-
-    @staticmethod
-    def from_validation_result(
-        result: ValidationResult,
-    ) -> UDFArgsValidationResponse:
-        return UDFArgsValidationResponse(
-            ok=result.status == "success",
-            message=result.msg,
-            # Dump this to get subclass-specific fields
-            detail=result.model_dump(exclude={"status", "msg"}, exclude_none=True),
-        )
-
-    @staticmethod
-    def from_dsl_validation_error(exc: TracecatValidationError):
-        return UDFArgsValidationResponse(ok=False, message=str(exc), detail=exc.detail)
-
-    @staticmethod
-    def from_pydantic_validation_error(exc: ValidationError):
-        return UDFArgsValidationResponse(
-            ok=False,
-            message=f"Schema validation error: {exc.title}",
-            detail=exc.errors(),
-        )
-
-
-class CommitWorkflowResponse(BaseModel):
-    workflow_id: str
-    status: Literal["success", "failure"]
-    message: str
-    errors: list[UDFArgsValidationResponse] | None = None
-    metadata: dict[str, Any] | None = None
-
-    def to_orjson(self, status_code: int) -> ORJSONResponse:
-        return ORJSONResponse(
-            status_code=status_code, content=self.model_dump(exclude_none=True)
-        )
 
 
 class ServiceCallbackAction(BaseModel):
