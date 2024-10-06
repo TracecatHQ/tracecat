@@ -11,16 +11,19 @@ except ImportError:
     ) from None
 
 from tracecat_registry._internal import registry, secrets
-from tracecat_registry._internal.exceptions import (
+from tracecat_registry._internal.exceptions import (  # noqa: E402
     RegistryActionError,
     RegistryValidationError,
 )
 from tracecat_registry._internal.logger import logger
 from tracecat_registry._internal.models import RegistrySecret
 
+REGISTRY_VERSION = __version__
+
 __all__ = [
     "registry",
     "RegistrySecret",
+    "REGISTRY_VERSION",
     "logger",
     "secrets",
     "exceptions",
