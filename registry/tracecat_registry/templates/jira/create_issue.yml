@@ -24,7 +24,7 @@ definition:
     issue_type_id:
       type: str
       description: Issue Type ID
-  layers:
+  steps:
     - ref: create_issue
       action: core.http_request
       args:
@@ -42,4 +42,4 @@ definition:
                 id: ${{ inputs.priority_id }}
               issuetype:
                 id: ${{ inputs.issue_type_id }}
-  returns: ${{ layers.create_issue.result }}
+  returns: ${{ steps.create_issue.result }}

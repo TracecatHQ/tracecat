@@ -12,7 +12,7 @@ definition:
     hostname:
       type: str
       description: The hostname of the agent
-  layers:
+  steps:
     - ref: get_agents_by_hostname
       action: core.http_request
       args:
@@ -22,4 +22,4 @@ definition:
           Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
         params:
           computerName__contains: ${{ inputs.hostname }}
-  returns: ${{ layers.get_agents_by_hostname.result }}
+  returns: ${{ steps.get_agents_by_hostname.result }}

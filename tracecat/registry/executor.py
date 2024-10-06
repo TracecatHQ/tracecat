@@ -135,23 +135,23 @@ async def run_template_action(
     defn = action.template_action.definition
     template_context = context.copy() | {
         ExprContext.TEMPLATE_ACTION_INPUTS: args,
-        ExprContext.TEMPLATE_ACTION_LAYERS: {},
+        ExprContext.TEMPLATE_ACTION_STEPS: {},
     }
     logger.info("Running template action", action=defn.action)
 
-    for layer in defn.layers:
+    for step in defn.steps:
         evaled_args = cast(
-            ArgsT, eval_templated_object(layer.args, operand=template_context)
+            ArgsT, eval_templated_object(step.args, operand=template_context)
         )
         result = await run_single_action(
-            action_name=layer.action,
+            action_name=step.action,
             args=evaled_args,
             context=template_context,
             version=version,
         )
-        # Store the result of the layer
-        logger.info("Storing layer result", layer=layer.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_LAYERS][layer.ref] = DSLNodeResult(
+        # Store the result of the step
+        logger.trace("Storing step result", step=step.ref, result=result)
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = DSLNodeResult(
             result=result,
             result_typename=type(result).__name__,
         )

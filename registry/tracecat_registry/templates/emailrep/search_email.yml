@@ -12,7 +12,7 @@ definition:
     email:
       type: str
       description: The email address to search
-  layers:
+  steps:
     - ref: search_email
       action: core.http_request
       args:
@@ -21,4 +21,4 @@ definition:
         headers:
           Key: ${{ SECRETS.emailrep.EMAILREP_API_KEY }}
           User-Agent: tracecat-client
-  returns: ${{ layers.search_email.result }}
+  returns: ${{ steps.search_email.result }}

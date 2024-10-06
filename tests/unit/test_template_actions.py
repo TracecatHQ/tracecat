@@ -3,7 +3,7 @@ from tracecat_registry import REGISTRY_VERSION, RegistrySecret
 
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry import executor
-from tracecat.registry.actions.models import ActionLayer, TemplateAction
+from tracecat.registry.actions.models import ActionStep, TemplateAction
 from tracecat.registry.repository import Repository
 
 
@@ -25,7 +25,7 @@ def test_construct_template_action():
                 },
                 "limit": {"type": "int | None", "description": "The limit"},
             },
-            "layers": [
+            "steps": [
                 {
                     "ref": "base",
                     "action": "core.transform.reshape",
@@ -41,13 +41,13 @@ def test_construct_template_action():
                     "action": "core.transform.reshape",
                     "args": {
                         "value": [
-                            "${{ layers.base.result.data + 100 }}",
-                            "${{ layers.base.result.service_source }}",
+                            "${{ steps.base.result.data + 100 }}",
+                            "${{ steps.base.result.service_source }}",
                         ]
                     },
                 },
             ],
-            "returns": "${{ layers.final.result }}",
+            "returns": "${{ steps.final.result }}",
         },
     }
 
@@ -75,8 +75,8 @@ def test_construct_template_action():
                 description="The limit",
             ),
         }
-        assert action.definition.layers == [
-            ActionLayer(
+        assert action.definition.steps == [
+            ActionStep(
                 ref="base",
                 action="core.transform.reshape",
                 args={
@@ -86,13 +86,13 @@ def test_construct_template_action():
                     }
                 },
             ),
-            ActionLayer(
+            ActionStep(
                 ref="final",
                 action="core.transform.reshape",
                 args={
                     "value": [
-                        "${{ layers.base.result.data + 100 }}",
-                        "${{ layers.base.result.service_source }}",
+                        "${{ steps.base.result.data + 100 }}",
+                        "${{ steps.base.result.service_source }}",
                     ]
                 },
             ),
@@ -119,7 +119,7 @@ async def test_template_action_run():
                     },
                     "limit": {"type": "int | None", "description": "The limit"},
                 },
-                "layers": [
+                "steps": [
                     {
                         "ref": "base",
                         "action": "core.transform.reshape",
@@ -135,13 +135,13 @@ async def test_template_action_run():
                         "action": "core.transform.reshape",
                         "args": {
                             "value": [
-                                "${{ layers.base.result.data + 100 }}",
-                                "${{ layers.base.result.service_source }}",
+                                "${{ steps.base.result.data + 100 }}",
+                                "${{ steps.base.result.service_source }}",
                             ]
                         },
                     },
                 ],
-                "returns": "${{ layers.final.result }}",
+                "returns": "${{ steps.final.result }}",
             },
         }
     )

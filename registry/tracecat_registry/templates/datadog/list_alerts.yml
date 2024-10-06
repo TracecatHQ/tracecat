@@ -34,7 +34,7 @@ definition:
       type: str
       description: Datadog API URL
       default: https://api.datadoghq.com/api
-  layers:
+  steps:
     - ref: search_alerts
       action: core.http_request
       args:
@@ -51,4 +51,4 @@ definition:
           page:
             limit: ${{ inputs.limit }}
           sort: timestamp
-  returns: ${{ layers.search_alerts.result }}
+  returns: ${{ steps.search_alerts.result }}

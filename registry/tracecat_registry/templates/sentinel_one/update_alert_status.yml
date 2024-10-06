@@ -16,7 +16,7 @@ definition:
       # Either: FALSE_POSITIVE, TRUE_POSITIVE, SUSPICIOUS, UNDEFINED
       type: str
       description: The new status of the alert
-  layers:
+  steps:
     - ref: update_alert_status
       action: core.http_request
       args:
@@ -29,4 +29,4 @@ definition:
             analystVerdict: ${{ inputs.status }}
           filter:
             ids: ${{ inputs.alert_id }}
-  returns: ${{ layers.update_alert_status.result }}
+  returns: ${{ steps.update_alert_status.result }}

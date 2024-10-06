@@ -26,7 +26,7 @@ binary_op: expression OPERATOR expression
         | trigger
         | function
         | template_action_inputs
-        | template_action_layers
+        | template_action_steps
 
 arg_list: (expression ("," expression)*)?
 
@@ -41,7 +41,7 @@ function: "FN." FN_NAME_WITH_TRANSFORM "(" [arg_list] ")"
 local_vars_assignment: "var" ATTRIBUTE_PATH
 
 template_action_inputs: "inputs" jsonpath_expression
-template_action_layers: "layers" jsonpath_expression
+template_action_steps: "steps" jsonpath_expression
 
 
 

@@ -24,7 +24,7 @@ class ExprContext(TracecatEnum):
     """Action-local variables"""
     LOCAL_VARS = "var"
     TEMPLATE_ACTION_INPUTS = "inputs"
-    TEMPLATE_ACTION_LAYERS = "layers"
+    TEMPLATE_ACTION_STEPS = "steps"
 
 
 class ExprType(TracecatEnum):

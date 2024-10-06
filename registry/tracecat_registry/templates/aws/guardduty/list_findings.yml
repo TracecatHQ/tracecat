@@ -1,8 +1,7 @@
 type: action
 definition:
   title: List Amazon GuardDuty findings
-  description:
-    Given a time range, list all GuardDuty findings.
+  description: Given a time range, list all GuardDuty findings.
     Returns list of detector IDs and findings.
   display_group: Amazon GuardDuty
   namespace: integrations.aws
@@ -19,7 +18,7 @@ definition:
       description: Maximum number of alerts to return
       default: 100
 
-  layers:
+  steps:
     - ref: list_detectors
       action: integrations.aws.call_boto3_client
       args:

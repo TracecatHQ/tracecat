@@ -15,7 +15,7 @@ definition:
     data:
       type: any
       description: The data to update the firewall rule with
-  layers:
+  steps:
     - ref: update_firewall_rule
       action: core.http_request
       args:
@@ -26,4 +26,4 @@ definition:
           Content-Type: application/json
         payload:
           data: ${{ inputs.data }}
-  returns: ${{ layers.update_firewall_rule.result }}
+  returns: ${{ steps.update_firewall_rule.result }}

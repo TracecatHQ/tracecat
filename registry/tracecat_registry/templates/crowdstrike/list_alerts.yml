@@ -25,7 +25,7 @@ definition:
       type: str
       description: CrowdStrike member CID
       default: null
-  layers:
+  steps:
     - ref: query_alerts
       action: integrations.crowdstrike.call_falconpy_command
       args:
@@ -35,4 +35,4 @@ definition:
           body:
             filter: ${{ inputs.filter || "created_timestamp:>='FN.to_isoformat(inputs.start_time)' + created_timestamp:<='FN.to_isoformat(inputs.end_time)'"  }}
             limit: ${{ inputs.limit }}
-  returns: ${{ layers.query_alerts.result }}
+  returns: ${{ steps.query_alerts.result }}

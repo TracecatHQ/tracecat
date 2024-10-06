@@ -12,7 +12,7 @@ definition:
     username:
       type: str
       description: The username of the agent
-  layers:
+  steps:
     - ref: get_agents_by_username
       action: core.http_request
       args:
@@ -22,4 +22,4 @@ definition:
           Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
         params:
           lastLoggedInUserName: ${{ inputs.username }}
-  returns: ${{ layers.get_agents_by_username.result }}
+  returns: ${{ steps.get_agents_by_username.result }}

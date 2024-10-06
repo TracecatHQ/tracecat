@@ -20,7 +20,7 @@ definition:
     projection:
       type: any
       description: Fields to include in the result
-  layers:
+  steps:
     - ref: get_document
       action: integrations.mongodb.perform_mongodb_crud
       args:
@@ -30,4 +30,4 @@ definition:
         params:
           filter: ${{ inputs.filter }}
           projection: ${{ inputs.projection }}
-  returns: ${{ layers.get_document.result }}
+  returns: ${{ steps.get_document.result }}

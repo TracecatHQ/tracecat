@@ -19,7 +19,7 @@ definition:
       type: int
       description: Maximum number of messages to return
       default: 100
-  layers:
+  steps:
     - ref: list_conversations
       action: integrations.slack.call_paginated_slack_api
       args:
@@ -29,4 +29,4 @@ definition:
           latest: ${{ str(FN.to_timestamp(inputs.latest)) }}
           oldest: ${{ str(FN.to_timestamp(inputs.oldest)) }}
           limit: ${{ inputs.limit }}
-  returns: ${{ FN.flatten(layers.list_conversations.result[*].messages) }}
+  returns: ${{ FN.flatten(steps.list_conversations.result[*].messages) }}

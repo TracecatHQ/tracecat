@@ -12,7 +12,7 @@ definition:
     ip_address:
       type: str
       description: The IP address to search
-  layers:
+  steps:
     - ref: search_ip_address
       action: core.http_request
       args:
@@ -22,4 +22,4 @@ definition:
           Key: ${{ SECRETS.abuseipdb.ABUSEIPDB_API_KEY }}
         params:
           ipAddress: ${{ inputs.ip_address }}
-  returns: ${{ layers.search_ip_address.result }}
+  returns: ${{ steps.search_ip_address.result }}
