@@ -1,5 +1,4 @@
 import os
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +8,7 @@ import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
+from tracecat_registry import REGISTRY_VERSION
 
 from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
 from tracecat.dsl.action import DSLActivities
@@ -17,8 +17,7 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
-from tracecat.registry.manager import RegistryManager
-from tracecat.registry.store import Registry
+from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -78,15 +77,12 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 @pytest.mark.asyncio
 @pytest.mark.dbtest
 async def test_playbook_validation(
-    session: AsyncSession,
-    file_path: str,
-    test_role: Role,
+    session: AsyncSession, file_path: str, test_role: Role, base_registry
 ):
-    version = f"test-{uuid.uuid4()}"
-    registry = Registry(version)
-    RegistryManager().add_registry(registry)
-    registry.init(include_base=True, include_templates=True)
-    logger.info("Initializing registry", length=len(registry), keys=registry.keys)
+    version = REGISTRY_VERSION
+    repo = Repository(version)
+    repo.init(include_base=True, include_templates=True)
+    logger.info("Initializing registry", length=len(repo), keys=repo.keys)
     mgmt_service = WorkflowsManagementService(session, role=test_role)
     with Path(file_path).open() as f:
         playbook_defn_data = yaml.safe_load(f)
@@ -98,7 +94,10 @@ async def test_playbook_validation(
     # Override the registry version
     dsl.config.registry_version = version
     validation_results = await validate_dsl(
-        dsl, validate_secrets=False, exclude_exprs={ExprType.SECRET}
+        session=session,
+        dsl=dsl,
+        validate_secrets=False,
+        exclude_exprs={ExprType.SECRET},
     )
     assert len(validation_results) == 0
 

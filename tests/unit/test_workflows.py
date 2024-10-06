@@ -320,10 +320,10 @@ async def test_workflow_multi_environ_secret_manager_correctness(
     action = next(
         item
         for item in registry_info
-        if item.key == "__testing__.testing.set_environment"
+        if item.action == "__testing__.testing.set_environment"
     )
     assert action is not None
-    assert action.key == "__testing__.testing.set_environment"
+    assert action.action == "__testing__.testing.set_environment"
     assert action.namespace == "__testing__.testing"
 
     # 2. Setup secrets in the DB
@@ -472,10 +472,10 @@ async def test_stress_workflow_udf_secret_manager_correctness(
     action = next(
         item
         for item in registry_info
-        if item.key == "__testing__.testing.set_environment"
+        if item.action == "__testing__.testing.set_environment"
     )
     assert action is not None
-    assert action.key == "__testing__.testing.set_environment"
+    assert action.action == "__testing__.testing.set_environment"
     assert action.namespace == "__testing__.testing"
     dsl = DSLInput(
         **{

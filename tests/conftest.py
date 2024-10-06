@@ -17,7 +17,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logger import logger
-from tracecat.registry.store import Registry
+from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
@@ -248,7 +248,7 @@ def authed_test_client(test_config_manager: ConfigFileManager):
 
 @pytest.fixture(autouse=True, scope="session")
 def registry():
-    registry = Registry()
+    registry = Repository()
     registry.init()
     return registry
 
@@ -348,16 +348,9 @@ def temporal_client():
 
 
 @pytest.fixture
-def blank_registry() -> Registry:
-    """Reset the registry before each test."""
-    registry = Registry()
-    return registry
-
-
-@pytest.fixture
 def base_registry():
     try:
-        registry = Registry()
+        registry = Repository()
         registry.init(include_base=True)
         yield registry
     finally:
