@@ -39,6 +39,7 @@ Meaning, let the user define a simple schema for the trigger data and validate i
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -51,11 +52,7 @@ from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import DSLInput
 from tracecat.expressions.eval import extract_expressions, is_template_only
-from tracecat.expressions.parser.validator import (
-    ExprValidationContext,
-    ExprValidationResult,
-    ExprValidator,
-)
+from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logger import logger
 from tracecat.registry.actions.models import ArgsT
@@ -64,6 +61,7 @@ from tracecat.secrets.models import SearchSecretsParams
 from tracecat.secrets.service import SecretsService
 from tracecat.types.exceptions import RegistryValidationError
 from tracecat.types.validation import (
+    ExprValidationResult,
     RegistryValidationResult,
     SecretValidationResult,
     ValidationResult,
@@ -260,7 +258,7 @@ async def validate_dsl(
     if not any((validate_args, validate_expressions, validate_secrets)):
         return set()
 
-    iterables = []
+    iterables: list[Sequence[ValidationResult]] = []
 
     # Tier 2: UDF Args validation
     if validate_args:
@@ -428,8 +426,8 @@ async def validate_actions_have_defined_secrets(
         nonlocal checked_keys_cache
         results: list[SecretValidationResult] = []
         async with SecretsService.with_session() as service:
-            for registry_secret in action.secrets or []:
-                registry_secret = RegistrySecret.model_validate(registry_secret)
+            for registry_secret_dict in action.secrets or []:
+                registry_secret = RegistrySecret.model_validate(registry_secret_dict)
                 if registry_secret.name in checked_keys_cache:
                     continue
                 # (1) Check if the secret is defined
