@@ -56,14 +56,18 @@ class RegistryError(TracecatException):
     """Generic exception raised when a registry error occurs."""
 
 
-class RegistryActionError(TracecatException):
+class RegistryActionError(RegistryError):
     """Exception raised when a registry action error occurs."""
 
 
-class RegistryValidationError(TracecatException):
+class RegistryValidationError(RegistryError):
     """Exception raised when a registry validation error occurs."""
 
     def __init__(self, *args, key: str, err: ValidationError | str | None = None):
         super().__init__(*args)
         self.key = key
         self.err = err
+
+
+class RegistryNotFound(RegistryError):
+    """Exception raised when a registry is not found."""
