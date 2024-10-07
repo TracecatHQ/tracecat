@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
-from tracecat_registry import __version__ as REGISTRY_VERSION
+from tracecat_registry import REGISTRY_VERSION
 
 from tracecat.contexts import RunContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
