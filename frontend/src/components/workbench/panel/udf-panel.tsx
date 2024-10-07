@@ -236,10 +236,9 @@ export function UDFActionPanel({
                         )}
                       </p>
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Type:{" "}
-                        {registryAction.is_template
-                          ? "Template Action"
-                          : "Custom Action"}
+                        Type: {registryAction.type === "udf" && "UDF"}
+                        {registryAction.type === "template" &&
+                          "Tempalte Action"}
                       </p>
                       <p className="mt-2 text-xs text-muted-foreground">
                         Origin: {registryAction.origin}
