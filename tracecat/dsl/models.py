@@ -93,6 +93,7 @@ class DSLConfig(BaseModel):
     registry_version: str = Field(
         default=REGISTRY_VERSION,
         description="The registry version to use for the workflow.",
+        exclude=True,  # Prevent users from configuring this
     )
 
 
