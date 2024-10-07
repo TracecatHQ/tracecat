@@ -23,7 +23,7 @@ definition:
       type: int
       description: Maximum number of alerts to return
       default: 100
-  layers:
+  steps:
     - ref: search_alerts
       action: core.http_request
       args:
@@ -37,7 +37,7 @@ definition:
             bool:
               filter:
                 - range:
-                    '@timestamp':
+                    "@timestamp":
                       gte: ${{ FN.to_isoformat(inputs.start_time) }}
                       lte: ${{ FN.to_isoformat(inputs.end_time) }}
                 - match:
@@ -45,4 +45,4 @@ definition:
               must_not:
                 - exists:
                     field: kibana.alert.building_block_type
-  returns: ${{ layers.search_alerts.result }}
+  returns: ${{ steps.search_alerts.result }}

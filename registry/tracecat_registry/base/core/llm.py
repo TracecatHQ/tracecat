@@ -5,8 +5,13 @@
 from typing import Annotated, Any
 
 from pydantic import Field
-from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, async_openai_call
-from tracecat.registry import RegistrySecret, registry
+from tracecat.llm import (
+    DEFAULT_MODEL_TYPE,
+    ModelType,
+    async_openai_call,
+)
+
+from tracecat_registry import RegistrySecret, registry
 
 
 def _event_context_instructions(event_context: dict[str, Any]) -> str:
@@ -39,7 +44,6 @@ openai_secret = RegistrySecret(
 
 @registry.register(
     namespace="core",
-    version="0.1.0",
     description="Call an LLM.",
     default_title="AI Action",
     secrets=[openai_secret],

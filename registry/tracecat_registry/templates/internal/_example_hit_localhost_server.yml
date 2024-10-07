@@ -16,7 +16,7 @@ definition:
       description: The port to hit
       default: 8005
   # Layers are used to define a sequence of operations
-  layers:
+  steps:
     - ref: base
       action: core.http_request
       args:
@@ -26,4 +26,4 @@ definition:
           Content-Type: application/json
         payload:
           data: 100
-  returns: ${{ layers.base.result }}
+  returns: ${{ steps.base.result }}

@@ -13,7 +13,7 @@ definition:
       type: str
       description: CrowdStrike member CID
       default: null
-  layers:
+  steps:
     - ref: get_detect_summaries
       action: integrations.crowdstrike.call_falconpy_command
       args:
@@ -23,4 +23,4 @@ definition:
         params:
           body:
             ids: ${{ inputs.detection_ids }}}
-  returns: ${{ layers.get_detect_summaries.result }}
+  returns: ${{ steps.get_detect_summaries.result }}

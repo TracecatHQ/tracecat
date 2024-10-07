@@ -4,12 +4,12 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
-import os
 from typing import Annotated, Any
 
 import aioboto3
-from tracecat.logger import logger
-from tracecat.registry import Field, RegistrySecret, registry
+from pydantic import Field
+
+from tracecat_registry import RegistrySecret, logger, registry, secrets
 
 # TODO: Support possible sets of secrets
 # e.g. AWS_PROFILE_NAME or AWS_ROLE_ARN
@@ -30,7 +30,7 @@ Secret
 Example Usage
 -------------
 Environment variables:
->>> os.environ["AWS_ACCESS_KEY_ID"]
+>>> secrets.get["AWS_ACCESS_KEY_ID"]
 
 Expression:
 >>> ${{ SECRETS.aws_guardduty.AWS_ACCESS_KEY_ID }}
@@ -51,27 +51,27 @@ async def get_temporary_credentials(
 
 
 async def get_session():
-    if os.getenv("AWS_ROLE_ARN"):
-        role_arn = os.getenv("AWS_ROLE_ARN")
-        role_session_name = os.getenv("AWS_ROLE_SESSION_NAME")
+    if secrets.get("AWS_ROLE_ARN"):
+        role_arn = secrets.get("AWS_ROLE_ARN")
+        role_session_name = secrets.get("AWS_ROLE_SESSION_NAME")
         creds = await get_temporary_credentials(role_arn, role_session_name)
         session = aioboto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
-            region_name=os.environ["AWS_REGION"],
+            region_name=secrets.get("AWS_REGION"),
         )
-    elif os.getenv("AWS_PROFILE_NAME"):
-        profile_name = os.getenv("AWS_PROFILE_NAME")
+    elif secrets.get("AWS_PROFILE_NAME"):
+        profile_name = secrets.get("AWS_PROFILE_NAME")
         session = aioboto3.Session(profile_name=profile_name)
     else:
         logger.warning(
             "Role ARN and profile not found. Defaulting to IAM credentials (not recommended)."
         )
         session = aioboto3.Session(
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-            region_name=os.getenv("AWS_REGION"),
+            aws_access_key_id=secrets.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
+            region_name=secrets.get("AWS_REGION"),
         )
 
     return session

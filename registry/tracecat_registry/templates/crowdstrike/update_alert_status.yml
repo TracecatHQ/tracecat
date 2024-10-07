@@ -18,7 +18,7 @@ definition:
       # false_positive
       type: str
       description: New status for the alert
-  layers:
+  steps:
     - ref: update_alert_status
       action: integrations.crowdstrike.call_falconpy_command
       args:
@@ -27,4 +27,4 @@ definition:
           body:
             composite_ids: ${{ inputs.alert_ids }}
             update_status: ${{ inputs.status }}
-  returns: ${{ layers.update_alert_status.result }}
+  returns: ${{ steps.update_alert_status.result }}

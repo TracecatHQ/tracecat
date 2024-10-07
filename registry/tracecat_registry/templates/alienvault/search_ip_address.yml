@@ -16,7 +16,7 @@ definition:
       type: str
       description: The section of the report to return.
       default: general
-  layers:
+  steps:
     - ref: check_ip_version
       action: core.transform.reshape
       args:
@@ -25,8 +25,8 @@ definition:
     - ref: search_ip_address
       action: core.http_request
       args:
-        url: https://otx.alienvault.com/api/v1/indicators/IPv${{ layers.check_ip_version.version }}/${{ inputs.ip_address }}/${{ inputs.section }}
+        url: https://otx.alienvault.com/api/v1/indicators/IPv${{ steps.check_ip_version.version }}/${{ inputs.ip_address }}/${{ inputs.section }}
         method: GET
         headers:
           X-OTX-API-KEY: ${{ SECRETS.alienvault.OTX_API_KEY }}
-  returns: ${{ layers.search_ip_address.result }}
+  returns: ${{ steps.search_ip_address.result }}

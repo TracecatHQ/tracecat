@@ -157,10 +157,10 @@ class ExprEvaluator(Transformer):
         )
 
     @v_args(inline=True)
-    def template_action_layers(self, jsonpath: str):
-        logger.trace("Visiting template_action_layers:", args=jsonpath)
+    def template_action_steps(self, jsonpath: str):
+        logger.trace("Visiting template_action_steps:", args=jsonpath)
         return functions.eval_jsonpath(
-            ExprContext.TEMPLATE_ACTION_LAYERS + jsonpath,
+            ExprContext.TEMPLATE_ACTION_STEPS + jsonpath,
             self._context,
             strict=self._strict,
         )

@@ -1,10 +1,11 @@
 """Generic interface to FalconPy Uber class."""
 
-import os
 from typing import Annotated, Any
 
 from falconpy import APIHarnessV2
-from tracecat.registry import Field, RegistrySecret, registry
+from pydantic import Field
+
+from tracecat_registry import RegistrySecret, registry, secrets
 
 crowdstrike_secret = RegistrySecret(
     name="crowdstrike",
@@ -45,8 +46,8 @@ async def call_falconpy_command(
 ) -> dict[str, Any]:
     params = params or {}
     falcon = APIHarnessV2(
-        client_id=os.getenv("CROWDSTRIKE_CLIENT_ID"),
-        client_secret=os.getenv("CROWDSTRIKE_CLIENT_SECRET"),
+        client_id=secrets.get("CROWDSTRIKE_CLIENT_ID"),
+        client_secret=secrets.get("CROWDSTRIKE_CLIENT_SECRET"),
         member_cid=member_cid,
     )
     return falcon.command(operation_id, **params)

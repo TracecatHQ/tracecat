@@ -3,7 +3,9 @@ import itertools
 import re
 from typing import Annotated
 
-from tracecat.registry import Field, registry
+from pydantic import Field
+
+from tracecat_registry import registry
 
 IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 

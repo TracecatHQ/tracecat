@@ -12,7 +12,7 @@ definition:
     username_or_email:
       type: str
       description: Username or email address of the user to find
-  layers:
+  steps:
     - ref: find_users
       action: core.http_request
       args:
@@ -22,4 +22,4 @@ definition:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
         params:
           search: profile.login eq "${{ input.username_or_email }}" or profile.email eq "${{ input.username_or_email }}"
-  returns: ${{ layers.find_users.result }}
+  returns: ${{ steps.find_users.result }}

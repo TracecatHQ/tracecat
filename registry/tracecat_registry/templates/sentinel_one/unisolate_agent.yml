@@ -12,7 +12,7 @@ definition:
     agent_ids:
       type: list[str]
       description: The IDs of the agents to unisolate
-  layers:
+  steps:
     - ref: unisolate_agents
       action: core.http_request
       args:
@@ -24,4 +24,4 @@ definition:
         payload:
           filter:
             ids: ${{ inputs.agent_ids }}
-  returns: ${{ layers.unisolate_agents.result }}
+  returns: ${{ steps.unisolate_agents.result }}

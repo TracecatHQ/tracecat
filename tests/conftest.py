@@ -8,7 +8,6 @@ from collections.abc import AsyncGenerator
 import httpx
 import pytest
 import pytest_asyncio
-from cryptography.fernet import Fernet
 from pytest_mock import MockerFixture
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_cli.config import Config, ConfigFileManager
@@ -18,7 +17,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logger import logger
-from tracecat.registry import _Registry
+from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
@@ -65,6 +64,9 @@ def env_sandbox(
     monkeysession: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
 ):
+    import dotenv
+
+    dotenv.load_dotenv()
     logger.info("Setting up environment variables")
     temporal_compose_file = request.config.getoption("--temporal-compose-file")
 
@@ -84,11 +86,11 @@ def env_sandbox(
         "TRACECAT__DB_URI",
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
-    monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
-    monkeysession.setenv("TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("TEMPORAL__DOCKER_COMPOSE_PATH", temporal_compose_file)
     # When launching the worker directly in a test, use localhost
@@ -246,8 +248,7 @@ def authed_test_client(test_config_manager: ConfigFileManager):
 
 @pytest.fixture(autouse=True, scope="session")
 def registry():
-    from tracecat.registry import registry
-
+    registry = Repository()
     registry.init()
     return registry
 
@@ -347,19 +348,9 @@ def temporal_client():
 
 
 @pytest.fixture
-def blank_registry() -> _Registry:
-    """Reset the registry before each test."""
-    from tracecat.registry import registry
-
-    registry._reset()
-    return registry
-
-
-@pytest.fixture
 def base_registry():
-    from tracecat.registry import registry
-
     try:
+        registry = Repository()
         registry.init(include_base=True)
         yield registry
     finally:

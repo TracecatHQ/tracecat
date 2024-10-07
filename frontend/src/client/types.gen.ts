@@ -10,6 +10,17 @@ export type ActionControlFlow = {
     for_each?: string | Array<(string)> | null;
 };
 
+export type ActionLayer = {
+    /**
+     * The reference of the layer
+     */
+    ref: string;
+    action: string;
+    args: {
+        [key: string]: unknown;
+    };
+};
+
 export type ActionMetadataResponse = {
     id: string;
     workflow_id: string;
@@ -33,7 +44,41 @@ export type ActionResponse = {
     control_flow?: ActionControlFlow;
 };
 
-export type ActionStatement = {
+export type ActionStatement_Input = {
+    /**
+     * The action ID. If this is populated means there is a corresponding actionin the database `Action` table.
+     */
+    id?: string | null;
+    /**
+     * Unique reference for the task
+     */
+    ref: string;
+    description?: string;
+    /**
+     * Action type. Equivalent to the UDF key.
+     */
+    action: string;
+    /**
+     * Arguments for the action
+     */
+    args?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Task dependencies
+     */
+    depends_on?: Array<(string)>;
+    /**
+     * Condition to run the task
+     */
+    run_if?: string | null;
+    /**
+     * Iterate over a list of items and run the task for each item.
+     */
+    for_each?: string | Array<(string)> | null;
+};
+
+export type ActionStatement_Output = {
     /**
      * Unique reference for the task
      */
@@ -215,7 +260,7 @@ export type CommitWorkflowResponse = {
     workflow_id: string;
     status: 'success' | 'failure';
     message: string;
-    errors?: Array<UDFArgsValidationResponse> | null;
+    errors?: Array<RegistryActionValidateResponse> | null;
     metadata?: {
     [key: string]: unknown;
 } | null;
@@ -275,6 +320,11 @@ export type CreateWorkspaceParams = {
     owner_id?: string;
 };
 
+/**
+ * This is the runtime configuration for the workflow.
+ *
+ * Activities don't need access to this.
+ */
 export type DSLConfig_Input = {
     /**
      * The type of scheduler to use.
@@ -288,6 +338,10 @@ export type DSLConfig_Input = {
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
+    /**
+     * The registry version to use for the workflow.
+     */
+    registry_version?: string;
 };
 
 /**
@@ -295,6 +349,11 @@ export type DSLConfig_Input = {
  */
 export type scheduler = 'static' | 'dynamic';
 
+/**
+ * This is the runtime configuration for the workflow.
+ *
+ * Activities don't need access to this.
+ */
 export type DSLConfig_Output = {
     /**
      * Enable runtime action tests. This is dynamically set on workflow entry.
@@ -304,6 +363,10 @@ export type DSLConfig_Output = {
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
+    /**
+     * The registry version to use for the workflow.
+     */
+    registry_version?: string;
 };
 
 export type DSLContext = {
@@ -343,6 +406,7 @@ export type DSLEnvironment = {
     variables?: {
         [key: string]: unknown;
     };
+    registry_version?: string;
 };
 
 /**
@@ -359,7 +423,7 @@ export type DSLInput = {
     title: string;
     description: string;
     entrypoint: DSLEntrypoint;
-    actions: Array<ActionStatement>;
+    actions: Array<ActionStatement_Output>;
     config?: DSLConfig_Output;
     triggers?: Array<Trigger>;
     /**
@@ -426,7 +490,7 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: UDFActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
+    action_input: UDFActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
 };
 
@@ -471,6 +535,245 @@ export type OAuth2AuthorizeResponse = {
 };
 
 /**
+ * API create model for a registered action.
+ */
+export type RegistryActionCreate = {
+    /**
+     * The name of the action
+     */
+    name: string;
+    /**
+     * The description of the action
+     */
+    description: string;
+    /**
+     * The namespace of the action
+     */
+    namespace: string;
+    /**
+     * The type of the action
+     */
+    type: 'udf' | 'template';
+    /**
+     * Registry version
+     */
+    version: string;
+    /**
+     * The origin of the action as a url
+     */
+    origin: string;
+    /**
+     * The secrets required by the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    interface: RegistryActionInterface;
+    implementation?: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl;
+    /**
+     * The default title of the action
+     */
+    default_title?: string | null;
+    /**
+     * The presentation group of the action
+     */
+    display_group?: string | null;
+    /**
+     * The options for the action
+     */
+    options?: RegistryActionOptions;
+    /**
+     * The repository id
+     */
+    repository_id: string;
+};
+
+/**
+ * The type of the action
+ */
+export type type2 = 'udf' | 'template';
+
+export type RegistryActionInterface = {
+    expects: {
+        [key: string]: unknown;
+    };
+    returns: unknown;
+};
+
+export type RegistryActionOptions = {
+    include_in_schema?: boolean;
+};
+
+/**
+ * API read model for a registered action.
+ */
+export type RegistryActionRead = {
+    /**
+     * The name of the action
+     */
+    name: string;
+    /**
+     * The description of the action
+     */
+    description: string;
+    /**
+     * The namespace of the action
+     */
+    namespace: string;
+    /**
+     * The type of the action
+     */
+    type: 'udf' | 'template';
+    /**
+     * Registry version
+     */
+    version: string;
+    /**
+     * The origin of the action as a url
+     */
+    origin: string;
+    /**
+     * The secrets required by the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    interface: RegistryActionInterface;
+    implementation?: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl;
+    /**
+     * The default title of the action
+     */
+    default_title?: string | null;
+    /**
+     * The presentation group of the action
+     */
+    display_group?: string | null;
+    /**
+     * The options for the action
+     */
+    options?: RegistryActionOptions;
+    /**
+     * The repository id
+     */
+    repository_id: string;
+    /**
+     * The full action identifier.
+     */
+    readonly action: string;
+    /**
+     * Whether the action is a template.
+     */
+    readonly is_template: boolean;
+};
+
+export type RegistryActionTemplateImpl_Input = {
+    type?: "template";
+    /**
+     * The template action
+     */
+    template_action: TemplateAction_Input;
+};
+
+export type RegistryActionTemplateImpl_Output = {
+    type?: "template";
+    /**
+     * The template action
+     */
+    template_action: TemplateAction_Output;
+};
+
+export type RegistryActionUDFImpl = {
+    type?: "udf";
+    /**
+     * The package url
+     */
+    url: string;
+    /**
+     * The module name
+     */
+    module: string;
+    /**
+     * The name of the UDF function name
+     */
+    name: string;
+};
+
+/**
+ * API update model for a registered action.
+ */
+export type RegistryActionUpdate = {
+    /**
+     * Update the name of the action
+     */
+    name?: string | null;
+    /**
+     * Update the description of the action
+     */
+    description?: string | null;
+    /**
+     * Update the secrets of the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    /**
+     * Update the interface of the action
+     */
+    interface?: RegistryActionInterface | null;
+    /**
+     * Update the implementation of the action
+     */
+    implementation?: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl | null;
+    /**
+     * Update the default title of the action
+     */
+    default_title?: string | null;
+    /**
+     * Update the display group of the action
+     */
+    display_group?: string | null;
+    /**
+     * Update the options of the action
+     */
+    options?: RegistryActionOptions | null;
+};
+
+export type RegistryActionValidate = {
+    registry_version: string;
+    args: {
+        [key: string]: unknown;
+    };
+};
+
+export type RegistryActionValidateResponse = {
+    ok: boolean;
+    message: string;
+    detail?: unknown | null;
+};
+
+export type RegistryRepositoryCreate = {
+    version: string;
+    origin?: string | null;
+};
+
+export type RegistryRepositoryRead = {
+    version: string;
+    origin?: string | null;
+    actions: Array<RegistryActionRead>;
+};
+
+export type RegistryRepositoryReadMinimal = {
+    version: string;
+    origin?: string | null;
+};
+
+export type RegistryRepositoryUpdate = {
+    name?: string | null;
+    include_base?: boolean;
+    include_remote?: boolean;
+    include_templates?: boolean;
+};
+
+export type RegistrySecret = {
+    name: string;
+    keys: Array<(string)>;
+};
+
+/**
  * The identity and authorization of a user or service.
  *
  * Params
@@ -504,14 +807,19 @@ export type Role = {
     service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 };
 
-export type type2 = 'user' | 'service';
+export type type3 = 'user' | 'service';
 
 export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 
+/**
+ * This is the runtime context model for a workflow run. Passed into activities.
+ */
 export type RunContext = {
     wf_id: string;
     wf_exec_id: string;
     wf_run_id: string;
+    environment: string;
+    registry_version: string;
 };
 
 export type Schedule = {
@@ -640,8 +948,68 @@ export type Tag = {
     value: string;
 };
 
+export type TemplateAction_Input = {
+    type?: "action";
+    definition: TemplateActionDefinition;
+};
+
+export type TemplateAction_Output = {
+    type?: "action";
+    definition: TemplateActionDefinition;
+};
+
+export type TemplateActionDefinition = {
+    /**
+     * The action name
+     */
+    name: string;
+    /**
+     * The namespace of the action
+     */
+    namespace: string;
+    /**
+     * The title of the action
+     */
+    title: string;
+    /**
+     * The description of the action
+     */
+    description?: string;
+    /**
+     * The display group of the action
+     */
+    display_group: string;
+    /**
+     * The secrets to pass to the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    /**
+     * The arguments to pass to the action
+     */
+    expects: {
+        [key: string]: ExpectedField;
+    };
+    /**
+     * The internal layers of the action
+     */
+    layers: Array<ActionLayer>;
+    /**
+     * The result of the action
+     */
+    returns: string | Array<(string)> | {
+    [key: string]: unknown;
+};
+};
+
 export type TerminateWorkflowExecutionParams = {
     reason?: string | null;
+};
+
+export type TestRegistryParams = {
+    version: string;
+    code: string;
+    module_name: string;
+    validate_keys?: Array<(string)> | null;
 };
 
 export type Trigger = {
@@ -652,44 +1020,28 @@ export type Trigger = {
     };
 };
 
-export type type3 = 'schedule' | 'webhook';
+export type type4 = 'schedule' | 'webhook';
 
-export type UDFActionInput = {
-    task: ActionStatement;
+/**
+ * This object contains all the information needed to execute an action.
+ */
+export type UDFActionInput_Input = {
+    task: ActionStatement_Input;
     role: Role;
     exec_context: DSLContext;
     run_context: RunContext;
     action_test?: ActionTest | null;
 };
 
-export type UDFArgsValidationResponse = {
-    ok: boolean;
-    message: string;
-    detail?: unknown | null;
-};
-
 /**
- * UDF spec.
- *
- * Used in:
- * 1. Frontend action library
- * 2. Frontend integration action form
+ * This object contains all the information needed to execute an action.
  */
-export type UDFSpec = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    description: string;
-    namespace: string;
-    key: string;
-    version?: string | null;
-    json_schema: {
-    [key: string]: unknown;
-} | null;
-    meta: {
-    [key: string]: unknown;
-} | null;
+export type UDFActionInput_Output = {
+    task: ActionStatement_Output;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+    action_test?: ActionTest | null;
 };
 
 export type UpdateActionParams = {
@@ -1232,39 +1584,6 @@ export type ActionsDeleteActionData = {
 
 export type ActionsDeleteActionResponse = void;
 
-export type UdfsListUdfsData = {
-    limit?: number | null;
-    ns?: Array<(string)> | null;
-    workspaceId: string;
-};
-
-export type UdfsListUdfsResponse = Array<UDFSpec>;
-
-export type UdfsGetUdfData = {
-    namespace?: string;
-    udfKey: string;
-    workspaceId: string;
-};
-
-export type UdfsGetUdfResponse = UDFSpec;
-
-export type UdfsCreateUdfData = {
-    udfKey: string;
-    workspaceId: string;
-};
-
-export type UdfsCreateUdfResponse = UDFSpec;
-
-export type UdfsValidateUdfArgsData = {
-    requestBody: {
-        [key: string]: unknown;
-    };
-    udfKey: string;
-    workspaceId: string;
-};
-
-export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse;
-
 export type CasesCreateCaseData = {
     requestBody: CaseCreate;
     workspaceId: string;
@@ -1410,13 +1729,99 @@ export type ValidationValidateWorkflowData = {
     workspaceId: string;
 };
 
-export type ValidationValidateWorkflowResponse = Array<UDFArgsValidationResponse>;
+export type ValidationValidateWorkflowResponse = Array<RegistryActionValidateResponse>;
 
 export type UsersSearchUserData = {
     email?: string | null;
 };
 
 export type UsersSearchUserResponse = UserRead;
+
+export type RegistryRepositoriesSyncRegistryRepositoriesResponse = void;
+
+export type RegistryRepositoriesListRegistryRepositoriesResponse = Array<RegistryRepositoryReadMinimal>;
+
+export type RegistryRepositoriesCreateRegistryRepositoryData = {
+    requestBody: RegistryRepositoryCreate;
+};
+
+export type RegistryRepositoriesCreateRegistryRepositoryResponse = RegistryRepositoryRead;
+
+export type RegistryRepositoriesGetRegistryRepositoryData = {
+    version: string;
+};
+
+export type RegistryRepositoriesGetRegistryRepositoryResponse = RegistryRepositoryRead;
+
+export type RegistryRepositoriesUpdateRegistryRepositoryData = {
+    requestBody: RegistryRepositoryUpdate;
+    version: string;
+};
+
+export type RegistryRepositoriesUpdateRegistryRepositoryResponse = RegistryRepositoryRead;
+
+export type RegistryRepositoriesDeleteRegistryRepositoryData = {
+    version: string;
+};
+
+export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void;
+
+export type RegistryActionsListRegistryActionsData = {
+    versions?: Array<(string)> | null;
+};
+
+export type RegistryActionsListRegistryActionsResponse = Array<RegistryActionRead>;
+
+export type RegistryActionsCreateRegistryActionData = {
+    requestBody: RegistryActionCreate;
+};
+
+export type RegistryActionsCreateRegistryActionResponse = RegistryActionRead;
+
+export type RegistryActionsGetRegistryActionData = {
+    actionName: string;
+    /**
+     * The version of the registry to get the action from
+     */
+    version?: string | null;
+};
+
+export type RegistryActionsGetRegistryActionResponse = RegistryActionRead;
+
+export type RegistryActionsUpdateRegistryActionData = {
+    actionName: string;
+    requestBody: RegistryActionUpdate;
+    /**
+     * The version of the registry to update the action in
+     */
+    version?: string | null;
+};
+
+export type RegistryActionsUpdateRegistryActionResponse = void;
+
+export type RegistryActionsDeleteRegistryActionData = {
+    actionName: string;
+    /**
+     * The version of the registry to delete the action from
+     */
+    version?: string | null;
+};
+
+export type RegistryActionsDeleteRegistryActionResponse = void;
+
+export type RegistryActionsRunRegistryActionData = {
+    actionName: string;
+    requestBody: UDFActionInput_Input;
+};
+
+export type RegistryActionsRunRegistryActionResponse = unknown;
+
+export type RegistryActionsValidateRegistryActionData = {
+    actionName: string;
+    requestBody: RegistryActionValidate;
+};
+
+export type RegistryActionsValidateRegistryActionResponse = RegistryActionValidateResponse;
 
 export type UsersUsersCurrentUserResponse = UserRead;
 
@@ -1497,6 +1902,13 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 };
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
+
+export type TestRegistryRegisterTestModuleData = {
+    requestBody: TestRegistryParams;
+    workspaceId: string;
+};
+
+export type TestRegistryRegisterTestModuleResponse = unknown;
 
 export type PublicCheckHealthResponse = {
     [key: string]: (string);
@@ -2012,64 +2424,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/udfs': {
-        get: {
-            req: UdfsListUdfsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<UDFSpec>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}': {
-        get: {
-            req: UdfsGetUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: UdfsCreateUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}/validate': {
-        post: {
-            req: UdfsValidateUdfArgsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFArgsValidationResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
     '/cases': {
         post: {
             req: CasesCreateCaseData;
@@ -2346,7 +2700,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<UDFArgsValidationResponse>;
+                200: Array<RegistryActionValidateResponse>;
                 /**
                  * Validation Error
                  */
@@ -2362,6 +2716,179 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: UserRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/repos/sync': {
+        post: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+            };
+        };
+    };
+    '/registry/repos': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<RegistryRepositoryReadMinimal>;
+            };
+        };
+        post: {
+            req: RegistryRepositoriesCreateRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: RegistryRepositoryRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/repos/{version}': {
+        get: {
+            req: RegistryRepositoriesGetRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryRepositoryRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: RegistryRepositoriesUpdateRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryRepositoryRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: RegistryRepositoriesDeleteRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions': {
+        get: {
+            req: RegistryActionsListRegistryActionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<RegistryActionRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: RegistryActionsCreateRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: RegistryActionRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions/{action_name}': {
+        get: {
+            req: RegistryActionsGetRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryActionRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: RegistryActionsUpdateRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: RegistryActionsDeleteRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions/{action_name}/execute': {
+        post: {
+            req: RegistryActionsRunRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions/{action_name}/validate': {
+        post: {
+            req: RegistryActionsValidateRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryActionValidateResponse;
                 /**
                  * Validation Error
                  */
@@ -2640,6 +3167,21 @@ export type $OpenApiTs = {
                  * Bad Request
                  */
                 400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/test-registry': {
+        post: {
+            req: TestRegistryRegisterTestModuleData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */

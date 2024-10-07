@@ -2,7 +2,9 @@ import itertools
 import re
 from typing import Annotated
 
-from tracecat.registry import Field, registry
+from pydantic import Field
+
+from tracecat_registry import registry
 
 # Improved regular expression to match URLs including paths and query parameters
 URL_REGEX = r'https?://(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(?:/[^\s"\'\],\.]*)?'

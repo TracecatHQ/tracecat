@@ -39,24 +39,29 @@ Meaning, let the user define a simple schema for the trigger data and validate i
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from itertools import chain
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional, cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError, create_model
+from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry import RegistrySecret
 
 from tracecat.concurrency import GatheringTaskGroup
+from tracecat.db.schemas import RegistryAction
+from tracecat.dsl.common import DSLInput
 from tracecat.expressions.eval import extract_expressions, is_template_only
-from tracecat.expressions.parser.validator import (
-    ExprValidationContext,
-    ExprValidationResult,
-    ExprValidator,
-)
+from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logger import logger
-from tracecat.registry import RegisteredUDF, RegistryValidationError, registry
+from tracecat.registry.actions.models import ArgsT
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.models import SearchSecretsParams
 from tracecat.secrets.service import SecretsService
+from tracecat.types.exceptions import RegistryValidationError
 from tracecat.types.validation import (
+    ExprValidationResult,
     RegistryValidationResult,
     SecretValidationResult,
     ValidationResult,
@@ -70,7 +75,11 @@ def get_validators():
     return {ExprType.SECRET: secret_validator}
 
 
-def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
+async def validate_dsl_args(
+    *,
+    session: AsyncSession,
+    dsl: DSLInput,
+) -> list[ValidationResult]:
     """Validate arguemnts to the DSLInput.
 
     Check if the input arguemnts are either a templated expression or the correct type.
@@ -81,7 +90,12 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
         # We validate the action args, but keep them as is
         # These will be coerced properly when the workflow is run
         # We store the DSL as is to ensure compatibility with with string reprs
-        result = vadliate_udf_args(act_stmt.action, act_stmt.args)
+        result = await vadliate_registry_action_args(
+            session=session,
+            action_name=act_stmt.action,
+            version=dsl.config.registry_version,
+            args=act_stmt.args,
+        )
         if result.status == "error":
             result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
             val_res.append(result)
@@ -130,31 +144,6 @@ def validate_dsl_args(dsl: DSLInput) -> list[ValidationResult]:
     # Validate `returns`
 
     return val_res
-
-
-def vadliate_udf_args(udf_key: str, args: dict[str, Any]) -> RegistryValidationResult:
-    """Validate arguments against a UDF spec."""
-    try:
-        udf = registry.get(udf_key)
-        validated_args = udf.validate_args(**args)
-        return RegistryValidationResult(
-            status="success", msg="Arguments are valid.", validated_args=validated_args
-        )
-    except RegistryValidationError as e:
-        if isinstance(e.err, ValidationError):
-            detail = e.err.errors()
-        else:
-            detail = str(e.err) if e.err else None
-        return RegistryValidationResult(
-            status="error", msg=f"Error validating UDF {udf_key}", detail=detail
-        )
-    except KeyError:
-        return RegistryValidationResult(
-            status="error",
-            msg=f"Could not find UDF {udf_key!r} in registry. Is this UDF registered?",
-        )
-    except Exception as e:
-        raise e
 
 
 async def secret_validator(
@@ -253,6 +242,166 @@ async def validate_dsl_expressions(
     return visitor.errors()
 
 
+async def validate_dsl(
+    session: AsyncSession,
+    dsl: DSLInput,
+    *,
+    validate_args: bool = True,
+    validate_expressions: bool = True,
+    validate_secrets: bool = True,
+    exclude_exprs: set[ExprType] | None = None,
+) -> set[ValidationResult]:
+    """Validate the DSL at commit time.
+
+    This function calls and combines all results from each validation tier.
+    """
+    if not any((validate_args, validate_expressions, validate_secrets)):
+        return set()
+
+    iterables: list[Sequence[ValidationResult]] = []
+
+    # Tier 2: UDF Args validation
+    if validate_args:
+        dsl_args_errs = await validate_dsl_args(session=session, dsl=dsl)
+        logger.debug(
+            f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
+        )
+        iterables.append(dsl_args_errs)
+
+    # Tier 3: Expression validation
+    # When we reach this point, the inputs have been validated properly (ignoring templated expressions)
+    # We now have to validate that the expressions are valid
+    # 1. Find all expressions in the inputs
+    # 2. For each expression context, cross-reference the expressions API and udf registry
+
+    if validate_expressions:
+        expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
+        logger.debug(
+            f"{len(expr_errs)} DSL expression validation errors", errs=expr_errs
+        )
+        iterables.append(expr_errs)
+
+    # For secrets we also need to check if any used actions have undefined secrets
+    if validate_secrets:
+        udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
+        logger.debug(
+            f"{len(udf_missing_secrets)} DSL secret validation errors",
+            errs=udf_missing_secrets,
+        )
+        iterables.append(udf_missing_secrets)
+
+    return set(chain(*iterables))
+
+
+async def vadliate_registry_action_args(
+    *, session: AsyncSession, action_name: str, version: str, args: ArgsT
+) -> RegistryValidationResult:
+    """Validate arguments against a UDF spec."""
+    # 1. read the schema from the db
+    # 2. construct a pydantic model from the schema
+    # 3. validate the args against the pydantic model
+    try:
+        service = RegistryActionsService(session)
+        action = await service.get_action(version=version, action_name=action_name)
+        model = json_schema_to_pydantic(action.interface)
+        try:
+            # Note that we're allowing type coercion for the input arguments
+            # Use cases would be transforming a UTC string to a datetime object
+            # We return the validated input arguments as a dictionary
+            validated: BaseModel = model.model_validate(args)
+            validated_args = cast(ArgsT, validated.model_dump())
+        except ValidationError as e:
+            logger.error(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
+            raise RegistryValidationError(
+                f"Validation error for UDF {action_name!r}. {e.errors()!r}",
+                key=action_name,
+                err=e,
+            ) from e
+        except Exception as e:
+            raise RegistryValidationError(
+                f"Unexpected error when validating input arguments for UDF {action_name!r}. {e}",
+                key=action_name,
+            ) from e
+
+        return RegistryValidationResult(
+            status="success", msg="Arguments are valid.", validated_args=validated_args
+        )
+    except RegistryValidationError as e:
+        if isinstance(e.err, ValidationError):
+            detail = e.err.errors()
+        else:
+            detail = str(e.err) if e.err else None
+        return RegistryValidationResult(
+            status="error", msg=f"Error validating UDF {action_name}", detail=detail
+        )
+    except KeyError:
+        return RegistryValidationResult(
+            status="error",
+            msg=f"Could not find UDF {action_name!r} in registry. Is this UDF registered?",
+        )
+    except Exception as e:
+        raise e
+
+
+def json_schema_to_pydantic(
+    schema: dict[str, Any],
+    base_schema: dict[str, Any] | None = None,
+    *,
+    name: str = "DynamicModel",
+) -> type[BaseModel]:
+    if base_schema is None:
+        base_schema = schema
+
+    def resolve_ref(ref: str) -> dict[str, Any]:
+        parts = ref.split("/")
+        current = base_schema
+        for part in parts[1:]:  # Skip the first '#' part
+            current = current[part]
+        return current
+
+    def create_field(prop_schema: dict[str, Any]) -> type:
+        if "$ref" in prop_schema:
+            referenced_schema = resolve_ref(prop_schema["$ref"])
+            return json_schema_to_pydantic(referenced_schema, base_schema)
+
+        type_ = prop_schema.get("type")
+        if type_ == "object":
+            return json_schema_to_pydantic(prop_schema, base_schema)
+        elif type_ == "array":
+            items = prop_schema.get("items", {})
+            return list[create_field(items)]
+        elif type_ == "string":
+            return str
+        elif type_ == "integer":
+            return int
+        elif type_ == "number":
+            return float
+        elif type_ == "boolean":
+            return bool
+        else:
+            return Any
+
+    properties: dict[str, Any] = schema.get("properties", {})
+    required: list[str] = schema.get("required", [])
+
+    fields = {}
+    for prop_name, prop_schema in properties.items():
+        field_type = create_field(prop_schema)
+        field_params = {}
+
+        if "description" in prop_schema:
+            field_params["description"] = prop_schema["description"]
+
+        if prop_name not in required:
+            field_type = Optional[field_type]  # noqa: UP007
+            field_params["default"] = None
+
+        fields[prop_name] = (field_type, Field(**field_params))
+
+    model_name = schema.get("title", name)
+    return create_model(model_name, **fields)
+
+
 async def validate_actions_have_defined_secrets(
     dsl: DSLInput,
 ) -> list[SecretValidationResult]:
@@ -262,9 +411,10 @@ async def validate_actions_have_defined_secrets(
 
     # In memory cache to prevent duplicate checks
     checked_keys_cache: set[str] = set()
+    environment = dsl.config.environment
 
-    async def check_udf_secrets_defined(
-        udf: RegisteredUDF,
+    async def check_action_secrets_defined(
+        action: RegistryAction,
     ) -> list[SecretValidationResult]:
         """Checks that this secrets needed by this UDF are in the secrets manager.
 
@@ -276,19 +426,38 @@ async def validate_actions_have_defined_secrets(
         nonlocal checked_keys_cache
         results: list[SecretValidationResult] = []
         async with SecretsService.with_session() as service:
-            for registry_secret in udf.secrets or []:
+            for registry_secret_dict in action.secrets or []:
+                registry_secret = RegistrySecret.model_validate(registry_secret_dict)
                 if registry_secret.name in checked_keys_cache:
                     continue
                 # (1) Check if the secret is defined
-                defined_secret = await service.get_secret_by_name(registry_secret.name)
-                checked_keys_cache.add(registry_secret.name)
-                if not defined_secret:
-                    msg = (
-                        f"Secret {registry_secret.name!r} is not defined in the secrets manager."
-                        f" Please add it using the CLI or UI. This secret requires keys: {registry_secret.keys}"
+                try:
+                    defined_secret = await service.get_secret_by_name(
+                        registry_secret.name,
+                        raise_on_error=True,
+                        environment=environment,
                     )
-                    results.append(SecretValidationResult(status="error", msg=msg))
+                except (NoResultFound, MultipleResultsFound) as e:
+                    secret_repr = f"{registry_secret.name!r} (env: {environment!r})"
+                    if isinstance(e, NoResultFound):
+                        msg = f"Secret {secret_repr} is missing in the secrets manager."
+                    else:
+                        msg = f"Multiple secrets found when searching for secret {secret_repr}."
+
+                    results.append(
+                        SecretValidationResult(
+                            status="error",
+                            msg=f"[{action.action}]\n\n{msg}",
+                            detail={
+                                "environment": environment,
+                                "secret_name": registry_secret.name,
+                            },
+                        )
+                    )
                     continue
+                finally:
+                    # This will get run even if the above fails and the loop continues
+                    checked_keys_cache.add(registry_secret.name)
                 decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
                 defined_keys = {kv.key for kv in decrypted_keys}
                 required_keys = set(registry_secret.keys)
@@ -305,50 +474,9 @@ async def validate_actions_have_defined_secrets(
         return results
 
     udf_keys = {a.action for a in dsl.actions}
+    async with RegistryActionsService.with_session() as service:
+        actions = await service.list_actions(include_keys=udf_keys)
     async with GatheringTaskGroup() as tg:
-        for _, udf in registry.filter(include_keys=udf_keys):
-            tg.create_task(check_udf_secrets_defined(udf))
+        for action in actions:
+            tg.create_task(check_action_secrets_defined(action))
     return list(chain.from_iterable(tg.results()))
-
-
-async def validate_dsl(
-    dsl: DSLInput,
-    *,
-    validate_args: bool = True,
-    validate_expressions: bool = True,
-    validate_secrets: bool = True,
-    exclude_exprs: set[ExprType] | None = None,
-) -> set[ValidationResult]:
-    """Validate the DSL at commit time.
-
-    This function calls and combines all results from each validation tier.
-    """
-    if not any((validate_args, validate_expressions, validate_secrets)):
-        return set()
-
-    iterables = []
-
-    # Tier 2: UDF Args validation
-    if validate_args:
-        dsl_args_errs = validate_dsl_args(dsl)
-        logger.debug("DSL args validation errors", errs=dsl_args_errs)
-        iterables.append(dsl_args_errs)
-
-    # Tier 3: Expression validation
-    # When we reach this point, the inputs have been validated properly (ignoring templated expressions)
-    # We now have to validate that the expressions are valid
-    # 1. Find all expressions in the inputs
-    # 2. For each expression context, cross-reference the expressions API and udf registry
-
-    if validate_expressions:
-        expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
-        logger.debug("DSL expression validation errors", errs=expr_errs)
-        iterables.append(expr_errs)
-
-    # For secrets we also need to check if any used actions have undefined secrets
-    if validate_secrets:
-        udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
-        logger.debug("DSL secret validation errors", errs=expr_errs)
-        iterables.append(udf_missing_secrets)
-
-    return set(chain(*iterables))

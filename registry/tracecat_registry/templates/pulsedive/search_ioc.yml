@@ -20,7 +20,7 @@ definition:
         - domain
         - ip
         - ipv6
-  layers:
+  steps:
     - ref: search_ioc
       action: core.http_request
       args:
@@ -29,4 +29,4 @@ definition:
         params:
           q: "ioc=${{ inputs.ioc }} type=${{ inputs.type }}"
           key: ${{ SECRETS.pulsedive.PULSEDIVE_API_KEY }}
-  returns: ${{ layers.search_ioc.result }}
+  returns: ${{ steps.search_ioc.result }}

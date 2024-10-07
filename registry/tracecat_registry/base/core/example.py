@@ -6,8 +6,9 @@
 from typing import Annotated, Any, TypedDict
 
 from pydantic import Field
-from tracecat.registry import registry
 from typing_extensions import Doc
+
+from tracecat_registry import registry
 
 
 class Member(TypedDict):
@@ -16,13 +17,9 @@ class Member(TypedDict):
     is_member: bool
 
 
-CONST = "test_"
-
-
 @registry.register(
     description="For testing the registry",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def passthrough(
@@ -34,7 +31,6 @@ def passthrough(
 @registry.register(
     description="Adder example",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def add(
@@ -47,7 +43,6 @@ def add(
 @registry.register(
     description="This is a test function",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def my_function(
@@ -77,7 +72,6 @@ def my_function(
 @registry.register(
     description="This is another test function",
     namespace="example",
-    version="0.1.0",
     include_in_schema=False,
 )
 def another_function(

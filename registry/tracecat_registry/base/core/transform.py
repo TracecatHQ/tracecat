@@ -6,17 +6,12 @@ from typing import Annotated, Any
 
 from pydantic import Field
 from tracecat.expressions import functions
-from tracecat.expressions.functions import (
-    FunctionConstraint,
-    OperatorConstraint,
-    custom_filter,
-)
-from tracecat.registry import registry
+
+from tracecat_registry import registry
 
 
 @registry.register(
     namespace="core.transform",
-    version="0.1.0",
     description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
     default_title="Reshape",
     display_group="Data Transform",
@@ -29,7 +24,6 @@ def reshape(
 
 @registry.register(
     namespace="core.transform",
-    version="0.1.0",
     description="Filter a collection based on a condition.",
     default_title="Filter",
     display_group="Data Transform",
@@ -37,7 +31,7 @@ def reshape(
 def filter(
     items: Annotated[list[Any], Field(..., description="A collection of items.")],
     constraint: Annotated[
-        str | list[Any] | FunctionConstraint | OperatorConstraint,
+        str | list[Any] | functions.FunctionConstraint | functions.OperatorConstraint,
         Field(
             ...,
             description=(
@@ -49,12 +43,11 @@ def filter(
         ),
     ],
 ) -> Any:
-    return custom_filter(items, constraint)
+    return functions.custom_filter(items, constraint)
 
 
 @registry.register(
     namespace="core.transform",
-    version="0.1.0",
     description="Build a reference table from a collection of items.",
     default_title="Build Reference Table",
     display_group="Data Transform",

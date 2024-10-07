@@ -30,7 +30,7 @@ definition:
       type: int
       description: Maximum number of alerts to return
       default: 100
-  layers:
+  steps:
     - ref: list_alerts
       action: core.http_request
       args:
@@ -45,4 +45,4 @@ definition:
           serviceSource: ${{ inputs.service_source }}
           $top: ${{ inputs.limit }}
           $filter: "createdDateTime ge ${{ FN.to_isoformat(inputs.start_time) }}Z and createdDateTime le ${{ FN.to_isoformat(inputs.end_time) }}Z"
-  returns: ${{ layers.list_alerts.result }}
+  returns: ${{ steps.list_alerts.result }}

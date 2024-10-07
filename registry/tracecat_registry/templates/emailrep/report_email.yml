@@ -17,7 +17,7 @@ definition:
     tags:
       type: list[str]
       description: List of tags to associate with the email address
-  layers:
+  steps:
     - ref: report_email
       action: core.http_request
       args:
@@ -29,4 +29,4 @@ definition:
         payload:
           email: ${{ inputs.email }}
           tags: ${{ inputs.tags }}
-  returns: ${{ layers.report_email.result }}
+  returns: ${{ steps.report_email.result }}

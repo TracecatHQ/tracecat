@@ -13,7 +13,7 @@ definition:
       type: int
       description: Maximum number of users to return
       default: 100
-  layers:
+  steps:
     - ref: list_users
       action: integrations.slack.call_paginated_slack_api
       args:
@@ -21,4 +21,4 @@ definition:
         params:
           team_id: ${{ inputs.team_id }}
           limit: ${{ inputs.limit }}
-  returns: ${{ FN.flatten(layers.list_users.result[*].member) }}
+  returns: ${{ FN.flatten(steps.list_users.result[*].member) }}

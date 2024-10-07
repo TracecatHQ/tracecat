@@ -12,7 +12,7 @@ definition:
     user_id:
       type: str
       description: ID of the user whose sessions to expire
-  layers:
+  steps:
     - ref: expire_sessions
       action: core.http_request
       args:
@@ -20,4 +20,4 @@ definition:
         url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}/sessions
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
-  returns: ${{ layers.expire_sessions.result }}
+  returns: ${{ steps.expire_sessions.result }}

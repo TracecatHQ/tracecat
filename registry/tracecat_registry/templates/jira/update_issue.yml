@@ -25,7 +25,7 @@ definition:
       type: bool
       description: If true, returns the updated issue
       default: false
-  layers:
+  steps:
     - ref: edit_issue
       action: core.http_request
       args:
@@ -36,4 +36,4 @@ definition:
         payload:
           fields: ${{ inputs.fields }}
           update: ${{ inputs.update }}
-  returns: ${{ layers.edit_issue.result }}
+  returns: ${{ steps.edit_issue.result }}

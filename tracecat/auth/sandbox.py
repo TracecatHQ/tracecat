@@ -32,13 +32,15 @@ class AuthSandbox:
         self,
         role: Role | None = None,
         secrets: list[str] | None = None,
-        target: Literal["env", "context"] = "env",
+        target: Literal["env", "context"] = "context",
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
         self._secret_objs: Sequence[Secret] = []
         self._target = target
+        if self._target == "env":
+            raise ValueError("Target env is no longer supported.")
         self._context: dict[str, Any] = {}
         self._environment = environment
         try:
@@ -86,39 +88,34 @@ class AuthSandbox:
 
     def _iter_secrets(self) -> Iterator[tuple[str, SecretKeyValue]]:
         """Iterate over the secrets."""
-        for secret in self._secret_objs:
-            keyvalues = decrypt_keyvalues(
-                secret.encrypted_keys, key=self._encryption_key
-            )
-            for kv in keyvalues:
-                yield secret.name, kv
+        try:
+            for secret in self._secret_objs:
+                keyvalues = decrypt_keyvalues(
+                    secret.encrypted_keys, key=self._encryption_key
+                )
+                for kv in keyvalues:
+                    yield secret.name, kv
+        except Exception as e:
+            logger.error(f"Error decrypting secrets: {e!r}")
+            raise
 
     def _set_secrets(self) -> None:
         """Set secrets in the target."""
-        if self._target == "context":
-            logger.info(
-                "Setting secrets in the context",
-                paths=self._secret_paths,
-                objs=self._secret_objs,
-            )
-            for name, kv in self._iter_secrets():
-                if name not in self._context:
-                    self._context[name] = {}
-                self._context[name][kv.key] = kv.value.get_secret_value()
-        else:
-            logger.info("Setting secrets in the environment", paths=self._secret_paths)
-            for _, kv in self._iter_secrets():
-                os.environ[kv.key] = kv.value.get_secret_value()
+        logger.info(
+            "Setting secrets",
+            paths=self._secret_paths,
+            objs=self._secret_objs,
+        )
+        for name, kv in self._iter_secrets():
+            if name not in self._context:
+                self._context[name] = {}
+            self._context[name][kv.key] = kv.value.get_secret_value()
 
     def _unset_secrets(self) -> None:
-        if self._target == "context":
-            for secret in self._secret_objs:
-                if secret.name in self._context:
-                    del self._context[secret.name]
-        else:
-            for _, kv in self._iter_secrets():
-                if kv.key in os.environ:
-                    del os.environ[kv.key]
+        logger.info("Cleaning up secrets")
+        for secret in self._secret_objs:
+            if secret.name in self._context:
+                del self._context[secret.name]
 
     async def _get_secrets(self) -> Sequence[Secret]:
         """Retrieve secrets from a secrets manager."""

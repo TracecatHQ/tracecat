@@ -12,7 +12,7 @@ definition:
     user_id:
       type: str
       description: ID of the user to suspend
-  layers:
+  steps:
     - ref: suspend_user
       action: core.http_request
       args:
@@ -20,4 +20,4 @@ definition:
         url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}/lifecycle/suspend
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
-  returns: ${{ layers.suspend_user.result }}
+  returns: ${{ steps.suspend_user.result }}

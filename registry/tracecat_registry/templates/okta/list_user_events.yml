@@ -21,7 +21,7 @@ definition:
     limit:
       type: int
       description: Maximum number of events to return
-  layers:
+  steps:
     - ref: list_user_events
       action: core.http_request
       args:
@@ -34,4 +34,4 @@ definition:
           since: ${{ FN.to_datestring(input.start_time, "%Y-%m-%dT%H:%M:%S") }}
           until: ${{ FN.to_datestring(input.end_time, "%Y-%m-%dT%H:%M:%S") }}
           limit: ${{ input.limit }}
-  returns: ${{ layers.list_user_events.result }}
+  returns: ${{ steps.list_user_events.result }}

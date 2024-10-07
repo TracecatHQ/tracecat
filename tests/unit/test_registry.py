@@ -2,8 +2,9 @@ import os
 import textwrap
 
 import pytest
+from tracecat_registry import RegistryValidationError
 
-from tracecat.registry import RegistryValidationError, registry
+from tracecat.registry.repository import Repository
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def mock_package(tmp_path):
         with open(os.path.join(tmp_path, "sync_function.py"), "w") as f:
             f.write(
                 textwrap.dedent("""
-                from tracecat.registry import registry
+                from tracecat_registry import registry
 
                 @registry.register(
                     description="This is a test function",
@@ -44,7 +45,7 @@ def mock_package(tmp_path):
         with open(os.path.join(tmp_path, "async_function.py"), "w") as f:
             f.write(
                 textwrap.dedent("""
-                from tracecat.registry import registry
+                from tracecat_registry import registry
 
                 @registry.register(
                     description="This is an async test function",
@@ -66,10 +67,11 @@ def test_udf_validate_args(mock_package):
     when given a templated expression.
     """
     # Register UDFs from the mock package
-    registry._register_udfs_from_package(mock_package)
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
 
     # Get the registered UDF
-    udf = registry.get("test.test_function")
+    udf = repo.get("test.test_function")
 
     # Test the UDF
     udf.validate_args(num="${{ path.to.number }}")
@@ -80,21 +82,21 @@ def test_udf_validate_args(mock_package):
 
 def test_registry_function_can_be_called(mock_package):
     """We need to test that the ordering of the workflow tasks is correct."""
-    registry._reset()
-    assert len(registry) == 0
+    repo = Repository()
+    assert len(repo) == 0
 
-    registry._register_udfs_from_package(mock_package)
-    udf = registry.get("test.test_function")
+    repo._register_udfs_from_package(mock_package)
+    udf = repo.get("test.test_function")
     for i in range(10):
         assert udf.fn(num=i) == i
 
 
 @pytest.mark.asyncio
 async def test_registry_async_function_can_be_called(mock_package):
-    registry._reset()
-    assert len(registry) == 0
+    repo = Repository()
+    assert len(repo) == 0
 
-    registry._register_udfs_from_package(mock_package)
-    udf = registry.get("test.async_test_function")
+    repo._register_udfs_from_package(mock_package)
+    udf = repo.get("test.async_test_function")
     for i in range(10):
         assert await udf.fn(num=i) == i

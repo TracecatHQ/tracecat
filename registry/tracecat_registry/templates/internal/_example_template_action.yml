@@ -19,7 +19,7 @@ definition:
       type: int | None
       description: The limit
   # Layers are used to define a sequence of operations
-  layers:
+  steps:
     - ref: base
       action: core.transform.reshape
       args:
@@ -30,6 +30,6 @@ definition:
       action: core.transform.reshape
       args:
         value:
-          - ${{ layers.base.result.data + 100 }}
-          - ${{ layers.base.result.service_source }}
-  returns: ${{ layers.final.result }}
+          - ${{ steps.base.result.data + 100 }}
+          - ${{ steps.base.result.service_source }}
+  returns: ${{ steps.final.result }}

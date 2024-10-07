@@ -15,7 +15,7 @@ definition:
     status:
       type: str
       description: New status for the alerts
-  layers:
+  steps:
     - ref: update_alerts
       action: core.http_request
       args:
@@ -26,4 +26,4 @@ definition:
         payload:
           query: ${{ inputs.query }}
           status: ${{ inputs.status }}
-  returns: ${{ layers.update_alerts.result }}
+  returns: ${{ steps.update_alerts.result }}

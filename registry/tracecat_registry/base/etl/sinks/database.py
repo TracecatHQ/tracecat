@@ -3,7 +3,9 @@
 from typing import Annotated, Literal
 
 import polars as pl
-from tracecat.registry import Field, registry
+from pydantic import Field
+
+from tracecat_registry import registry
 
 
 @registry.register(

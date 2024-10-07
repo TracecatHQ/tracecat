@@ -1,7 +1,10 @@
 import pytest
+from tracecat_registry import REGISTRY_VERSION, RegistrySecret
 
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry import ActionLayer, RegistrySecret, TemplateAction, _Registry
+from tracecat.registry import executor
+from tracecat.registry.actions.models import ActionStep, TemplateAction
+from tracecat.registry.repository import Repository
 
 
 def test_construct_template_action():
@@ -22,7 +25,7 @@ def test_construct_template_action():
                 },
                 "limit": {"type": "int | None", "description": "The limit"},
             },
-            "layers": [
+            "steps": [
                 {
                     "ref": "base",
                     "action": "core.transform.reshape",
@@ -38,13 +41,13 @@ def test_construct_template_action():
                     "action": "core.transform.reshape",
                     "args": {
                         "value": [
-                            "${{ layers.base.result.data + 100 }}",
-                            "${{ layers.base.result.service_source }}",
+                            "${{ steps.base.result.data + 100 }}",
+                            "${{ steps.base.result.service_source }}",
                         ]
                     },
                 },
             ],
-            "returns": "${{ layers.final.result }}",
+            "returns": "${{ steps.final.result }}",
         },
     }
 
@@ -72,8 +75,8 @@ def test_construct_template_action():
                 description="The limit",
             ),
         }
-        assert action.definition.layers == [
-            ActionLayer(
+        assert action.definition.steps == [
+            ActionStep(
                 ref="base",
                 action="core.transform.reshape",
                 args={
@@ -83,13 +86,13 @@ def test_construct_template_action():
                     }
                 },
             ),
-            ActionLayer(
+            ActionStep(
                 ref="final",
                 action="core.transform.reshape",
                 args={
                     "value": [
-                        "${{ layers.base.result.data + 100 }}",
-                        "${{ layers.base.result.service_source }}",
+                        "${{ steps.base.result.data + 100 }}",
+                        "${{ steps.base.result.service_source }}",
                     ]
                 },
             ),
@@ -97,9 +100,7 @@ def test_construct_template_action():
 
 
 @pytest.mark.asyncio
-async def test_template_action_run(blank_registry: _Registry):
-    blank_registry.init(include_base=True)
-    assert "core.transform.reshape" in blank_registry
+async def test_template_action_run():
     action = TemplateAction(
         **{
             "type": "action",
@@ -118,7 +119,7 @@ async def test_template_action_run(blank_registry: _Registry):
                     },
                     "limit": {"type": "int | None", "description": "The limit"},
                 },
-                "layers": [
+                "steps": [
                     {
                         "ref": "base",
                         "action": "core.transform.reshape",
@@ -134,16 +135,30 @@ async def test_template_action_run(blank_registry: _Registry):
                         "action": "core.transform.reshape",
                         "args": {
                             "value": [
-                                "${{ layers.base.result.data + 100 }}",
-                                "${{ layers.base.result.service_source }}",
+                                "${{ steps.base.result.data + 100 }}",
+                                "${{ steps.base.result.service_source }}",
                             ]
                         },
                     },
                 ],
-                "returns": "${{ layers.final.result }}",
+                "returns": "${{ steps.final.result }}",
             },
         }
     )
 
-    result = await action.run(args={"service_source": "elastic"}, base_context={})
+    version = REGISTRY_VERSION
+    registry = Repository(version)
+    registry.init(include_base=True, include_remote=False, include_templates=False)
+    registry.register_template_action(action)
+    assert action.definition.action == "integrations.test.wrapper"
+    assert "core.transform.reshape" in registry
+    assert action.definition.action in registry
+
+    bound_action = registry.get(action.definition.action)
+    result = await executor.run_template_action(
+        action=bound_action,
+        args={"service_source": "elastic"},
+        context={},
+        version=version,
+    )
     assert result == [200, "elastic"]

@@ -6,9 +6,9 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from loguru import logger
 from pydantic import Field, UrlConstraints
-from tracecat.registry import registry
+
+from tracecat_registry import logger, registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
@@ -69,7 +69,6 @@ async def get_oauth2_token(
 
 @registry.register(
     namespace="core",
-    version="0.1.0",
     description="Perform a HTTP request to a given URL.",
     default_title="HTTP Request",
 )

@@ -18,7 +18,7 @@ definition:
     scope_id:
       type: str
       description: The ID of the scope the rule is attached to
-  layers:
+  steps:
     - ref: get_firewall_rules
       action: core.http_request
       args:
@@ -26,4 +26,4 @@ definition:
         method: GET
         headers:
           Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
-  returns: ${{ layers.get_firewall_rules.result }}
+  returns: ${{ steps.get_firewall_rules.result }}

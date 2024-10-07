@@ -49,7 +49,7 @@ definition:
       type: int
       description: Maximum number of issues to return
       default: 100
-  layers:
+  steps:
     - ref: list_alerts
       action: core.http_request
       args:
@@ -154,4 +154,4 @@ definition:
               createdAt:
                 after: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%SZ") }}
                 before: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%SZ") }}
-  returns: ${{ layers.list_alerts.result }}
+  returns: ${{ steps.list_alerts.result }}

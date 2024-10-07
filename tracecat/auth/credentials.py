@@ -24,7 +24,7 @@ from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
-api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
+api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=False)
 
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -39,30 +39,6 @@ HTTP_EXC = partial(
         headers={"WWW-Authenticate": "Cookie"},
     )
 )
-
-
-def _internal_get_role_from_service_key(
-    *, user_id: str, service_role_name: str, api_key: str
-) -> Role:
-    if (
-        not service_role_name
-        or service_role_name not in config.TRACECAT__SERVICE_ROLES_WHITELIST
-    ):
-        msg = f"Service-Role {service_role_name!r} invalid or not allowed"
-        logger.error(msg)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=msg,
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
-        logger.error("Could not validate service key")
-        raise CREDENTIALS_EXCEPTION
-    return Role(
-        type="service",
-        workspace_id=user_id,
-        service_id=service_role_name,
-    )
 
 
 USER_ROLE_TO_ACCESS_LEVEL = {
@@ -209,11 +185,30 @@ async def authenticate_service(
 
     `ctx_role` ContextVar is set here.
     """
-    user_id = request.headers.get("Service-User-ID")
-    service_role_name = request.headers.get("Service-Role")
-    role = _internal_get_role_from_service_key(
-        user_id=user_id, service_role_name=service_role_name, api_key=api_key
-    )
+
+    service_role_id = request.headers.get("x-tracecat-role-service-id")
+    if service_role_id is None:
+        msg = "Missing x-tracecat-role-service-id header"
+        logger.error(msg)
+        raise HTTP_EXC(msg)
+    if service_role_id not in config.TRACECAT__SERVICE_ROLES_WHITELIST:
+        msg = f"x-tracecat-role-service-id {service_role_id!r} invalid or not allowed"
+        logger.error(msg)
+        raise HTTP_EXC(msg)
+    if api_key != os.environ["TRACECAT__SERVICE_KEY"]:
+        logger.error("Could not validate service key")
+        raise CREDENTIALS_EXCEPTION
+    role_params = {
+        "type": "service",
+        "service_id": service_role_id,
+        "access_level": AccessLevel[request.headers["x-tracecat-role-access-level"]],
+    }
+    if (user_id := request.headers.get("x-tracecat-role-user-id")) is not None:
+        role_params["user_id"] = user_id
+    if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None:
+        role_params["workspace_id"] = ws_id
+    role = Role(**role_params)
+    logger.debug("Authenticated service", role=role)
     ctx_role.set(role)
     return role
 
@@ -229,6 +224,48 @@ async def authenticate_user_or_service_for_workspace(
 
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
+    if role_from_user:
+        logger.trace("User authentication")
+        return role_from_user
+    if api_key:
+        logger.trace("Service authentication")
+        return await authenticate_service(request, api_key)
+    logger.error("Could not validate credentials")
+    raise HTTP_EXC("Could not validate credentials")
+
+
+async def authenticate_optional_user_org(
+    user: Annotated[User | None, Depends(optional_current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> Role | None:
+    """Authenticate a user for the organization.
+
+    If no user available, return None.
+    If a user is available, `ctx_role` ContextVar is set here.
+    """
+    if not user:
+        return None
+    # Check if non-admin user is a member of the org
+    if not user.is_superuser or not user.role == UserRole.ADMIN:
+        authz_service = AuthorizationService(session)
+        if not await authz_service.user_is_organization_member(user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. User not a member of the organization",
+            )
+    role = get_role_from_user(user)
+    ctx_role.set(role)
+    return role
+
+
+async def authenticate_user_or_service_org(
+    role_from_user: Annotated[
+        Role | None, Depends(authenticate_optional_user_org)
+    ] = None,
+    api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
+    request: Request = None,
+) -> Role:
+    """Authenticate a user or service and return the role."""
     if role_from_user:
         logger.trace("User authentication")
         return role_from_user

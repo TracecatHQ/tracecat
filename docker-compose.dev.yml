@@ -20,6 +20,7 @@ services:
     ports:
       - 8000:8000
     environment:
+      # App
       DUMP_TRACECAT_RESULT: 0
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
@@ -53,6 +54,8 @@ services:
       RUN_MIGRATIONS: "true"
       # Remote registry
       TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
+      # This is only used for testing
+      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -75,21 +78,9 @@ services:
       TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
-      # Remote registry
-      TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-      # SMTP
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_STARTTLS_ENABLED: ${SMTP_STARTTLS_ENABLED}
-      SMTP_SSL_ENABLED: ${SMTP_SSL_ENABLED}
-      SMTP_IGNORE_CERT_ERRORS: ${SMTP_IGNORE_CERT_ERRORS}
-      SMTP_AUTH_ENABLED: ${SMTP_AUTH_ENABLED}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry

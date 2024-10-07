@@ -2,13 +2,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 from tracecat import identifiers
-from tracecat.dsl.common import DSLRunArgs
-from tracecat.registry import RegistryUDFError, registry
+
+from tracecat_registry import RegistryActionError, registry
 
 
 @registry.register(
     namespace="core.workflow",
-    version="0.1.0",
     description="Execute a child workflow. The child workflow inherits the parent's execution context.",
     default_title="Execute Child Workflow",
     display_group="Workflows",
@@ -63,8 +62,8 @@ async def execute(
             description="Fail strategy to use when a child workflow fails.",
         ),
     ] = "isolated",
-) -> DSLRunArgs:
-    raise RegistryUDFError(
+) -> Any:
+    raise RegistryActionError(
         "This UDF only defines a controller interface and cannot be invoked directly."
         "If you are seeing this error, please contact your administrator."
     )

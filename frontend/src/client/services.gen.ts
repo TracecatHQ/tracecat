@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, UdfsListUdfsData, UdfsListUdfsResponse, UdfsGetUdfData, UdfsGetUdfResponse, UdfsCreateUdfData, UdfsCreateUdfResponse, UdfsValidateUdfArgsData, UdfsValidateUdfArgsResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, PublicCheckHealthResponse } from './types.gen';
+import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, RegistryRepositoriesSyncRegistryRepositoriesResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsData, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, RegistryActionsRunRegistryActionData, RegistryActionsRunRegistryActionResponse, RegistryActionsValidateRegistryActionData, RegistryActionsValidateRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, TestRegistryRegisterTestModuleData, TestRegistryRegisterTestModuleResponse, PublicCheckHealthResponse } from './types.gen';
 
 /**
  * Incoming Webhook
@@ -845,103 +845,6 @@ export const actionsDeleteAction = (data: ActionsDeleteActionData): CancelablePr
 }); };
 
 /**
- * List Udfs
- * List all user-defined function specifications for a user.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.limit
- * @param data.ns
- * @returns UDFSpec Successful Response
- * @throws ApiError
- */
-export const udfsListUdfs = (data: UdfsListUdfsData): CancelablePromise<UdfsListUdfsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/udfs',
-    query: {
-        limit: data.limit,
-        ns: data.ns,
-        workspace_id: data.workspaceId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Get Udf
- * Get a user-defined function specification.
- * @param data The data for the request.
- * @param data.udfKey
- * @param data.workspaceId
- * @param data.namespace
- * @returns UDFSpec Successful Response
- * @throws ApiError
- */
-export const udfsGetUdf = (data: UdfsGetUdfData): CancelablePromise<UdfsGetUdfResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/udfs/{udf_key}',
-    path: {
-        udf_key: data.udfKey
-    },
-    query: {
-        namespace: data.namespace,
-        workspace_id: data.workspaceId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Create Udf
- * Create a user-defined function specification.
- * @param data The data for the request.
- * @param data.udfKey
- * @param data.workspaceId
- * @returns UDFSpec Successful Response
- * @throws ApiError
- */
-export const udfsCreateUdf = (data: UdfsCreateUdfData): CancelablePromise<UdfsCreateUdfResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/udfs/{udf_key}',
-    path: {
-        udf_key: data.udfKey
-    },
-    query: {
-        workspace_id: data.workspaceId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Validate Udf Args
- * Validate user-defined function's arguments.
- * @param data The data for the request.
- * @param data.udfKey
- * @param data.workspaceId
- * @param data.requestBody
- * @returns UDFArgsValidationResponse Successful Response
- * @throws ApiError
- */
-export const udfsValidateUdfArgs = (data: UdfsValidateUdfArgsData): CancelablePromise<UdfsValidateUdfArgsResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/udfs/{udf_key}/validate',
-    path: {
-        udf_key: data.udfKey
-    },
-    query: {
-        workspace_id: data.workspaceId
-    },
-    body: data.requestBody,
-    mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
  * Create Case
  * Create a new case for a workflow.
  * @param data The data for the request.
@@ -1391,7 +1294,7 @@ export const schedulesSearchSchedules = (data: SchedulesSearchSchedulesData): Ca
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.formData
- * @returns UDFArgsValidationResponse Successful Response
+ * @returns RegistryActionValidateResponse Successful Response
  * @throws ApiError
  */
 export const validationValidateWorkflow = (data: ValidationValidateWorkflowData): CancelablePromise<ValidationValidateWorkflowResponse> => { return __request(OpenAPI, {
@@ -1421,6 +1324,259 @@ export const usersSearchUser = (data: UsersSearchUserData = {}): CancelablePromi
     query: {
         email: data.email
     },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Sync Registry Repositories
+ * Load actions from a registry repository.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesSyncRegistryRepositories = (): CancelablePromise<RegistryRepositoriesSyncRegistryRepositoriesResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/repos/sync'
+}); };
+
+/**
+ * List Registry Repositories
+ * List all registry repositories.
+ * @returns RegistryRepositoryReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesListRegistryRepositories = (): CancelablePromise<RegistryRepositoriesListRegistryRepositoriesResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/repos'
+}); };
+
+/**
+ * Create Registry Repository
+ * Create a new registry repository.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RegistryRepositoryRead Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesCreateRegistryRepository = (data: RegistryRepositoriesCreateRegistryRepositoryData): CancelablePromise<RegistryRepositoriesCreateRegistryRepositoryResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/repos',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Registry Repository
+ * Get a specific registry repository by version.
+ * @param data The data for the request.
+ * @param data.version
+ * @returns RegistryRepositoryRead Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesGetRegistryRepository = (data: RegistryRepositoriesGetRegistryRepositoryData): CancelablePromise<RegistryRepositoriesGetRegistryRepositoryResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/repos/{version}',
+    path: {
+        version: data.version
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Update Registry Repository
+ * Update an existing registry repository.
+ * @param data The data for the request.
+ * @param data.version
+ * @param data.requestBody
+ * @returns RegistryRepositoryRead Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesUpdateRegistryRepository = (data: RegistryRepositoriesUpdateRegistryRepositoryData): CancelablePromise<RegistryRepositoriesUpdateRegistryRepositoryResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/registry/repos/{version}',
+    path: {
+        version: data.version
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Delete Registry Repository
+ * Delete a registry repository.
+ * @param data The data for the request.
+ * @param data.version
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesDeleteRegistryRepository = (data: RegistryRepositoriesDeleteRegistryRepositoryData): CancelablePromise<RegistryRepositoriesDeleteRegistryRepositoryResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/registry/repos/{version}',
+    path: {
+        version: data.version
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * List Registry Actions
+ * List all actions in a registry.
+ * @param data The data for the request.
+ * @param data.versions
+ * @returns RegistryActionRead Successful Response
+ * @throws ApiError
+ */
+export const registryActionsListRegistryActions = (data: RegistryActionsListRegistryActionsData = {}): CancelablePromise<RegistryActionsListRegistryActionsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/actions',
+    query: {
+        versions: data.versions
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Create Registry Action
+ * Create a new registry action.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RegistryActionRead Successful Response
+ * @throws ApiError
+ */
+export const registryActionsCreateRegistryAction = (data: RegistryActionsCreateRegistryActionData): CancelablePromise<RegistryActionsCreateRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/actions',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Registry Action
+ * Get a specific registry action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @param data.version The version of the registry to get the action from
+ * @returns RegistryActionRead Successful Response
+ * @throws ApiError
+ */
+export const registryActionsGetRegistryAction = (data: RegistryActionsGetRegistryActionData): CancelablePromise<RegistryActionsGetRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/actions/{action_name}',
+    path: {
+        action_name: data.actionName
+    },
+    query: {
+        version: data.version
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Update Registry Action
+ * Update a custom registry action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @param data.requestBody
+ * @param data.version The version of the registry to update the action in
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const registryActionsUpdateRegistryAction = (data: RegistryActionsUpdateRegistryActionData): CancelablePromise<RegistryActionsUpdateRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/registry/actions/{action_name}',
+    path: {
+        action_name: data.actionName
+    },
+    query: {
+        version: data.version
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Delete Registry Action
+ * Delete a template action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @param data.version The version of the registry to delete the action from
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const registryActionsDeleteRegistryAction = (data: RegistryActionsDeleteRegistryActionData): CancelablePromise<RegistryActionsDeleteRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/registry/actions/{action_name}',
+    path: {
+        action_name: data.actionName
+    },
+    query: {
+        version: data.version
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Run Registry Action
+ * Execute a registry action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const registryActionsRunRegistryAction = (data: RegistryActionsRunRegistryActionData): CancelablePromise<RegistryActionsRunRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/actions/{action_name}/execute',
+    path: {
+        action_name: data.actionName
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Validate Registry Action
+ * Validate a registry action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @param data.requestBody
+ * @returns RegistryActionValidateResponse Successful Response
+ * @throws ApiError
+ */
+export const registryActionsValidateRegistryAction = (data: RegistryActionsValidateRegistryActionData): CancelablePromise<RegistryActionsValidateRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/actions/{action_name}/validate',
+    path: {
+        action_name: data.actionName
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
     errors: {
         422: 'Validation Error'
     }
@@ -1686,6 +1842,28 @@ export const authOauthGoogleDatabaseCallback = (data: AuthOauthGoogleDatabaseCal
     },
     errors: {
         400: 'Bad Request',
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Register Test Module
+ * Use this only for testing purposes.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const testRegistryRegisterTestModule = (data: TestRegistryRegisterTestModuleData): CancelablePromise<TestRegistryRegisterTestModuleResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/test-registry',
+    query: {
+        workspace_id: data.workspaceId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
         422: 'Validation Error'
     }
 }); };

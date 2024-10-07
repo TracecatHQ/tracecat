@@ -16,6 +16,16 @@ import {
   CreateSecretParams,
   CreateWorkspaceParams,
   EventHistoryResponse,
+  RegistryActionCreate,
+  RegistryActionRead,
+  registryActionsCreateRegistryAction,
+  registryActionsGetRegistryAction,
+  registryActionsListRegistryActions,
+  registryActionsUpdateRegistryAction,
+  RegistryActionsUpdateRegistryActionData,
+  registryRepositoriesListRegistryRepositories,
+  registryRepositoriesSyncRegistryRepositories,
+  RegistryRepositoryReadMinimal,
   Schedule,
   schedulesCreateSchedule,
   SchedulesCreateScheduleData,
@@ -180,9 +190,9 @@ export function useCaseEvents(caseId: string) {
 
 export type PanelAction = {
   action?: ActionResponse
-  isLoading: boolean
-  error: Error | null
-  mutateAsync: (values: UpdateActionParams) => Promise<ActionResponse>
+  actionIsLoading: boolean
+  actionError: Error | null
+  updateAction: (values: UpdateActionParams) => Promise<ActionResponse>
   queryClient: ReturnType<typeof useQueryClient>
   queryKeys: {
     selectedAction: [string, string, string]
@@ -198,8 +208,8 @@ export function usePanelAction(
   const { setNodes } = useWorkflowBuilder()
   const {
     data: action,
-    isLoading,
-    error,
+    isLoading: actionIsLoading,
+    error: actionError,
   } = useQuery<ActionResponse, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
@@ -207,7 +217,7 @@ export function usePanelAction(
       return await actionsGetAction({ workspaceId, actionId, workflowId })
     },
   })
-  const { mutateAsync } = useMutation({
+  const { mutateAsync: updateAction } = useMutation({
     mutationFn: async (values: UpdateActionParams) =>
       await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
     onSuccess: (updatedAction: ActionResponse) => {
@@ -248,9 +258,9 @@ export function usePanelAction(
   })
   return {
     action,
-    isLoading,
-    error,
-    mutateAsync,
+    actionIsLoading,
+    actionError,
+    updateAction,
     queryClient,
     queryKeys: {
       selectedAction: ["selected_action", actionId, workflowId],
@@ -751,5 +761,205 @@ export function useUserManager() {
   return {
     updateCurrentUser,
     updateCurrentUserPending,
+  }
+}
+
+/* Registry Actions */
+// For selector node
+export function useWorkbenchRegistryActions(versions?: string[]) {
+  const {
+    data: registryActions,
+    isLoading: registryActionsIsLoading,
+    error: registryActionsError,
+  } = useQuery<RegistryActionRead[]>({
+    queryKey: ["workbench_registry_actions", versions],
+    queryFn: async ({ queryKey }) => {
+      return await registryActionsListRegistryActions({
+        versions: queryKey[1] as string[],
+      })
+    },
+  })
+
+  const getRegistryAction = (key: string): RegistryActionRead | undefined => {
+    return registryActions?.find((action) => action.action === key)
+  }
+
+  return {
+    registryActions,
+    registryActionsIsLoading,
+    registryActionsError,
+    getRegistryAction,
+  }
+}
+
+// This is for the UDF panel in the workbench
+export function useRegistryAction(key: string, version: string) {
+  const {
+    data: registryAction,
+    isLoading: registryActionIsLoading,
+    error: registryActionError,
+  } = useQuery<RegistryActionRead>({
+    queryKey: ["registry_action", key, version],
+    queryFn: async ({ queryKey }) => {
+      return await registryActionsGetRegistryAction({
+        actionName: queryKey[1] as string,
+        version: queryKey[2] as string,
+      })
+    },
+  })
+
+  return { registryAction, registryActionIsLoading, registryActionError }
+}
+
+// For selector node
+export function useRegistryActions(versions?: string[]) {
+  const queryClient = useQueryClient()
+  const {
+    data: registryActions,
+    isLoading: registryActionsIsLoading,
+    error: registryActionsError,
+  } = useQuery<RegistryActionRead[]>({
+    queryKey: ["registry_actions", versions],
+    queryFn: async () => {
+      return await registryActionsListRegistryActions({})
+    },
+  })
+
+  const getRegistryAction = (
+    actionName: string,
+    version: string
+  ): RegistryActionRead | undefined => {
+    return registryActions?.find(
+      (action) => action.action === actionName && action.version === version
+    )
+  }
+
+  const {
+    mutateAsync: createRegistryAction,
+    isPending: createRegistryActionIsPending,
+    error: createRegistryActionError,
+  } = useMutation({
+    mutationFn: async (params: RegistryActionCreate) =>
+      await registryActionsCreateRegistryAction({
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
+      toast({
+        title: "Created registry action",
+        description: "Registry action created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 422:
+          console.error("Failed to create registry action", error)
+          toast({
+            title: "Failed to create registry action",
+            description:
+              "An error occurred while creating the registry action.",
+          })
+          break
+        default:
+          console.error("Failed to create registry action", error)
+          toast({
+            title: "Failed to create registry action",
+            description:
+              "An error occurred while creating the registry action.",
+          })
+      }
+    },
+  })
+
+  const {
+    mutateAsync: updateRegistryAction,
+    isPending: updateRegistryActionIsPending,
+    error: updateRegistryActionError,
+  } = useMutation({
+    mutationFn: async (params: RegistryActionsUpdateRegistryActionData) =>
+      await registryActionsUpdateRegistryAction(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
+      toast({
+        title: "Updated registry action",
+        description: "Registry action updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update registry action", error)
+      toast({
+        title: "Failed to update registry action",
+        description: "An error occurred while updating the registry action.",
+      })
+    },
+  })
+
+  return {
+    registryActions,
+    registryActionsIsLoading,
+    registryActionsError,
+    getRegistryAction,
+    createRegistryAction,
+    createRegistryActionIsPending,
+    createRegistryActionError,
+    updateRegistryAction,
+    updateRegistryActionIsPending,
+    updateRegistryActionError,
+  }
+}
+
+export function useRegistryRepositories() {
+  const queryClient = useQueryClient()
+  const {
+    data: registryRepos,
+    isLoading: registryReposIsLoading,
+    error: registryReposError,
+  } = useQuery<RegistryRepositoryReadMinimal[]>({
+    queryKey: ["registry_repositories"],
+    queryFn: async () => await registryRepositoriesListRegistryRepositories(),
+  })
+
+  const {
+    mutateAsync: syncRepos,
+    isPending: syncReposIsPending,
+    error: syncReposError,
+  } = useMutation({
+    mutationFn: async () =>
+      await registryRepositoriesSyncRegistryRepositories(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      toast({
+        title: "Synced registry repositories",
+        description: "Registry repositories synced successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      switch (apiError.status) {
+        case 400:
+          toast({
+            title: "Error syncing repositories",
+            description: apiError.message,
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Unexpected error syncing repositories",
+            description: apiError.message,
+            variant: "destructive",
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    registryRepos,
+    registryReposIsLoading,
+    registryReposError,
+    syncRepos,
+    syncReposIsPending,
+    syncReposError,
   }
 }

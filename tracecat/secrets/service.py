@@ -121,6 +121,38 @@ class SecretsService:
         raise_on_error: bool = False,
         environment: str | None = None,
     ) -> Secret | None:
+        """
+        Retrieve a secret by its name.
+
+        Parameters
+        ----------
+        secret_name : str
+            The name of the secret to retrieve.
+        raise_on_error : bool, optional
+            If True, raise exceptions for multiple results or no results found.
+            Default is False.
+        environment : str | None, optional
+            The environment to filter the secret search. If None, search across
+            all environments. Default is None.
+
+        Returns
+        -------
+        Secret | None
+            The retrieved Secret object if found, None otherwise.
+
+        Raises
+        ------
+        MultipleResultsFound
+            If multiple secrets are found and raise_on_error is True.
+        NoResultFound
+            If no secret is found and raise_on_error is True.
+
+        Notes
+        -----
+        This method queries the database for a secret with the given name
+        and optionally filters by environment. It handles cases where
+        multiple secrets or no secrets are found based on the raise_on_error flag.
+        """
         statement = select(Secret).where(
             Secret.owner_id == self.role.workspace_id, Secret.name == secret_name
         )
@@ -132,12 +164,14 @@ class SecretsService:
         except MultipleResultsFound as e:
             if raise_on_error:
                 raise MultipleResultsFound(
-                    "Multiple secrets found when searching by name. Expected one secret only."
+                    "Multiple secrets found when searching by name."
+                    f" Expected one secret {secret_name!r} (env: {environment!r}) only."
                 ) from e
         except NoResultFound as e:
             if raise_on_error:
                 raise NoResultFound(
-                    "Secret not found when searching by name. Please double check that the name was correctly input."
+                    f"Secret {secret_name!r} (env: {environment!r}) not found when searching by name."
+                    " Please double check that the name was correctly input."
                 ) from e
         return None
 

@@ -19,7 +19,7 @@ definition:
       type: str
       description: Timestamp of the thread to post the message to
       default: null
-  layers:
+  steps:
     - ref: post_message
       action: integrations.slack.call_slack_api
       args:
@@ -29,4 +29,4 @@ definition:
           text: ${{ inputs.text }}
           blocks: ${{ inputs.blocks }}
           thread_ts: ${{ inputs.thread_ts }}
-  returns: ${{ layers.post_message.result.message }}
+  returns: ${{ steps.post_message.result.message }}

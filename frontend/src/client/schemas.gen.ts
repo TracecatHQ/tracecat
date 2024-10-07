@@ -42,6 +42,27 @@ export const $ActionControlFlow = {
     title: 'ActionControlFlow'
 } as const;
 
+export const $ActionLayer = {
+    properties: {
+        ref: {
+            type: 'string',
+            title: 'Ref',
+            description: 'The reference of the layer'
+        },
+        action: {
+            type: 'string',
+            title: 'Action'
+        },
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action', 'args'],
+    title: 'ActionLayer'
+} as const;
+
 export const $ActionMetadataResponse = {
     properties: {
         id: {
@@ -117,7 +138,87 @@ export const $ActionResponse = {
     title: 'ActionResponse'
 } as const;
 
-export const $ActionStatement = {
+export const $ActionStatement_Input = {
+    properties: {
+        id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Id',
+            description: 'The action ID. If this is populated means there is a corresponding actionin the database `Action` table.'
+        },
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref',
+            description: 'Unique reference for the task'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            default: ''
+        },
+        action: {
+            type: 'string',
+            pattern: '^[a-z0-9_.]+$',
+            title: 'Action',
+            description: 'Action type. Equivalent to the UDF key.'
+        },
+        args: {
+            type: 'object',
+            title: 'Args',
+            description: 'Arguments for the action'
+        },
+        depends_on: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Depends On',
+            description: 'Task dependencies'
+        },
+        run_if: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run If',
+            description: 'Condition to run the task'
+        },
+        for_each: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'For Each',
+            description: 'Iterate over a list of items and run the task for each item.'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action'],
+    title: 'ActionStatement'
+} as const;
+
+export const $ActionStatement_Output = {
     properties: {
         ref: {
             type: 'string',
@@ -716,7 +817,7 @@ export const $CommitWorkflowResponse = {
             anyOf: [
                 {
                     items: {
-                        '$ref': '#/components/schemas/UDFArgsValidationResponse'
+                        '$ref': '#/components/schemas/RegistryActionValidateResponse'
                     },
                     type: 'array'
                 },
@@ -940,10 +1041,19 @@ export const $DSLConfig_Input = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version',
+            description: 'The registry version to use for the workflow.',
+            default: '0.1.0'
         }
     },
     type: 'object',
-    title: 'DSLConfig'
+    title: 'DSLConfig',
+    description: `This is the runtime configuration for the workflow.
+
+Activities don't need access to this.`
 } as const;
 
 export const $DSLConfig_Output = {
@@ -959,10 +1069,19 @@ export const $DSLConfig_Output = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version',
+            description: 'The registry version to use for the workflow.',
+            default: '0.1.0'
         }
     },
     type: 'object',
-    title: 'DSLConfig'
+    title: 'DSLConfig',
+    description: `This is the runtime configuration for the workflow.
+
+Activities don't need access to this.`
 } as const;
 
 export const $DSLContext = {
@@ -1028,6 +1147,10 @@ export const $DSLEnvironment = {
         variables: {
             type: 'object',
             title: 'Variables'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
         }
     },
     type: 'object',
@@ -1050,7 +1173,7 @@ export const $DSLInput = {
         },
         actions: {
             items: {
-                '$ref': '#/components/schemas/ActionStatement'
+                '$ref': '#/components/schemas/ActionStatement-Output'
             },
             type: 'array',
             title: 'Actions'
@@ -1273,7 +1396,7 @@ export const $EventGroup = {
         action_input: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/UDFActionInput'
+                    '$ref': '#/components/schemas/UDFActionInput-Output'
                 },
                 {
                     '$ref': '#/components/schemas/DSLRunArgs'
@@ -1465,6 +1588,608 @@ export const $OAuth2AuthorizeResponse = {
     title: 'OAuth2AuthorizeResponse'
 } as const;
 
+export const $RegistryActionCreate = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The name of the action'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: 'The description of the action'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace',
+            description: 'The namespace of the action'
+        },
+        type: {
+            type: 'string',
+            enum: ['udf', 'template'],
+            title: 'Type',
+            description: 'The type of the action'
+        },
+        version: {
+            type: 'string',
+            title: 'Version',
+            description: 'Registry version'
+        },
+        origin: {
+            type: 'string',
+            title: 'Origin',
+            description: 'The origin of the action as a url'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'The secrets required by the action'
+        },
+        interface: {
+            '$ref': '#/components/schemas/RegistryActionInterface'
+        },
+        implementation: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionTemplateImpl-Input'
+                },
+                {
+                    '$ref': '#/components/schemas/RegistryActionUDFImpl'
+                }
+            ],
+            title: 'Implementation'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title',
+            description: 'The default title of the action'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group',
+            description: 'The presentation group of the action'
+        },
+        options: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionOptions'
+                }
+            ],
+            description: 'The options for the action'
+        },
+        repository_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Repository Id',
+            description: 'The repository id'
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'namespace', 'type', 'version', 'origin', 'interface', 'repository_id'],
+    title: 'RegistryActionCreate',
+    description: 'API create model for a registered action.'
+} as const;
+
+export const $RegistryActionInterface = {
+    properties: {
+        expects: {
+            type: 'object',
+            title: 'Expects'
+        },
+        returns: {
+            title: 'Returns'
+        }
+    },
+    type: 'object',
+    required: ['expects', 'returns'],
+    title: 'RegistryActionInterface'
+} as const;
+
+export const $RegistryActionOptions = {
+    properties: {
+        include_in_schema: {
+            type: 'boolean',
+            title: 'Include In Schema',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'RegistryActionOptions'
+} as const;
+
+export const $RegistryActionRead = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The name of the action'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: 'The description of the action'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace',
+            description: 'The namespace of the action'
+        },
+        type: {
+            type: 'string',
+            enum: ['udf', 'template'],
+            title: 'Type',
+            description: 'The type of the action'
+        },
+        version: {
+            type: 'string',
+            title: 'Version',
+            description: 'Registry version'
+        },
+        origin: {
+            type: 'string',
+            title: 'Origin',
+            description: 'The origin of the action as a url'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'The secrets required by the action'
+        },
+        interface: {
+            '$ref': '#/components/schemas/RegistryActionInterface'
+        },
+        implementation: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionTemplateImpl-Output'
+                },
+                {
+                    '$ref': '#/components/schemas/RegistryActionUDFImpl'
+                }
+            ],
+            title: 'Implementation'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title',
+            description: 'The default title of the action'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group',
+            description: 'The presentation group of the action'
+        },
+        options: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionOptions'
+                }
+            ],
+            description: 'The options for the action'
+        },
+        repository_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Repository Id',
+            description: 'The repository id'
+        },
+        action: {
+            type: 'string',
+            title: 'Action',
+            description: 'The full action identifier.',
+            readOnly: true
+        },
+        is_template: {
+            type: 'boolean',
+            title: 'Is Template',
+            description: 'Whether the action is a template.',
+            readOnly: true
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'namespace', 'type', 'version', 'origin', 'interface', 'repository_id', 'action', 'is_template'],
+    title: 'RegistryActionRead',
+    description: 'API read model for a registered action.'
+} as const;
+
+export const $RegistryActionTemplateImpl_Input = {
+    properties: {
+        type: {
+            const: 'template',
+            title: 'Type',
+            default: 'template'
+        },
+        template_action: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/TemplateAction-Input'
+                }
+            ],
+            description: 'The template action'
+        }
+    },
+    type: 'object',
+    required: ['template_action'],
+    title: 'RegistryActionTemplateImpl'
+} as const;
+
+export const $RegistryActionTemplateImpl_Output = {
+    properties: {
+        type: {
+            const: 'template',
+            title: 'Type',
+            default: 'template'
+        },
+        template_action: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/TemplateAction-Output'
+                }
+            ],
+            description: 'The template action'
+        }
+    },
+    type: 'object',
+    required: ['template_action'],
+    title: 'RegistryActionTemplateImpl'
+} as const;
+
+export const $RegistryActionUDFImpl = {
+    properties: {
+        type: {
+            const: 'udf',
+            title: 'Type',
+            default: 'udf'
+        },
+        url: {
+            type: 'string',
+            title: 'Url',
+            description: 'The package url'
+        },
+        module: {
+            type: 'string',
+            title: 'Module',
+            description: 'The module name'
+        },
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The name of the UDF function name'
+        }
+    },
+    type: 'object',
+    required: ['url', 'module', 'name'],
+    title: 'RegistryActionUDFImpl'
+} as const;
+
+export const $RegistryActionUpdate = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name',
+            description: 'Update the name of the action'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description',
+            description: 'Update the description of the action'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'Update the secrets of the action'
+        },
+        interface: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionInterface'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            description: 'Update the interface of the action'
+        },
+        implementation: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionTemplateImpl-Input'
+                },
+                {
+                    '$ref': '#/components/schemas/RegistryActionUDFImpl'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Implementation',
+            description: 'Update the implementation of the action'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title',
+            description: 'Update the default title of the action'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group',
+            description: 'Update the display group of the action'
+        },
+        options: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionOptions'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            description: 'Update the options of the action'
+        }
+    },
+    type: 'object',
+    title: 'RegistryActionUpdate',
+    description: 'API update model for a registered action.'
+} as const;
+
+export const $RegistryActionValidate = {
+    properties: {
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
+        },
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['registry_version', 'args'],
+    title: 'RegistryActionValidate'
+} as const;
+
+export const $RegistryActionValidateResponse = {
+    properties: {
+        ok: {
+            type: 'boolean',
+            title: 'Ok'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        detail: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Detail'
+        }
+    },
+    type: 'object',
+    required: ['ok', 'message'],
+    title: 'RegistryActionValidateResponse'
+} as const;
+
+export const $RegistryRepositoryCreate = {
+    properties: {
+        version: {
+            type: 'string',
+            title: 'Version'
+        },
+        origin: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Origin'
+        }
+    },
+    type: 'object',
+    required: ['version'],
+    title: 'RegistryRepositoryCreate'
+} as const;
+
+export const $RegistryRepositoryRead = {
+    properties: {
+        version: {
+            type: 'string',
+            title: 'Version'
+        },
+        origin: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Origin'
+        },
+        actions: {
+            items: {
+                '$ref': '#/components/schemas/RegistryActionRead'
+            },
+            type: 'array',
+            title: 'Actions'
+        }
+    },
+    type: 'object',
+    required: ['version', 'actions'],
+    title: 'RegistryRepositoryRead'
+} as const;
+
+export const $RegistryRepositoryReadMinimal = {
+    properties: {
+        version: {
+            type: 'string',
+            title: 'Version'
+        },
+        origin: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Origin'
+        }
+    },
+    type: 'object',
+    required: ['version'],
+    title: 'RegistryRepositoryReadMinimal'
+} as const;
+
+export const $RegistryRepositoryUpdate = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        include_base: {
+            type: 'boolean',
+            title: 'Include Base',
+            default: true
+        },
+        include_remote: {
+            type: 'boolean',
+            title: 'Include Remote',
+            default: true
+        },
+        include_templates: {
+            type: 'boolean',
+            title: 'Include Templates',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'RegistryRepositoryUpdate'
+} as const;
+
+export const $RegistrySecret = {
+    properties: {
+        name: {
+            type: 'string',
+            pattern: '[a-z0-9_]+',
+            title: 'Name'
+        },
+        keys: {
+            items: {
+                type: 'string',
+                pattern: '[a-zA-Z0-9_]+'
+            },
+            type: 'array',
+            title: 'Keys'
+        }
+    },
+    type: 'object',
+    required: ['name', 'keys'],
+    title: 'RegistrySecret'
+} as const;
+
 export const $Role = {
     properties: {
         type: {
@@ -1563,11 +2288,20 @@ export const $RunContext = {
             type: 'string',
             format: 'uuid4',
             title: 'Wf Run Id'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
         }
     },
     type: 'object',
-    required: ['wf_id', 'wf_exec_id', 'wf_run_id'],
-    title: 'RunContext'
+    required: ['wf_id', 'wf_exec_id', 'wf_run_id', 'environment', 'registry_version'],
+    title: 'RunContext',
+    description: 'This is the runtime context model for a workflow run. Passed into activities.'
 } as const;
 
 export const $Schedule = {
@@ -2066,6 +2800,121 @@ export const $Tag = {
     title: 'Tag'
 } as const;
 
+export const $TemplateAction_Input = {
+    properties: {
+        type: {
+            const: 'action',
+            title: 'Type',
+            default: 'action'
+        },
+        definition: {
+            '$ref': '#/components/schemas/TemplateActionDefinition'
+        }
+    },
+    type: 'object',
+    required: ['definition'],
+    title: 'TemplateAction'
+} as const;
+
+export const $TemplateAction_Output = {
+    properties: {
+        type: {
+            const: 'action',
+            title: 'Type',
+            default: 'action'
+        },
+        definition: {
+            '$ref': '#/components/schemas/TemplateActionDefinition'
+        }
+    },
+    type: 'object',
+    required: ['definition'],
+    title: 'TemplateAction'
+} as const;
+
+export const $TemplateActionDefinition = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The action name'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace',
+            description: 'The namespace of the action'
+        },
+        title: {
+            type: 'string',
+            title: 'Title',
+            description: 'The title of the action'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: 'The description of the action',
+            default: ''
+        },
+        display_group: {
+            type: 'string',
+            title: 'Display Group',
+            description: 'The display group of the action'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'The secrets to pass to the action'
+        },
+        expects: {
+            additionalProperties: {
+                '$ref': '#/components/schemas/ExpectedField'
+            },
+            type: 'object',
+            title: 'Expects',
+            description: 'The arguments to pass to the action'
+        },
+        layers: {
+            items: {
+                '$ref': '#/components/schemas/ActionLayer'
+            },
+            type: 'array',
+            title: 'Layers',
+            description: 'The internal layers of the action'
+        },
+        returns: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'object'
+                }
+            ],
+            title: 'Returns',
+            description: 'The result of the action'
+        }
+    },
+    type: 'object',
+    required: ['name', 'namespace', 'title', 'display_group', 'expects', 'layers', 'returns'],
+    title: 'TemplateActionDefinition'
+} as const;
+
 export const $TerminateWorkflowExecutionParams = {
     properties: {
         reason: {
@@ -2082,6 +2931,40 @@ export const $TerminateWorkflowExecutionParams = {
     },
     type: 'object',
     title: 'TerminateWorkflowExecutionParams'
+} as const;
+
+export const $TestRegistryParams = {
+    properties: {
+        version: {
+            type: 'string',
+            title: 'Version'
+        },
+        code: {
+            type: 'string',
+            title: 'Code'
+        },
+        module_name: {
+            type: 'string',
+            title: 'Module Name'
+        },
+        validate_keys: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Validate Keys'
+        }
+    },
+    type: 'object',
+    required: ['version', 'code', 'module_name'],
+    title: 'TestRegistryParams'
 } as const;
 
 export const $Trigger = {
@@ -2106,10 +2989,10 @@ export const $Trigger = {
     title: 'Trigger'
 } as const;
 
-export const $UDFActionInput = {
+export const $UDFActionInput_Input = {
     properties: {
         task: {
-            '$ref': '#/components/schemas/ActionStatement'
+            '$ref': '#/components/schemas/ActionStatement-Input'
         },
         role: {
             '$ref': '#/components/schemas/Role'
@@ -2133,109 +3016,39 @@ export const $UDFActionInput = {
     },
     type: 'object',
     required: ['task', 'role', 'exec_context', 'run_context'],
-    title: 'UDFActionInput'
+    title: 'UDFActionInput',
+    description: 'This object contains all the information needed to execute an action.'
 } as const;
 
-export const $UDFArgsValidationResponse = {
+export const $UDFActionInput_Output = {
     properties: {
-        ok: {
-            type: 'boolean',
-            title: 'Ok'
+        task: {
+            '$ref': '#/components/schemas/ActionStatement-Output'
         },
-        message: {
-            type: 'string',
-            title: 'Message'
+        role: {
+            '$ref': '#/components/schemas/Role'
         },
-        detail: {
+        exec_context: {
+            '$ref': '#/components/schemas/DSLContext'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        },
+        action_test: {
             anyOf: [
-                {},
+                {
+                    '$ref': '#/components/schemas/ActionTest'
+                },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Detail'
+            ]
         }
     },
     type: 'object',
-    required: ['ok', 'message'],
-    title: 'UDFArgsValidationResponse'
-} as const;
-
-export const $UDFSpec = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        description: {
-            type: 'string',
-            title: 'Description'
-        },
-        namespace: {
-            type: 'string',
-            title: 'Namespace'
-        },
-        key: {
-            type: 'string',
-            title: 'Key'
-        },
-        version: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Version'
-        },
-        json_schema: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Json Schema'
-        },
-        meta: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Meta'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'description', 'namespace', 'key', 'json_schema', 'meta'],
-    title: 'UDFSpec',
-    description: `UDF spec.
-
-Used in:
-1. Frontend action library
-2. Frontend integration action form`
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'UDFActionInput',
+    description: 'This object contains all the information needed to execute an action.'
 } as const;
 
 export const $UpdateActionParams = {

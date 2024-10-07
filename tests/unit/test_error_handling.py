@@ -6,10 +6,11 @@ from temporalio.worker import Worker
 
 from tests import shared
 from tracecat.contexts import ctx_role
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logger import logger
 
 

@@ -11,7 +11,7 @@ from tracecat.authz.controls import require_access_level
 from tracecat.authz.models import OwnerType
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Membership, Ownership
+from tracecat.db.schemas import Membership, Ownership, User
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
@@ -52,6 +52,12 @@ class AuthorizationService:
         statement = select(Ownership).where(Ownership.resource_id == resource_id)
         result = await self.session.exec(statement)
         return result.one_or_none()
+
+    async def user_is_organization_member(self, user_id: UserID) -> bool:
+        """Check if a user is a member of a specific workspace."""
+        statement = select(User).where(User.id == user_id)
+        result = await self.session.exec(statement)
+        return result.first() is not None
 
     async def user_is_workspace_member(
         self, user_id: UserID, workspace_id: WorkspaceID

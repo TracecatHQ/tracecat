@@ -45,3 +45,15 @@ class Role(BaseModel):
     user_id: UserID | None = Field(default=None, frozen=True)
     access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
+
+    def to_headers(self) -> dict[str, str]:
+        headers = {
+            "x-tracecat-role-type": self.type,
+            "x-tracecat-role-service-id": self.service_id,
+            "x-tracecat-role-access-level": self.access_level.name,
+        }
+        if self.user_id is not None:
+            headers["x-tracecat-role-user-id"] = str(self.user_id)
+        if self.workspace_id is not None:
+            headers["x-tracecat-role-workspace-id"] = str(self.workspace_id)
+        return headers

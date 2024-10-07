@@ -18,7 +18,7 @@ definition:
       # false_positive
       type: str
       description: New status for the detect
-  layers:
+  steps:
     - ref: update_detect_status
       action: integrations.crowdstrike.call_falconpy_command
       args:
@@ -27,4 +27,4 @@ definition:
           body:
             ids: ${{ inputs.detect_ids }}
             status: ${{ inputs.status }}
-  returns: ${{ layers.update_detect_status.result }}
+  returns: ${{ steps.update_detect_status.result }}

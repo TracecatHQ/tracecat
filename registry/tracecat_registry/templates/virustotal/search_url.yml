@@ -12,7 +12,7 @@ definition:
     url:
       type: str
       description: The URL to search
-  layers:
+  steps:
     - ref: search_url
       action: core.http_request
       args:
@@ -20,4 +20,4 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
-  returns: ${{ layers.search_url.result }}
+  returns: ${{ steps.search_url.result }}

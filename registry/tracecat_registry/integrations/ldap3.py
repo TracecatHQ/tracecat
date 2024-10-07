@@ -9,11 +9,12 @@ Requires: A secret named `ldap` with the following keys:
 """
 
 import json
-import os
 from typing import Annotated, Any
 
 import ldap3
-from tracecat.registry import Field, RegistrySecret, registry
+from pydantic import Field
+
+from tracecat_registry import RegistrySecret, registry, secrets
 
 ldap_secret = RegistrySecret(
     name="ldap",
@@ -55,8 +56,8 @@ class LdapClient:
 
         self._connection = ldap3.Connection(
             self._server,
-            os.getenv("LDAP_BIND_DN"),
-            os.getenv("LDAP_BIND_PASS"),
+            secrets.get("LDAP_BIND_DN"),
+            secrets.get("LDAP_BIND_PASS"),
             auto_bind=True,
         )
 
@@ -106,18 +107,18 @@ class LdapClient:
 
 
 def create_ldap_client() -> LdapClient:
-    LDAP_BIND_DN = os.getenv("LDAP_BIND_DN")
-    LDAP_BIND_PASS = os.getenv("LDAP_BIND_PASS")
+    LDAP_BIND_DN = secrets.get("LDAP_BIND_DN")
+    LDAP_BIND_PASS = secrets.get("LDAP_BIND_PASS")
 
     if LDAP_BIND_DN is None:
         raise ValueError("LDAP_BIND_DN is not set")
     if LDAP_BIND_PASS is None:
         raise ValueError("LDAP_BIND_PASS is not set")
     client = LdapClient(
-        host=os.getenv("LDAP_HOST"),
-        port=os.getenv("LDAP_PORT"),
-        use_ssl=(os.getenv("LDAP_SSL") == 1),
-        is_active_directory=(os.getenv("LDAP_TYPE") == "AD"),
+        host=secrets.get("LDAP_HOST"),
+        port=secrets.get("LDAP_PORT"),
+        use_ssl=(secrets.get("LDAP_SSL") == 1),
+        is_active_directory=(secrets.get("LDAP_TYPE") == "AD"),
     )
     return client
 

@@ -65,6 +65,8 @@ jobs:
         run: bash env.sh
 
       - name: Start Docker services
+        env:
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker postgres_db caddy
 
       - name: Verify Tracecat API is running

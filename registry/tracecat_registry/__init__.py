@@ -1,6 +1,32 @@
-"""Tracecat managed actions and integrations registry.
-
-WARNING: Do not add `from __future__ import annotations` to any action module. This will cause class types to be resolved as strings.
-"""
+"""Tracecat managed actions and integrations registry."""
 
 __version__ = "0.1.0"
+
+
+try:
+    import tracecat  # noqa: F401
+except ImportError:
+    raise ImportError(
+        "Could not import tracecat. Please install `tracecat` to use the registry."
+    ) from None
+
+from tracecat_registry._internal import registry, secrets
+from tracecat_registry._internal.exceptions import (  # noqa: E402
+    RegistryActionError,
+    RegistryValidationError,
+)
+from tracecat_registry._internal.logger import logger
+from tracecat_registry._internal.models import RegistrySecret
+
+REGISTRY_VERSION = __version__
+
+__all__ = [
+    "registry",
+    "RegistrySecret",
+    "REGISTRY_VERSION",
+    "logger",
+    "secrets",
+    "exceptions",
+    "RegistryValidationError",
+    "RegistryActionError",
+]

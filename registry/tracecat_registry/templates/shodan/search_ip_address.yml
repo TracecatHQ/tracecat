@@ -12,7 +12,7 @@ definition:
     ip_address:
       type: str
       description: The IP address to search
-  layers:
+  steps:
     - ref: search_ip_address
       action: core.http_request
       args:
@@ -20,4 +20,4 @@ definition:
         method: GET
         params:
           key: ${{ SECRETS.shodan.SHODAN_API_KEY }}
-  returns: ${{ layers.search_ip_address.result }}
+  returns: ${{ steps.search_ip_address.result }}

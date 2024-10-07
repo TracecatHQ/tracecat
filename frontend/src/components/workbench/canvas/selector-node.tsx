@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from "react"
+import { RegistryActionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { CloudOffIcon, XIcon } from "lucide-react"
 import {
@@ -10,8 +11,7 @@ import {
   useNodeId,
 } from "reactflow"
 
-import { udfConfig } from "@/config/udfs"
-import { UDF, useUDFs } from "@/lib/udf"
+import { useWorkbenchRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   Command,
@@ -35,16 +35,17 @@ import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
 
 const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
 
-const groupByDisplayGroup = (udfs: UDF[]): Record<string, UDF[]> => {
-  const groups = {} as Record<string, UDF[]>
-  udfs.forEach((udf) => {
-    const displayGroup = (
-      udf.metadata?.display_group || TOP_LEVEL_GROUP
-    ).toString()
+const groupByDisplayGroup = (
+  actions: RegistryActionRead[]
+): Record<string, RegistryActionRead[]> => {
+  const groups = {} as Record<string, RegistryActionRead[]>
+  actions.forEach((action) => {
+    const displayGroup = (action.display_group || TOP_LEVEL_GROUP).toString()
+    console.log("groupByDisplayGroup", displayGroup, action)
     if (!groups[displayGroup]) {
       groups[displayGroup] = []
     }
-    groups[displayGroup].push(udf)
+    groups[displayGroup].push(action)
   })
   return groups
 }
@@ -125,12 +126,8 @@ export default React.memo(function SelectorNode({
 })
 
 function UDFCommandSelector({ nodeId }: { nodeId: string }) {
-  const { workspaceId } = useWorkflowBuilder()
-  const {
-    udfs,
-    isLoading: udfsLoading,
-    error,
-  } = useUDFs(workspaceId, udfConfig.namespaces)
+  const { registryActions, registryActionsIsLoading, registryActionsError } =
+    useWorkbenchRegistryActions()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -150,11 +147,11 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
     }
   }, [])
 
-  if (!udfs || udfsLoading) {
+  if (!registryActions || registryActionsIsLoading) {
     return <CenteredSpinner />
   }
-  if (error) {
-    console.error("Failed to load UDFs", error)
+  if (registryActionsError) {
+    console.error("Failed to load UDFs", registryActionsError)
     return (
       <div className="flex size-full items-center justify-center">
         <CloudOffIcon className="size-8 text-muted-foreground" />
@@ -162,15 +159,16 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
     )
   }
 
+  const grouped = groupByDisplayGroup(registryActions)
   return (
     <ScrollArea ref={scrollAreaRef} className="h-full">
-      {Object.entries(groupByDisplayGroup(udfs))
+      {Object.entries(grouped)
         .sort(([groupA], [groupB]) => groupA.localeCompare(groupB))
-        .map(([group, udfs], idx) => (
+        .map(([group, actions], idx) => (
           <UDFCommandGroup
             key={`${group}-${idx}`}
             group={group === TOP_LEVEL_GROUP ? "Core" : group}
-            udfs={udfs}
+            registryActions={actions}
             nodeId={nodeId}
           />
         ))}
@@ -180,29 +178,29 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
 
 function UDFCommandGroup({
   group,
-  udfs,
+  registryActions: actions,
   nodeId,
 }: {
   group: string
-  udfs: UDF[]
+  registryActions: RegistryActionRead[]
   nodeId: string
 }) {
   const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
   const { getNode, setNodes, setEdges } = reactFlow
 
   const handleSelect = useCallback(
-    async (udf: UDF) => {
+    async (action: RegistryActionRead) => {
       if (!workflowId) {
         return
       }
-      console.log("Selected UDF:", udf)
+      console.log("Selected UDF:", action)
       const { position: currPosition } = getNode(
         nodeId
       ) as Node<SelectorNodeData>
       const nodeData = {
-        type: udf.key,
-        title: udf.metadata?.default_title || udf.key,
-        namespace: udf.namespace,
+        type: action.action,
+        title: action.default_title || action.action,
+        namespace: action.namespace,
         status: "offline",
         isConfigured: false,
         numberOfEvents: 0,
@@ -250,16 +248,16 @@ function UDFCommandGroup({
   )
   return (
     <CommandGroup heading={group} className="text-xs">
-      {udfs.map((udf) => (
+      {actions.map((action) => (
         <CommandItem
-          key={udf.key}
+          key={action.action}
           className="text-xs"
-          onSelect={async () => await handleSelect(udf)}
+          onSelect={async () => await handleSelect(action)}
         >
-          {getIcon(udf.key, {
+          {getIcon(action.action, {
             className: "size-5 mr-2",
           })}
-          <span className="text-xs">{udf.metadata?.default_title}</span>
+          <span className="text-xs">{action.default_title}</span>
         </CommandItem>
       ))}
     </CommandGroup>

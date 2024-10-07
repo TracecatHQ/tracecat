@@ -5,8 +5,8 @@ import "react18-json-view/src/style.css"
 import React, { useCallback, useState } from "react"
 import {
   ApiError,
-  UDFArgsValidationResponse,
-  udfsValidateUdfArgs,
+  registryActionsValidateRegistryAction,
+  RegistryActionValidateResponse,
   UpdateActionParams,
 } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
@@ -23,9 +23,8 @@ import { Controller, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { usePanelAction } from "@/lib/hooks"
-import { useUDFSchema } from "@/lib/udf"
-import { isEmptyObjectOrNullish } from "@/lib/utils"
+import { usePanelAction, useWorkbenchRegistryActions } from "@/lib/hooks"
+import { itemOrEmptyString } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -80,9 +79,6 @@ type UDFFormSchema = {
     run_if?: string
   }
 }
-function itemOrEmptyString(item: object | undefined) {
-  return isEmptyObjectOrNullish(item) ? "" : YAML.stringify(item)
-}
 
 export function UDFActionPanel({
   node,
@@ -92,13 +88,14 @@ export function UDFActionPanel({
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
-  const {
-    action,
-    isLoading: actionLoading,
-    mutateAsync: updateAction,
-  } = usePanelAction(node.id, workspaceId, workflowId)
-  const udfKey = node.data.type
-  const { udf, isLoading: schemaLoading } = useUDFSchema(udfKey, workspaceId)
+  const { action, actionIsLoading, updateAction } = usePanelAction(
+    node.id,
+    workspaceId,
+    workflowId
+  )
+  const actionName = node.data.type
+  const { getRegistryAction } = useWorkbenchRegistryActions()
+  const registryAction = getRegistryAction(actionName)
   const methods = useForm<UDFFormSchema>({
     values: {
       title: action?.title,
@@ -116,13 +113,13 @@ export function UDFActionPanel({
   })
 
   const [validationErrors, setValidationErrors] =
-    useState<UDFArgsValidationResponse | null>(null)
+    useState<RegistryActionValidateResponse | null>(null)
 
   const onSubmit = useCallback(
     async (values: UDFFormSchema) => {
-      console.log("udf", udf)
+      console.log("registry action", registryAction)
       console.log("action", action)
-      if (!udf || !action) {
+      if (!registryAction || !action) {
         console.error("UDF or action not found")
         return
       }
@@ -151,10 +148,12 @@ export function UDFActionPanel({
           : undefined,
       }
       try {
-        const validateResponse = await udfsValidateUdfArgs({
-          udfKey: udf.key,
-          requestBody: actionInputs,
-          workspaceId,
+        const validateResponse = await registryActionsValidateRegistryAction({
+          actionName: registryAction.action,
+          requestBody: {
+            registry_version: registryAction.version,
+            args: actionInputs,
+          },
         })
         console.log("Validation passed", validateResponse)
         if (!validateResponse.ok) {
@@ -183,18 +182,18 @@ export function UDFActionPanel({
         }
       }
     },
-    [workspaceId, udf, action]
+    [workspaceId, registryAction, action]
   )
 
-  if (schemaLoading || actionLoading) {
+  if (actionIsLoading) {
     return <CenteredSpinner />
   }
-  if (!udf) {
+  if (!registryAction) {
     return (
       <div className="flex h-full items-center justify-center space-x-2 p-4">
         <AlertNotification
           level="error"
-          message={`Could not load UDF schema '${udfKey}'.`}
+          message={`Could not load UDF schema '${actionName}'.`}
         />
       </div>
     )
@@ -209,6 +208,7 @@ export function UDFActionPanel({
       </div>
     )
   }
+  console.log("registryAction", registryAction)
 
   return (
     <div className="size-full overflow-auto">
@@ -221,7 +221,7 @@ export function UDFActionPanel({
             <div className="col-span-2 overflow-hidden">
               <h3 className="p-4">
                 <div className="flex w-full items-center space-x-4">
-                  {getIcon(udf.key, {
+                  {getIcon(registryAction.action, {
                     className: "size-10 p-2",
                     flairsize: "md",
                   })}
@@ -234,6 +234,15 @@ export function UDFActionPanel({
                         {action.description || (
                           <span className="italic">No description</span>
                         )}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Type:{" "}
+                        {registryAction.is_template
+                          ? "Template Action"
+                          : "Custom Action"}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Origin: {registryAction.origin}
                       </p>
                     </div>
                   </div>
@@ -334,7 +343,7 @@ export function UDFActionPanel({
               <AccordionContent className="space-y-4">
                 {/* UDF secrets */}
                 <div className="space-y-4 px-4">
-                  {udf.secrets ? (
+                  {registryAction.secrets ? (
                     <div className="text-xs text-muted-foreground">
                       <span>This action requires the following secrets:</span>
                       <Table>
@@ -349,7 +358,7 @@ export function UDFActionPanel({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {udf.secrets.map((secret, idx) => (
+                          {registryAction.secrets.map((secret, idx) => (
                             <TableRow
                               key={idx}
                               className="font-mono text-xs tracking-tight text-muted-foreground"
@@ -372,7 +381,7 @@ export function UDFActionPanel({
                   <span className="text-xs text-muted-foreground">
                     Hover over each row for details.
                   </span>
-                  <JSONSchemaTable schema={udf.args} />
+                  <JSONSchemaTable schema={registryAction.interface.expects} />
                 </div>
               </AccordionContent>
             </AccordionItem>

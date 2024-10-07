@@ -13,7 +13,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from tracecat.contexts import RunContext
 from tracecat.dsl.enums import FailStrategy, LoopStrategy
 from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeData
-from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
+from tracecat.dsl.models import (
+    ActionStatement,
+    ActionTest,
+    DSLConfig,
+    Trigger,
+)
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID, WorkflowID
@@ -206,7 +211,7 @@ class ExecuteChildWorkflowArgs(TypedDict):
     workflow_id: WorkflowID
     trigger_inputs: dict[str, Any]
     environment: str | None = None
-    version: int | None = None
+    version: int | None = None  # Workflow defn version
     loop_strategy: LoopStrategy | None = None
     batch_size: int | None = None
     fail_strategy: FailStrategy | None = None
