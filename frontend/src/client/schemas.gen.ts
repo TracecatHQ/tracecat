@@ -42,27 +42,6 @@ export const $ActionControlFlow = {
     title: 'ActionControlFlow'
 } as const;
 
-export const $ActionLayer = {
-    properties: {
-        ref: {
-            type: 'string',
-            title: 'Ref',
-            description: 'The reference of the layer'
-        },
-        action: {
-            type: 'string',
-            title: 'Action'
-        },
-        args: {
-            type: 'object',
-            title: 'Args'
-        }
-    },
-    type: 'object',
-    required: ['ref', 'action', 'args'],
-    title: 'ActionLayer'
-} as const;
-
 export const $ActionMetadataResponse = {
     properties: {
         id: {
@@ -351,6 +330,27 @@ export const $ActionStatement_Any_ = {
     type: 'object',
     required: ['ref', 'action'],
     title: 'ActionStatement[Any]'
+} as const;
+
+export const $ActionStep = {
+    properties: {
+        ref: {
+            type: 'string',
+            title: 'Ref',
+            description: 'The reference of the step'
+        },
+        action: {
+            type: 'string',
+            title: 'Action'
+        },
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action', 'args'],
+    title: 'ActionStep'
 } as const;
 
 export const $ActionTest = {
@@ -1069,12 +1069,6 @@ export const $DSLConfig_Output = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
-        },
-        registry_version: {
-            type: 'string',
-            title: 'Registry Version',
-            description: 'The registry version to use for the workflow.',
-            default: '0.1.0'
         }
     },
     type: 'object',
@@ -2883,13 +2877,13 @@ export const $TemplateActionDefinition = {
             title: 'Expects',
             description: 'The arguments to pass to the action'
         },
-        layers: {
+        steps: {
             items: {
-                '$ref': '#/components/schemas/ActionLayer'
+                '$ref': '#/components/schemas/ActionStep'
             },
             type: 'array',
-            title: 'Layers',
-            description: 'The internal layers of the action'
+            title: 'Steps',
+            description: 'The sequence of steps for the action'
         },
         returns: {
             anyOf: [
@@ -2911,7 +2905,7 @@ export const $TemplateActionDefinition = {
         }
     },
     type: 'object',
-    required: ['name', 'namespace', 'title', 'display_group', 'expects', 'layers', 'returns'],
+    required: ['name', 'namespace', 'title', 'display_group', 'expects', 'steps', 'returns'],
     title: 'TemplateActionDefinition'
 } as const;
 

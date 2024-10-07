@@ -10,17 +10,6 @@ export type ActionControlFlow = {
     for_each?: string | Array<(string)> | null;
 };
 
-export type ActionLayer = {
-    /**
-     * The reference of the layer
-     */
-    ref: string;
-    action: string;
-    args: {
-        [key: string]: unknown;
-    };
-};
-
 export type ActionMetadataResponse = {
     id: string;
     workflow_id: string;
@@ -134,6 +123,17 @@ export type ActionStatement_Any_ = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+};
+
+export type ActionStep = {
+    /**
+     * The reference of the step
+     */
+    ref: string;
+    action: string;
+    args: {
+        [key: string]: unknown;
+    };
 };
 
 export type ActionTest = {
@@ -363,10 +363,6 @@ export type DSLConfig_Output = {
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
-    /**
-     * The registry version to use for the workflow.
-     */
-    registry_version?: string;
 };
 
 export type DSLContext = {
@@ -990,9 +986,9 @@ export type TemplateActionDefinition = {
         [key: string]: ExpectedField;
     };
     /**
-     * The internal layers of the action
+     * The sequence of steps for the action
      */
-    layers: Array<ActionLayer>;
+    steps: Array<ActionStep>;
     /**
      * The result of the action
      */
