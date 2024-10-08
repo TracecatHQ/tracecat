@@ -333,6 +333,7 @@ class RegistryActionRead(RegistryActionBase):
             version=action.version,
             origin=action.origin,
             options=action.options,
+            secrets=action.secrets,
         )
 
 
