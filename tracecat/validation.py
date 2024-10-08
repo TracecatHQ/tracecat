@@ -460,8 +460,8 @@ async def validate_actions_have_defined_secrets(
                     checked_keys_cache.add(registry_secret.name)
                 decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
                 defined_keys = {kv.key for kv in decrypted_keys}
-                required_keys = set(registry_secret.keys)
-                optional_keys = set(registry_secret.optional_keys or [])
+                required_keys = frozenset(registry_secret.keys or ())
+                optional_keys = frozenset(registry_secret.optional_keys or ())
 
                 # # (2) Check if the secret has the correct keys
                 missing_keys = required_keys - defined_keys
