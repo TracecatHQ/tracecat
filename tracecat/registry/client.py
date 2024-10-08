@@ -33,6 +33,7 @@ class RegistryClient:
 
     _repos_endpoint = "/registry/repos"
     _actions_endpoint = "/registry/actions"
+    _timeout: float = 60.0
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
@@ -73,7 +74,12 @@ class RegistryClient:
         key = input.task.action
         content = input.model_dump_json()
         workspace_id = str(role.workspace_id) if role.workspace_id else None
-        logger.debug(f"Calling action {key!r} with content", content=content, role=role)
+        logger.debug(
+            f"Calling action {key!r} with content",
+            content=content,
+            role=role,
+            timeout=self._timeout,
+        )
         try:
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.post(
@@ -86,6 +92,7 @@ class RegistryClient:
                     },
                     content=content,
                     params={"workspace_id": workspace_id},
+                    timeout=self._timeout,
                 )
             response.raise_for_status()
             return orjson.loads(response.content)

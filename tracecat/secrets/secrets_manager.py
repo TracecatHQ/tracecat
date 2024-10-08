@@ -2,12 +2,21 @@
 
 import contextlib
 from collections.abc import Iterator
+from typing import overload
 
 from tracecat.contexts import ctx_env
 from tracecat.logger import logger
 
 
-def get(name: str, default: str | None = None, /) -> str:
+@overload
+def get(name: str, default: None = None, /) -> str | None: ...
+
+
+@overload
+def get(name: str, default: str, /) -> str: ...
+
+
+def get(name: str, default: str | None = None, /) -> str | None:
     """Get a secret that was set in the current context."""
     _env = ctx_env.get()
     logger.info(f"Getting secret {name=}", env=_env)

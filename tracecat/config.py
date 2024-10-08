@@ -136,3 +136,10 @@ TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 # If you wish to use a remote registry, set the URL here
 # If the url is unset, this will be set to None
 TRACECAT__REMOTE_REGISTRY_URL = os.environ.get("TRACECAT__REMOTE_REGISTRY_URL") or None
+
+# === AI settings === #
+TRACECAT__PRELOAD_OSS_MODELS = (
+    (models := os.getenv("TRACECAT__PRELOAD_OSS_MODELS")) and models.split(",")
+) or []
+
+OLLAMA__API_URL = os.environ.get("OLLAMA__API_URL", "http://ollama:11434")

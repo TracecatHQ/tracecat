@@ -59,6 +59,9 @@ services:
       LDAP_TYPE: ${LDAP_TYPE}
       # Remote registry
       TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
+      # AI
+      TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
+      OLLAMA__API_URL: ${OLLAMA__API_URL}
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.10.2}
@@ -142,9 +145,19 @@ services:
     depends_on:
       - temporal_postgres_db
 
+  ollama:
+    container_name: ollama
+    tty: true
+    restart: unless-stopped
+    image: ollama/ollama:${OLLAMA__VERSION}
+    ports:
+      - 11434:11434
+    volumes:
+      - ollama:/root/.ollama
 volumes:
   core-db:
   temporal-db:
+  ollama:
 
 networks:
   core:
