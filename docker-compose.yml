@@ -145,7 +145,6 @@ services:
 volumes:
   core-db:
   temporal-db:
-  elasticsearch-data:
 
 networks:
   core:
