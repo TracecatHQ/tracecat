@@ -352,7 +352,10 @@ export function UDFActionPanel({
                               Secret Name
                             </TableHead>
                             <TableHead className="font-bold" colSpan={1}>
-                              Secret Keys
+                              Required Keys
+                            </TableHead>
+                            <TableHead className="font-bold" colSpan={1}>
+                              Optional Keys
                             </TableHead>
                           </TableRow>
                         </TableHeader>
@@ -363,7 +366,12 @@ export function UDFActionPanel({
                               className="font-mono text-xs tracking-tight text-muted-foreground"
                             >
                               <TableCell>{secret.name}</TableCell>
-                              <TableCell>{secret.keys.join(", ")}</TableCell>
+                              <TableCell>
+                                {secret.keys?.join(", ") || "-"}
+                              </TableCell>
+                              <TableCell>
+                                {secret.optional_keys?.join(", ") || "-"}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
