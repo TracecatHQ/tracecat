@@ -38,6 +38,7 @@ dependencies = [
     "jsonpath_ng==1.6.1",
     "lark==1.1.9",
     "loguru==0.7.2",
+    "ollama==0.3.3",
     "openai==1.30.3",
     "orjson==3.10.3",
     "psycopg[binary]==3.1.19",
