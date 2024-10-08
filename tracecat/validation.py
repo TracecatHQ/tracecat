@@ -461,13 +461,25 @@ async def validate_actions_have_defined_secrets(
                 decrypted_keys = service.decrypt_keys(defined_secret.encrypted_keys)
                 defined_keys = {kv.key for kv in decrypted_keys}
                 required_keys = set(registry_secret.keys)
+                optional_keys = set(registry_secret.optional_keys or [])
 
                 # # (2) Check if the secret has the correct keys
-                if not required_keys.issubset(defined_keys):
+                missing_keys = required_keys - defined_keys
+                # take away optional keys from missing keys
+                final_missing_keys = missing_keys - optional_keys
+                logger.trace(
+                    "Missing keys",
+                    required_keys=required_keys,
+                    defined_keys=defined_keys,
+                    missing_keys=missing_keys,
+                    optional_keys=optional_keys,
+                    final_missing_keys=final_missing_keys,
+                )
+                if final_missing_keys:
                     results.append(
                         SecretValidationResult(
                             status="error",
-                            msg=f"Secret {registry_secret.name!r} is missing keys: {required_keys - defined_keys}",
+                            msg=f"Secret {registry_secret.name!r} is missing required keys: {final_missing_keys}",
                         )
                     )
 
