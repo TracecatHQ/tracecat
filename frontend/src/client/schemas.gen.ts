@@ -2171,16 +2171,38 @@ export const $RegistrySecret = {
             title: 'Name'
         },
         keys: {
-            items: {
-                type: 'string',
-                pattern: '[a-zA-Z0-9_]+'
-            },
-            type: 'array',
+            anyOf: [
+                {
+                    items: {
+                        type: 'string',
+                        pattern: '[a-zA-Z0-9_]+'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Keys'
+        },
+        optional_keys: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string',
+                        pattern: '[a-zA-Z0-9_]+'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Optional Keys'
         }
     },
     type: 'object',
-    required: ['name', 'keys'],
+    required: ['name'],
     title: 'RegistrySecret'
 } as const;
 
