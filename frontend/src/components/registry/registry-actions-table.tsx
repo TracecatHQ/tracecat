@@ -136,6 +136,10 @@ export function RegistryActionsTable() {
           },
           enableSorting: true,
           enableHiding: false,
+          enableColumnFilter: true,
+          filterFn: (row, id, value) => {
+            return value.includes(row.getValue<RegistryActionRead["type"]>(id))
+          },
         },
         {
           id: "actions",
@@ -230,4 +234,20 @@ const defaultToolbarProps: DataTableToolbarProps = {
     placeholder: "Search actions...",
     column: "default_title",
   },
+  fields: [
+    {
+      column: "type",
+      title: "Type",
+      options: [
+        {
+          label: "UDF",
+          value: "udf",
+        },
+        {
+          label: "Template",
+          value: "template",
+        },
+      ],
+    },
+  ],
 }
