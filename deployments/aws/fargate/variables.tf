@@ -161,6 +161,12 @@ variable "db_instance_size" {
 
 ### RDS Settings
 
+variable "restore_from_snapshot" {
+  type        = bool
+  description = "Restore RDS instances from a snapshot"
+  default     = false
+}
+
 variable "rds_multi_az" {
   type        = bool
   description = "Enable Multi-AZ for RDS instances"
@@ -176,7 +182,7 @@ variable "rds_skip_final_snapshot" {
 variable "rds_deletion_protection" {
   type        = bool
   description = "Enable deletion protection for RDS instances"
-  default     = false
+  default     = true
 }
 
 variable "rds_apply_immediately" {

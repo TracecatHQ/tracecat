@@ -10,6 +10,22 @@ resource "random_string" "temporal_snapshot_suffix" {
   upper   = false
 }
 
+# Check if snapshots exist for core database
+data "aws_db_snapshot" "core_snapshots" {
+  db_instance_identifier = "core-database"
+  most_recent            = true
+  include_shared         = false
+  include_public         = false
+}
+
+# Check if snapshots exist for temporal database
+data "aws_db_snapshot" "temporal_snapshots" {
+  db_instance_identifier = "temporal-database"
+  most_recent            = true
+  include_shared         = false
+  include_public         = false
+}
+
 resource "aws_db_instance" "core_database" {
   identifier                   = "core-database"
   engine                       = "postgres"
@@ -25,11 +41,19 @@ resource "aws_db_instance" "core_database" {
   vpc_security_group_ids       = [aws_security_group.core_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
   final_snapshot_identifier    = "final-core-db-${local.snapshot_timestamp}-${random_string.core_snapshot_suffix.result}"
+  snapshot_identifier          = var.restore_from_snapshot && data.aws_db_snapshot.core_snapshots.db_snapshot_arn != null ? data.aws_db_snapshot.core_snapshots.db_snapshot_arn : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
   performance_insights_enabled = var.rds_performance_insights_enabled
   auto_minor_version_upgrade   = var.rds_auto_minor_version_upgrade
+
+  lifecycle {
+    ignore_changes = [
+      snapshot_identifier,
+      final_snapshot_identifier
+    ]
+  }
 }
 
 resource "aws_db_instance" "temporal_database" {
@@ -47,11 +71,19 @@ resource "aws_db_instance" "temporal_database" {
   vpc_security_group_ids       = [aws_security_group.temporal_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
   final_snapshot_identifier    = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix.result}"
+  snapshot_identifier          = var.restore_from_snapshot && data.aws_db_snapshot.temporal_snapshots.db_snapshot_arn != null ? data.aws_db_snapshot.temporal_snapshots.db_snapshot_arn : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
   performance_insights_enabled = var.rds_performance_insights_enabled
   auto_minor_version_upgrade   = var.rds_auto_minor_version_upgrade
+
+  lifecycle {
+    ignore_changes = [
+      snapshot_identifier,
+      final_snapshot_identifier
+    ]
+  }
 }
 
 resource "aws_db_subnet_group" "tracecat_db_subnet" {

@@ -27,3 +27,17 @@ output "local_dns_namespace" {
   description = "The local DNS namespace for ECS services"
   value       = local.local_dns_namespace
 }
+
+# Outputs
+
+output "latest_core_snapshot_encrypted" {
+  description = "Whether the latest core database snapshot is encrypted"
+  value       = data.aws_db_snapshot.core_snapshots.encrypted
+  sensitive   = false
+}
+
+output "latest_temporal_snapshot_encrypted" {
+  description = "Whether the latest temporal database snapshot is encrypted"
+  value       = data.aws_db_snapshot.temporal_snapshots.encrypted
+  sensitive   = false
+}
