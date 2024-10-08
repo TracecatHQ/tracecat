@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
     async with get_async_session_context_manager() as session:
         await setup_defaults(session, admin_role)
         await setup_registry(session, admin_role)
+    await setup_oss_models()
     yield
 
 
@@ -98,6 +99,18 @@ async def setup_defaults(session: AsyncSession, admin_role: Role):
             logger.info("Default workspace created", workspace=default_workspace)
         except IntegrityError:
             logger.info("Default workspace already exists, skipping")
+
+
+async def setup_oss_models():
+    if not (preload_models := config.TRACECAT__PRELOAD_OSS_MODELS):
+        return
+    from tracecat.llm import preload_ollama_models
+
+    logger.info(
+        f"Preloading {len(preload_models)} models",
+        models=preload_models,
+    )
+    await preload_ollama_models(preload_models)
 
 
 def custom_generate_unique_id(route: APIRoute):
