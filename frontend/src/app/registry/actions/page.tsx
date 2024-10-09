@@ -1,6 +1,5 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
 import { RegistryActionsTable } from "@/components/registry/registry-actions-table"
 
 export default function RegistryActionsPage() {
@@ -13,14 +12,6 @@ export default function RegistryActionsPage() {
             <p className="text-md text-muted-foreground">
               View your organization&apos;s actions here.
             </p>
-          </div>
-          <div className="ml-auto flex items-center space-x-2">
-            <Button
-              role="combobox"
-              className="items-center space-x-2 bg-emerald-500 tracking-wide text-white shadow-sm hover:bg-emerald-500"
-            >
-              <span>Create Action</span>
-            </Button>
           </div>
         </div>
         <RegistryActionsTable />
