@@ -3,7 +3,7 @@ import inspect
 import json
 import re
 import subprocess
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from importlib.resources import files
 from pathlib import Path
 from timeit import default_timer
@@ -389,35 +389,6 @@ class Repository:
     @staticmethod
     def _not_implemented():
         raise NotImplementedError("Template actions has no direct implementation")
-
-    def filter(
-        self,
-        namespace: str | None = None,
-        include_marked: bool = False,
-        include_keys: set[str] | None = None,
-    ) -> Iterator[tuple[str, BoundRegistryAction[ArgsClsT]]]:
-        """Filter the registry.
-
-        If namespace is provided, only return UDFs in that namespace.
-        If not, return all UDFs.
-
-        If include_marked is True, include UDFs marked with `include_in_schema: False`.
-        Defining include_keys will override all other filters for.
-
-        """
-        # Get the net set of keys to include
-        include_keys = include_keys or set()
-
-        def include(udf: BoundRegistryAction[ArgsClsT]) -> bool:
-            inc = True
-            inc &= udf.action in include_keys
-            if not include_marked:
-                inc &= udf.include_in_schema
-            if namespace:
-                inc &= udf.namespace.startswith(namespace)
-            return inc
-
-        return ((key, udf) for key, udf in self.__iter__() if include(udf))
 
 
 def attach_validators(func: FunctionType, *validators: Callable):
