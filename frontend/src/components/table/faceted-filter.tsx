@@ -80,9 +80,9 @@ export function DataTableFacetedFilter<TData, TValue>({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0" align="start">
+      <PopoverContent className="max-w-[500px] p-0 text-xs" align="start">
         <Command>
-          <CommandInput placeholder={title} />
+          <CommandInput placeholder={title} className="text-xs" />
           <CommandList>
             <CommandEmpty>No results found.</CommandEmpty>
             <CommandGroup>
@@ -91,6 +91,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 return (
                   <CommandItem
                     key={option.value}
+                    className="text-xs"
                     onSelect={() => {
                       if (isSelected) {
                         selectedValues.delete(option.value)
@@ -105,7 +106,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                   >
                     <div
                       className={cn(
-                        "mr-2 flex size-4 items-center justify-center rounded-sm border border-primary",
+                        "mr-2 flex size-4 items-center justify-center rounded-sm border border-primary text-xs",
                         isSelected
                           ? "bg-primary text-primary-foreground"
                           : "opacity-50 [&_svg]:invisible"

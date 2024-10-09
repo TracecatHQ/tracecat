@@ -1,9 +1,7 @@
 "use client"
 
 import React, { useState } from "react"
-import {
-  RegistryRepositoryReadMinimal,
-} from "@/client"
+import { RegistryRepositoryReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"

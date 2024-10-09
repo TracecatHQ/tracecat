@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { RegistryActionRead } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
@@ -29,6 +29,43 @@ export function RegistryActionsTable() {
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
     useState<RegistryActionRead | null>(null)
+
+  // Create a memoized version of the toolbar props
+  const toolbarProps: DataTableToolbarProps = useMemo(() => {
+    // Extract unique namespace values from the data
+    const namespaceOptions = Array.from(
+      new Set(registryActions?.map((action) => action.namespace))
+    ).map((namespace) => ({
+      label: namespace,
+      value: namespace,
+    }))
+    const typeOptions = Array.from(
+      new Set(registryActions?.map((action) => action.type))
+    ).map((type) => ({
+      label: type,
+      value: type,
+    }))
+
+    return {
+      filterProps: {
+        placeholder: "Search actions...",
+        column: "default_title",
+      },
+      fields: [
+        {
+          column: "type",
+          title: "Type",
+          options: typeOptions,
+        },
+        {
+          column: "namespace",
+          title: "Namespace",
+          options: namespaceOptions,
+        },
+      ],
+    }
+  }, [registryActions])
+
   const handleOnClickRow = (row: Row<RegistryActionRead>) => () => {
     // Link to workflow detail page
     console.debug("Clicked row", row)
@@ -79,6 +116,12 @@ export function RegistryActionsTable() {
           ),
           enableSorting: true,
           enableHiding: false,
+          enableColumnFilter: true,
+          filterFn: (row, id, value) => {
+            return value.includes(
+              row.getValue<RegistryActionRead["namespace"]>(id)
+            )
+          },
         },
         {
           accessorKey: "version",
@@ -136,6 +179,10 @@ export function RegistryActionsTable() {
           },
           enableSorting: true,
           enableHiding: false,
+          enableColumnFilter: true,
+          filterFn: (row, id, value) => {
+            return value.includes(row.getValue<RegistryActionRead["type"]>(id))
+          },
         },
         {
           id: "actions",
@@ -221,13 +268,7 @@ export function RegistryActionsTable() {
           },
         },
       ]}
-      toolbarProps={defaultToolbarProps}
+      toolbarProps={toolbarProps}
     />
   )
-}
-const defaultToolbarProps: DataTableToolbarProps = {
-  filterProps: {
-    placeholder: "Search actions...",
-    column: "default_title",
-  },
 }
