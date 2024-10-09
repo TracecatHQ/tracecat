@@ -20,9 +20,10 @@ locals {
     # NOTE: still missing
     # TRACECAT__DB_ENDPOINT which is the hostname of the RDS instance (from RDS resource)
     # TRACECAT__DB_PASS which is the password for the database (from secrets manager)
-    TRACECAT__DB_USER = "postgres"
-    TRACECAT__DB_PORT = "5432"
-    TRACECAT__DB_NAME = "postgres" # Hardcoded in RDS resource configs
+    TRACECAT__DB_USER      = "postgres"
+    TRACECAT__DB_PORT      = "5432"
+    TRACECAT__DB_NAME      = "postgres" # Hardcoded in RDS resource configs
+    TRACECAT__DB_PASS__ARN = data.aws_secretsmanager_secret_version.tracecat_db_password.arn
   }
 
   api_env = [

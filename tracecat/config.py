@@ -32,6 +32,7 @@ TRACECAT__DB_URI = os.environ.get(
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
+TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 
