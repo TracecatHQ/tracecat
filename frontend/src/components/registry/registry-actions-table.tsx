@@ -85,7 +85,6 @@ export function RegistryActionsTable() {
       selectedAction={selectedAction}
       setSelectedAction={setSelectedAction}
     >
-      {" "}
       <DataTable
         isLoading={registryActionsIsLoading}
         error={registryActionsError ?? undefined}
