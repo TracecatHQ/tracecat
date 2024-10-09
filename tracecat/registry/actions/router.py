@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
+from tracecat_registry import REGISTRY_VERSION
 
 from tracecat.auth.dependencies import OrgUserOrServiceRole
 from tracecat.contexts import ctx_logger
@@ -17,6 +18,7 @@ from tracecat.registry.actions.models import (
     RegistryActionValidateResponse,
 )
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.types.exceptions import RegistryError
 from tracecat.validation import vadliate_registry_action_args
 
@@ -103,11 +105,24 @@ async def delete_registry_action(
 ) -> None:
     """Delete a template action."""
     service = RegistryActionsService(session, role)
+    version = version or REGISTRY_VERSION
     try:
-        action = await service.get_action(version=version or "", name=action_name)
-        await service.delete_action(action)
-    except Exception as e:
+        action = await service.get_action(version=version, action_name=action_name)
+    except RegistryError as e:
+        logger.error("Error getting action", action_name=action_name, error=e)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    if action.origin == DEFAULT_REGISTRY_ORIGIN:
+        logger.error(
+            "Attempted to delete default action",
+            action_name=action_name,
+            version=version,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot delete default actions. Please delete the action from your custom registry if you want to remove it.",
+        )
+    # Delete the action as it's not a base action
+    await service.delete_action(action)
 
 
 # Registry Action Controls

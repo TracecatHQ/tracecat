@@ -19,6 +19,8 @@ import {
   RegistryActionCreate,
   RegistryActionRead,
   registryActionsCreateRegistryAction,
+  registryActionsDeleteRegistryAction,
+  RegistryActionsDeleteRegistryActionData,
   registryActionsGetRegistryAction,
   registryActionsListRegistryActions,
   registryActionsUpdateRegistryAction,
@@ -894,6 +896,54 @@ export function useRegistryActions(versions?: string[]) {
     },
   })
 
+  const {
+    mutateAsync: deleteRegistryAction,
+    isPending: deleteRegistryActionIsPending,
+    error: deleteRegistryActionError,
+  } = useMutation({
+    mutationFn: async (params: RegistryActionsDeleteRegistryActionData) =>
+      await registryActionsDeleteRegistryAction(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
+      toast({
+        title: "Deleted registry action",
+        description: "Registry action deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to delete registry action", error)
+      const apiError = error as TracecatApiError
+      switch (apiError.status) {
+        case 400:
+          toast({
+            title: "Failed to delete registry action",
+            description: apiError.message,
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Failed to delete registry action",
+            description: `${apiError.message}: ${apiError.body.detail}`,
+          })
+          break
+        case 404:
+          toast({
+            title: "Registry action not found",
+            description: `${apiError.message}: ${apiError.body.detail}`,
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete registry action",
+            description:
+              "An unexpected error occurred while deleting the registry action.",
+            variant: "destructive",
+          })
+      }
+    },
+  })
   return {
     registryActions,
     registryActionsIsLoading,
@@ -905,6 +955,9 @@ export function useRegistryActions(versions?: string[]) {
     updateRegistryAction,
     updateRegistryActionIsPending,
     updateRegistryActionError,
+    deleteRegistryAction,
+    deleteRegistryActionIsPending,
+    deleteRegistryActionError,
   }
 }
 
