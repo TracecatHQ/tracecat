@@ -35,16 +35,20 @@ export function RegistryActionsTable() {
     // Extract unique namespace values from the data
     const namespaceOptions = Array.from(
       new Set(registryActions?.map((action) => action.namespace))
-    ).map((namespace) => ({
-      label: namespace,
-      value: namespace,
-    }))
+    )
+      .sort() // Sort namespaces alphabetically
+      .map((namespace) => ({
+        label: namespace,
+        value: namespace,
+      }))
     const typeOptions = Array.from(
       new Set(registryActions?.map((action) => action.type))
-    ).map((type) => ({
-      label: type,
-      value: type,
-    }))
+    )
+      .sort() // Sort types alphabetically
+      .map((type) => ({
+        label: type,
+        value: type,
+      }))
 
     return {
       filterProps: {
