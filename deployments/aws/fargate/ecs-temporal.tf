@@ -179,7 +179,9 @@ resource "aws_iam_role_policy" "temporal_service_restart_policy" {
           "ecs:UpdateService",
           "ecs:DescribeServices"
         ]
-        Resource = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${aws_ecs_cluster.tracecat_cluster.name}/${aws_ecs_service.temporal_service.name}"
+        Resource = [
+          aws_ecs_service.temporal_service.id,
+        ]
       }
     ]
   })
