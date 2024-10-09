@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -31,10 +32,14 @@ from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_REGISTRY_ORIGIN,
+    DEFAULT_REMOTE_REGISTRY_ORIGIN,
+)
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.repository import safe_url
 from tracecat.secrets.router import router as secrets_router
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
@@ -76,6 +81,29 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
     else:
         logger.info("Base registry repository already exists", version=base_version)
 
+    if (remote_url := config.TRACECAT__REMOTE_REPOSITORY_URL) is not None:
+        parsed_url = urlparse(remote_url)
+        logger.info(
+            "Setting up remote registry repository",
+            url=parsed_url,
+        )
+        # Create it if it doesn't exist
+
+        cleaned_url = safe_url(remote_url)
+        version = DEFAULT_REMOTE_REGISTRY_ORIGIN
+        if await repos_service.get_repository(version) is None:
+            await repos_service.create_repository(
+                RegistryRepositoryCreate(version=version, origin=cleaned_url)
+            )
+            logger.info("Created remote registry repository", url=cleaned_url)
+        else:
+            logger.info(
+                "Remote registry repository already exists",
+                url=cleaned_url,
+            )
+        # Load remote repository
+    else:
+        logger.info("Remote registry repository not set, skipping")
     repos = await repos_service.list_repositories()
     logger.info("Loading registry repositories", repos=repos)
     actions_service = RegistryActionsService(session, role=admin_role)
@@ -111,6 +139,7 @@ async def setup_oss_models():
         models=preload_models,
     )
     await preload_ollama_models(preload_models)
+    logger.info("Preloaded models", models=preload_models)
 
 
 def custom_generate_unique_id(route: APIRoute):

@@ -53,12 +53,13 @@ services:
       # Migrations
       RUN_MIGRATIONS: "true"
       # Remote registry
-      TRACECAT__REMOTE_REGISTRY_URL: ${TRACECAT__REMOTE_REGISTRY_URL}
+      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
+      TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
       # This is only used for testing
-      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-true}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -121,7 +122,7 @@ services:
   postgres_db:
     image: postgres:16
     container_name: postgres_db
-    restart: always
+    restart: unless-stopped
     ports:
       - 5432:5432
     shm_size: 128mb
@@ -134,7 +135,7 @@ services:
   temporal_postgres_db:
     image: postgres:13
     container_name: temporal_postgres_db
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${TEMPORAL__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TEMPORAL__POSTGRES_PASSWORD}
@@ -144,7 +145,7 @@ services:
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
     container_name: temporal
-    restart: always
+    restart: unless-stopped
     ports:
       - 7233:7233
     environment:
@@ -156,6 +157,8 @@ services:
       - LOG_LEVEL=warn
     depends_on:
       - temporal_postgres_db
+
+    attach: false
 
   temporal_ui:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}

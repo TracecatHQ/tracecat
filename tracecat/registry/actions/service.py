@@ -189,7 +189,7 @@ class RegistryActionsService:
         """
         repo = Repository(version=repository.version, origin=repository.origin)
         try:
-            repo.load_from_origin()
+            await repo.load_from_origin()
         except Exception as e:
             logger.error(f"Error while loading registry from origin: {str(e)}")
             raise e

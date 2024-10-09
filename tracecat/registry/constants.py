@@ -1,1 +1,2 @@
 DEFAULT_REGISTRY_ORIGIN = "tracecat_registry"
+DEFAULT_REMOTE_REGISTRY_ORIGIN = "remote"

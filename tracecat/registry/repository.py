@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import inspect
 import json
@@ -11,7 +12,14 @@ from types import FunctionType, GenericAlias, ModuleType
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse, urlunparse
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    create_model,
+)
 from tracecat_registry import REGISTRY_VERSION, RegistrySecret
 from typing_extensions import Doc
 
@@ -50,7 +58,7 @@ class Repository:
         self, version: str = REGISTRY_VERSION, origin: str = DEFAULT_REGISTRY_ORIGIN
     ):
         self._store: dict[str, BoundRegistryAction[ArgsClsT]] = {}
-        self._remote = config.TRACECAT__REMOTE_REGISTRY_URL
+        self._remote = config.TRACECAT__REMOTE_REPOSITORY_URL
         self._is_initialized: bool = False
         self._version = version
         self._origin = origin
@@ -96,13 +104,7 @@ class Repository:
 
     def safe_remote_url(self, remote_registry_url: str) -> str:
         """Clean a remote registry url."""
-        url_obj = urlparse(remote_registry_url)
-        # XXX(safety): Reconstruct url without credentials.
-        # Note that we do not recommend passing credentials in the url.
-        cleaned_url = urlunparse(
-            (url_obj.scheme, url_obj.netloc, url_obj.path, "", "", "")
-        )
-        return cleaned_url
+        return safe_url(remote_registry_url)
 
     def init(
         self,
@@ -221,7 +223,7 @@ class Repository:
 
         self._register_udfs_from_package(tracecat_registry)
 
-    def load_from_origin(self) -> None:
+    async def load_from_origin(self) -> None:
         """Load the registry from the origin."""
         if self._origin == DEFAULT_REGISTRY_ORIGIN:
             # This is a builtin registry, nothing to load
@@ -230,9 +232,58 @@ class Repository:
             self._load_base_template_actions()
             return
 
-        # Load from origin
+        # Load from remote
         logger.info("Loading UDFs from origin", origin=self._origin)
-        self._register_udfs_from_package(self._origin)
+
+        org, repo_name, branch = parse_github_url(self._origin)
+        logger.info("Parsed GitHub URL", org=org, package_name=repo_name, branch=branch)
+
+        package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
+
+        module = await self._load_remote_repository(self._origin, package_name)
+        logger.info("Imported remote repository", module_name=module.__name__)
+        self._register_udfs_from_package(module, origin=self._origin)
+
+    async def _load_remote_repository(
+        self, repository_url: str, module_name: str
+    ) -> ModuleType:
+        """Load actions from a remote source."""
+        cleaned_url = self.safe_remote_url(repository_url)
+        logger.info("Loading remote repository")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "uv",
+                "pip",
+                "install",
+                "--system",
+                cleaned_url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_message = stderr.decode().strip()
+                logger.error(f"Failed to install repository: {error_message}")
+                raise RuntimeError(f"Failed to install repository: {error_message}")
+
+            logger.info("Remote repository installed successfully")
+        except Exception as e:
+            logger.error(f"Error while fetching repository: {str(e)}")
+            raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
+        try:
+            # Import the module
+            logger.info("Importing remote repository module", module_name=module_name)
+            module = importlib.import_module(module_name)
+
+            # # Reload the module to ensure fresh execution
+            self._register_udfs_from_package(module, origin=cleaned_url)
+            logger.trace("AFTER", keys=self.keys)
+        except ImportError as e:
+            logger.error("Error importing remote udfs", error=e)
+            raise
+        return module
 
     def _register_udf_from_function(
         self,
@@ -336,6 +387,7 @@ class Repository:
                     ["uv", "pip", "install", "--system", remote_registry_url],
                     check=True,
                 )
+
             except subprocess.CalledProcessError as e:
                 logger.error("Error installing remote udfs", error=e)
                 raise
@@ -359,14 +411,37 @@ class Repository:
         pkg_root = files("tracecat_registry")
         pkg_path = Path(pkg_root)
 
+        n_loaded = self.load_template_actions_from_path(pkg_path)
+
+        time_elapsed = default_timer() - start_time
+        logger.info(
+            f"✅ Registered {n_loaded} template actions in {time_elapsed:.2f}s",
+            num_templates=n_loaded,
+            time_elapsed=time_elapsed,
+        )
+
+    def load_template_actions_from_path(self, path: Path) -> int:
+        """Load template actions from a package."""
         # Load the default templates
-        logger.info(f"Loading template actions in {pkg_path!s}")
+        logger.info(f"Loading template actions from {path!s}")
         # Load all .yml files using rglob
-        num_templates = 0
-        for file_path in pkg_path.rglob("*.yml"):
+        n_loaded = 0
+        for file_path in path.rglob("*.y{a,}ml"):
             logger.info(f"Loading template {file_path!s}")
             # Load TemplateActionDefinition
-            template_action = TemplateAction.from_yaml(file_path)
+            try:
+                template_action = TemplateAction.from_yaml(file_path)
+            except ValidationError as e:
+                logger.error(
+                    f"Could not parse {file_path!s} as template action, skipped",
+                    error=e,
+                )
+                continue
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error loading template action {file_path!s}", error=e
+                )
+                continue
 
             key = template_action.definition.action
             if key in self._store:
@@ -377,14 +452,8 @@ class Repository:
             self.register_template_action(
                 template_action, origin=DEFAULT_REGISTRY_ORIGIN
             )
-            num_templates += 1
-
-        time_elapsed = default_timer() - start_time
-        logger.info(
-            f"✅ Registered {num_templates} template actions in {time_elapsed:.2f}s",
-            num_templates=num_templates,
-            time_elapsed=time_elapsed,
-        )
+            n_loaded += 1
+        return n_loaded
 
     @staticmethod
     def _not_implemented():
@@ -508,3 +577,48 @@ def _enforce_restrictions(fn: FunctionType) -> FunctionType:
         )
 
     return fn
+
+
+def safe_url(url: str) -> str:
+    """Remove credentials from a url."""
+    url_obj = urlparse(url)
+    # XXX(safety): Reconstruct url without credentials.
+    # Note that we do not recommend passing credentials in the url.
+    cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
+    return cleaned_url
+
+
+def parse_github_url(url: str) -> tuple[str, str, str]:
+    """
+    Parse a GitHub URL to extract organization, package name, and branch.
+    Handles both standard GitHub URLs and 'git+' prefixed URLs with '@' for branch specification.
+    Args:
+        url (str): The GitHub URL to parse.
+    Returns:
+        tuple[str, str, str]: A tuple containing (organization, package_name, branch).
+    Raises:
+        ValueError: If the URL is not a valid GitHub repository URL.
+    """
+
+    parsed_url = urlparse(url)
+    if parsed_url.netloc != "github.com":
+        raise ValueError("Not a valid GitHub URL")
+
+    # Split path and potential branch
+    path_and_branch = parsed_url.path.split("@")
+    path_parts = path_and_branch[0].strip("/").split("/")
+
+    if len(path_parts) < 2:
+        raise ValueError("Invalid GitHub repository URL")
+
+    organization = path_parts[0]
+    package_name = path_parts[1]
+
+    # Check for branch in URL
+    branch = "main"  # Default to 'main' if no branch is specified
+    if len(path_and_branch) > 1:
+        branch = path_and_branch[1]
+    elif len(path_parts) > 3 and path_parts[2] == "tree":
+        branch = path_parts[3]
+
+    return organization, package_name, branch

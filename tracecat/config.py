@@ -136,7 +136,13 @@ TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 # === Remote registry === #
 # If you wish to use a remote registry, set the URL here
 # If the url is unset, this will be set to None
-TRACECAT__REMOTE_REGISTRY_URL = os.environ.get("TRACECAT__REMOTE_REGISTRY_URL") or None
+TRACECAT__REMOTE_REPOSITORY_URL = (
+    os.environ.get("TRACECAT__REMOTE_REPOSITORY_URL") or None
+)
+TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = os.getenv(
+    "TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME"
+)
+"""If not provided, the package name will be inferred from the git remote URL."""
 
 # === AI settings === #
 TRACECAT__PRELOAD_OSS_MODELS = (
