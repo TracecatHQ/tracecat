@@ -6,6 +6,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from importlib.resources import files
+from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import FunctionType, GenericAlias, ModuleType
@@ -20,7 +21,7 @@ from pydantic import (
     ValidationError,
     create_model,
 )
-from tracecat_registry import REGISTRY_VERSION, RegistrySecret
+from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
 
 from tracecat import config
@@ -54,15 +55,11 @@ class Repository:
     3. Serve function execution requests from a registry manager
     """
 
-    def __init__(
-        self, version: str = REGISTRY_VERSION, origin: str = DEFAULT_REGISTRY_ORIGIN
-    ):
+    def __init__(self, origin: str = DEFAULT_REGISTRY_ORIGIN):
         self._store: dict[str, BoundRegistryAction[ArgsClsT]] = {}
-        self._remote = config.TRACECAT__REMOTE_REPOSITORY_URL
         self._is_initialized: bool = False
-        self._version = version
         self._origin = origin
-        logger.info("Registry origin", origin=self._origin, version=self._version)
+        logger.info("Registry origin", origin=self._origin)
 
     def __contains__(self, name: str) -> bool:
         return name in self._store
@@ -80,7 +77,7 @@ class Repository:
         return len(self._store)
 
     def __repr__(self) -> str:
-        return f"Registry(version={self._version}, store={json.dumps([x.action for x in self._store.values()], indent=2)})"
+        return f"Registry(origin={self._origin}, store={json.dumps([x.action for x in self._store.values()], indent=2)})"
 
     @property
     def is_initialized(self) -> bool:
@@ -93,10 +90,6 @@ class Repository:
     @property
     def keys(self) -> list[str]:
         return list(self._store.keys())
-
-    @property
-    def version(self) -> str:
-        return self._version
 
     def get(self, name: str) -> BoundRegistryAction[ArgsClsT]:
         """Retrieve a registered udf."""
@@ -116,7 +109,6 @@ class Repository:
         if not self._is_initialized:
             logger.info(
                 "Initializing registry",
-                version=self.version,
                 include_base=include_base,
                 include_remote=include_remote,
                 include_templates=include_templates,
@@ -159,7 +151,6 @@ class Repository:
             fn=fn,
             name=name,
             namespace=namespace,
-            version=self.version,
             description=description,
             type=type,
             secrets=secrets,
@@ -242,14 +233,13 @@ class Repository:
 
         module = await self._load_remote_repository(self._origin, package_name)
         logger.info("Imported remote repository", module_name=module.__name__)
-        self._register_udfs_from_package(module, origin=self._origin)
 
     async def _load_remote_repository(
         self, repository_url: str, module_name: str
     ) -> ModuleType:
         """Load actions from a remote source."""
         cleaned_url = self.safe_remote_url(repository_url)
-        logger.info("Loading remote repository")
+        logger.info("Loading remote repository", url=cleaned_url)
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -426,7 +416,8 @@ class Repository:
         logger.info(f"Loading template actions from {path!s}")
         # Load all .yml files using rglob
         n_loaded = 0
-        for file_path in path.rglob("*.y{a,}ml"):
+        all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
+        for file_path in all_paths:
             logger.info(f"Loading template {file_path!s}")
             # Load TemplateActionDefinition
             try:

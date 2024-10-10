@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, status
-from tracecat_registry import REGISTRY_VERSION
 
 from tracecat.auth.dependencies import OrgUserOrServiceRole, OrgUserRole
 from tracecat.db.dependencies import AsyncDBSession
@@ -26,19 +25,14 @@ async def sync_registry_repositories(
 ) -> None:
     """Load actions from a registry repository."""
     repos_service = RegistryReposService(session, role=role)
-    base_version = REGISTRY_VERSION
     # Check if the base registry repository already exists
-    if await repos_service.get_repository(base_version) is None:
+    origin = DEFAULT_REGISTRY_ORIGIN
+    if await repos_service.get_repository(origin) is None:
         # If it doesn't exist, create the base registry repository
-        await repos_service.create_repository(
-            RegistryRepositoryCreate(
-                version=base_version,
-                origin=DEFAULT_REGISTRY_ORIGIN,
-            )
-        )
-        logger.info("Created base registry repository", version=base_version)
+        await repos_service.create_repository(RegistryRepositoryCreate(origin=origin))
+        logger.info("Created base registry repository", origin=origin)
     else:
-        logger.info("Base registry repository already exists", version=base_version)
+        logger.info("Base registry repository already exists", origin=origin)
     repos = await repos_service.list_repositories()
 
     actions_service = RegistryActionsService(session, role=role)
@@ -53,29 +47,26 @@ async def list_registry_repositories(
     service = RegistryReposService(session, role)
     repositories = await service.list_repositories()
     logger.info(
-        "Listing repositories", repositories=[repo.version for repo in repositories]
+        "Listing registry repositories",
+        repositories=[repo.origin for repo in repositories],
     )
-    return [
-        RegistryRepositoryReadMinimal(version=repo.version, origin=repo.origin)
-        for repo in repositories
-    ]
+    return [RegistryRepositoryReadMinimal(origin=repo.origin) for repo in repositories]
 
 
-@router.get("/{version}", response_model=RegistryRepositoryRead)
+@router.get("/{origin}", response_model=RegistryRepositoryRead)
 async def get_registry_repository(
-    version: str, role: OrgUserRole, session: AsyncDBSession
+    origin: str, role: OrgUserRole, session: AsyncDBSession
 ) -> RegistryRepositoryRead:
-    """Get a specific registry repository by version."""
+    """Get a specific registry repository by origin."""
     service = RegistryReposService(session, role)
-    repository = await service.get_repository(version)
-    logger.info("Getting registry", version=version, repository=repository)
+    repository = await service.get_repository(origin)
+    logger.info("Getting registry repository", origin=origin, repository=repository)
     if repository is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Registry not found",
+            detail="Registry repository not found",
         )
     return RegistryRepositoryRead(
-        version=repository.version,
         origin=repository.origin,
         actions=[
             RegistryActionRead.model_validate(action, from_attributes=True)
@@ -111,22 +102,22 @@ async def create_registry_repository(
 
 
 @router.patch(
-    "/{version}",
+    "/{origin}",
     response_model=RegistryRepositoryRead,
 )
 async def update_registry_repository(
     role: OrgUserOrServiceRole,
     session: AsyncDBSession,
-    version: str,
+    origin: str,
     params: RegistryRepositoryUpdate,
 ) -> RegistryRepositoryRead:
     """Update an existing registry repository."""
     service = RegistryReposService(session, role)
-    repository = await service.get_repository(version)
+    repository = await service.get_repository(origin)
     if repository is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Registry not found",
+            detail="Registry repository not found",
         )
     for key, value in params.model_dump(exclude_unset=True).items():
         setattr(repository, key, value)
@@ -137,16 +128,16 @@ async def update_registry_repository(
     )
 
 
-@router.delete("/{version}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{origin}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_repository(
-    version: str, role: OrgUserOrServiceRole, session: AsyncDBSession
+    origin: str, role: OrgUserOrServiceRole, session: AsyncDBSession
 ):
     """Delete a registry repository."""
     service = RegistryReposService(session, role)
-    repository = await service.get_repository(version)
+    repository = await service.get_repository(origin)
     if repository is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Registry not found",
+            detail="Registry repository not found",
         )
     await service.delete_repository(repository)

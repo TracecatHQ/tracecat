@@ -25,7 +25,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext, context_locator
+from tracecat.expressions.shared import ExprContext, ExprContextType, context_locator
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import ArgsClsT, ArgsT, BoundRegistryAction
@@ -67,14 +67,11 @@ async def run_single_action(
     action_name: str,
     args: ArgsT,
     context: dict[str, Any] | None = None,
-    version: str | None = None,
 ) -> Any:
     """Run a UDF async."""
     # NOTE(perf): We might want to cache this, or call at a higher level
     async with RegistryActionsService.with_session() as service:
-        action = await service.load_action_impl(
-            version=version, action_name=action_name
-        )
+        action = await service.load_action_impl(action_name=action_name)
     validated_args = action.validate_args(**args)
     if action.is_template:
         logger.info("Running template UDF async", action=action_name)
@@ -82,7 +79,6 @@ async def run_single_action(
             action=action,
             args=validated_args,
             context=context or {},
-            version=version,
         )
 
     logger.info("Running regular UDF async", action=action_name)
@@ -118,7 +114,6 @@ async def run_template_action(
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
     context: DSLContext,
-    version: str | None = None,
 ) -> Any:
     """Handle template execution.
 
@@ -133,10 +128,14 @@ async def run_template_action(
             "Please use `run_single_action` instead."
         )
     defn = action.template_action.definition
-    template_context = context.copy() | {
-        ExprContext.TEMPLATE_ACTION_INPUTS: args,
-        ExprContext.TEMPLATE_ACTION_STEPS: {},
-    }
+    template_context = cast(
+        ExprContextType,
+        context.copy()
+        | {
+            ExprContext.TEMPLATE_ACTION_INPUTS: args,
+            ExprContext.TEMPLATE_ACTION_STEPS: {},
+        },
+    )
     logger.info("Running template action", action=defn.action)
 
     for step in defn.steps:
@@ -147,7 +146,6 @@ async def run_template_action(
             action_name=step.action,
             args=evaled_args,
             context=template_context,
-            version=version,
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
@@ -167,7 +165,6 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
     act_logger = ctx_logger.get()
 
     task = input.task
-    registry_version = input.run_context.registry_version
     environment = input.run_context.environment
     action_name = task.action
 
@@ -244,7 +241,6 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
                             action_name=action_name,
                             args=patched_args,
                             context=context_with_secrets,
-                            version=registry_version,
                         )
                     )
 
@@ -264,10 +260,7 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
     else:
         args = evaluate_templated_args(task, context_with_secrets)
         result = await run_single_action(
-            action_name=action_name,
-            args=args,
-            context=context_with_secrets,
-            version=registry_version,
+            action_name=action_name, args=args, context=context_with_secrets
         )
 
     if mask_values:

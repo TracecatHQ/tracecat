@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
-from tracecat_registry import REGISTRY_VERSION
 
 from tracecat.contexts import RunContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
@@ -89,11 +88,6 @@ class DSLConfig(BaseModel):
             "This is used to isolate secrets across different environments."
             "If not provided, the default environment (default) is used."
         ),
-    )
-    registry_version: str = Field(
-        default=REGISTRY_VERSION,
-        description="The registry version to use for the workflow.",
-        exclude=True,  # Prevent users from configuring this
     )
 
 

@@ -49,7 +49,6 @@ def get_bound_action_impl(action: RegistryAction) -> BoundRegistryAction[ArgsCls
             type=action.type,
             name=action.name,
             namespace=action.namespace,
-            version=action.version,
             description=action.description,
             secrets=action.secrets,
             args_cls=args_cls,
@@ -68,7 +67,6 @@ def get_bound_action_impl(action: RegistryAction) -> BoundRegistryAction[ArgsCls
             type=action.type,
             name=action.name,
             namespace=action.namespace,
-            version=action.version,
             description=action.description,
             secrets=action.secrets,
             args_cls=create_expectation_model(

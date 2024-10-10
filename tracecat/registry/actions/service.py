@@ -44,7 +44,6 @@ class RegistryActionsService:
     async def list_actions(
         self,
         *,
-        versions: list[str] | None = None,
         namespace: str | None = None,
         include_marked: bool = False,
         include_keys: set[str] | None = None,
@@ -55,11 +54,6 @@ class RegistryActionsService:
             statement = statement.where(
                 cast(RegistryAction.options["include_in_schema"].astext, Boolean)  # noqa: E712
                 == True
-            )
-
-        if versions:
-            statement = statement.where(
-                RegistryAction.version.in_(versions),
             )
 
         if namespace:
@@ -79,20 +73,18 @@ class RegistryActionsService:
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_action(self, *, version: str, action_name: str) -> RegistryAction:
+    async def get_action(self, *, action_name: str) -> RegistryAction:
+        """Get an action by name."""
         namespace, name = action_name.rsplit(".", maxsplit=1)
         statement = select(RegistryAction).where(
             RegistryAction.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
             RegistryAction.namespace == namespace,
             RegistryAction.name == name,
-            RegistryAction.version == version,
         )
         result = await self.session.exec(statement)
         action = result.one_or_none()
         if not action:
-            raise RegistryError(
-                f"Action {namespace}.{name} not found in registry {version}"
-            )
+            raise RegistryError(f"Action {namespace}.{name} not found in repository")
         return action
 
     async def create_action(
@@ -174,7 +166,9 @@ class RegistryActionsService:
         """
 
         # For each repo, load from origin
-        self.logger.info("Syncing actions from repositories", repos=repos)
+        self.logger.info(
+            "Syncing actions from repositories", repos=[repo.origin for repo in repos]
+        )
         for repo in repos:
             await self.sync_actions_from_repository(repo)
 
@@ -187,7 +181,7 @@ class RegistryActionsService:
         - For each repository, we need to reimport the packages to run decorators. (for remote this involves pulling)
         - Scan the repositories for implementation details/metadata and update the DB
         """
-        repo = Repository(version=repository.version, origin=repository.origin)
+        repo = Repository(origin=repository.origin)
         try:
             await repo.load_from_origin()
         except Exception as e:
@@ -197,25 +191,21 @@ class RegistryActionsService:
         for action in repo.store.values():
             # Check action already exists
             try:
-                await self.get_action(version=action.version, action_name=action.action)
+                await self.get_action(action_name=action.action)
             except RegistryError:
                 self.logger.info(
                     "Action not found, creating",
                     namespace=action.namespace,
-                    name=action.name,
-                    version=action.version,
                     origin=action.origin,
                     repository_id=repository.id,
                 )
                 params = RegistryActionCreate.from_bound(action, repository.id)
                 await self.create_action(params)
 
-    async def load_action_impl(
-        self, version: str, action_name: str
-    ) -> BoundRegistryAction:
+    async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
         """
         Load the implementation for a registry action.
         """
-        action = await self.get_action(version=version, action_name=action_name)
+        action = await self.get_action(action_name=action_name)
         action = get_bound_action_impl(action)
         return action

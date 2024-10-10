@@ -27,7 +27,6 @@ def _contextualize_message(
 class ValidateActionActivityInput(BaseModel):
     role: Role
     task: ActionStatement[ArgsT]
-    registry_version: str
 
 
 class DSLActivities:
@@ -60,9 +59,7 @@ class DSLActivities:
         """
         client = RegistryClient(role=input.role)
         return await client.validate_action(
-            action_name=input.task.action,
-            args=input.task.args,
-            registry_version=input.registry_version,
+            action_name=input.task.action, args=input.task.args
         )
 
     @staticmethod
@@ -76,7 +73,6 @@ class DSLActivities:
         ctx_run.set(input.run_context)
         ctx_role.set(input.role)
         task = input.task
-        registry_version = input.run_context.registry_version
         environment = input.run_context.environment
         action_name = task.action
 
@@ -85,7 +81,6 @@ class DSLActivities:
             action_name=action_name,
             wf_id=input.run_context.wf_id,
             role=input.role,
-            version=registry_version,
             environment=environment,
         )
         ctx_logger.set(act_logger)

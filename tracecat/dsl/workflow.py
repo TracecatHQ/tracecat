@@ -356,7 +356,6 @@ class DSLWorkflow:
             )
             self.runtime_config = self.dsl.config
         logger.warning("Runtime config after", runtime_config=self.runtime_config)
-        self.registry_version = self.runtime_config.registry_version
 
         # Consolidate trigger inputs
         if args.schedule_id:
@@ -401,7 +400,6 @@ class DSLWorkflow:
                 },
                 environment=self.runtime_config.environment,
                 variables={},
-                registry_version=self.registry_version,
             ),
         )
 
@@ -412,18 +410,11 @@ class DSLWorkflow:
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=wf_info.run_id,
             environment=self.runtime_config.environment,
-            registry_version=self.runtime_config.registry_version,
         )
         ctx_run.set(self.run_context)
 
-        self.logger = self.logger.bind(registry_version=self.registry_version)
-
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
         self.action_test_map = {test.ref: test for test in self.dsl.tests}
-
-        # Sync the registry
-        # self.logger.info("Syncing registry")
-        # await self._sync_registry(self.registry_version)
 
         self.logger.info(
             "Running DSL task workflow",
@@ -752,14 +743,10 @@ class DSLWorkflow:
         )
         return schedule_read.inputs
 
-    async def _validate_action(
-        self, task: ActionStatement[ArgsT], registry_version: str
-    ) -> None:
+    async def _validate_action(self, task: ActionStatement[ArgsT]) -> None:
         result = await workflow.execute_activity(
             DSLActivities.validate_action_activity,
-            arg=ValidateActionActivityInput(
-                role=self.role, task=task, registry_version=registry_version
-            ),
+            arg=ValidateActionActivityInput(role=self.role, task=task),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
         )
@@ -776,7 +763,7 @@ class DSLWorkflow:
     ) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
-        await self._validate_action(task, self.registry_version)
+        await self._validate_action(task)
         # environment is None here. This is coming from the action
         self.logger.trace("Validated child workflow args", task=task)
 
@@ -802,8 +789,6 @@ class DSLWorkflow:
             # Override the environment in the runtime config,
             # otherwise use the default provided in the workflow definition
             environment=args.get("environment") or dsl.config.environment,
-            # Use the same registry version as the parent
-            registry_version=self.registry_version,
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 

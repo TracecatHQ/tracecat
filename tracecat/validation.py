@@ -93,7 +93,6 @@ async def validate_dsl_args(
         result = await vadliate_registry_action_args(
             session=session,
             action_name=act_stmt.action,
-            version=dsl.config.registry_version,
             args=act_stmt.args,
         )
         if result.status == "error":
@@ -294,7 +293,7 @@ async def validate_dsl(
 
 
 async def vadliate_registry_action_args(
-    *, session: AsyncSession, action_name: str, version: str, args: ArgsT
+    *, session: AsyncSession, action_name: str, args: ArgsT
 ) -> RegistryValidationResult:
     """Validate arguments against a UDF spec."""
     # 1. read the schema from the db
@@ -302,7 +301,7 @@ async def vadliate_registry_action_args(
     # 3. validate the args against the pydantic model
     try:
         service = RegistryActionsService(session)
-        action = await service.get_action(version=version, action_name=action_name)
+        action = await service.get_action(action_name=action_name)
         model = json_schema_to_pydantic(action.interface)
         try:
             # Note that we're allowing type coercion for the input arguments

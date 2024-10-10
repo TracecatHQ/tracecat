@@ -44,7 +44,6 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
     namespace: str
     type: Literal["udf", "template"]
     # Registry details
-    version: str
     origin: str
     # Secrets
     secrets: list[RegistrySecret] | None = None
@@ -83,7 +82,6 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             description=self.description,
             type=self.type,
             namespace=self.namespace,
-            version=self.version,
             origin=self.origin,
             default_title=self.default_title,
             display_group=self.display_group,
@@ -263,7 +261,6 @@ class RegistryActionBase(BaseModel):
     description: str = Field(..., description="The description of the action")
     namespace: str = Field(..., description="The namespace of the action")
     type: Literal["udf", "template"] = Field(..., description="The type of the action")
-    version: str = Field(..., description="Registry version")
     origin: str = Field(..., description="The origin of the action as a url")
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets required by the action"
@@ -313,7 +310,6 @@ class RegistryActionRead(RegistryActionBase):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
-            version=action.version,
             origin=action.origin,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
         )
@@ -330,7 +326,6 @@ class RegistryActionRead(RegistryActionBase):
             implementation=action.implementation,
             default_title=action.default_title,
             display_group=action.display_group,
-            version=action.version,
             origin=action.origin,
             options=action.options,
             secrets=action.secrets,
@@ -354,7 +349,6 @@ class RegistryActionCreate(RegistryActionBase):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
-            version=action.version,
             origin=action.origin,
             secrets=action.secrets,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
@@ -389,7 +383,6 @@ class RegistryActionUpdate(BaseModel):
 
 
 class RegistryActionValidate(BaseModel):
-    registry_version: str
     args: dict[str, Any]
 
 

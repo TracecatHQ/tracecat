@@ -1,5 +1,5 @@
 import pytest
-from tracecat_registry import REGISTRY_VERSION, RegistrySecret
+from tracecat_registry import RegistrySecret
 
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry import executor
@@ -117,7 +117,10 @@ async def test_template_action_run():
                         "description": "The service source",
                         "default": "elastic",
                     },
-                    "limit": {"type": "int | None", "description": "The limit"},
+                    "limit": {
+                        "type": "int | None",
+                        "description": "The limit",
+                    },
                 },
                 "steps": [
                     {
@@ -146,8 +149,7 @@ async def test_template_action_run():
         }
     )
 
-    version = REGISTRY_VERSION
-    registry = Repository(version)
+    registry = Repository()
     registry.init(include_base=True, include_remote=False, include_templates=False)
     registry.register_template_action(action)
     assert action.definition.action == "integrations.test.wrapper"
@@ -159,6 +161,5 @@ async def test_template_action_run():
         action=bound_action,
         args={"service_source": "elastic"},
         context={},
-        version=version,
     )
     assert result == [200, "elastic"]

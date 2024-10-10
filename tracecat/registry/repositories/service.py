@@ -37,10 +37,10 @@ class RegistryReposService:
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_repository(self, version: str) -> RegistryRepository | None:
-        """Get a registry by version."""
+    async def get_repository(self, origin: str) -> RegistryRepository | None:
+        """Get a registry by origin."""
         statement = select(RegistryRepository).where(
-            RegistryRepository.version == version
+            RegistryRepository.origin == origin
         )
         result = await self.session.exec(statement)
         return result.one_or_none()
@@ -50,9 +50,7 @@ class RegistryReposService:
     ) -> RegistryRepository:
         """Create a new registry repository."""
         repository = RegistryRepository(
-            owner_id=config.TRACECAT__DEFAULT_ORG_ID,
-            version=params.version,
-            origin=params.origin,
+            owner_id=config.TRACECAT__DEFAULT_ORG_ID, origin=params.origin
         )
         self.session.add(repository)
         await self.session.commit()

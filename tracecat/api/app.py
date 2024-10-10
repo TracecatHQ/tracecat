@@ -9,7 +9,6 @@ from fastapi.routing import APIRoute
 from httpx_oauth.clients.google import GoogleOAuth2
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_registry import REGISTRY_VERSION
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
@@ -32,10 +31,7 @@ from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import (
-    DEFAULT_REGISTRY_ORIGIN,
-    DEFAULT_REMOTE_REGISTRY_ORIGIN,
-)
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.repositories.service import RegistryReposService
@@ -67,19 +63,14 @@ async def lifespan(app: FastAPI):
 async def setup_registry(session: AsyncSession, admin_role: Role):
     logger.info("Setting up base registry repository")
     repos_service = RegistryReposService(session, role=admin_role)
-    base_version = REGISTRY_VERSION
+    origin = DEFAULT_REGISTRY_ORIGIN
     # Check if the base registry repository already exists
-    if await repos_service.get_repository(base_version) is None:
+    if await repos_service.get_repository(origin) is None:
         # If it doesn't exist, create the base registry repository
-        await repos_service.create_repository(
-            RegistryRepositoryCreate(
-                version=base_version,
-                origin=DEFAULT_REGISTRY_ORIGIN,
-            )
-        )
-        logger.info("Created base registry repository", version=base_version)
+        await repos_service.create_repository(RegistryRepositoryCreate(origin=origin))
+        logger.info("Created base registry repository", origin=origin)
     else:
-        logger.info("Base registry repository already exists", version=base_version)
+        logger.info("Base registry repository already exists", origin=origin)
 
     if (remote_url := config.TRACECAT__REMOTE_REPOSITORY_URL) is not None:
         parsed_url = urlparse(remote_url)
@@ -90,10 +81,9 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
         # Create it if it doesn't exist
 
         cleaned_url = safe_url(remote_url)
-        version = DEFAULT_REMOTE_REGISTRY_ORIGIN
-        if await repos_service.get_repository(version) is None:
+        if await repos_service.get_repository(cleaned_url) is None:
             await repos_service.create_repository(
-                RegistryRepositoryCreate(version=version, origin=cleaned_url)
+                RegistryRepositoryCreate(origin=cleaned_url)
             )
             logger.info("Created remote registry repository", url=cleaned_url)
         else:
@@ -105,7 +95,7 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
     else:
         logger.info("Remote registry repository not set, skipping")
     repos = await repos_service.list_repositories()
-    logger.info("Loading registry repositories", repos=repos)
+    logger.info("Loading registry repositories", repos=[repo.origin for repo in repos])
     actions_service = RegistryActionsService(session, role=admin_role)
     await actions_service.sync_actions(repos)
 
