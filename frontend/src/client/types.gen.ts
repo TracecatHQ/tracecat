@@ -1717,6 +1717,10 @@ export type UsersSearchUserData = {
 
 export type UsersSearchUserResponse = UserRead;
 
+export type RegistryRepositoriesSyncRegistryRepositoriesData = {
+    origins?: Array<(string)> | null;
+};
+
 export type RegistryRepositoriesSyncRegistryRepositoriesResponse = void;
 
 export type RegistryRepositoriesListRegistryRepositoriesResponse = Array<RegistryRepositoryReadMinimal>;
@@ -2689,11 +2693,16 @@ export type $OpenApiTs = {
     };
     '/registry/repos/sync': {
         post: {
+            req: RegistryRepositoriesSyncRegistryRepositoriesData;
             res: {
                 /**
                  * Successful Response
                  */
                 204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
             };
         };
     };

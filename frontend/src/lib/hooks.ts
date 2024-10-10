@@ -27,6 +27,7 @@ import {
   RegistryActionsUpdateRegistryActionData,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesSyncRegistryRepositories,
+  RegistryRepositoriesSyncRegistryRepositoriesData,
   RegistryRepositoryReadMinimal,
   Schedule,
   schedulesCreateSchedule,
@@ -971,8 +972,9 @@ export function useRegistryRepositories() {
     isPending: syncReposIsPending,
     error: syncReposError,
   } = useMutation({
-    mutationFn: async () =>
-      await registryRepositoriesSyncRegistryRepositories(),
+    mutationFn: async (
+      params: RegistryRepositoriesSyncRegistryRepositoriesData
+    ) => await registryRepositoriesSyncRegistryRepositories(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
       toast({

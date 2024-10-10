@@ -59,7 +59,6 @@ class Repository:
         self._store: dict[str, BoundRegistryAction[ArgsClsT]] = {}
         self._is_initialized: bool = False
         self._origin = origin
-        logger.info("Registry origin", origin=self._origin)
 
     def __contains__(self, name: str) -> bool:
         return name in self._store
@@ -227,7 +226,9 @@ class Repository:
         logger.info("Loading UDFs from origin", origin=self._origin)
 
         org, repo_name, branch = parse_github_url(self._origin)
-        logger.info("Parsed GitHub URL", org=org, package_name=repo_name, branch=branch)
+        logger.debug(
+            "Parsed GitHub URL", org=org, package_name=repo_name, branch=branch
+        )
 
         package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
 
@@ -247,6 +248,7 @@ class Repository:
                 "pip",
                 "install",
                 "--system",
+                "--refresh",
                 cleaned_url,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

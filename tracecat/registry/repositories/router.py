@@ -1,11 +1,10 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.dependencies import OrgUserOrServiceRole, OrgUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.models import (
     RegistryRepositoryCreate,
     RegistryRepositoryRead,
@@ -21,19 +20,33 @@ router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
 
 @router.post("/sync", status_code=status.HTTP_204_NO_CONTENT)
 async def sync_registry_repositories(
-    role: OrgUserOrServiceRole, session: AsyncDBSession
+    role: OrgUserOrServiceRole,
+    session: AsyncDBSession,
+    origins: list[str] | None = Query(
+        None,
+        description="Origins to sync. If no origins provided, all repositories will be synced.",
+    ),
 ) -> None:
-    """Load actions from a registry repository."""
+    """Load actions from all registry repositories."""
     repos_service = RegistryReposService(session, role=role)
     # Check if the base registry repository already exists
-    origin = DEFAULT_REGISTRY_ORIGIN
-    if await repos_service.get_repository(origin) is None:
-        # If it doesn't exist, create the base registry repository
-        await repos_service.create_repository(RegistryRepositoryCreate(origin=origin))
-        logger.info("Created base registry repository", origin=origin)
+    if origins is None:
+        repos = await repos_service.list_repositories()
     else:
-        logger.info("Base registry repository already exists", origin=origin)
-    repos = await repos_service.list_repositories()
+        # If origins are provided, only sync those repositories
+        repos = []
+        for origin in origins:
+            if (repo := await repos_service.get_repository(origin)) is None:
+                # If it doesn't exist, create the base registry repository
+                repo = await repos_service.create_repository(
+                    RegistryRepositoryCreate(origin=origin)
+                )
+                logger.info("Created repository", origin=origin)
+            else:
+                logger.info(
+                    "Repository already exists, skipping creation", origin=origin
+                )
+            repos.append(repo)
 
     actions_service = RegistryActionsService(session, role=role)
     await actions_service.sync_actions(repos)

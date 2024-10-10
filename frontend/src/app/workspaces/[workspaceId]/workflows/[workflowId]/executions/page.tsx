@@ -156,7 +156,7 @@ function WorkflowExecutionsViewLayout({
         <ResizablePanel
           defaultSize={defaultLayout[2]}
           minSize={25}
-          className="flex-grow"
+          className="grow"
         >
           <div className="flex h-full flex-col">
             <ScrollArea className="w-full">
