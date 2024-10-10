@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tracecat-key-generator-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - get
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tracecat-key-generator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tracecat-key-generator-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tracecat-key-generator-role
+subjects:
+  - kind: ServiceAccount
+    name: tracecat-key-generator

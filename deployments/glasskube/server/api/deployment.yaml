@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-api
+spec:
+  selector: {}
+  template:
+    spec:
+      serviceAccountName: tracecat-key-generator # TODO service account only for init container maybe?
+      volumes:
+        - name: init-dir
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: tracecat-key-scripts
+            defaultMode: 0755
+      initContainers:
+        - name: generate-db-encryption-key
+          image: python
+          command: ['/scripts/fernet-key-generator.sh']
+          volumeMounts:
+            - mountPath: /init-dir
+              name: init-dir
+            - mountPath: /scripts
+              name: scripts
+        - name: set-keys-if-not-present
+          image: kubectl
+          command: ['/scripts/tracecat-key-manager.sh']
+          volumeMounts:
+            - mountPath: /init-dir
+              name: init-dir
+            - mountPath: /scripts
+              name: scripts
+          env:
+            - name: KEYS_SECRET_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: GLASSKUBE_INSTANCE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['packages.glasskube.dev/instance']
+            - name: KEYS_SECRET_NAME
+              value: "$(GLASSKUBE_INSTANCE_NAME)-tracecat-keys"
+      containers:
+        - name: tracecat-api
+          image: server
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: tracecat-db-cluster-app
+            - configMapRef:
+                name: tracecat-config
+          env:
+            - name: TRACECAT__DB_URI
+              value: "postgresql+psycopg://$(username):$(password)@$(host):$(port)/$(dbname)"
+            - name: RUN_MIGRATIONS
+              value: "true"
+            - name: TRACECAT__PUBLIC_RUNNER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_API_URL
+            - name: TRACECAT__ALLOW_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_APP_URL
+            - name: TRACECAT__PUBLIC_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_APP_URL
+            - name: TRACECAT__PUBLIC_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_API_URL
+            - name: TRACECAT__SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: SERVICE_KEY # patched by the init container if not exists
+                  name: tracecat-keys
+            - name: TRACECAT__SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: SIGNING_SECRET # patched by the init container if not exists
+                  name: tracecat-keys
+            - name: TRACECAT__DB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: DB_ENCRYPTION_KEY # patched by the init container if not exists
+                  name: tracecat-keys

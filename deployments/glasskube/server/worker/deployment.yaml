@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-worker
+  labels:
+    app.kubernetes.io/component: tracecat-worker
+spec:
+  selector: {}
+  template:
+    spec:
+      containers:
+        - name: tracecat-worker
+          image: server
+          command: ["python", "tracecat/dsl/worker.py"]
+          envFrom:
+            - secretRef:
+                name: tracecat-db-cluster-app
+            - configMapRef:
+                name: tracecat-config
+          env: # TRACECAT__ are the same as in api/deployment.yaml, so this should be de-duplicated!
+            - name: TRACECAT__DB_URI
+              value: "postgresql+psycopg://$(username):$(password)@$(host):$(port)/$(dbname)"
+            - name: TRACECAT__PUBLIC_RUNNER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_API_URL
+            - name: TRACECAT__ALLOW_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_APP_URL
+            - name: TRACECAT__PUBLIC_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_APP_URL
+            - name: TRACECAT__PUBLIC_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: PUBLIC_API_URL
+            - name: TRACECAT__SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: SERVICE_KEY # patched by the init container if not exists
+                  name: tracecat-keys
+            - name: TRACECAT__SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: SIGNING_SECRET # patched by the init container if not exists
+                  name: tracecat-keys
+            - name: TRACECAT__DB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: DB_ENCRYPTION_KEY # patched by the init container if not exists
+                  name: tracecat-keys
+            - name: GLASSKUBE_INSTANCE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['packages.glasskube.dev/instance']
+            - name: TEMPORAL__CLUSTER_URL
+              value: "$(GLASSKUBE_INSTANCE_NAME)-temporal-temporal-frontend:7233"
+            - name: TEMPORAL__CLUSTER_QUEUE
+              value: "tracecat-task-queue"
+            - name: TEMPORAL__CLUSTER_NAMESPACE
+              value: "default"
