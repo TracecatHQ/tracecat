@@ -12,6 +12,7 @@ from tracecat.registry.repositories.models import (
     RegistryRepositoryUpdate,
 )
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.repository import ensure_base_repository
 
 router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
 
@@ -30,6 +31,7 @@ async def sync_registry_repositories(
     """Load actions from all registry repositories."""
     repos_service = RegistryReposService(session, role=role)
     # Check if the base registry repository already exists
+    await ensure_base_repository(session=session, role=role)
     if origins is None:
         repos = await repos_service.list_repositories()
     else:
