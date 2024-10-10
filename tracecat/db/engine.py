@@ -145,13 +145,12 @@ def get_session() -> Generator[Session, None, None]:
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None, None]:
     try:
-        async with AsyncSession(
-            get_async_engine(), expire_on_commit=False
-        ) as async_session:
-            yield async_session
+        async_engine = get_async_engine()
     except Exception as e:
         logger.error("Error getting async session", error=e)
         raise
+    async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
+        yield async_session
 
 
 def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
