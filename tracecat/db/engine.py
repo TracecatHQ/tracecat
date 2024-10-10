@@ -1,4 +1,5 @@
 import contextlib
+import json
 import os
 from collections.abc import AsyncGenerator, Generator
 from typing import Literal
@@ -34,13 +35,14 @@ def get_connection_string(
 
 
 def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
-    # Check if AWS envirronment
+    # Check if AWS environment
     if config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS__ARN:
         logger.info("Retrieving database password from AWS Secrets Manager...")
         try:
             session = boto3.session.Session()
             client = session.client(service_name="secretsmanager")
             response = client.get_secret_value(SecretId=config.TRACECAT__DB_PASS__ARN)
+            password = json.loads(response["SecretString"])["password"]
         except ClientError as e:
             logger.error(
                 "Error retrieving secret from AWS secrets manager."
@@ -48,10 +50,19 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
                 error=e,
             )
             raise e
+        except KeyError as e:
+            logger.error(
+                "Error retrieving secret from AWS secrets manager."
+                " `password` not found in secret."
+                " Please check that the database secret in AWS Secrets Manager is a valid JSON object"
+                " with `username` and `password`"
+            )
+            raise e
+
         # Get the password from AWS Secrets Manager
         uri = get_connection_string(
             username=config.TRACECAT__DB_USER,
-            password=response["SecretString"],
+            password=password,
             host=config.TRACECAT__DB_ENDPOINT,
             port=config.TRACECAT__DB_PORT,
             database=config.TRACECAT__DB_NAME,

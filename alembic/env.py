@@ -1,3 +1,5 @@
+import json
+import logging
 import os
 from logging.config import fileConfig
 
@@ -18,11 +20,13 @@ if not TRACECAT__DB_URI:
 
     # Check if in AWS environment
     if os.getenv("TRACECAT__DB_PASS__ARN"):
+        logging.info("Fetching database password from AWS Secrets Manager")
         session = boto3.Session()
         client = session.client("secretsmanager")
         response = client.get_secret_value(SecretId=os.getenv("TRACECAT__DB_PASS__ARN"))
-        password = response["SecretString"]
+        password = json.loads(response["SecretString"])["password"]
     else:
+        logging.info("Fetching database password from environment variable")
         password = os.getenv("TRACECAT__DB_PASS")
 
     TRACECAT__DB_URI = (
