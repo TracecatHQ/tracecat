@@ -80,7 +80,7 @@ jobs:
       - name: Verify Tracecat API is running
         run: curl -s http://localhost/api/health | jq -e '.status == "ok"'
 
-      - name: pip install Tracecat
+      - name: uv install Tracecat
         run: |
           uv pip install ".[dev]"
           uv pip install ./registry
@@ -92,10 +92,10 @@ jobs:
       - name: Run unit tests
         env:
           LOG_LEVEL: WARNING
-        run: uv tool run pytest tests/unit --temporal-no-restart --tracecat-no-restart
+        run: uv run pytest tests/unit --temporal-no-restart --tracecat-no-restart
 
       - name: Run playbook tests
         env:
           LOG_LEVEL: WARNING
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-        run: uv tool run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart
+        run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart
