@@ -1,6 +1,7 @@
-FROM python:3.12-slim-bookworm
+FROM ghcr.io/astral-sh/uv:0.4.20-python3.12-bookworm-slim
 
 # Define the environment variables
+ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
@@ -46,10 +47,9 @@ RUN chmod +x /app/entrypoint.sh
 # Change to the non-root user
 USER apiuser
 
-# Install package
-RUN pip install --upgrade pip && pip install .
-# Install registry
-RUN pip install ./registry
+# Install package and registry
+RUN uv pip install .
+RUN uv pip install ./registry
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
