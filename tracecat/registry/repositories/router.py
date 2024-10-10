@@ -66,7 +66,7 @@ async def list_registry_repositories(
     return [RegistryRepositoryReadMinimal(origin=repo.origin) for repo in repositories]
 
 
-@router.get("/{origin}", response_model=RegistryRepositoryRead)
+@router.get("/{origin:path}", response_model=RegistryRepositoryRead)
 async def get_registry_repository(
     origin: str, role: OrgUserRole, session: AsyncDBSession
 ) -> RegistryRepositoryRead:
@@ -114,10 +114,7 @@ async def create_registry_repository(
         ) from e
 
 
-@router.patch(
-    "/{origin}",
-    response_model=RegistryRepositoryRead,
-)
+@router.patch("/{origin:path}", response_model=RegistryRepositoryRead)
 async def update_registry_repository(
     role: OrgUserOrServiceRole,
     session: AsyncDBSession,
@@ -141,7 +138,7 @@ async def update_registry_repository(
     )
 
 
-@router.delete("/{origin}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{origin:path}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_repository(
     origin: str, role: OrgUserOrServiceRole, session: AsyncDBSession
 ):
