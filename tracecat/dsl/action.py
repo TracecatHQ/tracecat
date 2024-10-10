@@ -19,7 +19,7 @@ from tracecat.types.exceptions import RegistryActionError, TracecatException
 
 
 def _contextualize_message(
-    task: ActionStatement[ArgsT], msg: str | BaseException, *, loc: str = "run_udf"
+    task: ActionStatement[ArgsT], msg: str | BaseException, *, loc: str = "run_action"
 ) -> str:
     return f"[{context_locator(task, loc)}]\n\n{msg}"
 
