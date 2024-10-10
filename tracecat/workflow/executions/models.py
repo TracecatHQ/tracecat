@@ -104,7 +104,11 @@ EventInput = TypeVar(
     "EventInput", UDFActionInput, DSLRunArgs, GetWorkflowDefinitionActivityInputs
 )
 
-IGNORED_UTILITY_ACTIONS = {"get_schedule_activity", "validate_trigger_inputs_activity"}
+IGNORED_UTILITY_ACTIONS = {
+    "get_schedule_activity",
+    "validate_trigger_inputs_activity",
+    "validate_action_activity",
+}
 
 
 class EventGroup(BaseModel, Generic[EventInput]):
