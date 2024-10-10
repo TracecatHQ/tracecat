@@ -133,7 +133,6 @@ async def setup_oss_models():
 
 
 def custom_generate_unique_id(route: APIRoute):
-    logger.trace("Generating unique ID for route", tags=route.tags, name=route.name)
     if route.tags:
         return f"{route.tags[0]}-{route.name}"
     return route.name
