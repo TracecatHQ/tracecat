@@ -444,7 +444,10 @@ class RegistryRepository(Resource, table=True):
     )
     actions: list["RegistryAction"] = Relationship(
         back_populates="repository",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
     )
 
 
@@ -462,11 +465,7 @@ class RegistryAction(Resource, table=True):
     """
 
     __table_args__ = (
-        UniqueConstraint(
-            "namespace",
-            "name",
-            name="uq_registry_action_namespace_name",
-        ),
+        UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
     )
 
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
@@ -499,12 +498,7 @@ class RegistryAction(Resource, table=True):
     )
     # Relationships
     repository_id: UUID4 = Field(
-        ...,  # This makes the field required and non-nullable
-        sa_column=Column(
-            UUID,
-            ForeignKey("registryrepository.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        sa_column=Column(UUID, ForeignKey("registryrepository.id", ondelete="CASCADE")),
     )
     repository: RegistryRepository = Relationship(back_populates="actions")
 
