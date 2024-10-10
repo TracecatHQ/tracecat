@@ -338,10 +338,6 @@ export type DSLConfig_Input = {
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
-    /**
-     * The registry version to use for the workflow.
-     */
-    registry_version?: string;
 };
 
 /**
@@ -551,10 +547,6 @@ export type RegistryActionCreate = {
      */
     type: 'udf' | 'template';
     /**
-     * Registry version
-     */
-    version: string;
-    /**
      * The origin of the action as a url
      */
     origin: string;
@@ -618,10 +610,6 @@ export type RegistryActionRead = {
      * The type of the action
      */
     type: 'udf' | 'template';
-    /**
-     * Registry version
-     */
-    version: string;
     /**
      * The origin of the action as a url
      */
@@ -729,7 +717,6 @@ export type RegistryActionUpdate = {
 };
 
 export type RegistryActionValidate = {
-    registry_version: string;
     args: {
         [key: string]: unknown;
     };
@@ -742,19 +729,16 @@ export type RegistryActionValidateResponse = {
 };
 
 export type RegistryRepositoryCreate = {
-    version: string;
-    origin?: string | null;
+    origin: string;
 };
 
 export type RegistryRepositoryRead = {
-    version: string;
-    origin?: string | null;
+    origin: string;
     actions: Array<RegistryActionRead>;
 };
 
 export type RegistryRepositoryReadMinimal = {
-    version: string;
-    origin?: string | null;
+    origin: string;
 };
 
 export type RegistryRepositoryUpdate = {
@@ -816,7 +800,6 @@ export type RunContext = {
     wf_exec_id: string;
     wf_run_id: string;
     environment: string;
-    registry_version: string;
 };
 
 export type Schedule = {
@@ -1745,27 +1728,23 @@ export type RegistryRepositoriesCreateRegistryRepositoryData = {
 export type RegistryRepositoriesCreateRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesGetRegistryRepositoryData = {
-    version: string;
+    origin: string;
 };
 
 export type RegistryRepositoriesGetRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesUpdateRegistryRepositoryData = {
+    origin: string;
     requestBody: RegistryRepositoryUpdate;
-    version: string;
 };
 
 export type RegistryRepositoriesUpdateRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesDeleteRegistryRepositoryData = {
-    version: string;
+    origin: string;
 };
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void;
-
-export type RegistryActionsListRegistryActionsData = {
-    versions?: Array<(string)> | null;
-};
 
 export type RegistryActionsListRegistryActionsResponse = Array<RegistryActionRead>;
 
@@ -1777,10 +1756,6 @@ export type RegistryActionsCreateRegistryActionResponse = RegistryActionRead;
 
 export type RegistryActionsGetRegistryActionData = {
     actionName: string;
-    /**
-     * The version of the registry to get the action from
-     */
-    version?: string | null;
 };
 
 export type RegistryActionsGetRegistryActionResponse = RegistryActionRead;
@@ -1788,20 +1763,12 @@ export type RegistryActionsGetRegistryActionResponse = RegistryActionRead;
 export type RegistryActionsUpdateRegistryActionData = {
     actionName: string;
     requestBody: RegistryActionUpdate;
-    /**
-     * The version of the registry to update the action in
-     */
-    version?: string | null;
 };
 
 export type RegistryActionsUpdateRegistryActionResponse = void;
 
 export type RegistryActionsDeleteRegistryActionData = {
     actionName: string;
-    /**
-     * The version of the registry to delete the action from
-     */
-    version?: string | null;
 };
 
 export type RegistryActionsDeleteRegistryActionResponse = void;
@@ -2753,7 +2720,7 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/registry/repos/{version}': {
+    '/registry/repos/{origin}': {
         get: {
             req: RegistryRepositoriesGetRegistryRepositoryData;
             res: {
@@ -2796,16 +2763,11 @@ export type $OpenApiTs = {
     };
     '/registry/actions': {
         get: {
-            req: RegistryActionsListRegistryActionsData;
             res: {
                 /**
                  * Successful Response
                  */
                 200: Array<RegistryActionRead>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
             };
         };
         post: {

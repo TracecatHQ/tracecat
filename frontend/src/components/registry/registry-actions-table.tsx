@@ -54,6 +54,15 @@ export function RegistryActionsTable() {
         value: type,
       }))
 
+    const originOptions = Array.from(
+      new Set(registryActions?.map((action) => action.origin))
+    )
+      .sort() // Sort types alphabetically
+      .map((origin) => ({
+        label: origin,
+        value: origin,
+      }))
+
     return {
       filterProps: {
         placeholder: "Search actions...",
@@ -70,6 +79,11 @@ export function RegistryActionsTable() {
           title: "Namespace",
           options: namespaceOptions,
         },
+        {
+          column: "origin",
+          title: "Origin",
+          options: originOptions,
+        },
       ],
     }
   }, [registryActions])
@@ -77,7 +91,6 @@ export function RegistryActionsTable() {
   const handleOnClickRow = (row: Row<RegistryActionRead>) => () => {
     // Link to workflow detail page
     console.debug("Clicked row", row)
-    // router.push(`/registry/actions/${row.original.id}`) // view the schema table?
     setSelectedAction(row.original)
   }
   return (
@@ -136,26 +149,6 @@ export function RegistryActionsTable() {
             },
           },
           {
-            accessorKey: "version",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Version"
-              />
-            ),
-            cell: ({ row }) => {
-              return (
-                <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryActionRead["version"]>("version") ||
-                    "-"}
-                </div>
-              )
-            },
-            enableSorting: true,
-            enableHiding: false,
-          },
-          {
             accessorKey: "origin",
             header: ({ column }) => (
               <DataTableColumnHeader
@@ -173,6 +166,12 @@ export function RegistryActionsTable() {
             },
             enableSorting: true,
             enableHiding: false,
+            enableColumnFilter: true,
+            filterFn: (row, id, value) => {
+              return value.includes(
+                row.getValue<RegistryActionRead["origin"]>(id)
+              )
+            },
           },
           {
             accessorKey: "type",
@@ -227,7 +226,7 @@ export function RegistryActionsTable() {
                             e.stopPropagation() // Prevent row click
                             // popup a dialog to create a new  from this template
                             router.push(
-                              `/registry/actions/new?template=${row.original.action}&version=${row.original.version}`
+                              `/registry/actions/new?template=${row.original.action}&origin=${row.original.origin}`
                             )
                           }}
                         >
@@ -239,7 +238,7 @@ export function RegistryActionsTable() {
                           onClick={async (e) => {
                             e.stopPropagation() // Prevent row click
                             router.push(
-                              `/registry/actions/edit?template=${row.original.action}&version=${row.original.version}`
+                              `/registry/actions/edit?template=${row.original.action}&origin=${row.original.origin}`
                             )
                           }}
                         >

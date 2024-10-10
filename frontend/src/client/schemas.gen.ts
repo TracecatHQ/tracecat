@@ -1041,12 +1041,6 @@ export const $DSLConfig_Input = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
-        },
-        registry_version: {
-            type: 'string',
-            title: 'Registry Version',
-            description: 'The registry version to use for the workflow.',
-            default: '0.1.0'
         }
     },
     type: 'object',
@@ -1605,11 +1599,6 @@ export const $RegistryActionCreate = {
             title: 'Type',
             description: 'The type of the action'
         },
-        version: {
-            type: 'string',
-            title: 'Version',
-            description: 'Registry version'
-        },
         origin: {
             type: 'string',
             title: 'Origin',
@@ -1684,7 +1673,7 @@ export const $RegistryActionCreate = {
         }
     },
     type: 'object',
-    required: ['name', 'description', 'namespace', 'type', 'version', 'origin', 'interface', 'repository_id'],
+    required: ['name', 'description', 'namespace', 'type', 'origin', 'interface', 'repository_id'],
     title: 'RegistryActionCreate',
     description: 'API create model for a registered action.'
 } as const;
@@ -1738,11 +1727,6 @@ export const $RegistryActionRead = {
             enum: ['udf', 'template'],
             title: 'Type',
             description: 'The type of the action'
-        },
-        version: {
-            type: 'string',
-            title: 'Version',
-            description: 'Registry version'
         },
         origin: {
             type: 'string',
@@ -1830,7 +1814,7 @@ export const $RegistryActionRead = {
         }
     },
     type: 'object',
-    required: ['name', 'description', 'namespace', 'type', 'version', 'origin', 'interface', 'repository_id', 'action', 'is_template'],
+    required: ['name', 'description', 'namespace', 'type', 'origin', 'interface', 'repository_id', 'action', 'is_template'],
     title: 'RegistryActionRead',
     description: 'API read model for a registered action.'
 } as const;
@@ -2015,17 +1999,13 @@ export const $RegistryActionUpdate = {
 
 export const $RegistryActionValidate = {
     properties: {
-        registry_version: {
-            type: 'string',
-            title: 'Registry Version'
-        },
         args: {
             type: 'object',
             title: 'Args'
         }
     },
     type: 'object',
-    required: ['registry_version', 'args'],
+    required: ['args'],
     title: 'RegistryActionValidate'
 } as const;
 
@@ -2056,42 +2036,20 @@ export const $RegistryActionValidateResponse = {
 
 export const $RegistryRepositoryCreate = {
     properties: {
-        version: {
-            type: 'string',
-            title: 'Version'
-        },
         origin: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
+            type: 'string',
             title: 'Origin'
         }
     },
     type: 'object',
-    required: ['version'],
+    required: ['origin'],
     title: 'RegistryRepositoryCreate'
 } as const;
 
 export const $RegistryRepositoryRead = {
     properties: {
-        version: {
-            type: 'string',
-            title: 'Version'
-        },
         origin: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
+            type: 'string',
             title: 'Origin'
         },
         actions: {
@@ -2103,30 +2061,19 @@ export const $RegistryRepositoryRead = {
         }
     },
     type: 'object',
-    required: ['version', 'actions'],
+    required: ['origin', 'actions'],
     title: 'RegistryRepositoryRead'
 } as const;
 
 export const $RegistryRepositoryReadMinimal = {
     properties: {
-        version: {
-            type: 'string',
-            title: 'Version'
-        },
         origin: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
+            type: 'string',
             title: 'Origin'
         }
     },
     type: 'object',
-    required: ['version'],
+    required: ['origin'],
     title: 'RegistryRepositoryReadMinimal'
 } as const;
 
@@ -2308,14 +2255,10 @@ export const $RunContext = {
         environment: {
             type: 'string',
             title: 'Environment'
-        },
-        registry_version: {
-            type: 'string',
-            title: 'Registry Version'
         }
     },
     type: 'object',
-    required: ['wf_id', 'wf_exec_id', 'wf_run_id', 'environment', 'registry_version'],
+    required: ['wf_id', 'wf_exec_id', 'wf_run_id', 'environment'],
     title: 'RunContext',
     description: 'This is the runtime context model for a workflow run. Passed into activities.'
 } as const;

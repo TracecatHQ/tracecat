@@ -775,10 +775,8 @@ export function useWorkbenchRegistryActions(versions?: string[]) {
     error: registryActionsError,
   } = useQuery<RegistryActionRead[]>({
     queryKey: ["workbench_registry_actions", versions],
-    queryFn: async ({ queryKey }) => {
-      return await registryActionsListRegistryActions({
-        versions: queryKey[1] as string[],
-      })
+    queryFn: async () => {
+      return await registryActionsListRegistryActions()
     },
   })
 
@@ -805,7 +803,6 @@ export function useRegistryAction(key: string, version: string) {
     queryFn: async ({ queryKey }) => {
       return await registryActionsGetRegistryAction({
         actionName: queryKey[1] as string,
-        version: queryKey[2] as string,
       })
     },
   })
@@ -823,17 +820,14 @@ export function useRegistryActions(versions?: string[]) {
   } = useQuery<RegistryActionRead[]>({
     queryKey: ["registry_actions", versions],
     queryFn: async () => {
-      return await registryActionsListRegistryActions({})
+      return await registryActionsListRegistryActions()
     },
   })
 
   const getRegistryAction = (
-    actionName: string,
-    version: string
+    actionName: string
   ): RegistryActionRead | undefined => {
-    return registryActions?.find(
-      (action) => action.action === actionName && action.version === version
-    )
+    return registryActions?.find((action) => action.action === actionName)
   }
 
   const {

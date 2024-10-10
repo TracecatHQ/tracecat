@@ -34,8 +34,8 @@ export function RegistryRepositoriesTable() {
     setSelectedRepo(row.original)
   }
 
-  const handleReloadRepository = (version: string, origin?: string | null) => {
-    console.log("Reloading repository", version, origin)
+  const handleReloadRepository = (origin: string) => {
+    console.log("Reloading repository", origin)
   }
   return (
     <DataTable
@@ -46,27 +46,6 @@ export function RegistryRepositoriesTable() {
       errorMessage="Error loading workflows."
       onClickRow={handleOnClickRow}
       columns={[
-        {
-          accessorKey: "version",
-          header: ({ column }) => (
-            <DataTableColumnHeader
-              className="text-xs"
-              column={column}
-              title="Version"
-            />
-          ),
-          cell: ({ row }) => {
-            return (
-              <div className="text-xs text-foreground/80">
-                {row.getValue<RegistryRepositoryReadMinimal["version"]>(
-                  "version"
-                ) || "-"}
-              </div>
-            )
-          },
-          enableSorting: true,
-          enableHiding: false,
-        },
         {
           accessorKey: "origin",
           header: ({ column }) => (
@@ -81,7 +60,7 @@ export function RegistryRepositoriesTable() {
               <div className="text-xs text-foreground/80">
                 {row.getValue<RegistryRepositoryReadMinimal["origin"]>(
                   "origin"
-                ) || "Tracecat"}
+                ) || "-"}
               </div>
             )
           },
@@ -112,19 +91,19 @@ export function RegistryRepositoriesTable() {
                     className="flex items-center text-xs"
                     onClick={(e) => {
                       e.stopPropagation() // Prevent row click
-                      navigator.clipboard.writeText(row.original.version)
+                      navigator.clipboard.writeText(row.original.origin)
                       toast({
-                        title: "Action name copied",
+                        title: "Repository origin copied",
                         description: (
                           <div className="flex flex-col space-y-2">
                             <span>
-                              Version copied for{" "}
+                              Repository origin copied for{" "}
                               <b className="inline-block">
-                                {row.original.version}
+                                {row.original.origin}
                               </b>
                             </span>
                             <span className="text-muted-foreground">
-                              Version: {row.original.version}
+                              Repository origin: {row.original.origin}
                             </span>
                           </div>
                         ),
@@ -132,17 +111,14 @@ export function RegistryRepositoriesTable() {
                     }}
                   >
                     <CopyIcon className="mr-2 size-4" />
-                    <span>Copy version</span>
+                    <span>Copy repository origin</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="flex items-center text-xs"
                     onClick={(e) => {
                       e.stopPropagation() // Prevent row click
-                      navigator.clipboard.writeText(row.original.version)
-                      handleReloadRepository(
-                        row.original.version,
-                        row.original.origin
-                      )
+                      navigator.clipboard.writeText(row.original.origin)
+                      handleReloadRepository(row.original.origin)
                       toast({
                         title: "Reloading repository",
                         description: (
@@ -150,11 +126,11 @@ export function RegistryRepositoriesTable() {
                             <span>
                               Reloading actions from{" "}
                               <b className="inline-block">
-                                {row.original.version}
+                                {row.original.origin}
                               </b>
                             </span>
                             <span className="text-muted-foreground">
-                              Version: {row.original.version}
+                              Repository URL: {row.original.origin}
                             </span>
                           </div>
                         ),

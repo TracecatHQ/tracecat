@@ -151,7 +151,6 @@ export function UDFActionPanel({
         const validateResponse = await registryActionsValidateRegistryAction({
           actionName: registryAction.action,
           requestBody: {
-            registry_version: registryAction.version,
             args: actionInputs,
           },
         })

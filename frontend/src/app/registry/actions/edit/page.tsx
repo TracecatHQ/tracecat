@@ -31,11 +31,14 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function EditActionPage() {
   const searchParams = useSearchParams()
-  const version = searchParams.get("version")
+  const origin = searchParams.get("origin")
   const actionName = searchParams.get("template")
 
-  if (!actionName || !version) {
-    return <div>No template action name or version provided</div>
+  if (!actionName) {
+    return <div>No template action name provided</div>
+  }
+  if (!origin) {
+    return <div>No origin provided</div>
   }
 
   return (
@@ -69,7 +72,7 @@ export default function EditActionPage() {
             </p>
           </div>
         </div>
-        <EditTemplateActionView actionName={actionName} version={version} />
+        <EditTemplateActionView actionName={actionName} origin={origin} />
       </div>
     </div>
   )
@@ -77,13 +80,13 @@ export default function EditActionPage() {
 
 function EditTemplateActionView({
   actionName,
-  version,
+  origin,
 }: {
   actionName: string
-  version: string
+  origin: string
 }) {
   const { registryAction, registryActionIsLoading, registryActionError } =
-    useRegistryAction(actionName, version)
+    useRegistryAction(actionName, origin)
 
   if (registryActionIsLoading || !registryAction) {
     return <CenteredSpinner />
@@ -100,7 +103,7 @@ function EditTemplateActionView({
   return (
     <EditTemplateActionForm
       actionName={actionName}
-      version={version}
+      origin={origin}
       baseTemplateAction={registryAction.implementation.template_action}
     />
   )
@@ -115,11 +118,11 @@ type EditTemplateActionFormSchema = z.infer<typeof editTemplateActionFormSchema>
 
 function EditTemplateActionForm({
   actionName,
-  version,
+  origin,
   baseTemplateAction,
 }: {
   actionName: string
-  version: string
+  origin: string
   baseTemplateAction: TemplateAction_Output
 }) {
   const {
@@ -131,7 +134,7 @@ function EditTemplateActionForm({
   const methods = useForm<EditTemplateActionFormSchema>({
     resolver: zodResolver(editTemplateActionFormSchema),
     defaultValues: {
-      origin: `${version}/${actionName}`,
+      origin: `${origin}/${actionName}`,
       definition: itemOrEmptyString(baseTemplateAction.definition),
     },
   })
@@ -159,7 +162,6 @@ function EditTemplateActionForm({
       } as RegistryActionUpdate
       await updateRegistryAction({
         actionName,
-        version,
         requestBody: updateParams,
       })
     } catch (error) {
@@ -186,8 +188,8 @@ function EditTemplateActionForm({
               <Label htmlFor="origin">Origin</Label>
               <Input
                 disabled
-                id="version"
-                placeholder="Enter version"
+                id="origin"
+                placeholder="Enter origin"
                 className="font-mono"
                 {...field}
               />
