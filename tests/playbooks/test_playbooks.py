@@ -8,7 +8,6 @@ import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
-from tracecat_registry import REGISTRY_VERSION
 
 from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
 from tracecat.dsl.action import DSLActivities
@@ -79,8 +78,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 async def test_playbook_validation(
     session: AsyncSession, file_path: str, test_role: Role, base_registry
 ):
-    version = REGISTRY_VERSION
-    repo = Repository(version)
+    repo = Repository()
     repo.init(include_base=True, include_templates=True)
     logger.info("Initializing registry", length=len(repo), keys=repo.keys)
     mgmt_service = WorkflowsManagementService(session, role=test_role)
@@ -91,8 +89,6 @@ async def test_playbook_validation(
     )
     dsl = await mgmt_service.build_dsl_from_workflow(workflow)
 
-    # Override the registry version
-    dsl.config.registry_version = version
     validation_results = await validate_dsl(
         session=session,
         dsl=dsl,

@@ -141,10 +141,6 @@ async def route_llm_call(
 
 
 async def preload_ollama_models(models: list[str]) -> list[Mapping[str, Any]]:
-    logger.info(
-        f"Preloading {len(models)} models",
-        models=models,
-    )
     client = _get_ollama_client()
     async with GatheringTaskGroup() as tg:
         for model in models:

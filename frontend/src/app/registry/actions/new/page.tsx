@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { TemplateAction_Output, TemplateActionDefinition } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ArrowLeftIcon, Loader2 } from "lucide-react"
@@ -27,11 +27,14 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function NewActionPage() {
   const searchParams = useSearchParams()
-  const version = searchParams.get("version")
+  const origin = searchParams.get("origin")
   const actionName = searchParams.get("template")
 
-  if (!actionName || !version) {
-    return <div>No template action name or version provided</div>
+  if (!actionName) {
+    return <div>No template action name provided</div>
+  }
+  if (!origin) {
+    return <div>No origin provided</div>
   }
 
   return (
@@ -65,7 +68,7 @@ export default function NewActionPage() {
             </p>
           </div>
         </div>
-        <NewTemplateActionView actionName={actionName} version={version} />
+        <NewTemplateActionView actionName={actionName} origin={origin} />
       </div>
     </div>
   )
@@ -73,13 +76,13 @@ export default function NewActionPage() {
 
 function NewTemplateActionView({
   actionName,
-  version,
+  origin,
 }: {
   actionName: string
-  version: string
+  origin: string
 }) {
   const { registryAction, registryActionIsLoading, registryActionError } =
-    useRegistryAction(actionName, version)
+    useRegistryAction(actionName, origin)
 
   if (registryActionIsLoading || !registryAction) {
     return <CenteredSpinner />
@@ -96,7 +99,7 @@ function NewTemplateActionView({
   return (
     <NewTemplateActionForm
       actionName={actionName}
-      version={version}
+      origin={origin}
       repositoryId={registryAction.repository_id}
       baseTemplateAction={registryAction.implementation.template_action}
     />
@@ -104,7 +107,6 @@ function NewTemplateActionView({
 }
 
 const newTemplateActionFormSchema = z.object({
-  version: z.string(),
   origin: z.string(),
   definition: z.string(),
 })
@@ -114,22 +116,22 @@ type NewTemplateActionFormSchema = z.infer<typeof newTemplateActionFormSchema>
 function NewTemplateActionForm({
   repositoryId,
   actionName,
-  version,
+  origin,
   baseTemplateAction,
 }: {
   repositoryId: string
   actionName: string
-  version: string
+  origin: string
   baseTemplateAction: TemplateAction_Output
 }) {
+  const router = useRouter()
   const { createRegistryAction, createRegistryActionIsPending } =
     useRegistryActions()
 
   const methods = useForm<NewTemplateActionFormSchema>({
     resolver: zodResolver(newTemplateActionFormSchema),
     defaultValues: {
-      version,
-      origin: `${version}/${actionName}`,
+      origin: `${origin}/${actionName}`,
       definition: itemOrEmptyString(baseTemplateAction.definition),
     },
   })
@@ -144,7 +146,6 @@ function NewTemplateActionForm({
         type: "template",
         description: defn.description || "",
         namespace: defn.namespace,
-        version: data.version,
         origin: data.origin,
         default_title: defn.title,
         display_group: defn.display_group,
@@ -160,6 +161,7 @@ function NewTemplateActionForm({
           },
         },
       })
+      router.push("/registry/actions")
     } catch (error) {
       console.error("Error creating template action:", error)
     }
@@ -168,22 +170,6 @@ function NewTemplateActionForm({
   return (
     <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
       <div className="space-y-4">
-        <Controller
-          name="version"
-          control={methods.control}
-          render={({ field }) => (
-            <div>
-              <Label htmlFor="version">Version</Label>
-              <Input
-                disabled
-                id="version"
-                placeholder="Enter version"
-                {...field}
-              />
-            </div>
-          )}
-        />
-
         <Controller
           name="origin"
           control={methods.control}

@@ -1,8 +1,7 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
-from tracecat_registry import REGISTRY_VERSION
 
 from tracecat.auth.dependencies import OrgUserOrServiceRole
 from tracecat.contexts import ctx_logger
@@ -29,27 +28,21 @@ router = APIRouter(prefix="/registry/actions", tags=["registry-actions"])
 async def list_registry_actions(
     role: OrgUserOrServiceRole,
     session: AsyncDBSession,
-    versions: list[str] | None = Query(None),
 ) -> list[RegistryActionRead]:
     """List all actions in a registry."""
     service = RegistryActionsService(session, role)
-    actions = await service.list_actions(versions=versions)
+    actions = await service.list_actions()
     return [RegistryActionRead.from_database(action) for action in actions]
 
 
 @router.get("/{action_name}")
 async def get_registry_action(
-    role: OrgUserOrServiceRole,
-    session: AsyncDBSession,
-    action_name: str,
-    version: str | None = Query(
-        None, description="The version of the registry to get the action from"
-    ),
+    role: OrgUserOrServiceRole, session: AsyncDBSession, action_name: str
 ) -> RegistryActionRead:
     """Get a specific registry action."""
     service = RegistryActionsService(session, role)
     try:
-        action = await service.get_action(version=version, action_name=action_name)
+        action = await service.get_action(action_name=action_name)
         return RegistryActionRead.from_database(action)
     except RegistryError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -57,9 +50,7 @@ async def get_registry_action(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_registry_action(
-    role: OrgUserOrServiceRole,
-    session: AsyncDBSession,
-    params: RegistryActionCreate,
+    role: OrgUserOrServiceRole, session: AsyncDBSession, params: RegistryActionCreate
 ) -> RegistryActionRead:
     """Create a new registry action."""
     service = RegistryActionsService(session, role)
@@ -81,14 +72,11 @@ async def update_registry_action(
     session: AsyncDBSession,
     params: RegistryActionUpdate,
     action_name: str,
-    version: str | None = Query(
-        None, description="The version of the registry to update the action in"
-    ),
 ) -> None:
     """Update a custom registry action."""
     service = RegistryActionsService(session, role)
     try:
-        action = await service.get_action(version=version, action_name=action_name)
+        action = await service.get_action(action_name=action_name)
         await service.update_action(action, params)
     except RegistryError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -96,18 +84,12 @@ async def update_registry_action(
 
 @router.delete("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_action(
-    role: OrgUserOrServiceRole,
-    session: AsyncDBSession,
-    action_name: str,
-    version: str | None = Query(
-        None, description="The version of the registry to delete the action from"
-    ),
+    role: OrgUserOrServiceRole, session: AsyncDBSession, action_name: str
 ) -> None:
     """Delete a template action."""
     service = RegistryActionsService(session, role)
-    version = version or REGISTRY_VERSION
     try:
-        action = await service.get_action(version=version, action_name=action_name)
+        action = await service.get_action(action_name=action_name)
     except RegistryError as e:
         logger.error("Error getting action", action_name=action_name, error=e)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -115,7 +97,7 @@ async def delete_registry_action(
         logger.error(
             "Attempted to delete default action",
             action_name=action_name,
-            version=version,
+            origin=action.origin,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -130,21 +112,12 @@ async def delete_registry_action(
 
 @router.post("/{action_name}/execute")
 async def run_registry_action(
-    role: OrgUserOrServiceRole,
-    action_name: str,
-    action_input: UDFActionInput,
+    role: OrgUserOrServiceRole, action_name: str, action_input: UDFActionInput
 ) -> Any:
     """Execute a registry action."""
     ref = action_input.task.ref
     act_logger = logger.bind(role=role, action_name=action_name, ref=ref)
     ctx_logger.set(act_logger)
-
-    # Let's just pull the implemnetations on demand for now
-    # 1. Look up the implementation in the DB
-
-    # 2. Load the implementation
-
-    # 3. Execute the implementation
 
     act_logger.info("Starting action")
     try:
@@ -164,21 +137,16 @@ async def validate_registry_action(
     """Validate a registry action."""
     try:
         result = await vadliate_registry_action_args(
-            session=session,
-            action_name=action_name,
-            version=params.registry_version,
-            args=params.args,
+            session=session, action_name=action_name, args=params.args
         )
 
         if result.status == "error":
             logger.error(
-                "Error validating UDF args",
-                message=result.msg,
-                details=result.detail,
+                "Error validating UDF args", message=result.msg, details=result.detail
             )
         return RegistryActionValidateResponse.from_validation_result(result)
     except KeyError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Action {action_name!r} not found in registry {params.registry_version!r}",
+            detail=f"Action {action_name!r} not found in registry",
         ) from e

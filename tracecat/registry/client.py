@@ -102,8 +102,14 @@ class RegistryClient:
                     f"Action {key!r} not found in registry"
                 ) from e
             elif response.status_code / 100 == 5:
+                logger.error(
+                    "Registry internal server error",
+                    error=e,
+                    response=e.response.text,
+                )
+                detail = e.response.json().get("detail", "No detail provided")
                 raise RegistryActionError(
-                    f"The registry server returned a {response.status_code} error for action {key!r}: {e}"
+                    f"The registry server returned a {response.status_code} error for action {key!r}.\n\n{detail}"
                 ) from e
             else:
                 raise RegistryActionError(
@@ -121,7 +127,7 @@ class RegistryClient:
     """Validation"""
 
     async def validate_action(
-        self, *, action_name: str, args: dict[str, Any], registry_version: str
+        self, *, action_name: str, args: dict[str, Any]
     ) -> RegistryActionValidateResponse:
         """Validate an action."""
         try:
@@ -129,7 +135,7 @@ class RegistryClient:
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.post(
                     f"{self._actions_endpoint}/{action_name}/validate",
-                    json={"registry_version": registry_version, "args": args},
+                    json={"args": args},
                 )
             response.raise_for_status()
             return RegistryActionValidateResponse.model_validate_json(response.content)

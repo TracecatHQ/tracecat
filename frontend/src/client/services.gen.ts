@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, RegistryRepositoriesSyncRegistryRepositoriesResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsData, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, RegistryActionsRunRegistryActionData, RegistryActionsRunRegistryActionResponse, RegistryActionsValidateRegistryActionData, RegistryActionsValidateRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, TestRegistryRegisterTestModuleData, TestRegistryRegisterTestModuleResponse, PublicCheckHealthResponse } from './types.gen';
+import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, CasesCreateCaseData, CasesCreateCaseResponse, CasesListCasesData, CasesListCasesResponse, CasesGetCaseData, CasesGetCaseResponse, CasesUpdateCaseData, CasesUpdateCaseResponse, CasesCreateCaseEventData, CasesCreateCaseEventResponse, CasesListCaseEventsData, CasesListCaseEventsResponse, CasesGetCaseEventData, CasesGetCaseEventResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, RegistryRepositoriesSyncRegistryRepositoriesData, RegistryRepositoriesSyncRegistryRepositoriesResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, RegistryActionsRunRegistryActionData, RegistryActionsRunRegistryActionResponse, RegistryActionsValidateRegistryActionData, RegistryActionsValidateRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, TestRegistryRegisterTestModuleData, TestRegistryRegisterTestModuleResponse, PublicCheckHealthResponse } from './types.gen';
 
 /**
  * Incoming Webhook
@@ -1331,13 +1331,21 @@ export const usersSearchUser = (data: UsersSearchUserData = {}): CancelablePromi
 
 /**
  * Sync Registry Repositories
- * Load actions from a registry repository.
+ * Load actions from all registry repositories.
+ * @param data The data for the request.
+ * @param data.origins
  * @returns void Successful Response
  * @throws ApiError
  */
-export const registryRepositoriesSyncRegistryRepositories = (): CancelablePromise<RegistryRepositoriesSyncRegistryRepositoriesResponse> => { return __request(OpenAPI, {
+export const registryRepositoriesSyncRegistryRepositories = (data: RegistryRepositoriesSyncRegistryRepositoriesData = {}): CancelablePromise<RegistryRepositoriesSyncRegistryRepositoriesResponse> => { return __request(OpenAPI, {
     method: 'POST',
-    url: '/registry/repos/sync'
+    url: '/registry/repos/sync',
+    query: {
+        origins: data.origins
+    },
+    errors: {
+        422: 'Validation Error'
+    }
 }); };
 
 /**
@@ -1371,17 +1379,17 @@ export const registryRepositoriesCreateRegistryRepository = (data: RegistryRepos
 
 /**
  * Get Registry Repository
- * Get a specific registry repository by version.
+ * Get a specific registry repository by origin.
  * @param data The data for the request.
- * @param data.version
+ * @param data.origin
  * @returns RegistryRepositoryRead Successful Response
  * @throws ApiError
  */
 export const registryRepositoriesGetRegistryRepository = (data: RegistryRepositoriesGetRegistryRepositoryData): CancelablePromise<RegistryRepositoriesGetRegistryRepositoryResponse> => { return __request(OpenAPI, {
     method: 'GET',
-    url: '/registry/repos/{version}',
+    url: '/registry/repos/{origin}',
     path: {
-        version: data.version
+        origin: data.origin
     },
     errors: {
         422: 'Validation Error'
@@ -1392,16 +1400,16 @@ export const registryRepositoriesGetRegistryRepository = (data: RegistryReposito
  * Update Registry Repository
  * Update an existing registry repository.
  * @param data The data for the request.
- * @param data.version
+ * @param data.origin
  * @param data.requestBody
  * @returns RegistryRepositoryRead Successful Response
  * @throws ApiError
  */
 export const registryRepositoriesUpdateRegistryRepository = (data: RegistryRepositoriesUpdateRegistryRepositoryData): CancelablePromise<RegistryRepositoriesUpdateRegistryRepositoryResponse> => { return __request(OpenAPI, {
     method: 'PATCH',
-    url: '/registry/repos/{version}',
+    url: '/registry/repos/{origin}',
     path: {
-        version: data.version
+        origin: data.origin
     },
     body: data.requestBody,
     mediaType: 'application/json',
@@ -1414,15 +1422,15 @@ export const registryRepositoriesUpdateRegistryRepository = (data: RegistryRepos
  * Delete Registry Repository
  * Delete a registry repository.
  * @param data The data for the request.
- * @param data.version
+ * @param data.origin
  * @returns void Successful Response
  * @throws ApiError
  */
 export const registryRepositoriesDeleteRegistryRepository = (data: RegistryRepositoriesDeleteRegistryRepositoryData): CancelablePromise<RegistryRepositoriesDeleteRegistryRepositoryResponse> => { return __request(OpenAPI, {
     method: 'DELETE',
-    url: '/registry/repos/{version}',
+    url: '/registry/repos/{origin}',
     path: {
-        version: data.version
+        origin: data.origin
     },
     errors: {
         422: 'Validation Error'
@@ -1432,20 +1440,12 @@ export const registryRepositoriesDeleteRegistryRepository = (data: RegistryRepos
 /**
  * List Registry Actions
  * List all actions in a registry.
- * @param data The data for the request.
- * @param data.versions
  * @returns RegistryActionRead Successful Response
  * @throws ApiError
  */
-export const registryActionsListRegistryActions = (data: RegistryActionsListRegistryActionsData = {}): CancelablePromise<RegistryActionsListRegistryActionsResponse> => { return __request(OpenAPI, {
+export const registryActionsListRegistryActions = (): CancelablePromise<RegistryActionsListRegistryActionsResponse> => { return __request(OpenAPI, {
     method: 'GET',
-    url: '/registry/actions',
-    query: {
-        versions: data.versions
-    },
-    errors: {
-        422: 'Validation Error'
-    }
+    url: '/registry/actions'
 }); };
 
 /**
@@ -1471,7 +1471,6 @@ export const registryActionsCreateRegistryAction = (data: RegistryActionsCreateR
  * Get a specific registry action.
  * @param data The data for the request.
  * @param data.actionName
- * @param data.version The version of the registry to get the action from
  * @returns RegistryActionRead Successful Response
  * @throws ApiError
  */
@@ -1480,9 +1479,6 @@ export const registryActionsGetRegistryAction = (data: RegistryActionsGetRegistr
     url: '/registry/actions/{action_name}',
     path: {
         action_name: data.actionName
-    },
-    query: {
-        version: data.version
     },
     errors: {
         422: 'Validation Error'
@@ -1495,7 +1491,6 @@ export const registryActionsGetRegistryAction = (data: RegistryActionsGetRegistr
  * @param data The data for the request.
  * @param data.actionName
  * @param data.requestBody
- * @param data.version The version of the registry to update the action in
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1504,9 +1499,6 @@ export const registryActionsUpdateRegistryAction = (data: RegistryActionsUpdateR
     url: '/registry/actions/{action_name}',
     path: {
         action_name: data.actionName
-    },
-    query: {
-        version: data.version
     },
     body: data.requestBody,
     mediaType: 'application/json',
@@ -1520,7 +1512,6 @@ export const registryActionsUpdateRegistryAction = (data: RegistryActionsUpdateR
  * Delete a template action.
  * @param data The data for the request.
  * @param data.actionName
- * @param data.version The version of the registry to delete the action from
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1529,9 +1520,6 @@ export const registryActionsDeleteRegistryAction = (data: RegistryActionsDeleteR
     url: '/registry/actions/{action_name}',
     path: {
         action_name: data.actionName
-    },
-    query: {
-        version: data.version
     },
     errors: {
         422: 'Validation Error'

@@ -19,7 +19,6 @@ class RunContext(BaseModel):
     wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID
     wf_run_id: identifiers.WorkflowRunID
     environment: str
-    registry_version: str
 
 
 ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)

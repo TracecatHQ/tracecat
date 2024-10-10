@@ -4,19 +4,16 @@ from tracecat.registry.actions.models import RegistryActionRead
 
 
 class RegistryRepositoryRead(BaseModel):
-    version: str
-    origin: str | None = None
+    origin: str
     actions: list[RegistryActionRead]
 
 
 class RegistryRepositoryReadMinimal(BaseModel):
-    version: str
-    origin: str | None = None
+    origin: str
 
 
 class RegistryRepositoryCreate(BaseModel):
-    version: str
-    origin: str | None = None
+    origin: str
 
 
 class RegistryRepositoryUpdate(BaseModel):

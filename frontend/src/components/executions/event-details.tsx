@@ -367,7 +367,7 @@ function CodeBlock({
           {title}
         </span>
       )}
-      <pre className="flex flex-col rounded-md border bg-muted-foreground/5 p-4 font-mono text-foreground/70">
+      <pre className="flex flex-col overflow-auto text-wrap rounded-md border bg-muted-foreground/5 p-4 font-mono text-foreground/70">
         {children}
       </pre>
     </div>

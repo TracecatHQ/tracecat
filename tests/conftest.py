@@ -78,7 +78,7 @@ def env_sandbox(
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setattr(
         config,
-        "TRACECAT__REMOTE_REGISTRY_URL",
+        "TRACECAT__REMOTE_REPOSITORY_URL",
         "git+https://github.com/TracecatHQ/udfs",
     )
 

@@ -429,18 +429,18 @@ class RegistryRepository(Resource, table=True):
     """A repository of templates and actions."""
 
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
-    version: str = Field(..., nullable=False, description="The registry version")
-    origin: str | None = Field(
-        None,
+    origin: str = Field(
+        ...,
         description=(
             "Tells you where the template action was created from."
             "Can use this to track the hierarchy of templates."
             "Depending on where the TA was created, this could be a few things:\n"
             "- Git url if created via a git sync\n"
-            "- registry://<version>/<base template name> if it's a custom action that was created from a template"
             "- file://<path> if it's a custom action that was created from a file"
             "- None if it's a custom action that was created from scratch"
         ),
+        unique=True,
+        nullable=False,
     )
     actions: list["RegistryAction"] = Relationship(
         back_populates="repository",
@@ -465,8 +465,7 @@ class RegistryAction(Resource, table=True):
         UniqueConstraint(
             "namespace",
             "name",
-            "version",
-            name="uq_registry_action_namespace_name_version",
+            name="uq_registry_action_namespace_name",
         ),
     )
 
@@ -474,7 +473,6 @@ class RegistryAction(Resource, table=True):
     name: str = Field(..., description="The name of the action")
     description: str = Field(..., description="The description of the action")
     namespace: str = Field(..., description="The namespace of the action")
-    version: str = Field(..., description="Registry version")
     origin: str = Field(..., description="The origin of the action as a url")
     type: str = Field(..., description="The type of the action")
     default_title: str | None = Field(
