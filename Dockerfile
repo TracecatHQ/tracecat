@@ -44,12 +44,12 @@ COPY --chown=apiuser:apiuser ./alembic /app/alembic
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Change to the non-root user
-USER apiuser
-
 # Install package and registry
 RUN uv pip install .
 RUN uv pip install ./registry
+
+# Change to the non-root user
+USER apiuser
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
