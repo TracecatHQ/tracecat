@@ -123,8 +123,11 @@ async def run_registry_action(
     try:
         return await executor.run_action_from_input(input=action_input)
     except Exception as e:
-        act_logger.error(f"Error running action {action_name} in executor: {e}")
-        raise
+        act_logger.error("Error running action", action_name=action_name, error=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e
 
 
 @router.post("/{action_name}/validate")
