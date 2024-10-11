@@ -170,43 +170,6 @@ class Secret(Resource, table=True):
     owner: Workspace | None = Relationship(back_populates="secrets")
 
 
-class Case(Resource, table=True):
-    """The case state."""
-
-    id: str = Field(
-        default_factory=id_factory("case"), nullable=False, unique=True, index=True
-    )
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    malice: str
-    status: str
-    priority: str
-    action: str | None = None
-    context: dict[str, str] | None = Field(sa_column=Column(JSONB))
-    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
-
-
-class CaseEvent(Resource, table=True):
-    id: str = Field(
-        default_factory=id_factory("case-evt"), nullable=False, unique=True, index=True
-    )
-    type: str  # The CaseEvent type
-    case_id: str = Field(
-        sa_column=Column(String, ForeignKey("case.id", ondelete="CASCADE"))
-    )
-    # Tells us what kind of role modified the case
-    initiator_role: str  # "user", "service"
-    # Changes: We'll use a dict to store the changes
-    # The dict takes key-value pairs where the key is a field name in the Case model
-    # The value represents the new value.
-    # Possible events:
-    # - Key not in dict: The field was not modified
-    # - Key in dict with value None: The field was deleted
-    # - Key in dict with value: The field was modified
-    data: dict[str, str | None] | None = Field(sa_column=Column(JSONB))
-
-
 class WorkflowDefinition(Resource, table=True):
     """A workflow definition.
 

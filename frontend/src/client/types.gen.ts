@@ -181,81 +181,6 @@ export type Body_workflows_create_workflow = {
     file?: (Blob | File) | null;
 };
 
-export type CaseContext = {
-    key: string;
-    value: string;
-};
-
-export type CaseCreate = {
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-};
-
-export type malice = 'malicious' | 'benign';
-
-export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-
-export type priority = 'low' | 'medium' | 'high' | 'critical';
-
-export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-
-export type CaseEvent = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    type: string;
-    case_id: string;
-    initiator_role: string;
-    data: {
-    [key: string]: (string | null);
-} | null;
-};
-
-export type CaseEventCreate = {
-    type: 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
-    data: {
-    [key: string]: (string | null);
-} | null;
-};
-
-export type type = 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
-
-export type CaseRead = {
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    id: string;
-    created_at: string;
-    updated_at: string;
-};
-
-export type CaseUpdate = {
-    malice?: 'malicious' | 'benign' | null;
-    status?: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated' | null;
-    priority?: 'low' | 'medium' | 'high' | 'critical' | null;
-    action?: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise' | null;
-};
-
 export type CommitWorkflowResponse = {
     workflow_id: string;
     status: 'success' | 'failure';
@@ -266,7 +191,7 @@ export type CommitWorkflowResponse = {
 } | null;
 };
 
-export type status2 = 'success' | 'failure';
+export type status = 'success' | 'failure';
 
 export type CreateActionParams = {
     workflow_id: string;
@@ -577,7 +502,7 @@ export type RegistryActionCreate = {
 /**
  * The type of the action
  */
-export type type2 = 'udf' | 'template';
+export type type = 'udf' | 'template';
 
 export type RegistryActionInterface = {
     expects: {
@@ -788,7 +713,7 @@ export type Role = {
     service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 };
 
-export type type3 = 'user' | 'service';
+export type type2 = 'user' | 'service';
 
 export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 
@@ -856,7 +781,7 @@ export type ScheduleCreate = {
     status?: 'online' | 'offline';
 };
 
-export type status3 = 'online' | 'offline';
+export type status2 = 'online' | 'offline';
 
 export type ScheduleSearch = {
     workflow_id?: string | null;
@@ -921,11 +846,6 @@ export type SecretResponse = {
     description?: string | null;
     keys: Array<(string)>;
     environment: string;
-};
-
-export type Tag = {
-    tag: string;
-    value: string;
 };
 
 export type TemplateAction_Input = {
@@ -1000,7 +920,7 @@ export type Trigger = {
     };
 };
 
-export type type4 = 'schedule' | 'webhook';
+export type type3 = 'schedule' | 'webhook';
 
 /**
  * This object contains all the information needed to execute an action.
@@ -1217,7 +1137,7 @@ export type WorkflowExecutionResponse = {
     history_length: number;
 };
 
-export type status4 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
+export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
 
 export type WorkflowMetadataResponse = {
     id: string;
@@ -1564,59 +1484,6 @@ export type ActionsDeleteActionData = {
 
 export type ActionsDeleteActionResponse = void;
 
-export type CasesCreateCaseData = {
-    requestBody: CaseCreate;
-    workspaceId: string;
-};
-
-export type CasesCreateCaseResponse = CaseRead;
-
-export type CasesListCasesData = {
-    limit?: number | null;
-    workflowId?: string | null;
-    workspaceId: string;
-};
-
-export type CasesListCasesResponse = Array<CaseRead>;
-
-export type CasesGetCaseData = {
-    caseId: string;
-    workspaceId: string;
-};
-
-export type CasesGetCaseResponse = CaseRead;
-
-export type CasesUpdateCaseData = {
-    caseId: string;
-    requestBody: CaseUpdate;
-    workspaceId: string;
-};
-
-export type CasesUpdateCaseResponse = CaseRead;
-
-export type CasesCreateCaseEventData = {
-    caseId: string;
-    requestBody: CaseEventCreate;
-    workspaceId: string;
-};
-
-export type CasesCreateCaseEventResponse = unknown;
-
-export type CasesListCaseEventsData = {
-    caseId: string;
-    workspaceId: string;
-};
-
-export type CasesListCaseEventsResponse = Array<CaseEvent>;
-
-export type CasesGetCaseEventData = {
-    caseId: string;
-    eventId: string;
-    workspaceId: string;
-};
-
-export type CasesGetCaseEventResponse = unknown;
-
 export type SecretsSearchSecretsData = {
     environment: string;
     id?: Array<(string)> | null;
@@ -1718,6 +1585,9 @@ export type UsersSearchUserData = {
 export type UsersSearchUserResponse = UserRead;
 
 export type RegistryRepositoriesSyncRegistryRepositoriesData = {
+    /**
+     * Origins to sync. If no origins provided, all repositories will be synced.
+     */
     origins?: Array<(string)> | null;
 };
 
@@ -2385,105 +2255,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases': {
-        post: {
-            req: CasesCreateCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: CasesListCasesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseRead>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}': {
-        get: {
-            req: CasesGetCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: CasesUpdateCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}/events': {
-        post: {
-            req: CasesCreateCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: CasesListCaseEventsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseEvent>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}/events/{event_id}': {
-        get: {
-            req: CasesGetCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
                 /**
                  * Validation Error
                  */

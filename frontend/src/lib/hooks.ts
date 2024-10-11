@@ -5,14 +5,6 @@ import {
   actionsGetAction,
   actionsUpdateAction,
   ApiError,
-  CaseEvent,
-  CaseEventCreate,
-  CaseRead,
-  casesCreateCaseEvent,
-  casesGetCase,
-  casesListCaseEvents,
-  casesUpdateCase,
-  CaseUpdate,
   CreateSecretParams,
   CreateWorkspaceParams,
   EventHistoryResponse,
@@ -87,110 +79,6 @@ export function useLocalStorage<T>(
     localStorage.setItem(key, JSON.stringify(value))
   }, [key, value])
   return [value, setValue]
-}
-
-export function usePanelCase(workspaceId: string, caseId: string) {
-  const queryClient = useQueryClient()
-  const {
-    data: caseData,
-    isLoading: caseIsLoading,
-    error: caseError,
-  } = useQuery<CaseRead, ApiError>({
-    queryKey: ["case", caseId],
-    queryFn: async () =>
-      await casesGetCase({
-        workspaceId,
-        caseId,
-      }),
-  })
-  const { mutateAsync: updateCaseAsync } = useMutation({
-    mutationFn: async (params: CaseUpdate) =>
-      await casesUpdateCase({
-        workspaceId,
-        caseId,
-        requestBody: params,
-      }),
-    onSuccess: () => {
-      toast({
-        title: "Updated case",
-        description: "Your case has been updated successfully.",
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["case", caseId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["cases"],
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to update action:", error)
-      toast({
-        title: "Failed to save action",
-        description: "Could not update your action. Please try again.",
-      })
-    },
-  })
-
-  return {
-    caseData,
-    caseIsLoading,
-    caseError,
-    updateCaseAsync,
-  }
-}
-
-export function useCaseEvents(caseId: string) {
-  const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
-  const {
-    data: caseEvents,
-    isLoading: caseEventsIsLoading,
-    error: caseEventsError,
-  } = useQuery<CaseEvent[], Error>({
-    queryKey: ["caseEvents", caseId],
-    queryFn: async () =>
-      await casesListCaseEvents({
-        workspaceId,
-        caseId,
-      }),
-  })
-
-  const { mutateAsync: mutateCaseEventsAsync } = useMutation({
-    mutationFn: async (params: CaseEventCreate) => {
-      await casesCreateCaseEvent({
-        workspaceId,
-        caseId,
-        requestBody: params,
-      })
-    },
-    onSuccess: () => {
-      console.log("Case event created")
-      toast({
-        title: "Created case event",
-        description: "Your case event has been created successfully.",
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["caseEvents", caseId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["case", caseId],
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to create case event:", error)
-      toast({
-        title: "Failed to create case event",
-        description: "Could not create case event. Please try again.",
-      })
-    },
-  })
-
-  return {
-    caseEvents,
-    caseEventsIsLoading,
-    caseEventsError,
-    mutateCaseEventsAsync,
-  }
 }
 
 export type PanelAction = {
