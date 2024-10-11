@@ -98,16 +98,15 @@ async def test_playbook_validation(
     assert len(validation_results) == 0
 
 
-@pytest.mark.skip
 @pytest.mark.parametrize(
     "file_path, trigger_inputs, expected_actions",
     [
         (
             "playbooks/tutorials/virustotal_quickstart.yml",
             {
-                "url_input": "crowdstrikebluescreen.com",
+                "url": "crowdstrikebluescreen.com",
             },
-            ["analyze_url", "open_case"],
+            ["analyze_url"],
         ),
     ],
     ids=lambda x: x,
