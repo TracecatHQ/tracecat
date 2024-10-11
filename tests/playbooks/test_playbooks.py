@@ -104,9 +104,9 @@ async def test_playbook_validation(
         (
             "playbooks/tutorials/virustotal_quickstart.yml",
             {
-                "url": "crowdstrikebluescreen.com",
+                "url_input": "https://crowdstrikebluescreen.com",
             },
-            ["analyze_url"],
+            ["search_url"],
         ),
     ],
     ids=lambda x: x,
