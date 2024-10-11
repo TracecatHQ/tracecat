@@ -7,6 +7,10 @@ description: Build and deploy the classic VirusTotal enrichment playbook in 15 m
 If you haven't installed Tracecat yet, please check out our [self-hosting docs](/self-hosting/introduction) for step-by-step deployment instructions.
 </Warning>
 
+<Note>
+Please note that cases have been removed in >0.11. We are working on a new and improved system.
+</Note>
+
 ## Introduction
 
 By the end of this quickstart, you will:
@@ -68,7 +72,7 @@ Let's get started!
     From the analyze URL action, search and select the **Open Case** action.
 
     Fill in **Inputs** with the following:
-    
+
     ```yaml
     action: informational
     malice: malicious
@@ -83,7 +87,7 @@ Let's get started!
     To reduce the number of low signal alerts, let's only open a case if there are more than 10 reports of malicious intent.
 
     Fill in **Run If** under **Control Flow** with the following:
-    
+
     ```yaml
     ${{ ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 10 }}
     ```
