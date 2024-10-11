@@ -19,5 +19,5 @@ definition:
         url: https://www.virustotal.com/api/v3/ip_addresses/${{ inputs.ip_address }}
         method: GET
         headers:
-          x-api-key: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
   returns: ${{ steps.search_ip_address.result }}
