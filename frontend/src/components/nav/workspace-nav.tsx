@@ -7,7 +7,6 @@ import { useWorkspace } from "@/providers/workspace"
 import {
   BlocksIcon,
   LibraryBigIcon,
-  ShieldAlertIcon,
   WorkflowIcon,
 } from "lucide-react"
 
