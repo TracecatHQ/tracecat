@@ -24,7 +24,6 @@ from tracecat.auth.users import (
     get_or_create_default_admin_user,
     list_users,
 )
-from tracecat.cases.router import router as cases_router
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
@@ -219,7 +218,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
     app.include_router(actions_router)
-    app.include_router(cases_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(validation_router)
