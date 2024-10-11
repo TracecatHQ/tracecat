@@ -33,16 +33,6 @@ export function WorkspaceNav() {
         <span>Workflows</span>
       </Link>
       <Link
-        href={`/workspaces/${workspaceId}/cases`}
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.endsWith("/cases") && "text-primary"
-        )}
-      >
-        <ShieldAlertIcon className="mr-2 size-4" />
-        <span>Cases</span>
-      </Link>
-      <Link
         href="https://docs.tracecat.com/integrations/introduction"
         target="_blank"
         className={cn(
