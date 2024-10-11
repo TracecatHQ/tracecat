@@ -56,8 +56,10 @@ Let's get started!
     Fill in inputs with the following:
 
     ```yaml
-    url: ${{ TRIGGER.url_input }}
+    url: ${{ FN.to_base64(TRIGGER.url_input) }}
     ```
+
+    You'll need to Base64 encode the URL input using a the `to_base64` function.
 
     ![Configure VirusTotal URL input](/img/quickstart/configure-vt-input.png)
   </Step>
