@@ -19,7 +19,6 @@ from pydantic import (
 )
 from tracecat_registry import RegistrySecret, RegistryValidationError
 
-from tracecat import config
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
@@ -69,26 +68,6 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
     @property
     def action(self) -> str:
         return f"{self.namespace}.{self.name}"
-
-    def to_database(self) -> RegistryAction:
-        secrets = (
-            None
-            if not self.secrets
-            else [secret.model_dump() for secret in self.secrets]
-        )
-        return RegistryAction(
-            owner_id=config.TRACECAT__DEFAULT_ORG_ID,
-            name=self.name,
-            description=self.description,
-            type=self.type,
-            namespace=self.namespace,
-            origin=self.origin,
-            default_title=self.default_title,
-            display_group=self.display_group,
-            secrets=secrets,
-            interface=self.get_interface(),
-            implementation=self.get_implementation(),
-        )
 
     def get_interface(self) -> RegistryActionInterface:
         if self.type == "template":
@@ -294,25 +273,6 @@ class RegistryActionRead(RegistryActionBase):
     def is_template(self) -> bool:
         """Whether the action is a template."""
         return self.implementation.type == "template"
-
-    @staticmethod
-    def from_bound(
-        action: BoundRegistryAction, repository_id: UUID4
-    ) -> RegistryActionRead:
-        return RegistryActionRead(
-            repository_id=repository_id,
-            name=action.name,
-            description=action.description,
-            namespace=action.namespace,
-            type=action.type,
-            secrets=action.secrets,
-            interface=action.get_interface(),
-            implementation=action.get_implementation(),
-            default_title=action.default_title,
-            display_group=action.display_group,
-            origin=action.origin,
-            options=RegistryActionOptions(include_in_schema=action.include_in_schema),
-        )
 
     @staticmethod
     def from_database(action: RegistryAction) -> RegistryActionRead:

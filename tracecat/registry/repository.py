@@ -21,6 +21,7 @@ from pydantic import (
     ValidationError,
     create_model,
 )
+from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
 
@@ -34,6 +35,9 @@ from tracecat.registry.actions.models import (
     TemplateAction,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.types.auth import Role
 
 
 class RegisterKwargs(BaseModel):
@@ -615,3 +619,19 @@ def parse_github_url(url: str) -> tuple[str, str, str]:
         branch = path_parts[3]
 
     return organization, package_name, branch
+
+
+async def ensure_base_repository(
+    *,
+    session: AsyncSession,
+    role: Role | None = None,
+    origin: str = DEFAULT_REGISTRY_ORIGIN,
+):
+    service = RegistryReposService(session, role=role)
+    # Check if the base registry repository already exists
+    if await service.get_repository(origin) is None:
+        # If it doesn't exist, create the base registry repository
+        await service.create_repository(RegistryRepositoryCreate(origin=origin))
+        logger.info("Created base registry repository", origin=origin)
+    else:
+        logger.info("Base registry repository already exists", origin=origin)

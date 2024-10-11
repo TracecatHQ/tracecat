@@ -1,11 +1,10 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useCallback, useState } from "react"
 import { RegistryRepositoryReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { Row } from "@tanstack/react-table"
-import { CopyIcon, LoaderCircleIcon, RefreshCcw } from "lucide-react"
+import { CopyIcon, LoaderCircleIcon, RefreshCcw, TrashIcon } from "lucide-react"
 
 import { useRegistryRepositories } from "@/lib/hooks"
 import {
@@ -17,7 +16,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,6 +31,11 @@ import {
   type DataTableToolbarProps,
 } from "@/components/table"
 
+enum AlertAction {
+  SYNC,
+  DELETE,
+}
+
 export function RegistryRepositoriesTable() {
   const {
     registryRepos,
@@ -40,46 +43,104 @@ export function RegistryRepositoriesTable() {
     registryReposError,
     syncRepos,
     syncReposIsPending,
+    deleteRepo,
   } = useRegistryRepositories()
   const [selectedRepo, setSelectedRepo] =
     useState<RegistryRepositoryReadMinimal | null>(null)
-  const handleOnClickRow = (row: Row<RegistryRepositoryReadMinimal>) => () => {
-    // Link to workflow detail page
-    console.debug("Clicked row", row)
-    // router.push(`/registry/actions/${row.original.id}`) // view the schema table?
-    setSelectedRepo(row.original)
-  }
-
-  const handleReloadRepository = async (origin: string) => {
-    console.log("Reloading repository", origin)
-    try {
-      await syncRepos({ origins: [origin] })
-      toast({
-        title: "Successfully synced repository",
-        description: (
-          <div className="flex flex-col space-y-2">
-            <span>
-              Successfully reloaded actions from{" "}
-              <b className="inline-block">{origin}</b>
-            </span>
-          </div>
-        ),
-      })
-    } catch (error) {
-      console.error("Error reloading repository", error)
-    } finally {
-      setSelectedRepo(null)
+  const [alertAction, setAlertAction] = useState<AlertAction | null>(null)
+  const [alertOpen, setAlertOpen] = useState(false)
+  const getAlertContent = useCallback(() => {
+    switch (alertAction) {
+      case AlertAction.SYNC:
+        return {
+          title: "Sync repository",
+          description: (
+            <>
+              <span>You are about to sync the repository </span>
+              <b className="font-mono tracking-tighter">
+                {selectedRepo?.origin}
+              </b>
+              <p>
+                Are you sure you want to proceed? This will reload all existing
+                actions with the latest versions from the repository.
+              </p>
+            </>
+          ),
+          action: async () => {
+            if (!selectedRepo) {
+              console.error("No repository selected")
+              return
+            }
+            console.log("Reloading repository", selectedRepo.origin)
+            try {
+              await syncRepos({ origins: [selectedRepo.origin] })
+              toast({
+                title: "Successfully synced repository",
+                description: (
+                  <div className="flex flex-col space-y-2">
+                    <div>
+                      Successfully reloaded actions from{" "}
+                      <b className="inline-block">{selectedRepo.origin}</b>
+                    </div>
+                  </div>
+                ),
+              })
+            } catch (error) {
+              console.error("Error reloading repository", error)
+            } finally {
+              setSelectedRepo(null)
+            }
+          },
+        }
+      case AlertAction.DELETE:
+        return {
+          title: "Delete repository",
+          description: (
+            <div className="flex flex-col space-y-2">
+              <span>You are about to delete the repository </span>
+              <b className="font-mono tracking-tighter">
+                {selectedRepo?.origin}
+              </b>
+              <p>
+                Are you sure you want to proceed? This action cannot be undone.
+              </p>
+              <p className="italic">
+                You can restore the base Tracecat repository by pressing the{" "}
+                <b>Sync All Repositories</b> button. To restore your remote
+                repository, you will need to restart the instance.
+              </p>
+            </div>
+          ),
+          action: async () => {
+            if (!selectedRepo) {
+              console.error("No repository selected")
+              return
+            }
+            console.log("Deleting repository", selectedRepo.origin)
+            try {
+              await deleteRepo({ origin: selectedRepo.origin })
+            } catch (error) {
+              console.error("Error deleting repository", error)
+            } finally {
+              setSelectedRepo(null)
+            }
+          },
+        }
+      default:
+        return null
     }
-  }
+  }, [alertAction, selectedRepo])
+
+  const alertContent = getAlertContent()
+
   return (
-    <AlertDialog>
+    <AlertDialog open={alertOpen}>
       <DataTable
         isLoading={registryReposIsLoading}
         error={registryReposError ?? undefined}
         data={registryRepos}
         emptyMessage="No actions found."
         errorMessage="Error loading workflows."
-        onClickRow={handleOnClickRow}
         columns={[
           {
             accessorKey: "origin",
@@ -153,18 +214,30 @@ export function RegistryRepositoriesTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy repository origin</span>
                     </DropdownMenuItem>
-                    <AlertDialogTrigger asChild>
-                      <DropdownMenuItem
-                        className="flex items-center text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation() // Prevent row click
-                          setSelectedRepo(row.original)
-                        }}
-                      >
-                        <RefreshCcw className="mr-2 size-4" />
-                        <span>Sync repository</span>
-                      </DropdownMenuItem>
-                    </AlertDialogTrigger>
+                    <DropdownMenuItem
+                      className="flex items-center text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation() // Prevent row click
+                        setSelectedRepo(row.original)
+                        setAlertAction(AlertAction.SYNC)
+                        setAlertOpen(true)
+                      }}
+                    >
+                      <RefreshCcw className="mr-2 size-4" />
+                      <span>Sync repository</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="flex items-center text-xs text-rose-600"
+                      onClick={(e) => {
+                        e.stopPropagation() // Prevent row click
+                        setSelectedRepo(row.original)
+                        setAlertAction(AlertAction.DELETE)
+                        setAlertOpen(true)
+                      }}
+                    >
+                      <TrashIcon className="mr-2 size-4" />
+                      <span>Delete repository</span>
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )
@@ -175,25 +248,19 @@ export function RegistryRepositoriesTable() {
       />
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Sync repository</AlertDialogTitle>
-          <AlertDialogDescription className="flex flex-col space-y-2">
-            <span>You are about to sync the repository </span>
-            <b className="font-mono tracking-tighter">{selectedRepo?.origin}</b>
-          </AlertDialogDescription>
+          <AlertDialogTitle>{alertContent?.title}</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to proceed? This will reload all existing
-            actions with the latest versions from the repository.
+            {alertContent?.description}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel onClick={() => setAlertOpen(false)}>
+            Cancel
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={async () => {
-              if (!selectedRepo) {
-                console.error("No repository selected")
-                return
-              }
-              await handleReloadRepository(selectedRepo.origin)
+              setAlertOpen(false)
+              await alertContent?.action()
             }}
             disabled={syncReposIsPending}
           >

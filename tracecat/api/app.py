@@ -74,10 +74,7 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
 
     if (remote_url := config.TRACECAT__REMOTE_REPOSITORY_URL) is not None:
         parsed_url = urlparse(remote_url)
-        logger.info(
-            "Setting up remote registry repository",
-            url=parsed_url,
-        )
+        logger.info("Setting up remote registry repository", url=parsed_url)
         # Create it if it doesn't exist
 
         cleaned_url = safe_url(remote_url)
@@ -87,10 +84,7 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
             )
             logger.info("Created remote registry repository", url=cleaned_url)
         else:
-            logger.info(
-                "Remote registry repository already exists",
-                url=cleaned_url,
-            )
+            logger.info("Remote registry repository already exists", url=cleaned_url)
         # Load remote repository
     else:
         logger.info("Remote registry repository not set, skipping")

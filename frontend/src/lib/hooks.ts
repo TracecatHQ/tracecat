@@ -25,6 +25,8 @@ import {
   registryActionsListRegistryActions,
   registryActionsUpdateRegistryAction,
   RegistryActionsUpdateRegistryActionData,
+  registryRepositoriesDeleteRegistryRepository,
+  RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesSyncRegistryRepositories,
   RegistryRepositoriesSyncRegistryRepositoriesData,
@@ -1003,6 +1005,39 @@ export function useRegistryRepositories() {
     },
   })
 
+  const {
+    mutateAsync: deleteRepo,
+    isPending: deleteRepoIsPending,
+    error: deleteRepoError,
+  } = useMutation({
+    mutationFn: async (
+      params: RegistryRepositoriesDeleteRegistryRepositoryData
+    ) => await registryRepositoriesDeleteRegistryRepository(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      toast({
+        title: "Deleted registry repository",
+        description: "Registry repository deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      switch (apiError.status) {
+        case 403:
+          toast({
+            title: "You cannot perform this action",
+            description: `${apiError.message}: ${apiError.body.detail}`,
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete registry repository",
+            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${apiError.body.detail}`,
+          })
+      }
+    },
+  })
+
   return {
     registryRepos,
     registryReposIsLoading,
@@ -1010,5 +1045,8 @@ export function useRegistryRepositories() {
     syncRepos,
     syncReposIsPending,
     syncReposError,
+    deleteRepo,
+    deleteRepoIsPending,
+    deleteRepoError,
   }
 }

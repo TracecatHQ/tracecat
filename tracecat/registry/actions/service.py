@@ -170,7 +170,10 @@ class RegistryActionsService:
             "Syncing actions from repositories", repos=[repo.origin for repo in repos]
         )
         for repo in repos:
-            await self.sync_actions_from_repository(repo)
+            try:
+                await self.sync_actions_from_repository(repo)
+            except Exception as e:
+                self.logger.error(f"Error while syncing repository: {str(e)}")
 
     async def sync_actions_from_repository(
         self, repository: RegistryRepository

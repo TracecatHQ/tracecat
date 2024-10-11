@@ -5,6 +5,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.models import (
     RegistryRepositoryCreate,
     RegistryRepositoryRead,
@@ -12,6 +13,7 @@ from tracecat.registry.repositories.models import (
     RegistryRepositoryUpdate,
 )
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.repository import ensure_base_repository
 
 router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
 
@@ -30,6 +32,7 @@ async def sync_registry_repositories(
     """Load actions from all registry repositories."""
     repos_service = RegistryReposService(session, role=role)
     # Check if the base registry repository already exists
+    await ensure_base_repository(session=session, role=role)
     if origins is None:
         repos = await repos_service.list_repositories()
     else:
@@ -66,9 +69,9 @@ async def list_registry_repositories(
     return [RegistryRepositoryReadMinimal(origin=repo.origin) for repo in repositories]
 
 
-@router.get("/{origin}", response_model=RegistryRepositoryRead)
+@router.get("/{origin:path}", response_model=RegistryRepositoryRead)
 async def get_registry_repository(
-    origin: str, role: OrgUserRole, session: AsyncDBSession
+    role: OrgUserRole, session: AsyncDBSession, origin: str
 ) -> RegistryRepositoryRead:
     """Get a specific registry repository by origin."""
     service = RegistryReposService(session, role)
@@ -114,10 +117,7 @@ async def create_registry_repository(
         ) from e
 
 
-@router.patch(
-    "/{origin}",
-    response_model=RegistryRepositoryRead,
-)
+@router.patch("/{origin:path}", response_model=RegistryRepositoryRead)
 async def update_registry_repository(
     role: OrgUserOrServiceRole,
     session: AsyncDBSession,
@@ -141,14 +141,21 @@ async def update_registry_repository(
     )
 
 
-@router.delete("/{origin}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{origin:path}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_repository(
-    origin: str, role: OrgUserOrServiceRole, session: AsyncDBSession
+    role: OrgUserOrServiceRole, session: AsyncDBSession, origin: str
 ):
     """Delete a registry repository."""
+    logger.info("Deleting registry repository", origin=origin)
+    if origin == DEFAULT_REGISTRY_ORIGIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot delete the base Tracecat repository.",
+        )
     service = RegistryReposService(session, role)
     repository = await service.get_repository(origin)
     if repository is None:
+        logger.error("Registry repository not found", origin=origin)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
