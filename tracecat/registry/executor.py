@@ -75,13 +75,6 @@ async def run_single_action(
     async with RegistryActionsService.with_session() as service:
         action = await service.load_action_impl(action_name=action_name)
     validated_args = action.validate_args(**args)
-    if action.is_template:
-        logger.info("Running template UDF async", action=action_name)
-        return await run_template_action(
-            action=action,
-            args=validated_args,
-            context=context or {},
-        )
 
     logger.info("Running regular UDF async", action=action_name)
     secret_names = [secret.name for secret in action.secrets or []]
@@ -94,6 +87,20 @@ async def run_single_action(
     ):
         # Flatten the secrets to a dict[str, str]
         secret_context = sandbox.secrets.copy()
+        if action.is_template:
+            logger.info("Running template UDF async", action=action_name)
+            context_with_secrets = context.copy() if context else {}
+            # Merge the secrets from the sandbox with the existing context
+            context_with_secrets[ExprContext.SECRETS] = (
+                context_with_secrets.get(ExprContext.SECRETS, {}) | secret_context
+            )
+            return await run_template_action(
+                action=action,
+                args=validated_args,
+                context=context_with_secrets,
+            )
+        # Given secrets in the format of {name: {key: value}}, we need to flatten
+        # it to a dict[str, str] to set in the environment context
         flattened_secrets: dict[str, str] = {}
         for name, keyvalues in secret_context.items():
             for key, value in keyvalues.items():

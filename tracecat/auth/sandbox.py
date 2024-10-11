@@ -31,7 +31,8 @@ class AuthSandbox:
     def __init__(
         self,
         role: Role | None = None,
-        secrets: list[str] | None = None,
+        secrets: list[str]
+        | None = None,  # This can be either 'my_secret.KEY' or 'my_secret'
         target: Literal["env", "context"] = "context",
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     ):
