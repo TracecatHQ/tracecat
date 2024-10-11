@@ -4,27 +4,26 @@ description: Build and deploy the classic VirusTotal enrichment playbook in 15 m
 ---
 
 <Warning>
-If you haven't installed Tracecat yet, please check out our [self-hosting docs](/self-hosting/introduction) for step-by-step deployment instructions.
+  If you haven't installed Tracecat yet, please check out our [self-hosting
+  docs](/self-hosting/introduction) for step-by-step deployment instructions.
 </Warning>
-
-<Note>
-Please note that cases have been removed in >0.11. We are working on a new and improved system.
-</Note>
 
 ## Introduction
 
 By the end of this quickstart, you will:
+
 - Create a new workflow
 - Add a secret credential that allows Tracecat to access the VirusTotal API
 - Use integrations to automate a simple threat enrichment playbook,
-learn to work with Tracecat's built-in case management system,
-and run the workflow live.
+  learn to work with Tracecat's built-in case management system,
+  and run the workflow live.
 
 ![crowdstrikebluescreen](/img/quickstart/configure-open-case.png)
 
 Let's get started!
 
 ## Prerequisites
+
 - VirusTotal API key. You can obtain one for free from the [VirusTotal website](https://www.virustotal.com/gui/my-apikey).
 
 ## Tutorial
@@ -40,13 +39,14 @@ Let's get started!
     ![Create new workflow](/img/quickstart/create-new-workflow.png)
   </Step>
   <Step title="Rename workflow">
+      Rename the workflow and save the changes by clicking on the save button.
     ![Rename workflow](/img/quickstart/change-workflow-name.png)
   </Step>
   <Step title="Add enrichment step">
-    From the trigger action, search and select the VirusTotal **Analyze URL** integration.
+    From the trigger action, search and select the VirusTotal **Search URL with VirusTotal** integration.
     ![Add new action](/img/quickstart/add-node.png)
   </Step>
-  <Step title="Pass URL from webhook into analyze URL action inputs">
+  <Step title="Pass URL from webhook into Search URL action inputs">
     <Tip>
         Tracecat comes with a powerful templating language called "expressions" to manipulate data directly in action inputs.
         You can find out more [here in our docs](/concepts/expressions).
@@ -62,6 +62,8 @@ Let's get started!
     You'll need to Base64 encode the URL input using a the `to_base64` function.
 
     ![Configure VirusTotal URL input](/img/quickstart/configure-vt-input.png)
+
+    Make sure to save the action inputs by clicking on the **Save** button at the top right of the action panel.
   </Step>
   <Step title="Add secret">
     Add your VirusTotal API key to workspace secrets.
@@ -69,33 +71,8 @@ Let's get started!
     ![Secret settings](/img/quickstart/credentials-setting.png)
     ![Create secret](/img/quickstart/create-secret.png)
   </Step>
-  <Step title="Add open case step">
-    Go back to the workflow builder.
-    From the analyze URL action, search and select the **Open Case** action.
-
-    Fill in **Inputs** with the following:
-
-    ```yaml
-    action: informational
-    malice: malicious
-    status: open
-    payload: ${{ ACTIONS.analyze_url.result.data }}
-    priority: ${{ 'high' if ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 30 else 'medium' }}
-    case_title: ${{ TRIGGER.url_input }}
-    ```
-    ![Add open case](/img/quickstart/configure-open-case.png)
-  </Step>
-  <Step title="Add condition to open case">
-    To reduce the number of low signal alerts, let's only open a case if there are more than 10 reports of malicious intent.
-
-    Fill in **Run If** under **Control Flow** with the following:
-
-    ```yaml
-    ${{ ACTIONS.analyze_url.result.data.attributes.last_analysis_stats.malicious > 10 }}
-    ```
-    ![Add open case](/img/quickstart/configure-open-case.png)
-  </Step>
   <Step title="Commit (AKA save) workflow">
+    This publishes a live version of your workflow.
     ![Save workflow](/img/quickstart/commit-workflow.png)
   </Step>
   <Step title="Trigger workflow">
@@ -103,7 +80,7 @@ Let's get started!
     For this demo, we use the following sample payload:
 
     ```json
-    {"url_input": "crowdstrikebluescreen.com"}
+    {"url_input": "https://crowdstrikebluescreen.com"}
     ```
     ![Trigger workflow](/img/quickstart/trigger-workflow.png)
   </Step>
@@ -112,12 +89,8 @@ Let's get started!
     You can view this information by switching to the **Runs** tab.
     ![New run context](/img/quickstart/run-context.png)
   </Step>
-  <Step title="View open case">
+  <Step title="Congratulations!">
     🎉 Congratulations on running your first security workflow in Tracecat!
-    You can finish this quickstart by going into the **Cases** tab to view the newly opened case.
-
-    ![Cases table](/img/quickstart/case.png)
-    ![Cases side panel](/img/quickstart/case-panel.png)
-
+    Come join us on [Discord](https://discord.gg/n3GF4qxFU8) to discuss new playbook and integration ideas.
   </Step>
 </Steps>
