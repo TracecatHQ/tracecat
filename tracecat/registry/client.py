@@ -97,23 +97,16 @@ class RegistryClient:
             response.raise_for_status()
             return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
-            if response.status_code == 404:
+            resp = e.response.json()
+            detail = resp.get("detail") or e.response.text
+            logger.error("Registry returned an error", error=e, detail=detail)
+            if e.response.status_code / 100 == 5:
                 raise RegistryActionError(
-                    f"Action {key!r} not found in registry"
-                ) from e
-            elif response.status_code / 100 == 5:
-                logger.error(
-                    "Registry internal server error",
-                    error=e,
-                    response=e.response.text,
-                )
-                detail = e.response.json().get("detail", "No detail provided")
-                raise RegistryActionError(
-                    f"The registry server returned a {response.status_code} error for action {key!r}.\n\n{detail}"
+                    f"There was an error in the registry when calling action {key!r} ({e.response.status_code}).\n\n{detail}"
                 ) from e
             else:
                 raise RegistryActionError(
-                    f"Unexpected HTTP {response.status_code} error calling action {key!r} in registry: {e}"
+                    f"Unexpected registry error ({e.response.status_code}):\n\n{e}\n\n{detail}"
                 ) from e
         except orjson.JSONDecodeError as e:
             raise RegistryActionError(

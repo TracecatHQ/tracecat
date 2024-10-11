@@ -58,8 +58,10 @@ async def _run_action_direct(
         logger.info("Running UDF sync")
         return await asyncio.to_thread(action.fn, **args)
     except Exception as e:
-        logger.error(f"Error running UDF {action.action!r}: {e}")
-        raise
+        logger.error(
+            f"Error running UDF {action.action!r}", error=e, type=type(e).__name__
+        )
+        raise e
 
 
 async def run_single_action(
