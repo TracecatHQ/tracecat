@@ -155,6 +155,11 @@ current_active_user = fastapi_users.current_user(active=True)
 optional_current_active_user = fastapi_users.current_user(active=True, optional=True)
 
 
+def is_unprivileged(user: User) -> bool:
+    """Check if a user is not privileged (i.e. not an admin or superuser)."""
+    return user.role != UserRole.ADMIN and not user.is_superuser
+
+
 async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
     async with get_async_session_context_manager() as session:
         async with get_user_db_context(session) as user_db:
