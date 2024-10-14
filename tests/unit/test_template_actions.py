@@ -150,7 +150,7 @@ async def test_template_action_run():
     )
 
     registry = Repository()
-    registry.init(include_base=True, include_remote=False, include_templates=False)
+    registry.init(include_base=True, include_templates=False)
     registry.register_template_action(action)
     assert action.definition.action == "integrations.test.wrapper"
     assert "core.transform.reshape" in registry

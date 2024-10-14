@@ -41,6 +41,7 @@ dependencies = [
     "ollama==0.3.3",
     "openai==1.30.3",
     "orjson==3.10.3",
+    "paramiko==3.5.0",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
@@ -104,9 +105,9 @@ keep-runtime-typing = true
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers", "-vvrP"]
 xfail_strict = true
-log_level = "INFO"
+log_level = "ERROR"
 log_cli = true
-log_cli_level = "INFO"
+log_cli_level = "ERROR"
 markers = [
     "webtest: marks tests that require the web",
     "slow: marks tests as slow",

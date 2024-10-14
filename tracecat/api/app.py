@@ -90,7 +90,10 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
     repos = await repos_service.list_repositories()
     logger.info("Loading registry repositories", repos=[repo.origin for repo in repos])
     actions_service = RegistryActionsService(session, role=admin_role)
-    await actions_service.sync_actions(repos)
+    try:
+        await actions_service.sync_actions(repos)
+    except Exception as e:
+        logger.warning("Error while syncing registry actions", exc=e)
 
 
 async def setup_defaults(session: AsyncSession, admin_role: Role):

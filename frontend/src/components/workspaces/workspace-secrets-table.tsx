@@ -1,10 +1,10 @@
 "use client"
 
 import React, { useState } from "react"
-import { SecretResponse } from "@/client"
+import { SecretReadMinimal } from "@/client"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 
-import { useSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,10 +30,9 @@ import {
 } from "@/components/workspaces/edit-workspace-secret"
 
 export function WorkspaceSecretsTable() {
-  const { secrets, secretsIsLoading, secretsError } = useSecrets()
-  const [selectedSecret, setSelectedSecret] = useState<SecretResponse | null>(
-    null
-  )
+  const { secrets, secretsIsLoading, secretsError } = useWorkspaceSecrets()
+  const [selectedSecret, setSelectedSecret] =
+    useState<SecretReadMinimal | null>(null)
   if (secretsIsLoading) {
     return <CenteredSpinner />
   }
@@ -69,7 +68,7 @@ export function WorkspaceSecretsTable() {
               ),
               cell: ({ row }) => (
                 <div className="font-mono text-xs">
-                  {row.getValue<SecretResponse["name"]>("name")}
+                  {row.getValue<SecretReadMinimal["name"]>("name")}
                 </div>
               ),
               enableSorting: true,
@@ -86,8 +85,9 @@ export function WorkspaceSecretsTable() {
               ),
               cell: ({ row }) => (
                 <div className="text-xs">
-                  {row.getValue<SecretResponse["description"]>("description") ||
-                    "-"}
+                  {row.getValue<SecretReadMinimal["description"]>(
+                    "description"
+                  ) || "-"}
                 </div>
               ),
               enableSorting: true,
@@ -104,8 +104,9 @@ export function WorkspaceSecretsTable() {
               ),
               cell: ({ row }) => (
                 <div className="text-xs">
-                  {row.getValue<SecretResponse["environment"]>("environment") ||
-                    "-"}
+                  {row.getValue<SecretReadMinimal["environment"]>(
+                    "environment"
+                  ) || "-"}
                 </div>
               ),
               enableSorting: true,
@@ -121,7 +122,7 @@ export function WorkspaceSecretsTable() {
                 />
               ),
               cell: ({ row }) => {
-                const keys = row.getValue<SecretResponse["keys"]>("keys")
+                const keys = row.getValue<SecretReadMinimal["keys"]>("keys")
                 return (
                   <div className="flex-auto space-x-4 text-xs">
                     {keys.map((key, idx) => (

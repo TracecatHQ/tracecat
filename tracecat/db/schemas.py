@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import UUID4, computed_field, field_validator
+from pydantic import UUID4, ConfigDict, computed_field, field_validator
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -142,12 +142,8 @@ class AccessToken(SQLModelBaseAccessToken, table=True):
     pass
 
 
-class Secret(Resource, table=True):
-    __table_args__ = (
-        UniqueConstraint(
-            "name", "environment", "owner_id", name="uq_secret_name_env_owner"
-        ),
-    )
+class BaseSecret(Resource):
+    model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: str = Field(
         default_factory=id_factory("secret"), nullable=False, unique=True, index=True
     )
@@ -163,7 +159,19 @@ class Secret(Resource, table=True):
     # We store this object as encrypted bytes, but first validate that it's the correct type
     encrypted_keys: bytes
     environment: str = Field(default=DEFAULT_SECRETS_ENVIRONMENT, nullable=False)
-    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    # Use sa_type over sa_column for inheritance
+    tags: dict[str, str] | None = Field(sa_type=JSONB)
+
+
+class OrganizationSecret(BaseSecret, table=True):
+    __table_args__ = (UniqueConstraint("name", "environment"),)
+
+
+class Secret(BaseSecret, table=True):
+    """Workspace secrets."""
+
+    __table_args__ = (UniqueConstraint("name", "environment", "owner_id"),)
+
     owner_id: OwnerID = Field(
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )

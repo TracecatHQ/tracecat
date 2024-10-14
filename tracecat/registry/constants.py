@@ -1,2 +1,3 @@
 DEFAULT_REGISTRY_ORIGIN = "tracecat_registry"
 DEFAULT_REMOTE_REGISTRY_ORIGIN = "remote"
+GITHUB_SSH_KEY_SECRET_NAME = "github-ssh-key"

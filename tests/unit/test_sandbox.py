@@ -7,13 +7,13 @@ import pytest_mock
 from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_env, ctx_role
-from tracecat.db.schemas import Secret
+from tracecat.db.schemas import BaseSecret
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.models import (
-    CreateSecretParams,
-    SearchSecretsParams,
+    SecretCreate,
     SecretKeyValue,
+    SecretSearch,
 )
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
@@ -22,16 +22,22 @@ from tracecat.types.exceptions import TracecatCredentialsError
 
 @pytest.mark.asyncio
 async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_role):
+    from datetime import datetime
+
     role = ctx_role.get()
     assert role is not None
 
     mock_secret_keys = [SecretKeyValue(key="SECRET_KEY", value="my_secret_key")]
-    mock_secret = Secret(
+
+    mock_secret = BaseSecret(
         name="my_secret",
         owner_id=role.workspace_id,
         encrypted_keys=encrypt_keyvalues(
             mock_secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
         ),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        tags={},
     )
 
     mocker.patch.object(AuthSandbox, "_get_secrets", return_value=[mock_secret])
@@ -63,7 +69,7 @@ async def test_auth_sandbox_env_target(mocker: pytest_mock.MockFixture, test_rol
     role = ctx_role.get()
     assert role is not None
     mock_secret_keys = [SecretKeyValue(key="SECRET_KEY", value="my_secret_key")]
-    mock_secret = Secret(
+    mock_secret = BaseSecret(
         name="my_secret",
         owner_id=role.workspace_id,
         environment="default",
@@ -112,7 +118,7 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
 
     # Assert that the SecretsService was called with the correct parameters
     mock_secrets_service.search_secrets.assert_called_once_with(
-        SearchSecretsParams(names=["missing_secret"], environment="default")
+        SecretSearch(names=["missing_secret"], environment="default")
     )
 
 
@@ -123,14 +129,14 @@ async def test_auth_sandbox_custom_runtime_env_target(
     # Add secrets to the db
     async with SecretsService.with_session(role=test_role) as service:
         await service.create_secret(
-            CreateSecretParams(
+            SecretCreate(
                 name="test_secret",
                 environment="__FIRST__",
                 keys=[SecretKeyValue(key="KEY", value="FIRST_VALUE")],
             )
         )
         await service.create_secret(
-            CreateSecretParams(
+            SecretCreate(
                 name="test_secret",
                 environment="__SECOND__",
                 keys=[SecretKeyValue(key="KEY", value="SECOND_VALUE")],

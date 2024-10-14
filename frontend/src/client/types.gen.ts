@@ -199,26 +199,6 @@ export type CreateActionParams = {
     title: string;
 };
 
-/**
- * Create a new secret.
- *
- * Secret types
- * ------------
- * - `custom`: Arbitrary user-defined types
- * - `token`: A token, e.g. API Key, JWT Token (TBC)
- * - `oauth2`: OAuth2 Client Credentials (TBC)
- */
-export type CreateSecretParams = {
-    type?: "custom";
-    name: string;
-    description?: string | null;
-    keys: Array<SecretKeyValue>;
-    tags?: {
-    [key: string]: (string);
-} | null;
-    environment?: string;
-};
-
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
     inputs?: {
@@ -816,22 +796,24 @@ export type ScheduleUpdate = {
     status?: 'online' | 'offline' | null;
 };
 
-export type Secret = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    type?: string;
-    /**
-     * Secret names should be unique within a user's scope.
-     */
+/**
+ * Create a new secret.
+ *
+ * Secret types
+ * ------------
+ * - `custom`: Arbitrary user-defined types
+ * - `token`: A token, e.g. API Key, JWT Token (TBC)
+ * - `oauth2`: OAuth2 Client Credentials (TBC)
+ */
+export type SecretCreate = {
+    type?: SecretType;
     name: string;
     description?: string | null;
-    encrypted_keys: (Blob | File);
-    environment?: string;
-    tags: {
+    keys: Array<SecretKeyValue>;
+    tags?: {
     [key: string]: (string);
 } | null;
+    environment?: string;
 };
 
 export type SecretKeyValue = {
@@ -839,13 +821,59 @@ export type SecretKeyValue = {
     value: string;
 };
 
-export type SecretResponse = {
+/**
+ * The level of a secret.
+ */
+export type SecretLevel = 'workspace' | 'organization';
+
+export type SecretRead = {
     id: string;
-    type: "custom";
+    type: SecretType;
+    name: string;
+    description?: string | null;
+    encrypted_keys: (Blob | File);
+    environment: string;
+    tags?: {
+    [key: string]: (string);
+} | null;
+    owner_id: string;
+    created_at: string;
+    updated_at: string;
+};
+
+export type SecretReadMinimal = {
+    id: string;
+    type: SecretType;
     name: string;
     description?: string | null;
     keys: Array<(string)>;
     environment: string;
+};
+
+/**
+ * The type of a secret.
+ */
+export type SecretType = 'custom' | 'ssh-key';
+
+/**
+ * Update a secret.
+ *
+ * Secret types
+ * ------------
+ * - `custom`: Arbitrary user-defined types
+ * - `token`: A token, e.g. API Key, JWT Token (TBC)
+ * - `oauth2`: OAuth2 Client Credentials (TBC)
+ */
+export type SecretUpdate = {
+    type?: SecretType | null;
+    name?: string | null;
+    description?: string | null;
+    keys?: Array<SecretKeyValue> | null;
+    tags?: {
+    [key: string]: (string);
+} | null;
+    environment?: string | null;
+    level?: SecretLevel | null;
 };
 
 export type TemplateAction_Input = {
@@ -952,26 +980,6 @@ export type UpdateActionParams = {
     [key: string]: unknown;
 } | null;
     control_flow?: ActionControlFlow | null;
-};
-
-/**
- * Create a new secret.
- *
- * Secret types
- * ------------
- * - `custom`: Arbitrary user-defined types
- * - `token`: A token, e.g. API Key, JWT Token (TBC)
- * - `oauth2`: OAuth2 Client Credentials (TBC)
- */
-export type UpdateSecretParams = {
-    type?: "custom" | null;
-    name?: string | null;
-    description?: string | null;
-    keys?: Array<SecretKeyValue> | null;
-    tags?: {
-    [key: string]: (string);
-} | null;
-    environment?: string | null;
 };
 
 export type UpdateWorkflowParams = {
@@ -1486,44 +1494,66 @@ export type ActionsDeleteActionResponse = void;
 
 export type SecretsSearchSecretsData = {
     environment: string;
+    /**
+     * Filter by secret ID
+     */
     id?: Array<(string)> | null;
+    /**
+     * Filter by secret level
+     */
+    level?: Array<SecretLevel> | null;
+    /**
+     * Filter by secret name
+     */
     name?: Array<(string)> | null;
-    workspaceId: string;
+    /**
+     * Filter by secret type
+     */
+    type?: Array<SecretType> | null;
+    workspaceId?: string | null;
 };
 
-export type SecretsSearchSecretsResponse = Array<Secret>;
+export type SecretsSearchSecretsResponse = Array<SecretRead>;
 
 export type SecretsListSecretsData = {
-    workspaceId: string;
+    /**
+     * Filter by secret level
+     */
+    level?: SecretLevel | null;
+    /**
+     * Filter by secret type
+     */
+    type?: Array<SecretType> | null;
+    workspaceId?: string | null;
 };
 
-export type SecretsListSecretsResponse = Array<SecretResponse>;
+export type SecretsListSecretsResponse = Array<SecretReadMinimal>;
 
 export type SecretsCreateSecretData = {
-    requestBody: CreateSecretParams;
-    workspaceId: string;
+    requestBody: SecretCreate;
+    workspaceId?: string | null;
 };
 
 export type SecretsCreateSecretResponse = unknown;
 
 export type SecretsGetSecretByNameData = {
     secretName: string;
-    workspaceId: string;
+    workspaceId?: string | null;
 };
 
-export type SecretsGetSecretByNameResponse = Secret;
+export type SecretsGetSecretByNameResponse = SecretRead;
 
 export type SecretsUpdateSecretByIdData = {
-    requestBody: UpdateSecretParams;
+    requestBody: SecretUpdate;
     secretId: string;
-    workspaceId: string;
+    workspaceId?: string | null;
 };
 
 export type SecretsUpdateSecretByIdResponse = void;
 
 export type SecretsDeleteSecretByIdData = {
     secretId: string;
-    workspaceId: string;
+    workspaceId?: string | null;
 };
 
 export type SecretsDeleteSecretByIdResponse = void;
@@ -1589,6 +1619,7 @@ export type RegistryRepositoriesSyncRegistryRepositoriesData = {
      * Origins to sync. If no origins provided, all repositories will be synced.
      */
     origins?: Array<(string)> | null;
+    workspaceId?: string | null;
 };
 
 export type RegistryRepositoriesSyncRegistryRepositoriesResponse = void;
@@ -2269,7 +2300,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<Secret>;
+                200: Array<SecretRead>;
                 /**
                  * Validation Error
                  */
@@ -2284,7 +2315,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<SecretResponse>;
+                200: Array<SecretReadMinimal>;
                 /**
                  * Validation Error
                  */
@@ -2312,7 +2343,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Secret;
+                200: SecretRead;
                 /**
                  * Validation Error
                  */

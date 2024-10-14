@@ -22,7 +22,7 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
+from tracecat.types.exceptions import RegistryError, TracecatNotFoundError
 
 
 class RegistryActionsService:
@@ -155,7 +155,9 @@ class RegistryActionsService:
         await self.session.commit()
         return action
 
-    async def sync_actions(self, repos: list[RegistryRepository]) -> None:
+    async def sync_actions(
+        self, repos: list[RegistryRepository], *, raise_on_error: bool = True
+    ) -> None:
         """
         Update the RegistryAction table with the actions from a list of repositories.
 
@@ -172,8 +174,19 @@ class RegistryActionsService:
         for repo in repos:
             try:
                 await self.sync_actions_from_repository(repo)
+            except TracecatNotFoundError as e:
+                self.logger.warning(
+                    f"Error while syncing repository {repo.origin!r}: {e}"
+                )
+                if raise_on_error:
+                    raise
             except Exception as e:
-                self.logger.error(f"Error while syncing repository: {str(e)}")
+                self.logger.error(
+                    f"Unexpected error while syncing repository: {str(e)}",
+                    repository=repo.origin,
+                )
+                if raise_on_error:
+                    raise
 
     async def sync_actions_from_repository(
         self, repository: RegistryRepository
@@ -184,31 +197,41 @@ class RegistryActionsService:
         - For each repository, we need to reimport the packages to run decorators. (for remote this involves pulling)
         - Scan the repositories for implementation details/metadata and update the DB
         """
-        repo = Repository(origin=repository.origin)
+        repo = Repository(origin=repository.origin, role=self.role)
         try:
             await repo.load_from_origin()
-        except Exception as e:
-            logger.error(f"Error while loading registry from origin: {str(e)}")
-            raise e
+        except Exception:
+            raise
         # Add the loaded actions to the db
-        for action in repo.store.values():
+        for new_action in repo.store.values():
             # Check action already exists
             try:
-                await self.get_action(action_name=action.action)
+                registry_action = await self.get_action(action_name=new_action.action)
             except RegistryError:
                 self.logger.info(
                     "Action not found, creating",
-                    namespace=action.namespace,
-                    origin=action.origin,
+                    namespace=new_action.namespace,
+                    origin=new_action.origin,
                     repository_id=repository.id,
                 )
-                params = RegistryActionCreate.from_bound(action, repository.id)
-                await self.create_action(params)
+                create_params = RegistryActionCreate.from_bound(
+                    new_action, repository.id
+                )
+                await self.create_action(create_params)
+            else:
+                self.logger.info(
+                    "Action found, updating",
+                    namespace=new_action.namespace,
+                    origin=new_action.origin,
+                    repository_id=repository.id,
+                )
+                update_params = RegistryActionUpdate.from_bound(new_action)
+                await self.update_action(registry_action, update_params)
 
     async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
         """
         Load the implementation for a registry action.
         """
         action = await self.get_action(action_name=action_name)
-        action = get_bound_action_impl(action)
-        return action
+        bound_action = get_bound_action_impl(action)
+        return bound_action

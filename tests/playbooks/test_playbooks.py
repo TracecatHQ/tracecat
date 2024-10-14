@@ -35,7 +35,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
             logger.warning("dotenv not installed, skipping loading .env file")
             pass
 
-    from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
+    from tracecat.secrets.models import SecretCreate, SecretKeyValue
     from tracecat.secrets.service import SecretsService
 
     secrets_service = SecretsService(session, role=test_role)
@@ -49,9 +49,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
     # loop = asyncio.get_event_loop()
     for name, env_vars in secrets.items():
         keyvalues = [SecretKeyValue(key=k, value=v) for k, v in env_vars.items()]
-        await secrets_service.create_secret(
-            CreateSecretParams(name=name, keys=keyvalues)
-        )
+        await secrets_service.create_secret(SecretCreate(name=name, keys=keyvalues))
 
     logger.info("Created integration secrets")
 

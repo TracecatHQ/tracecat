@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserOrServiceRole, OrgUserRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.schemas import RegistryRepository
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
@@ -14,6 +16,8 @@ from tracecat.registry.repositories.models import (
 )
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import ensure_base_repository
+from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
 
@@ -22,7 +26,12 @@ router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
 
 @router.post("/sync", status_code=status.HTTP_204_NO_CONTENT)
 async def sync_registry_repositories(
-    role: OrgUserOrServiceRole,
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=True,
+        require_workspace=False,
+    ),
     session: AsyncDBSession,
     origins: list[str] | None = Query(
         None,
@@ -37,7 +46,7 @@ async def sync_registry_repositories(
         repos = await repos_service.list_repositories()
     else:
         # If origins are provided, only sync those repositories
-        repos = []
+        repos: list[RegistryRepository] = []
         for origin in origins:
             if (repo := await repos_service.get_repository(origin)) is None:
                 # If it doesn't exist, create the base registry repository
@@ -52,7 +61,20 @@ async def sync_registry_repositories(
             repos.append(repo)
 
     actions_service = RegistryActionsService(session, role=role)
-    await actions_service.sync_actions(repos)
+    try:
+        await actions_service.sync_actions(repos)
+    except TracecatNotFoundError as e:
+        logger.error("Error while syncing repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.error("Unexpected error while syncing repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.get("")

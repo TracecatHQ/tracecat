@@ -564,67 +564,6 @@ export const $CreateActionParams = {
     title: 'CreateActionParams'
 } as const;
 
-export const $CreateSecretParams = {
-    properties: {
-        type: {
-            const: 'custom',
-            title: 'Type',
-            default: 'custom'
-        },
-        name: {
-            type: 'string',
-            title: 'Name'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        keys: {
-            items: {
-                '$ref': '#/components/schemas/SecretKeyValue'
-            },
-            type: 'array',
-            title: 'Keys'
-        },
-        tags: {
-            anyOf: [
-                {
-                    additionalProperties: {
-                        type: 'string'
-                    },
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Tags'
-        },
-        environment: {
-            type: 'string',
-            title: 'Environment',
-            default: 'default'
-        }
-    },
-    type: 'object',
-    required: ['name', 'keys'],
-    title: 'CreateSecretParams',
-    description: `Create a new secret.
-
-Secret types
-------------
-- \`custom\`: Arbitrary user-defined types
-- \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`
-} as const;
-
 export const $CreateWorkflowExecutionParams = {
     properties: {
         workflow_id: {
@@ -2309,43 +2248,24 @@ export const $ScheduleUpdate = {
     title: 'ScheduleUpdate'
 } as const;
 
-export const $Secret = {
+export const $SecretCreate = {
     properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
         type: {
-            type: 'string',
-            title: 'Type',
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/SecretType'
+                }
+            ],
             default: 'custom'
         },
         name: {
             type: 'string',
-            maxLength: 255,
-            title: 'Name',
-            description: "Secret names should be unique within a user's scope."
+            title: 'Name'
         },
         description: {
             anyOf: [
                 {
-                    type: 'string',
-                    maxLength: 255
+                    type: 'string'
                 },
                 {
                     type: 'null'
@@ -2353,15 +2273,12 @@ export const $Secret = {
             ],
             title: 'Description'
         },
-        encrypted_keys: {
-            type: 'string',
-            format: 'binary',
-            title: 'Encrypted Keys'
-        },
-        environment: {
-            type: 'string',
-            title: 'Environment',
-            default: 'default'
+        keys: {
+            items: {
+                '$ref': '#/components/schemas/SecretKeyValue'
+            },
+            type: 'array',
+            title: 'Keys'
         },
         tags: {
             anyOf: [
@@ -2376,11 +2293,23 @@ export const $Secret = {
                 }
             ],
             title: 'Tags'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            default: 'default'
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'name', 'encrypted_keys', 'tags'],
-    title: 'Secret'
+    required: ['name', 'keys'],
+    title: 'SecretCreate',
+    description: `Create a new secret.
+
+Secret types
+------------
+- \`custom\`: Arbitrary user-defined types
+- \`token\`: A token, e.g. API Key, JWT Token (TBC)
+- \`oauth2\`: OAuth2 Client Credentials (TBC)`
 } as const;
 
 export const $SecretKeyValue = {
@@ -2401,15 +2330,89 @@ export const $SecretKeyValue = {
     title: 'SecretKeyValue'
 } as const;
 
-export const $SecretResponse = {
+export const $SecretLevel = {
+    type: 'string',
+    enum: ['workspace', 'organization'],
+    title: 'SecretLevel',
+    description: 'The level of a secret.'
+} as const;
+
+export const $SecretRead = {
     properties: {
         id: {
             type: 'string',
             title: 'Id'
         },
         type: {
-            const: 'custom',
-            title: 'Type'
+            '$ref': '#/components/schemas/SecretType'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        encrypted_keys: {
+            type: 'string',
+            format: 'binary',
+            title: 'Encrypted Keys'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
+        },
+        tags: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        type: 'string'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Tags'
+        },
+        owner_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Owner Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'type', 'name', 'encrypted_keys', 'environment', 'owner_id', 'created_at', 'updated_at'],
+    title: 'SecretRead'
+} as const;
+
+export const $SecretReadMinimal = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        type: {
+            '$ref': '#/components/schemas/SecretType'
         },
         name: {
             type: 'string',
@@ -2440,7 +2443,109 @@ export const $SecretResponse = {
     },
     type: 'object',
     required: ['id', 'type', 'name', 'keys', 'environment'],
-    title: 'SecretResponse'
+    title: 'SecretReadMinimal'
+} as const;
+
+export const $SecretType = {
+    type: 'string',
+    enum: ['custom', 'ssh-key'],
+    title: 'SecretType',
+    description: 'The type of a secret.'
+} as const;
+
+export const $SecretUpdate = {
+    properties: {
+        type: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/SecretType'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        keys: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/SecretKeyValue'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Keys'
+        },
+        tags: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        type: 'string'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Tags'
+        },
+        environment: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Environment'
+        },
+        level: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/SecretLevel'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    title: 'SecretUpdate',
+    description: `Update a secret.
+
+Secret types
+------------
+- \`custom\`: Arbitrary user-defined types
+- \`token\`: A token, e.g. API Key, JWT Token (TBC)
+- \`oauth2\`: OAuth2 Client Credentials (TBC)`
 } as const;
 
 export const $TemplateAction_Input = {
@@ -2753,92 +2858,6 @@ export const $UpdateActionParams = {
     },
     type: 'object',
     title: 'UpdateActionParams'
-} as const;
-
-export const $UpdateSecretParams = {
-    properties: {
-        type: {
-            anyOf: [
-                {
-                    const: 'custom'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Type'
-        },
-        name: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Name'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        keys: {
-            anyOf: [
-                {
-                    items: {
-                        '$ref': '#/components/schemas/SecretKeyValue'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Keys'
-        },
-        tags: {
-            anyOf: [
-                {
-                    additionalProperties: {
-                        type: 'string'
-                    },
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Tags'
-        },
-        environment: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Environment'
-        }
-    },
-    type: 'object',
-    title: 'UpdateSecretParams',
-    description: `Create a new secret.
-
-Secret types
-------------
-- \`custom\`: Arbitrary user-defined types
-- \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`
 } as const;
 
 export const $UpdateWorkflowParams = {

@@ -147,7 +147,7 @@ class RegistryClient:
 
     """Registry management"""
 
-    async def list_registries(self) -> list[str]:
+    async def list_repositories(self) -> list[str]:
         try:
             logger.warning("Listing registries")
             async with _RegistryHTTPClient(self.role) as client:
@@ -167,38 +167,7 @@ class RegistryClient:
                 f"Unexpected error while listing registries: {str(e)}"
             ) from e
 
-    async def create_registry(self, *, version: str, name: str | None = None) -> Any:
-        """If no name is provided, the version is used as the name."""
-        try:
-            response = await self.post(
-                f"{self._repos_endpoint}/{version}",
-                json={"version": version, "name": name},
-            )
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 409:
-                raise RegistryError(
-                    f"Registry version {version!r} already exists"
-                ) from e
-            elif e.response.status_code == 400:
-                raise RegistryError(
-                    f"Invalid registry version or name: {e.response.text}"
-                ) from e
-            else:
-                raise RegistryError(
-                    f"Failed to create registry: HTTP {e.response.status_code}"
-                ) from e
-        except httpx.RequestError as e:
-            raise RegistryError(
-                f"Network error while creating registry: {str(e)}"
-            ) from e
-        except Exception as e:
-            raise RegistryError(
-                f"Unexpected error while creating registry: {str(e)}"
-            ) from e
-
-    async def get_registry(self, version: str) -> list[RegistryActionRead]:
+    async def get_repository_actions(self, version: str) -> list[RegistryActionRead]:
         try:
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.get(f"{self._repos_endpoint}/{version}")
