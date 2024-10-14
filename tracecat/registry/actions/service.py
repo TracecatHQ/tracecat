@@ -22,7 +22,7 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
+from tracecat.types.exceptions import RegistryError, TracecatNotFoundError
 
 
 class RegistryActionsService:
@@ -155,7 +155,9 @@ class RegistryActionsService:
         await self.session.commit()
         return action
 
-    async def sync_actions(self, repos: list[RegistryRepository]) -> None:
+    async def sync_actions(
+        self, repos: list[RegistryRepository], *, raise_on_error: bool = True
+    ) -> None:
         """
         Update the RegistryAction table with the actions from a list of repositories.
 
@@ -172,8 +174,19 @@ class RegistryActionsService:
         for repo in repos:
             try:
                 await self.sync_actions_from_repository(repo)
+            except TracecatNotFoundError as e:
+                self.logger.warning(
+                    f"Error while syncing repository {repo.origin!r}: {e}"
+                )
+                if raise_on_error:
+                    raise
             except Exception as e:
-                self.logger.error(f"Error while syncing repository: {str(e)}")
+                self.logger.error(
+                    f"Unexpected error while syncing repository: {str(e)}",
+                    repository=repo.origin,
+                )
+                if raise_on_error:
+                    raise
 
     async def sync_actions_from_repository(
         self, repository: RegistryRepository
@@ -184,12 +197,11 @@ class RegistryActionsService:
         - For each repository, we need to reimport the packages to run decorators. (for remote this involves pulling)
         - Scan the repositories for implementation details/metadata and update the DB
         """
-        repo = Repository(origin=repository.origin)
+        repo = Repository(origin=repository.origin, role=self.role)
         try:
             await repo.load_from_origin()
-        except Exception as e:
-            logger.error(f"Error while loading registry from origin: {str(e)}")
-            raise e
+        except Exception:
+            raise
         # Add the loaded actions to the db
         for action in repo.store.values():
             # Check action already exists
@@ -210,5 +222,5 @@ class RegistryActionsService:
         Load the implementation for a registry action.
         """
         action = await self.get_action(action_name=action_name)
-        action = get_bound_action_impl(action)
-        return action
+        bound_action = get_bound_action_impl(action)
+        return bound_action

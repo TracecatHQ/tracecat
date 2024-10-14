@@ -1,18 +1,25 @@
+from __future__ import annotations
+
 import asyncio
 import importlib
 import inspect
 import json
+import os
 import re
 import subprocess
-from collections.abc import Callable
+import sys
+import tempfile
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from importlib.resources import files
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import FunctionType, GenericAlias, ModuleType
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict
 from urllib.parse import urlparse, urlunparse
 
+import paramiko
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -26,6 +33,7 @@ from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
 
 from tracecat import config
+from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
@@ -34,9 +42,13 @@ from tracecat.registry.actions.models import (
     BoundRegistryAction,
     TemplateAction,
 )
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_REGISTRY_ORIGIN,
+    GITHUB_SSH_KEY_SECRET_NAME,
+)
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 
 
@@ -59,10 +71,11 @@ class Repository:
     3. Serve function execution requests from a registry manager
     """
 
-    def __init__(self, origin: str = DEFAULT_REGISTRY_ORIGIN):
+    def __init__(self, origin: str = DEFAULT_REGISTRY_ORIGIN, role: Role | None = None):
         self._store: dict[str, BoundRegistryAction[ArgsClsT]] = {}
         self._is_initialized: bool = False
         self._origin = origin
+        self.role = role or ctx_role.get()
 
     def __contains__(self, name: str) -> bool:
         return name in self._store
@@ -102,27 +115,17 @@ class Repository:
         """Clean a remote registry url."""
         return safe_url(remote_registry_url)
 
-    def init(
-        self,
-        include_base: bool = True,
-        include_remote: bool = False,
-        include_templates: bool = True,
-    ) -> None:
+    def init(self, include_base: bool = True, include_templates: bool = True) -> None:
         """Initialize the registry."""
         if not self._is_initialized:
             logger.info(
                 "Initializing registry",
                 include_base=include_base,
-                include_remote=include_remote,
                 include_templates=include_templates,
             )
             # Load udfs
             if include_base:
                 self._load_base_udfs()
-
-            # Load remote udfs
-            if include_remote and self._remote:
-                self._load_remote_udfs(self._remote, module_name="udfs")
 
             # Load template actions
             if include_templates:
@@ -237,14 +240,14 @@ class Repository:
         package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
 
         module = await self._load_remote_repository(self._origin, package_name)
-        logger.info("Imported remote repository", module_name=module.__name__)
+        logger.info(
+            "Imported and reloaded remote repository",
+            module_name=module.__name__,
+            package_name=package_name,
+        )
 
-    async def _load_remote_repository(
-        self, repository_url: str, module_name: str
-    ) -> ModuleType:
-        """Load actions from a remote source."""
-        cleaned_url = self.safe_remote_url(repository_url)
-        logger.info("Loading remote repository", url=cleaned_url)
+    async def _install_remote_repository(self, repo_url: str, env: _SSHEnv) -> None:
+        logger.info("Loading remote repository", url=repo_url)
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -252,10 +255,11 @@ class Repository:
                 "pip",
                 "install",
                 "--system",
-                "--refresh",
-                cleaned_url,
+                "--reinstall",
+                repo_url,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=os.environ.copy() | env,
             )
             _, stderr = await process.communicate()
 
@@ -268,13 +272,36 @@ class Repository:
         except Exception as e:
             logger.error(f"Error while fetching repository: {str(e)}")
             raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
+
+    async def _load_remote_repository(
+        self, repository_url: str, module_name: str
+    ) -> ModuleType:
+        """Load actions from a remote source."""
+        # First, we have to grab the ssh key from the db
+
+        logger.info("Getting SSH key", role=self.role)
+        async with SecretsService.with_session(role=self.role) as service:
+            secret = await service.get_ssh_key(GITHUB_SSH_KEY_SECRET_NAME)
+        logger.info("Got SSH key", key=secret)
+
+        cleaned_url = self.safe_remote_url(repository_url)
+        logger.info("Cleaned URL", url=cleaned_url)
+        async with temporary_ssh_agent() as env:
+            logger.info("Entered temporary SSH agent context")
+            await add_ssh_key_to_agent(secret.reveal().value, env=env)
+            await add_host_to_known_hosts("github.com", env=env)
+            await self._install_remote_repository(cleaned_url, env=env)
+
         try:
             # Import the module
             logger.info("Importing remote repository module", module_name=module_name)
+            importlib.invalidate_caches()
             module = importlib.import_module(module_name)
+            reloaded_module = importlib.reload(module)
+            sys.modules[module_name] = reloaded_module
 
             # # Reload the module to ensure fresh execution
-            self._register_udfs_from_package(module, origin=cleaned_url)
+            self._register_udfs_from_package(reloaded_module, origin=cleaned_url)
             logger.trace("AFTER", keys=self.keys)
         except ImportError as e:
             logger.error("Error importing remote udfs", error=e)
@@ -361,7 +388,12 @@ class Repository:
             udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
             udf_module_name = f"{base_package}.{'.'.join(udf_module_parts)}"
             udf_module = importlib.import_module(udf_module_name)
-            num_registered = self._register_udfs_from_module(udf_module, origin=origin)
+            # NOTE: We must reload the module here to ensure that the changes are
+            # reflected in the executor
+            reloaded_module = importlib.reload(udf_module)
+            num_registered = self._register_udfs_from_module(
+                reloaded_module, origin=origin
+            )
             num_udfs += num_registered
         time_elapsed = default_timer() - start_time
         logger.info(
@@ -369,35 +401,6 @@ class Repository:
             num_udfs=num_udfs,
             time_elapsed=time_elapsed,
         )
-
-    def _load_remote_udfs(self, remote_registry_url: str, module_name: str) -> None:
-        """Load udfs from a remote source."""
-        cleaned_url = self.safe_remote_url(remote_registry_url)
-        with logger.contextualize(remote=cleaned_url):
-            logger.info("Loading remote udfs")
-            try:
-                logger.trace("BEFORE", keys=self.keys)
-                # TODO(perf): Use asyncio
-                logger.info("Installing remote udfs", remote=cleaned_url)
-                subprocess.run(
-                    ["uv", "pip", "install", "--system", remote_registry_url],
-                    check=True,
-                )
-
-            except subprocess.CalledProcessError as e:
-                logger.error("Error installing remote udfs", error=e)
-                raise
-            try:
-                # Import the module
-                logger.info("Importing remote udfs", module_name=module_name)
-                module = importlib.import_module(module_name)
-
-                # # Reload the module to ensure fresh execution
-                self._register_udfs_from_package(module, origin=cleaned_url)
-                logger.trace("AFTER", keys=self.keys)
-            except ImportError as e:
-                logger.error("Error importing remote udfs", error=e)
-                raise
 
     def _load_base_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
@@ -588,37 +591,37 @@ def safe_url(url: str) -> str:
 def parse_github_url(url: str) -> tuple[str, str, str]:
     """
     Parse a GitHub URL to extract organization, package name, and branch.
-    Handles both standard GitHub URLs and 'git+' prefixed URLs with '@' for branch specification.
+    Handles both standard GitHub URLs and 'git+' prefixed URLs with optional '@' for branch specification.
+
     Args:
         url (str): The GitHub URL to parse.
+
     Returns:
         tuple[str, str, str]: A tuple containing (organization, package_name, branch).
+
     Raises:
         ValueError: If the URL is not a valid GitHub repository URL.
     """
+    # Define regex patterns
+    ssh_pattern = r"^git\+ssh:\/\/git@github\.com\/(?P<org>[^\/]+)\/(?P<repo>[^\/]+?)(\.git)?(@(?P<branch>[^\/]+))?$"
+    # https_pattern = r"^git\+https://github\.com/(?P<org>[^/]+)/(?P<repo>[^/@]+)(@(?P<branch>[^/]+))?$"
 
-    parsed_url = urlparse(url)
-    if parsed_url.netloc != "github.com":
-        raise ValueError("Not a valid GitHub URL")
+    # Try matching SSH pattern
+    if ssh_match := re.match(ssh_pattern, url):
+        org = ssh_match.group("org")
+        repo = ssh_match.group("repo")
+        branch = ssh_match.group("branch") or "main"
+        return org, repo, branch
 
-    # Split path and potential branch
-    path_and_branch = parsed_url.path.split("@")
-    path_parts = path_and_branch[0].strip("/").split("/")
+    # # Try matching HTTPS pattern
+    # if https_match := re.match(https_pattern, url):
+    #     org = https_match.group("org")
+    #     repo = https_match.group("repo")
+    #     branch = https_match.group("branch") or "main"
+    #     return org, repo, branch
 
-    if len(path_parts) < 2:
-        raise ValueError("Invalid GitHub repository URL")
-
-    organization = path_parts[0]
-    package_name = path_parts[1]
-
-    # Check for branch in URL
-    branch = "main"  # Default to 'main' if no branch is specified
-    if len(path_and_branch) > 1:
-        branch = path_and_branch[1]
-    elif len(path_parts) > 3 and path_parts[2] == "tree":
-        branch = path_parts[3]
-
-    return organization, package_name, branch
+    # If no match found, raise ValueError
+    raise ValueError(f"Unsupported URL format: {url}")
 
 
 async def ensure_base_repository(
@@ -635,3 +638,149 @@ async def ensure_base_repository(
         logger.info("Created base registry repository", origin=origin)
     else:
         logger.info("Base registry repository already exists", origin=origin)
+
+
+class _SSHEnv(TypedDict):
+    SSH_AUTH_SOCK: str
+    SSH_AGENT_PID: str
+
+
+@asynccontextmanager
+async def temporary_ssh_agent() -> AsyncIterator[_SSHEnv]:
+    """Set up a temporary SSH agent and yield the SSH_AUTH_SOCK."""
+    original_ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
+    try:
+        # Start ssh-agent
+        logger.debug("Starting ssh-agent")
+        try:
+            # We're using asyncio.to_thread to run the ssh-agent in a separate thread
+            # because for some reason, asyncio.create_subprocess_exec stalls and times out
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["ssh-agent", "-s"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10.0,
+            )
+            stdout = result.stdout
+            stderr = result.stderr
+            logger.debug("Started ssh-agent process", stdout=stdout, stderr=stderr)
+        except subprocess.TimeoutExpired as e:
+            logger.error("SSH-agent execution timed out")
+            raise RuntimeError("SSH-agent execution timed out") from e
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to start ssh-agent", stderr=e.stderr)
+            raise RuntimeError("Failed to start ssh-agent") from e
+
+        ssh_auth_sock = stdout.split("SSH_AUTH_SOCK=")[1].split(";")[0]
+        ssh_agent_pid = stdout.split("SSH_AGENT_PID=")[1].split(";")[0]
+
+        logger.debug(
+            "Started ssh-agent",
+            SSH_AUTH_SOCK=ssh_auth_sock,
+            SSH_AGENT_PID=ssh_agent_pid,
+        )
+        yield _SSHEnv(
+            SSH_AUTH_SOCK=ssh_auth_sock,
+            SSH_AGENT_PID=ssh_agent_pid,
+        )
+    finally:
+        if "SSH_AGENT_PID" in os.environ:
+            logger.debug("Killing ssh-agent")
+            await asyncio.create_subprocess_exec("ssh-agent", "-k")
+
+        # Restore original SSH_AUTH_SOCK if it existed
+        if original_ssh_auth_sock is not None:
+            logger.debug(
+                "Restoring original SSH_AUTH_SOCK", SSH_AUTH_SOCK=original_ssh_auth_sock
+            )
+            os.environ["SSH_AUTH_SOCK"] = original_ssh_auth_sock
+        else:
+            os.environ.pop("SSH_AUTH_SOCK", None)
+        logger.debug("Killed ssh-agent")
+
+
+async def add_ssh_key_to_agent(key_data: str, env: _SSHEnv) -> None:
+    """Add the SSH key to the agent then remove it."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_key_file:
+        temp_key_file.write(key_data)
+        temp_key_file.write("\n")
+        temp_key_file.flush()
+        logger.debug("Added SSH key to temp file", key_file=temp_key_file.name)
+        os.chmod(temp_key_file.name, 0o600)
+
+        try:
+            # Validate the key using paramiko
+            paramiko.Ed25519Key.from_private_key_file(temp_key_file.name)
+        except paramiko.SSHException as e:
+            logger.error(f"Invalid SSH key: {str(e)}")
+            raise
+
+        try:
+            # # Check if SSH agent is running
+            # # NOTE(perf): We might not need this
+            # check_agent = await asyncio.create_subprocess_exec(
+            #     "ssh-add",
+            #     "-l",
+            #     stdout=asyncio.subprocess.PIPE,
+            #     stderr=asyncio.subprocess.PIPE,
+            #     env=env,
+            # )
+            # stdout, stderr = await check_agent.communicate()
+            # if check_agent.returncode != 0:
+            #     stdout_str = stdout.decode().strip()
+            #     stderr_str = stderr.decode().strip()
+            #     if "The agent has no identities." not in stdout_str:
+            #         msg = f"SSH agent is not running or not accessible: {stdout_str}"
+            #         logger.error(msg, stdout=stdout_str, stderr=stderr_str)
+            #         raise Exception(msg)
+
+            process = await asyncio.create_subprocess_exec(
+                "ssh-add",
+                temp_key_file.name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            _, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                raise Exception(f"Failed to add SSH key: {stderr.decode().strip()}")
+
+            logger.info("Added SSH key to agent")
+        except Exception as e:
+            logger.error("Error adding SSH key", error=e)
+            raise
+
+
+async def add_host_to_known_hosts(url: str, *, env: _SSHEnv) -> None:
+    """Add the host to the known hosts file."""
+    try:
+        # Ensure the ~/.ssh directory exists
+        ssh_dir = Path.home() / ".ssh"
+        ssh_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+        known_hosts_file = ssh_dir / "known_hosts"
+
+        # Use ssh-keyscan to get the host key
+        process = await asyncio.create_subprocess_exec(
+            "ssh-keyscan",
+            url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"Failed to get host key: {stderr.decode().strip()}")
+
+        # Append the host key to the known_hosts file
+        with known_hosts_file.open("a") as f:
+            f.write(stdout.decode())
+
+        logger.info("Added host to known hosts", url=url)
+    except Exception as e:
+        logger.error(f"Error adding host to known hosts: {str(e)}")
+        raise
