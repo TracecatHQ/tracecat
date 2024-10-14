@@ -188,45 +188,81 @@ class RegistryActionsService:
                 if raise_on_error:
                     raise
 
-    async def sync_actions_from_repository(
-        self, repository: RegistryRepository
-    ) -> None:
+    async def sync_actions_from_repository(self, db_repo: RegistryRepository) -> None:
         """Sync actions from a repository.
 
         To sync actions from the db repositories:
         - For each repository, we need to reimport the packages to run decorators. (for remote this involves pulling)
         - Scan the repositories for implementation details/metadata and update the DB
         """
-        repo = Repository(origin=repository.origin, role=self.role)
+        repo = Repository(origin=db_repo.origin, role=self.role)
         try:
             await repo.load_from_origin()
         except Exception:
             raise
-        # Add the loaded actions to the db
-        for new_action in repo.store.values():
-            # Check action already exists
+        # Perform diffing here. The expectation for this endpoint is to sync Tracecat's view of
+        # the repository with the remote repository -- meaning any creation/updates/deletions to
+        # actions should be propogated to the db.
+        # Safety: We're in a db session so we can call this
+        db_actions = db_repo.actions
+        db_actions_map = {db_action.action: db_action for db_action in db_actions}
+
+        self.logger.info(
+            "Syncing actions from repository",
+            repository=db_repo.origin,
+            incoming_actions=len(repo.store.keys()),
+            existing_actions=len(db_actions_map.keys()),
+        )
+
+        n_created = 0
+        n_updated = 0
+        n_deleted = 0
+        for action_name, new_bound_action in repo.store.items():
             try:
-                registry_action = await self.get_action(action_name=new_action.action)
+                registry_action = await self.get_action(action_name=action_name)
             except RegistryError:
-                self.logger.info(
+                self.logger.debug(
                     "Action not found, creating",
-                    namespace=new_action.namespace,
-                    origin=new_action.origin,
-                    repository_id=repository.id,
+                    namespace=new_bound_action.namespace,
+                    origin=new_bound_action.origin,
+                    repository_id=db_repo.id,
                 )
                 create_params = RegistryActionCreate.from_bound(
-                    new_action, repository.id
+                    new_bound_action, db_repo.id
                 )
                 await self.create_action(create_params)
+                n_created += 1
             else:
-                self.logger.info(
+                self.logger.debug(
                     "Action found, updating",
-                    namespace=new_action.namespace,
-                    origin=new_action.origin,
-                    repository_id=repository.id,
+                    namespace=new_bound_action.namespace,
+                    origin=new_bound_action.origin,
+                    repository_id=db_repo.id,
                 )
-                update_params = RegistryActionUpdate.from_bound(new_action)
+                update_params = RegistryActionUpdate.from_bound(new_bound_action)
                 await self.update_action(registry_action, update_params)
+                n_updated += 1
+            finally:
+                # Mark action as not to delete
+                db_actions_map.pop(action_name, None)
+
+        # Remove actions that are marked for deletion
+        if db_actions_map:
+            self.logger.warning(
+                "Removing actions that are no longer in the repository",
+                actions=db_actions_map.keys(),
+            )
+            for action_to_remove in db_actions_map.values():
+                await self.delete_action(action_to_remove)
+                n_deleted += 1
+
+        self.logger.info(
+            "Synced actions from repository",
+            repository=db_repo.origin,
+            created=n_created,
+            updated=n_updated,
+            deleted=n_deleted,
+        )
 
     async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
         """
