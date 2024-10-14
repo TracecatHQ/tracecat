@@ -592,6 +592,7 @@ def parse_github_url(url: str) -> tuple[str, str, str]:
     """
     Parse a GitHub URL to extract organization, package name, and branch.
     Handles both standard GitHub URLs and 'git+' prefixed URLs with optional '@' for branch specification.
+    Currently only supports git+ssh.
 
     Args:
         url (str): The GitHub URL to parse.
@@ -604,7 +605,6 @@ def parse_github_url(url: str) -> tuple[str, str, str]:
     """
     # Define regex patterns
     ssh_pattern = r"^git\+ssh:\/\/git@github\.com\/(?P<org>[^\/]+)\/(?P<repo>[^\/]+?)(\.git)?(@(?P<branch>[^\/]+))?$"
-    # https_pattern = r"^git\+https://github\.com/(?P<org>[^/]+)/(?P<repo>[^/@]+)(@(?P<branch>[^/]+))?$"
 
     # Try matching SSH pattern
     if ssh_match := re.match(ssh_pattern, url):
@@ -613,14 +613,6 @@ def parse_github_url(url: str) -> tuple[str, str, str]:
         branch = ssh_match.group("branch") or "main"
         return org, repo, branch
 
-    # # Try matching HTTPS pattern
-    # if https_match := re.match(https_pattern, url):
-    #     org = https_match.group("org")
-    #     repo = https_match.group("repo")
-    #     branch = https_match.group("branch") or "main"
-    #     return org, repo, branch
-
-    # If no match found, raise ValueError
     raise ValueError(f"Unsupported URL format: {url}")
 
 
@@ -718,24 +710,6 @@ async def add_ssh_key_to_agent(key_data: str, env: _SSHEnv) -> None:
             raise
 
         try:
-            # # Check if SSH agent is running
-            # # NOTE(perf): We might not need this
-            # check_agent = await asyncio.create_subprocess_exec(
-            #     "ssh-add",
-            #     "-l",
-            #     stdout=asyncio.subprocess.PIPE,
-            #     stderr=asyncio.subprocess.PIPE,
-            #     env=env,
-            # )
-            # stdout, stderr = await check_agent.communicate()
-            # if check_agent.returncode != 0:
-            #     stdout_str = stdout.decode().strip()
-            #     stderr_str = stderr.decode().strip()
-            #     if "The agent has no identities." not in stdout_str:
-            #         msg = f"SSH agent is not running or not accessible: {stdout_str}"
-            #         logger.error(msg, stdout=stdout_str, stderr=stderr_str)
-            #         raise Exception(msg)
-
             process = await asyncio.create_subprocess_exec(
                 "ssh-add",
                 temp_key_file.name,
