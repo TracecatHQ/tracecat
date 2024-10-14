@@ -79,7 +79,7 @@ def env_sandbox(
     monkeysession.setattr(
         config,
         "TRACECAT__REMOTE_REPOSITORY_URL",
-        "git+https://github.com/TracecatHQ/udfs",
+        "git+ssh://git@github.com/TracecatHQ/udfs.git",
     )
 
     monkeysession.setenv(
@@ -351,7 +351,7 @@ def temporal_client():
 def base_registry():
     try:
         registry = Repository()
-        registry.init(include_base=True)
+        registry.init(include_base=True, include_templates=False)
         yield registry
     finally:
         registry._reset()

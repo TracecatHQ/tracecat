@@ -35,7 +35,7 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
-from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
+from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -94,6 +94,9 @@ def runtime_config() -> DSLConfig:
 )
 @pytest.mark.asyncio
 async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
+    from tracecat import config
+
+    logger.warning("check env", env=os.environ, api_url=config.TRACECAT__API_URL)
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
@@ -311,10 +314,10 @@ async def test_workflow_multi_environ_secret_manager_correctness(
         module_name=module_name,
         validate_keys=["__testing__.testing.set_environment"],
     )
-    registries = await client.list_registries()
-    assert version in registries
+    repositories = await client.list_repositories()
+    assert version in repositories
     # Returns list of actions
-    registry_info = await client.get_registry(version)
+    registry_info = await client.get_repository_actions(version)
     # Find the action we just registered
     logger.info("Registry info", registry_info=registry_info)
     action = next(
@@ -330,14 +333,14 @@ async def test_workflow_multi_environ_secret_manager_correctness(
     # Add secrets to the db
     async with SecretsService.with_session(role=test_role) as service:
         await service.create_secret(
-            CreateSecretParams(
+            SecretCreate(
                 name=secret_name,
                 environment="__FIRST__",
                 keys=[SecretKeyValue(key="KEY", value="FIRST_VALUE")],
             )
         )
         await service.create_secret(
-            CreateSecretParams(
+            SecretCreate(
                 name=secret_name,
                 environment="__SECOND__",
                 keys=[SecretKeyValue(key="KEY", value="SECOND_VALUE")],
@@ -463,10 +466,10 @@ async def test_stress_workflow_udf_secret_manager_correctness(
         module_name=module_name,
         validate_keys=["__testing__.testing.set_environment"],
     )
-    registries = await client.list_registries()
+    registries = await client.list_repositories()
     assert version in registries
     # Returns list of actions
-    registry_info = await client.get_registry(version)
+    registry_info = await client.get_repository_actions(version)
     # Find the action we just registered
     logger.info("Registry info", registry_info=registry_info)
     action = next(
@@ -1404,14 +1407,14 @@ async def test_single_child_workflow_get_correct_secret_environment(
     # Add secrets to the db
     async with SecretsService.with_session(role=test_role) as service:
         await service.create_secret(
-            CreateSecretParams(
+            SecretCreate(
                 name="test_single_child_workflow_get_correct_secret_environment",
                 environment="__FIRST__",
                 keys=[SecretKeyValue(key="KEY", value="FIRST_VALUE")],
             )
         )
         await service.create_secret(
-            CreateSecretParams(
+            SecretCreate(
                 name="test_single_child_workflow_get_correct_secret_environment",
                 environment="__SECOND__",
                 keys=[SecretKeyValue(key="KEY", value="SECOND_VALUE")],
