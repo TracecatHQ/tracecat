@@ -5,7 +5,6 @@ import {
   actionsGetAction,
   actionsUpdateAction,
   ApiError,
-  CreateSecretParams,
   CreateWorkspaceParams,
   EventHistoryResponse,
   RegistryActionCreate,
@@ -31,14 +30,15 @@ import {
   schedulesListSchedules,
   schedulesUpdateSchedule,
   SchedulesUpdateScheduleData,
-  SecretResponse,
+  SecretCreate,
+  SecretReadMinimal,
   secretsCreateSecret,
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
+  SecretUpdate,
   triggersUpdateWebhook,
   UpdateActionParams,
-  UpdateSecretParams,
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
@@ -510,21 +510,26 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useSecrets() {
+export function useWorkspaceSecrets() {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
   const {
     data: secrets,
-    isLoading,
-    error,
-  } = useQuery<SecretResponse[], ApiError>({
-    queryKey: ["secrets"],
-    queryFn: async () => await secretsListSecrets({ workspaceId }),
+    isLoading: secretsIsLoading,
+    error: secretsError,
+  } = useQuery<SecretReadMinimal[], ApiError>({
+    queryKey: ["workspace-secrets"],
+    queryFn: async () =>
+      await secretsListSecrets({
+        workspaceId,
+        level: "workspace",
+        type: ["custom"],
+      }),
   })
 
   // Create secret
   const { mutateAsync: createSecret } = useMutation({
-    mutationFn: async (secret: CreateSecretParams) =>
+    mutationFn: async (secret: SecretCreate) =>
       await secretsCreateSecret({
         workspaceId,
         requestBody: secret,
@@ -534,7 +539,7 @@ export function useSecrets() {
         title: "Added new secret",
         description: "New secret added successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -563,7 +568,7 @@ export function useSecrets() {
       params,
     }: {
       secretId: string
-      params: UpdateSecretParams
+      params: SecretUpdate
     }) =>
       await secretsUpdateSecretById({
         workspaceId,
@@ -575,23 +580,23 @@ export function useSecrets() {
         title: "Updated secret",
         description: "Secret updated successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
     },
     onError: (error) => {
       console.error("Failed to update secret", error)
       toast({
         title: "Failed to update secret",
-        description: "An error occurred while the secret.",
+        description: "An error occurred while updating the secret.",
       })
     },
   })
 
   // Delete secret
   const { mutateAsync: deleteSecretById } = useMutation({
-    mutationFn: async (secret: SecretResponse) =>
+    mutationFn: async (secret: SecretReadMinimal) =>
       await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["secrets"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
       toast({
         title: "Deleted secret",
         description: "Secret deleted successfully.",
@@ -605,13 +610,132 @@ export function useSecrets() {
       })
     },
   })
+
   return {
     secrets,
-    secretsIsLoading: isLoading,
-    secretsError: error,
+    secretsIsLoading,
+    secretsError,
     createSecret,
     updateSecretById,
     deleteSecretById,
+  }
+}
+
+export function useOrgSecrets() {
+  const queryClient = useQueryClient()
+  // list custom secrets
+  const {
+    data: orgSecrets,
+    isLoading: orgSecretsIsLoading,
+    error: orgSecretsError,
+  } = useQuery<SecretReadMinimal[]>({
+    queryKey: ["org-custom-secrets"],
+    queryFn: async () =>
+      await secretsListSecrets({
+        level: "organization",
+        type: ["custom"],
+      }),
+  })
+
+  // list ssh keys
+  const {
+    data: orgSSHKeys,
+    isLoading: orgSSHKeysIsLoading,
+    error: orgSSHKeysError,
+  } = useQuery<SecretReadMinimal[]>({
+    queryKey: ["org-ssh-keys"],
+    queryFn: async () =>
+      await secretsListSecrets({
+        level: "organization",
+        type: ["ssh-key"],
+      }),
+  })
+
+  // create
+  const { mutateAsync: createSecret } = useMutation({
+    mutationFn: async (params: SecretCreate) =>
+      await secretsCreateSecret({ requestBody: params }),
+    onSuccess: (_, variables) => {
+      switch (variables.type) {
+        case "ssh-key":
+          queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
+          toast({
+            title: "Created secret",
+            description: "SSH key created successfully.",
+          })
+          break
+        default:
+          queryClient.invalidateQueries({ queryKey: ["org-custom-secrets"] })
+          toast({
+            title: "Created secret",
+            description: "Secret created successfully.",
+          })
+          break
+      }
+    },
+  })
+  // update
+  const { mutateAsync: updateSecretById } = useMutation({
+    mutationFn: async ({
+      secretId,
+      params,
+    }: {
+      secretId: string
+      params: SecretUpdate
+    }) => await secretsUpdateSecretById({ secretId, requestBody: params }),
+    onSuccess: (_, variables) => {
+      switch (variables.params.type) {
+        case "ssh-key":
+          queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
+          toast({
+            title: "Updated secret",
+            description: "SSH key updated successfully.",
+          })
+          break
+        default:
+          queryClient.invalidateQueries({ queryKey: ["org-custom-secrets"] })
+          toast({
+            title: "Updated secret",
+            description: "Secret updated successfully.",
+          })
+          break
+      }
+    },
+  })
+  // delete
+  const { mutateAsync: deleteSecretById } = useMutation({
+    mutationFn: async (secret: SecretReadMinimal) =>
+      await secretsDeleteSecretById({ secretId: secret.id }),
+    onSuccess: (_, variables) => {
+      switch (variables.type) {
+        case "ssh-key":
+          queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
+          toast({
+            title: "Deleted secret",
+            description: "SSH key deleted successfully.",
+          })
+          break
+        default:
+          queryClient.invalidateQueries({ queryKey: ["org-custom-secrets"] })
+          toast({
+            title: "Deleted secret",
+            description: "Secret deleted successfully.",
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    orgSecrets,
+    orgSecretsIsLoading,
+    orgSecretsError,
+    createSecret,
+    updateSecretById,
+    deleteSecretById,
+    orgSSHKeys,
+    orgSSHKeysIsLoading,
+    orgSSHKeysError,
   }
 }
 
@@ -872,20 +996,35 @@ export function useRegistryRepositories() {
         description: "Registry repositories synced successfully.",
       })
     },
-    onError: (error: TracecatApiError) => {
+    onError: (
+      error: TracecatApiError,
+      variables: RegistryRepositoriesSyncRegistryRepositoriesData
+    ) => {
       const apiError = error as TracecatApiError
       switch (apiError.status) {
         case 400:
           toast({
-            title: "Error syncing repositories",
-            description: apiError.message,
-            variant: "destructive",
+            title: "Couldn't sync repositories",
+            description: (
+              <div>
+                <p>Repositories: {variables.origins?.join(", ")}</p>
+                <p>
+                  {apiError.message} {String(apiError.body.detail)}
+                </p>
+              </div>
+            ),
           })
           break
         default:
           toast({
             title: "Unexpected error syncing repositories",
-            description: apiError.message,
+            description: (
+              <div>
+                <p>Repositories: {variables.origins?.join(", ")}</p>
+                <p>{apiError.message}</p>
+                <p>{apiError.body.detail as string}</p>
+              </div>
+            ),
             variant: "destructive",
           })
           break
