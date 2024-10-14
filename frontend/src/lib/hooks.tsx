@@ -990,7 +990,9 @@ export function useRegistryRepositories() {
       params: RegistryRepositoriesSyncRegistryRepositoriesData
     ) => await registryRepositoriesSyncRegistryRepositories(params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      queryClient.invalidateQueries({
+        queryKey: ["registry_repositories", "registry_actions"],
+      })
       toast({
         title: "Synced registry repositories",
         description: "Registry repositories synced successfully.",
