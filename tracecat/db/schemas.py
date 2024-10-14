@@ -475,4 +475,4 @@ class RegistryAction(Resource, table=True):
 
     @property
     def action(self):
-        return f"{self.namespace}/{self.name}"
+        return f"{self.namespace}.{self.name}"
