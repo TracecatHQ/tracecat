@@ -57,7 +57,7 @@ from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logger import logger
 from tracecat.registry.actions.models import ArgsT
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.secrets.models import SearchSecretsParams
+from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
 from tracecat.types.exceptions import RegistryValidationError
 from tracecat.types.validation import (
@@ -151,7 +151,7 @@ async def secret_validator(
     # (1) Check if the secret is defined
     async with SecretsService.with_session() as service:
         defined_secret = await service.search_secrets(
-            SearchSecretsParams(names=[name], environment=environment)
+            SecretSearch(names=[name], environment=environment)
         )
         logger.info("Secret search results", defined_secret=defined_secret)
         if (n_found := len(defined_secret)) != 1:

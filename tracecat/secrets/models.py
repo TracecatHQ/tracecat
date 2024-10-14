@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Self
+from datetime import datetime
+from typing import Annotated, Self
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -10,8 +12,10 @@ from pydantic import (
     field_validator,
 )
 
-from tracecat.identifiers import SecretID
+from tracecat.db.schemas import BaseSecret
+from tracecat.identifiers import OwnerID, SecretID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.secrets.enums import SecretLevel, SecretType
 
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
@@ -66,14 +70,14 @@ class CustomSecret(SecretBase):
 
 
 SecretVariant = CustomSecret  # | TokenSecret | OAuth2Secret
-_SECRET_FACTORY: dict[str, type[SecretBase]] = {
+_SECRET_FACTORY: dict[SecretType, type[SecretBase]] = {
     "custom": CustomSecret,
     # "token": TokenSecret,
     # "oauth2": OAuth2Secret,
 }
 
 
-class CreateSecretParams(BaseModel):
+class SecretCreate(BaseModel):
     """Create a new secret.
 
     Secret types
@@ -82,7 +86,7 @@ class CreateSecretParams(BaseModel):
     - `token`: A token, e.g. API Key, JWT Token (TBC)
     - `oauth2`: OAuth2 Client Credentials (TBC)"""
 
-    type: Literal["custom"] = "custom"  # Support other types later
+    type: SecretType = SecretType.CUSTOM
     name: str
     description: str | None = None
     keys: list[SecretKeyValue]
@@ -90,9 +94,9 @@ class CreateSecretParams(BaseModel):
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
 
     @staticmethod
-    def from_strings(name: str, keyvalues: list[str]) -> CreateSecretParams:
+    def from_strings(name: str, keyvalues: list[str]) -> SecretCreate:
         keys = [SecretKeyValue.from_str(kv) for kv in keyvalues]
-        return CreateSecretParams(name=name, keys=keys)
+        return SecretCreate(name=name, keys=keys)
 
     @field_validator("keys")
     def validate_keys(cls, v, values):
@@ -104,8 +108,8 @@ class CreateSecretParams(BaseModel):
         return v
 
 
-class UpdateSecretParams(BaseModel):
-    """Create a new secret.
+class SecretUpdate(BaseModel):
+    """Update a secret.
 
     Secret types
     ------------
@@ -113,24 +117,56 @@ class UpdateSecretParams(BaseModel):
     - `token`: A token, e.g. API Key, JWT Token (TBC)
     - `oauth2`: OAuth2 Client Credentials (TBC)"""
 
-    type: Literal["custom"] | None = None
+    type: SecretType | None = None
     name: str | None = None
     description: str | None = None
     keys: list[SecretKeyValue] | None = None
     tags: dict[str, str] | None = None
     environment: str | None = None
+    level: SecretLevel | None = None
 
 
-class SearchSecretsParams(BaseModel):
-    names: list[str] | None = None
-    ids: list[SecretID] | None = None
+class SecretSearch(BaseModel):
+    names: set[str] | None = None
+    ids: set[SecretID] | None = None
     environment: str
+    owner_ids: set[UUID] | None = None
+    types: set[SecretType] | None = None
+    levels: set[SecretLevel] | None = None
 
 
-class SecretResponse(BaseModel):
+class SecretReadMinimal(BaseModel):
     id: str
-    type: Literal["custom"]  # Support other types later
+    type: SecretType
     name: str
     description: str | None = None
     keys: list[str]
     environment: str
+
+
+class SecretRead(BaseModel):
+    id: str
+    type: SecretType
+    name: str
+    description: str | None = None
+    encrypted_keys: bytes
+    environment: str
+    tags: dict[str, str] | None = None
+    owner_id: OwnerID
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def from_database(obj: BaseSecret) -> SecretRead:
+        return SecretRead(
+            id=obj.id,
+            type=obj.type,
+            name=obj.name,
+            description=obj.description,
+            environment=obj.environment,
+            owner_id=obj.owner_id,
+            created_at=obj.created_at,
+            updated_at=obj.updated_at,
+            encrypted_keys=obj.encrypted_keys,
+            tags=obj.tags,
+        )

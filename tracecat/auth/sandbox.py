@@ -9,11 +9,11 @@ from types import TracebackType
 from typing import Any, Literal, Self
 
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Secret
+from tracecat.db.schemas import BaseSecret
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.models import SearchSecretsParams, SecretKeyValue
+from tracecat.secrets.models import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
@@ -38,7 +38,7 @@ class AuthSandbox:
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
-        self._secret_objs: Sequence[Secret] = []
+        self._secret_objs: Sequence[BaseSecret] = []
         self._target = target
         if self._target == "env":
             raise ValueError("Target env is no longer supported.")
@@ -118,11 +118,11 @@ class AuthSandbox:
             if secret.name in self._context:
                 del self._context[secret.name]
 
-    async def _get_secrets(self) -> Sequence[Secret]:
+    async def _get_secrets(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from a secrets manager."""
         return await self._get_secrets_from_service()
 
-    async def _get_secrets_from_service(self) -> Sequence[Secret]:
+    async def _get_secrets_from_service(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from the secrets service."""
         logger.debug(
             "Retrieving secrets directly from db",
@@ -136,7 +136,7 @@ class AuthSandbox:
             logger.info("Retrieving secrets", secret_names=unique_secret_names)
 
             secrets = await service.search_secrets(
-                SearchSecretsParams(
+                SecretSearch(
                     names=list(unique_secret_names), environment=self._environment
                 )
             )
