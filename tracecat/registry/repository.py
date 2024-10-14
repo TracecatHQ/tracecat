@@ -282,10 +282,9 @@ class Repository:
         logger.info("Getting SSH key", role=self.role)
         async with SecretsService.with_session(role=self.role) as service:
             secret = await service.get_ssh_key(GITHUB_SSH_KEY_SECRET_NAME)
-        logger.info("Got SSH key", key=secret)
 
         cleaned_url = self.safe_remote_url(repository_url)
-        logger.info("Cleaned URL", url=cleaned_url)
+        logger.debug("Cleaned URL", url=cleaned_url)
         async with temporary_ssh_agent() as env:
             logger.info("Entered temporary SSH agent context")
             await add_ssh_key_to_agent(secret.reveal().value, env=env)
