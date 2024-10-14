@@ -255,7 +255,7 @@ class Repository:
                 "pip",
                 "install",
                 "--system",
-                "--reinstall",
+                "--refresh",
                 repo_url,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
