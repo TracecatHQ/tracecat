@@ -341,6 +341,18 @@ class RegistryActionUpdate(BaseModel):
         None, description="Update the options of the action"
     )
 
+    @staticmethod
+    def from_bound(action: BoundRegistryAction) -> RegistryActionUpdate:
+        return RegistryActionUpdate(
+            name=action.name,
+            description=action.description,
+            interface=action.get_interface(),
+            implementation=action.get_implementation(),
+            default_title=action.default_title,
+            display_group=action.display_group,
+            options=RegistryActionOptions(include_in_schema=action.include_in_schema),
+        )
+
 
 class RegistryActionValidate(BaseModel):
     args: dict[str, Any]

@@ -203,19 +203,30 @@ class RegistryActionsService:
         except Exception:
             raise
         # Add the loaded actions to the db
-        for action in repo.store.values():
+        for new_action in repo.store.values():
             # Check action already exists
             try:
-                await self.get_action(action_name=action.action)
+                registry_action = await self.get_action(action_name=new_action.action)
             except RegistryError:
                 self.logger.info(
                     "Action not found, creating",
-                    namespace=action.namespace,
-                    origin=action.origin,
+                    namespace=new_action.namespace,
+                    origin=new_action.origin,
                     repository_id=repository.id,
                 )
-                params = RegistryActionCreate.from_bound(action, repository.id)
-                await self.create_action(params)
+                create_params = RegistryActionCreate.from_bound(
+                    new_action, repository.id
+                )
+                await self.create_action(create_params)
+            else:
+                self.logger.info(
+                    "Action found, updating",
+                    namespace=new_action.namespace,
+                    origin=new_action.origin,
+                    repository_id=repository.id,
+                )
+                update_params = RegistryActionUpdate.from_bound(new_action)
+                await self.update_action(registry_action, update_params)
 
     async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
         """
