@@ -849,10 +849,12 @@ export const actionsDeleteAction = (data: ActionsDeleteActionData): CancelablePr
  * Search secrets.
  * @param data The data for the request.
  * @param data.environment
+ * @param data.name Filter by secret name
+ * @param data.id Filter by secret ID
+ * @param data.type Filter by secret type
+ * @param data.level Filter by secret level
  * @param data.workspaceId
- * @param data.name
- * @param data.id
- * @returns Secret Successful Response
+ * @returns SecretRead Successful Response
  * @throws ApiError
  */
 export const secretsSearchSecrets = (data: SecretsSearchSecretsData): CancelablePromise<SecretsSearchSecretsResponse> => { return __request(OpenAPI, {
@@ -862,6 +864,8 @@ export const secretsSearchSecrets = (data: SecretsSearchSecretsData): Cancelable
         environment: data.environment,
         name: data.name,
         id: data.id,
+        type: data.type,
+        level: data.level,
         workspace_id: data.workspaceId
     },
     errors: {
@@ -873,14 +877,18 @@ export const secretsSearchSecrets = (data: SecretsSearchSecretsData): Cancelable
  * List Secrets
  * List user secrets.
  * @param data The data for the request.
+ * @param data.type Filter by secret type
+ * @param data.level Filter by secret level
  * @param data.workspaceId
- * @returns SecretResponse Successful Response
+ * @returns SecretReadMinimal Successful Response
  * @throws ApiError
  */
-export const secretsListSecrets = (data: SecretsListSecretsData): CancelablePromise<SecretsListSecretsResponse> => { return __request(OpenAPI, {
+export const secretsListSecrets = (data: SecretsListSecretsData = {}): CancelablePromise<SecretsListSecretsResponse> => { return __request(OpenAPI, {
     method: 'GET',
     url: '/secrets',
     query: {
+        type: data.type,
+        level: data.level,
         workspace_id: data.workspaceId
     },
     errors: {
@@ -892,8 +900,8 @@ export const secretsListSecrets = (data: SecretsListSecretsData): CancelableProm
  * Create Secret
  * Create a secret.
  * @param data The data for the request.
- * @param data.workspaceId
  * @param data.requestBody
+ * @param data.workspaceId
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -916,7 +924,7 @@ export const secretsCreateSecret = (data: SecretsCreateSecretData): CancelablePr
  * @param data The data for the request.
  * @param data.secretName
  * @param data.workspaceId
- * @returns Secret Successful Response
+ * @returns SecretRead Successful Response
  * @throws ApiError
  */
 export const secretsGetSecretByName = (data: SecretsGetSecretByNameData): CancelablePromise<SecretsGetSecretByNameResponse> => { return __request(OpenAPI, {
@@ -938,8 +946,8 @@ export const secretsGetSecretByName = (data: SecretsGetSecretByNameData): Cancel
  * Update a secret by ID.
  * @param data The data for the request.
  * @param data.secretId
- * @param data.workspaceId
  * @param data.requestBody
+ * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1166,6 +1174,7 @@ export const usersSearchUser = (data: UsersSearchUserData = {}): CancelablePromi
  * Load actions from all registry repositories.
  * @param data The data for the request.
  * @param data.origins Origins to sync. If no origins provided, all repositories will be synced.
+ * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1173,7 +1182,8 @@ export const registryRepositoriesSyncRegistryRepositories = (data: RegistryRepos
     method: 'POST',
     url: '/registry/repos/sync',
     query: {
-        origins: data.origins
+        origins: data.origins,
+        workspace_id: data.workspaceId
     },
     errors: {
         422: 'Validation Error'
