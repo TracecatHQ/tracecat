@@ -101,12 +101,17 @@ def api(
     """Commit a workflow definition to the database."""
 
     payload = read_input(data) if data else None
-    result = hit_api_endpoint(method, endpoint, payload)
+    try:
+        result = hit_api_endpoint(method, endpoint, payload)
+    except httpx.HTTPStatusError as e:
+        rich.print(f"[red]Failed to hit endpoint {endpoint}: {e.response.text}[/red]")
+        raise typer.Exit(1) from e
     if to_json:
         rich.print(orjson.dumps(result, option=orjson.OPT_INDENT_2).decode())
     else:
         rich.print("Hit the endpoint successfully!")
-        rich.print(result, len(result))
+        if hasattr(result, "__len__"):
+            rich.print(result, len(result))
 
 
 @app.command(name="generate-spec", help="Generate OpenAPI specification. Requires npx.")
