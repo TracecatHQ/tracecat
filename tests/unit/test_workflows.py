@@ -94,9 +94,6 @@ def runtime_config() -> DSLConfig:
 )
 @pytest.mark.asyncio
 async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
-    from tracecat import config
-
-    logger.warning("check env", env=os.environ, api_url=config.TRACECAT__API_URL)
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
