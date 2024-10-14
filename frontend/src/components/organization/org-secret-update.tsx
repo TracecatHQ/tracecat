@@ -8,7 +8,7 @@ import { PlusCircle, SaveIcon, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useOrgSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -31,7 +31,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 
-interface EditCredentialsDialogProps
+interface UpdateOrgSecretDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {
@@ -39,7 +39,7 @@ interface EditCredentialsDialogProps
   setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
 }
 
-const updateSecretSchema = z.object({
+const updateOrgSecretSchema = z.object({
   name: z.string().optional(),
   description: z.string().max(255).optional(),
   environment: z.string().optional(),
@@ -51,17 +51,17 @@ const updateSecretSchema = z.object({
   ),
 })
 
-export function EditCredentialsDialog({
+export function UpdateOrgSecretDialog({
   selectedSecret,
   setSelectedSecret,
   children,
   className,
   ...props
-}: EditCredentialsDialogProps) {
-  const { updateSecretById } = useWorkspaceSecrets()
+}: UpdateOrgSecretDialogProps) {
+  const { updateSecretById } = useOrgSecrets()
 
   const methods = useForm<SecretUpdate>({
-    resolver: zodResolver(updateSecretSchema),
+    resolver: zodResolver(updateOrgSecretSchema),
     defaultValues: {
       name: "",
       description: "",
@@ -181,7 +181,7 @@ export function EditCredentialsDialog({
                 name="environment"
                 render={() => (
                   <FormItem>
-                    <FormLabel className="text-sm">Environment</FormLabel>
+                    <FormLabel className="text-sm">Description</FormLabel>
                     <FormControl>
                       <Input
                         className="text-sm"
@@ -288,4 +288,4 @@ export function EditCredentialsDialog({
   )
 }
 
-export const EditCredentialsDialogTrigger = DialogTrigger
+export const UpdateOrgSecretDialogTrigger = DialogTrigger

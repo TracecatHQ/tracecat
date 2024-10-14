@@ -3,7 +3,7 @@
 import React from "react"
 import { SecretReadMinimal } from "@/client"
 
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useOrgSecrets } from "@/lib/hooks"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +16,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-export function DeleteSecretAlertDialog({
+export function DeleteOrgSecretAlertDialog({
   selectedSecret,
   setSelectedSecret,
   children,
@@ -24,7 +24,7 @@ export function DeleteSecretAlertDialog({
   selectedSecret: SecretReadMinimal | null
   setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
 }>) {
-  const { deleteSecretById } = useWorkspaceSecrets()
+  const { deleteSecretById } = useOrgSecrets()
   return (
     <AlertDialog
       onOpenChange={(isOpen) => {
@@ -38,8 +38,8 @@ export function DeleteSecretAlertDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Are you sure?</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to remove this secret from the workspace? This
-            action cannot be undone.
+            Are you sure you want to remove this secret from the organization?
+            This action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -62,4 +62,4 @@ export function DeleteSecretAlertDialog({
   )
 }
 
-export const DeleteSecretAlertDialogTrigger = AlertDialogTrigger
+export const DeleteOrgSecretAlertDialogTrigger = AlertDialogTrigger

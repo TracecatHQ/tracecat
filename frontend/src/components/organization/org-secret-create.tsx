@@ -8,7 +8,7 @@ import { KeyRoundIcon, PlusCircle, Trash2Icon } from "lucide-react"
 import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useOrgSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -31,12 +31,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 
-interface NewCredentialsDialogProps
+interface CreateOrgSecretDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {}
 
-const createSecretSchema = z.object({
+const createOrgSecretSchema = z.object({
   name: z.string().default(""),
   description: z.string().max(255).default(""),
   environment: z
@@ -51,15 +51,15 @@ const createSecretSchema = z.object({
   ),
 })
 
-export function NewCredentialsDialog({
+export function CreateOrgSecretDialog({
   children,
   className,
-}: NewCredentialsDialogProps) {
+}: CreateOrgSecretDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
-  const { createSecret } = useWorkspaceSecrets()
+  const { createSecret } = useOrgSecrets()
 
   const methods = useForm<SecretCreate>({
-    resolver: zodResolver(createSecretSchema),
+    resolver: zodResolver(createOrgSecretSchema),
     defaultValues: {
       name: "",
       description: "",
@@ -262,4 +262,4 @@ export function NewCredentialsDialog({
   )
 }
 
-export const NewCredentialsDialogTrigger = DialogTrigger
+export const CreateOrgSecretDialogTrigger = DialogTrigger

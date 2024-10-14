@@ -4,13 +4,14 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
-import {
-  BlocksIcon,
-  LibraryBigIcon,
-  WorkflowIcon,
-} from "lucide-react"
+import { WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import {
+  IntegrationsNavButton,
+  OrganizationNavButton,
+  RegistryNavButton,
+} from "@/components/nav/nav-buttons"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
 
 export function WorkspaceNav() {
@@ -31,27 +32,9 @@ export function WorkspaceNav() {
         <WorkflowIcon className="mr-2 size-4" />
         <span>Workflows</span>
       </Link>
-      <Link
-        href="https://docs.tracecat.com/integrations/introduction"
-        target="_blank"
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.startsWith("/integrations") && "text-primary"
-        )}
-      >
-        <BlocksIcon className="mr-2 size-4" />
-        <span>Integrations</span>
-      </Link>
-      <Link
-        href={"/registry"}
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.startsWith("/registry") && "text-primary"
-        )}
-      >
-        <LibraryBigIcon className="mr-2 size-4" />
-        <span>Registry</span>
-      </Link>
+      <IntegrationsNavButton />
+      <RegistryNavButton />
+      <OrganizationNavButton />
     </nav>
   )
 }
