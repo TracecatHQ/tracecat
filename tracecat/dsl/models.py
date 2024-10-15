@@ -80,6 +80,7 @@ class DSLConfig(BaseModel):
     enable_runtime_tests: bool = Field(
         default=False,
         description="Enable runtime action tests. This is dynamically set on workflow entry.",
+        exclude=True,  # Exclude from serialization
     )
     environment: ExpressionStr = Field(
         default=DEFAULT_SECRETS_ENVIRONMENT,
