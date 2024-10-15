@@ -100,7 +100,6 @@ function NewTemplateActionView({
 
   return (
     <NewTemplateActionForm
-      actionName={actionName}
       origin={origin}
       repositoryId={registryAction.repository_id}
       baseTemplateAction={registryAction.implementation.template_action}
@@ -117,12 +116,10 @@ type NewTemplateActionFormSchema = z.infer<typeof newTemplateActionFormSchema>
 
 function NewTemplateActionForm({
   repositoryId,
-  actionName,
   origin,
   baseTemplateAction,
 }: {
   repositoryId: string
-  actionName: string
   origin: string
   baseTemplateAction: TemplateAction_Output
 }) {
@@ -134,7 +131,7 @@ function NewTemplateActionForm({
   const methods = useForm<NewTemplateActionFormSchema>({
     resolver: zodResolver(newTemplateActionFormSchema),
     defaultValues: {
-      origin: `${origin}/${actionName}`,
+      origin,
       definition: itemOrEmptyString(baseTemplateAction.definition),
     },
   })

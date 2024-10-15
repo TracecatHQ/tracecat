@@ -226,7 +226,8 @@ export function RegistryActionsTable() {
                             e.stopPropagation() // Prevent row click
                             // popup a dialog to create a new  from this template
                             router.push(
-                              `/registry/actions/new?template=${row.original.action}&origin=${row.original.origin}`
+                              // NOTE: This is hardcoded to the custom origin. Maybe put this in an API call later.
+                              `/registry/actions/new?template=${row.original.action}&origin=custom`
                             )
                           }}
                         >

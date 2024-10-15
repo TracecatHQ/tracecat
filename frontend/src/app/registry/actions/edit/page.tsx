@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   RegistryActionUpdate,
   TemplateAction_Output,
@@ -127,6 +127,7 @@ function EditTemplateActionForm({
   origin: string
   baseTemplateAction: TemplateAction_Output
 }) {
+  const router = useRouter()
   const {
     updateRegistryAction,
     updateRegistryActionIsPending,
@@ -137,7 +138,7 @@ function EditTemplateActionForm({
   const methods = useForm<EditTemplateActionFormSchema>({
     resolver: zodResolver(editTemplateActionFormSchema),
     defaultValues: {
-      origin: `${origin}/${actionName}`,
+      origin,
       definition: itemOrEmptyString(baseTemplateAction.definition),
     },
   })
@@ -168,6 +169,7 @@ function EditTemplateActionForm({
         actionName,
         requestBody: updateParams,
       })
+      router.push("/registry/actions")
     } catch (error) {
       console.error("Error updating template action:", error)
       const apiError = error as TracecatApiError
