@@ -91,7 +91,10 @@ async def list_registry_repositories(
         "Listing registry repositories",
         repositories=[repo.origin for repo in repositories],
     )
-    return [RegistryRepositoryReadMinimal(origin=repo.origin) for repo in repositories]
+    return [
+        RegistryRepositoryReadMinimal(id=repo.id, origin=repo.origin)
+        for repo in repositories
+    ]
 
 
 @router.get("/{origin:path}", response_model=RegistryRepositoryRead)
