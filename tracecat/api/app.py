@@ -29,7 +29,10 @@ from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    CUSTOM_REPOSITORY_ORIGIN,
+    DEFAULT_REGISTRY_ORIGIN,
+)
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.repositories.service import RegistryReposService
@@ -61,19 +64,31 @@ async def lifespan(app: FastAPI):
 async def setup_registry(session: AsyncSession, admin_role: Role):
     logger.info("Setting up base registry repository")
     repos_service = RegistryReposService(session, role=admin_role)
-    origin = DEFAULT_REGISTRY_ORIGIN
+    # Setup Tracecat base repository
+    base_origin = DEFAULT_REGISTRY_ORIGIN
     # Check if the base registry repository already exists
     # NOTE: Should we sync the base repo every time?
-    if await repos_service.get_repository(origin) is None:
+    if await repos_service.get_repository(base_origin) is None:
         base_repo = await repos_service.create_repository(
-            RegistryRepositoryCreate(origin=origin)
+            RegistryRepositoryCreate(origin=base_origin)
         )
-        logger.info("Created base registry repository", origin=origin)
+        logger.info("Created base registry repository", origin=base_origin)
         actions_service = RegistryActionsService(session, role=admin_role)
         await actions_service.sync_actions_from_repository(base_repo)
     else:
-        logger.info("Base registry repository already exists", origin=origin)
+        logger.info("Base registry repository already exists", origin=base_origin)
 
+    # Setup custom repository
+    custom_origin = CUSTOM_REPOSITORY_ORIGIN
+    if await repos_service.get_repository(custom_origin) is None:
+        await repos_service.create_repository(
+            RegistryRepositoryCreate(origin=custom_origin)
+        )
+        logger.info("Created custom repository", origin=custom_origin)
+    else:
+        logger.info("Custom repository already exists", origin=custom_origin)
+
+    # Setup custom remote repository
     if (remote_url := config.TRACECAT__REMOTE_REPOSITORY_URL) is not None:
         parsed_url = urlparse(remote_url)
         logger.info("Setting up remote registry repository", url=parsed_url)
@@ -90,6 +105,7 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
         # Load remote repository
     else:
         logger.info("Remote registry repository not set, skipping")
+
     repos = await repos_service.list_repositories()
     logger.info(
         "Found registry repositories",

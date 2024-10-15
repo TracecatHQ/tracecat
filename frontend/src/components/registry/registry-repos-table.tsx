@@ -105,9 +105,9 @@ export function RegistryRepositoriesTable() {
                 Are you sure you want to proceed? This action cannot be undone.
               </p>
               <p className="italic">
-                You can restore the base Tracecat repository by pressing the{" "}
-                <b>Sync All Repositories</b> button. To restore your remote
-                repository, you will need to restart the instance.
+                You cannot delete the base Tracecat actions or the custom
+                template repositories. If you delete your remote repository, you
+                will need to restart the instance to restore it.
               </p>
             </div>
           ),

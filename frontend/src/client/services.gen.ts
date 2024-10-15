@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, PublicWebhookCallbackData, PublicWebhookCallbackResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, RegistryRepositoriesSyncRegistryRepositoriesData, RegistryRepositoriesSyncRegistryRepositoriesResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, RegistryActionsRunRegistryActionData, RegistryActionsRunRegistryActionResponse, RegistryActionsValidateRegistryActionData, RegistryActionsValidateRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, PublicCheckHealthResponse } from './types.gen';
+import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, ValidationValidateWorkflowData, ValidationValidateWorkflowResponse, UsersSearchUserData, UsersSearchUserResponse, RegistryRepositoriesSyncRegistryRepositoriesData, RegistryRepositoriesSyncRegistryRepositoriesResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, RegistryActionsRunRegistryActionData, RegistryActionsRunRegistryActionResponse, RegistryActionsValidateRegistryActionData, RegistryActionsValidateRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, PublicCheckHealthResponse } from './types.gen';
 
 /**
  * Incoming Webhook
@@ -14,7 +14,6 @@ import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIn
  * @param data The data for the request.
  * @param data.path
  * @param data.secret
- * @param data.validateMethod
  * @param data.requestBody
  * @returns CreateWorkflowExecutionResponse Successful Response
  * @throws ApiError
@@ -25,9 +24,6 @@ export const publicIncomingWebhook = (data: PublicIncomingWebhookData): Cancelab
     path: {
         path: data.path,
         secret: data.secret
-    },
-    query: {
-        validate_method: data.validateMethod
     },
     body: data.requestBody,
     mediaType: 'application/json',
@@ -45,7 +41,6 @@ export const publicIncomingWebhook = (data: PublicIncomingWebhookData): Cancelab
  * @param data The data for the request.
  * @param data.path
  * @param data.secret
- * @param data.validateMethod
  * @param data.requestBody
  * @returns unknown Successful Response
  * @throws ApiError
@@ -57,32 +52,8 @@ export const publicIncomingWebhookWait = (data: PublicIncomingWebhookWaitData): 
         path: data.path,
         secret: data.secret
     },
-    query: {
-        validate_method: data.validateMethod
-    },
     body: data.requestBody,
     mediaType: 'application/json',
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Webhook Callback
- * Receive a callback from an external service.
- *
- * This can be used to trigger a workflow from an external service, or perform some other actions.
- * @param data The data for the request.
- * @param data.service
- * @returns string Successful Response
- * @throws ApiError
- */
-export const publicWebhookCallback = (data: PublicWebhookCallbackData): CancelablePromise<PublicWebhookCallbackResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/callback/{service}',
-    path: {
-        service: data.service
-    },
     errors: {
         422: 'Validation Error'
     }

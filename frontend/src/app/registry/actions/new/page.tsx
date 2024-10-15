@@ -10,7 +10,11 @@ import YAML from "yaml"
 import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
-import { useRegistryAction, useRegistryActions } from "@/lib/hooks"
+import {
+  useRegistryAction,
+  useRegistryActions,
+  useRegistryRepositories,
+} from "@/lib/hooks"
 import { isTemplateAction } from "@/lib/registry"
 import { itemOrEmptyString } from "@/lib/utils"
 import {
@@ -86,6 +90,8 @@ function NewTemplateActionView({
   const { registryAction, registryActionIsLoading, registryActionError } =
     useRegistryAction(actionName, origin)
 
+  const { registryRepos } = useRegistryRepositories()
+
   if (registryActionIsLoading || !registryAction) {
     return <CenteredSpinner />
   }
@@ -98,11 +104,16 @@ function NewTemplateActionView({
     return <div>Error: Action is not a template</div>
   }
 
+  const repo = registryRepos?.find((r) => r.origin === origin)
+
+  if (!repo) {
+    return <div>Error: Repository {origin} not found</div>
+  }
+
   return (
     <NewTemplateActionForm
-      actionName={actionName}
       origin={origin}
-      repositoryId={registryAction.repository_id}
+      repositoryId={repo.id}
       baseTemplateAction={registryAction.implementation.template_action}
     />
   )
@@ -117,12 +128,10 @@ type NewTemplateActionFormSchema = z.infer<typeof newTemplateActionFormSchema>
 
 function NewTemplateActionForm({
   repositoryId,
-  actionName,
   origin,
   baseTemplateAction,
 }: {
   repositoryId: string
-  actionName: string
   origin: string
   baseTemplateAction: TemplateAction_Output
 }) {
@@ -134,7 +143,7 @@ function NewTemplateActionForm({
   const methods = useForm<NewTemplateActionFormSchema>({
     resolver: zodResolver(newTemplateActionFormSchema),
     defaultValues: {
-      origin: `${origin}/${actionName}`,
+      origin,
       definition: itemOrEmptyString(baseTemplateAction.definition),
     },
   })

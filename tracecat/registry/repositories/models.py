@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import UUID4, BaseModel
 
 from tracecat.registry.actions.models import RegistryActionRead
 
@@ -9,6 +9,7 @@ class RegistryRepositoryRead(BaseModel):
 
 
 class RegistryRepositoryReadMinimal(BaseModel):
+    id: UUID4
     origin: str
 
 

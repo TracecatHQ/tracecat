@@ -7,7 +7,10 @@ from tracecat.db.schemas import RegistryRepository
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    CUSTOM_REPOSITORY_ORIGIN,
+    DEFAULT_REGISTRY_ORIGIN,
+)
 from tracecat.registry.repositories.models import (
     RegistryRepositoryCreate,
     RegistryRepositoryRead,
@@ -88,7 +91,10 @@ async def list_registry_repositories(
         "Listing registry repositories",
         repositories=[repo.origin for repo in repositories],
     )
-    return [RegistryRepositoryReadMinimal(origin=repo.origin) for repo in repositories]
+    return [
+        RegistryRepositoryReadMinimal(id=repo.id, origin=repo.origin)
+        for repo in repositories
+    ]
 
 
 @router.get("/{origin:path}", response_model=RegistryRepositoryRead)
@@ -173,6 +179,11 @@ async def delete_registry_repository(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You cannot delete the base Tracecat repository.",
+        )
+    elif origin == CUSTOM_REPOSITORY_ORIGIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot delete the custom repository.",
         )
     service = RegistryReposService(session, role)
     repository = await service.get_repository(origin)
