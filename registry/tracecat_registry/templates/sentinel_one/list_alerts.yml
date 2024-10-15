@@ -25,7 +25,7 @@ definition:
         url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/cloud-detection/alerts
         method: GET
         headers:
-          Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
         params:
           query:
             created_at__gte: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}

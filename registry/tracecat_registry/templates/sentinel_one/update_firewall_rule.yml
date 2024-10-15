@@ -22,7 +22,7 @@ definition:
         url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/firewall-control/${{ inputs.rule_id }}
         method: PUT
         headers:
-          Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
           Content-Type: application/json
         payload:
           data: ${{ inputs.data }}
