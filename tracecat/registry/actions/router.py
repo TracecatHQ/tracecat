@@ -60,7 +60,10 @@ async def create_registry_action(
     except IntegrityError as e:
         msg = str(e)
         if "duplicate key value" in msg:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg) from e
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Action {params.namespace}.{params.name} already exists.",
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg
         ) from e
