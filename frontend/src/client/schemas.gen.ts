@@ -353,38 +353,6 @@ export const $ActionStep = {
     title: 'ActionStep'
 } as const;
 
-export const $ActionTest = {
-    properties: {
-        ref: {
-            type: 'string',
-            pattern: '^[a-z0-9_]+$',
-            title: 'Ref',
-            description: 'Action reference'
-        },
-        enable: {
-            type: 'boolean',
-            title: 'Enable',
-            default: true
-        },
-        validate_args: {
-            type: 'boolean',
-            title: 'Validate Args',
-            default: true
-        },
-        success: {
-            title: 'Success',
-            description: "Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used."
-        },
-        failure: {
-            title: 'Failure',
-            description: 'Patched failure output'
-        }
-    },
-    type: 'object',
-    required: ['ref', 'success'],
-    title: 'ActionTest'
-} as const;
-
 export const $Body_auth_reset_forgot_password = {
     properties: {
         email: {
@@ -581,11 +549,6 @@ export const $CreateWorkflowExecutionParams = {
                 }
             ],
             title: 'Inputs'
-        },
-        enable_runtime_tests: {
-            type: 'boolean',
-            title: 'Enable Runtime Tests',
-            default: false
         }
     },
     type: 'object',
@@ -669,12 +632,6 @@ export const $DSLConfig_Input = {
             description: 'The type of scheduler to use.',
             default: 'dynamic'
         },
-        enable_runtime_tests: {
-            type: 'boolean',
-            title: 'Enable Runtime Tests',
-            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
-            default: false
-        },
         environment: {
             type: 'string',
             title: 'Environment',
@@ -691,12 +648,6 @@ Activities don't need access to this.`
 
 export const $DSLConfig_Output = {
     properties: {
-        enable_runtime_tests: {
-            type: 'boolean',
-            title: 'Enable Runtime Tests',
-            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
-            default: false
-        },
         environment: {
             type: 'string',
             title: 'Environment',
@@ -819,14 +770,6 @@ export const $DSLInput = {
             type: 'object',
             title: 'Inputs',
             description: 'Static input parameters'
-        },
-        tests: {
-            items: {
-                '$ref': '#/components/schemas/ActionTest'
-            },
-            type: 'array',
-            title: 'Tests',
-            description: 'Action tests'
         },
         returns: {
             anyOf: [
@@ -2681,40 +2624,6 @@ export const $TerminateWorkflowExecutionParams = {
     title: 'TerminateWorkflowExecutionParams'
 } as const;
 
-export const $TestRegistryParams = {
-    properties: {
-        version: {
-            type: 'string',
-            title: 'Version'
-        },
-        code: {
-            type: 'string',
-            title: 'Code'
-        },
-        module_name: {
-            type: 'string',
-            title: 'Module Name'
-        },
-        validate_keys: {
-            anyOf: [
-                {
-                    items: {
-                        type: 'string'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Validate Keys'
-        }
-    },
-    type: 'object',
-    required: ['version', 'code', 'module_name'],
-    title: 'TestRegistryParams'
-} as const;
-
 export const $Trigger = {
     properties: {
         type: {
@@ -2750,16 +2659,6 @@ export const $UDFActionInput_Input = {
         },
         run_context: {
             '$ref': '#/components/schemas/RunContext'
-        },
-        action_test: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/ActionTest'
-                },
-                {
-                    type: 'null'
-                }
-            ]
         }
     },
     type: 'object',
@@ -2781,16 +2680,6 @@ export const $UDFActionInput_Output = {
         },
         run_context: {
             '$ref': '#/components/schemas/RunContext'
-        },
-        action_test: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/ActionTest'
-                },
-                {
-                    type: 'null'
-                }
-            ]
         }
     },
     type: 'object',

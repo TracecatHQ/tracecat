@@ -136,23 +136,6 @@ export type ActionStep = {
     };
 };
 
-export type ActionTest = {
-    /**
-     * Action reference
-     */
-    ref: string;
-    enable?: boolean;
-    validate_args?: boolean;
-    /**
-     * Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used.
-     */
-    success: unknown;
-    /**
-     * Patched failure output
-     */
-    failure?: unknown;
-};
-
 export type Body_auth_reset_forgot_password = {
     email: string;
 };
@@ -204,7 +187,6 @@ export type CreateWorkflowExecutionParams = {
     inputs?: {
     [key: string]: unknown;
 } | null;
-    enable_runtime_tests?: boolean;
 };
 
 export type CreateWorkflowExecutionResponse = {
@@ -236,10 +218,6 @@ export type DSLConfig_Input = {
      */
     scheduler?: 'static' | 'dynamic';
     /**
-     * Enable runtime action tests. This is dynamically set on workflow entry.
-     */
-    enable_runtime_tests?: boolean;
-    /**
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
@@ -256,10 +234,6 @@ export type scheduler = 'static' | 'dynamic';
  * Activities don't need access to this.
  */
 export type DSLConfig_Output = {
-    /**
-     * Enable runtime action tests. This is dynamically set on workflow entry.
-     */
-    enable_runtime_tests?: boolean;
     /**
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
@@ -329,10 +303,6 @@ export type DSLInput = {
     inputs?: {
         [key: string]: unknown;
     };
-    /**
-     * Action tests
-     */
-    tests?: Array<ActionTest>;
     /**
      * The action ref or value to return.
      */
@@ -933,13 +903,6 @@ export type TerminateWorkflowExecutionParams = {
     reason?: string | null;
 };
 
-export type TestRegistryParams = {
-    version: string;
-    code: string;
-    module_name: string;
-    validate_keys?: Array<(string)> | null;
-};
-
 export type Trigger = {
     type: 'schedule' | 'webhook';
     ref: string;
@@ -958,7 +921,6 @@ export type UDFActionInput_Input = {
     role: Role;
     exec_context: DSLContext;
     run_context: RunContext;
-    action_test?: ActionTest | null;
 };
 
 /**
@@ -969,7 +931,6 @@ export type UDFActionInput_Output = {
     role: Role;
     exec_context: DSLContext;
     run_context: RunContext;
-    action_test?: ActionTest | null;
 };
 
 export type UpdateActionParams = {
@@ -1230,7 +1191,6 @@ export type PublicIncomingWebhookData = {
 } | null;
     secret: string;
     validateMethod?: boolean;
-    xTracecatEnableRuntimeTests?: string | null;
 };
 
 export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse;
@@ -1242,7 +1202,6 @@ export type PublicIncomingWebhookWaitData = {
 } | null;
     secret: string;
     validateMethod?: boolean;
-    xTracecatEnableRuntimeTests?: string | null;
 };
 
 export type PublicIncomingWebhookWaitResponse = {
@@ -1771,13 +1730,6 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 };
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
-
-export type TestRegistryRegisterTestModuleData = {
-    requestBody: TestRegistryParams;
-    workspaceId: string;
-};
-
-export type TestRegistryRegisterTestModuleResponse = unknown;
 
 export type PublicCheckHealthResponse = {
     [key: string]: (string);
@@ -2937,21 +2889,6 @@ export type $OpenApiTs = {
                  * Bad Request
                  */
                 400: ErrorModel;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/test-registry': {
-        post: {
-            req: TestRegistryRegisterTestModuleData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
                 /**
                  * Validation Error
                  */

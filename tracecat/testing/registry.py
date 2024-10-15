@@ -19,7 +19,9 @@ class TestRegistryParams(BaseModel):
     validate_keys: list[str] | None = None
 
 
-router = APIRouter(prefix="/test-registry", tags=["test-registry"])
+router = APIRouter(
+    prefix="/test-registry", tags=["test-registry"], include_in_schema=False
+)
 
 
 @router.post("")
