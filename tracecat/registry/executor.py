@@ -13,7 +13,6 @@ from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.dsl.io import resolve_success_output
 from tracecat.dsl.models import (
     ActionStatement,
     DSLContext,
@@ -224,22 +223,7 @@ async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
         args=task.args,
     )
 
-    # Short circuit if mocking the output
-    if (act_test := input.action_test) and act_test.enable:
-        # XXX: This will fail if we run it against a loop
-        act_logger.warning(
-            f"Action test enabled, mocking the output of {task.ref!r}."
-            " You should not use this in production workflows."
-        )
-        if act_test.validate_args:
-            # args = _evaluate_templated_args(task, context_with_secrets)
-            # action.validate_args(**args)
-            act_logger.warning("Action test validation not supported")
-            pass
-        return await resolve_success_output(act_test)
-
     # Actual execution
-
     if task.for_each:
         iterator = iter_for_each(task=task, context=context_with_secrets)
         try:

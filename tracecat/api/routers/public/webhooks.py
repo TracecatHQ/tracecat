@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 
 from tracecat.api.routers.public.dependencies import validate_incoming_webhook
 from tracecat.contexts import ctx_role
@@ -18,7 +18,6 @@ async def incoming_webhook(
     defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
-    x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
 ) -> CreateWorkflowExecutionResponse:
     """
     Webhook endpoint to trigger a workflow.
@@ -30,17 +29,9 @@ async def incoming_webhook(
 
     dsl_input = DSLInput(**defn.content)
 
-    enable_runtime_tests = (x_tracecat_enable_runtime_tests or "false").lower() in (
-        "1",
-        "true",
-    )
-
     service = await WorkflowExecutionsService.connect()
     response = service.create_workflow_execution_nowait(
-        dsl=dsl_input,
-        wf_id=path,
-        payload=payload,
-        enable_runtime_tests=enable_runtime_tests,
+        dsl=dsl_input, wf_id=path, payload=payload
     )
     return response
 
@@ -50,7 +41,6 @@ async def incoming_webhook_wait(
     defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
     path: str,
     payload: dict[str, Any] | None = None,
-    x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """
     Webhook endpoint to trigger a workflow.
@@ -62,17 +52,9 @@ async def incoming_webhook_wait(
 
     dsl_input = DSLInput(**defn.content)
 
-    enable_runtime_tests = (x_tracecat_enable_runtime_tests or "false").lower() in (
-        "1",
-        "true",
-    )
-
     service = await WorkflowExecutionsService.connect()
     response = await service.create_workflow_execution(
-        dsl=dsl_input,
-        wf_id=path,
-        payload=payload,
-        enable_runtime_tests=enable_runtime_tests,
+        dsl=dsl_input, wf_id=path, payload=payload
     )
 
     return response["final_context"]

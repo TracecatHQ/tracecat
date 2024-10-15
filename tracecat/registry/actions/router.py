@@ -35,7 +35,11 @@ async def list_registry_actions(
     return [RegistryActionRead.from_database(action) for action in actions]
 
 
-@router.get("/{action_name}")
+@router.get(
+    "/{action_name}",
+    response_model=RegistryActionRead,
+    response_model_exclude_unset=True,
+)
 async def get_registry_action(
     role: OrgUserOrServiceRole, session: AsyncDBSession, action_name: str
 ) -> RegistryActionRead:

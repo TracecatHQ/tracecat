@@ -9,7 +9,6 @@ definition:
       ref: search_url
       run_if: null
   config:
-    enable_runtime_tests: false
     scheduler: dynamic
   description: Virustotal quickstart
   entrypoint:

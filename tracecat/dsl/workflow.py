@@ -39,7 +39,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.enums import FailStrategy, LoopStrategy, SkipStrategy, TaskMarker
     from tracecat.dsl.models import (
         ActionStatement,
-        ActionTest,
         ArgsT,
         DSLConfig,
         DSLContext,
@@ -414,7 +413,6 @@ class DSLWorkflow:
         ctx_run.set(self.run_context)
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
-        self.action_test_map = {test.ref: test for test in self.dsl.tests}
 
         self.logger.info(
             "Running DSL task workflow",
@@ -487,20 +485,12 @@ class DSLWorkflow:
 
                 else:
                     # Below this point, we're executing the task
-                    # Check for an action test
-                    act_test = (
-                        self.action_test_map.get(task.ref)
-                        if self.runtime_config.enable_runtime_tests
-                        else None
-                    )
                     logger.trace(
                         "Running action",
-                        act_test=act_test,
                         task_ref=task.ref,
-                        act_test_map=self.action_test_map,
                         runtime_config=self.runtime_config,
                     )
-                    action_result = await self._run_action(task, action_test=act_test)
+                    action_result = await self._run_action(task)
 
                 self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
                     result=action_result,
@@ -784,8 +774,6 @@ class DSLWorkflow:
             self_config=self.runtime_config,
         )
         runtime_config = DSLConfig(
-            # Child inherits the parent's test override config
-            enable_runtime_tests=self.runtime_config.enable_runtime_tests,
             # Override the environment in the runtime config,
             # otherwise use the default provided in the workflow definition
             environment=args.get("environment") or dsl.config.environment,
@@ -801,15 +789,12 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    def _run_action(
-        self, task: ActionStatement[ArgsT], action_test: ActionTest | None = None
-    ) -> Awaitable[Any]:
+    def _run_action(self, task: ActionStatement[ArgsT]) -> Awaitable[Any]:
         arg = UDFActionInput(
             task=task,
             role=self.role,
             run_context=self.run_context,
             exec_context=self.context,
-            action_test=action_test,
         )
         self.logger.debug("RUN UDF ACTIVITY", arg=arg)
         return workflow.execute_activity(

@@ -319,18 +319,12 @@ class WorkflowExecutionsService:
         *,
         wf_id: identifiers.WorkflowID,
         payload: dict[str, Any] | None = None,
-        enable_runtime_tests: bool = False,
     ) -> CreateWorkflowExecutionResponse:
         """Create a new workflow execution.
 
         Note: This method schedules the workflow execution and returns immediately.
         """
-        coro = self.create_workflow_execution(
-            dsl=dsl,
-            wf_id=wf_id,
-            payload=payload,
-            enable_runtime_tests=enable_runtime_tests,
-        )
+        coro = self.create_workflow_execution(dsl=dsl, wf_id=wf_id, payload=payload)
         _ = asyncio.create_task(coro)
         return CreateWorkflowExecutionResponse(
             message="Workflow execution started",
@@ -344,7 +338,6 @@ class WorkflowExecutionsService:
         *,
         wf_id: identifiers.WorkflowID,
         payload: dict[str, Any] | None = None,
-        enable_runtime_tests: bool = False,
     ) -> Awaitable[DispatchWorkflowResult]:
         """Create a new workflow execution.
 
@@ -357,8 +350,6 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        # XXX: We need to rethink how to pass runtime config overrides
-        dsl.config.enable_runtime_tests = enable_runtime_tests
         wf_exec_id = identifiers.workflow.exec_id(wf_id)
         return self._dispatch_workflow(
             dsl=dsl,

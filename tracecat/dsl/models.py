@@ -77,10 +77,6 @@ class DSLConfig(BaseModel):
         description="The type of scheduler to use.",
         exclude=True,  # Exclude from serialization
     )
-    enable_runtime_tests: bool = Field(
-        default=False,
-        description="Enable runtime action tests. This is dynamically set on workflow entry.",
-    )
     environment: ExpressionStr = Field(
         default=DEFAULT_SECRETS_ENVIRONMENT,
         description=(
@@ -95,20 +91,6 @@ class Trigger(BaseModel):
     type: Literal["schedule", "webhook"]
     ref: str = Field(pattern=SLUG_PATTERN)
     args: dict[str, Any] = Field(default_factory=dict)
-
-
-class ActionTest(BaseModel):
-    ref: str = Field(..., pattern=SLUG_PATTERN, description="Action reference")
-    enable: bool = True
-    validate_args: bool = True
-    success: Any = Field(
-        ...,
-        description=(
-            "Patched success output. This can be any data structure."
-            "If it's a fsspec file, it will be read and the contents will be used."
-        ),
-    )
-    failure: Any = Field(default=None, description="Patched failure output")
 
 
 class DSLEnvironment(TypedDict, total=False):
@@ -162,4 +144,3 @@ class UDFActionInput(BaseModel, Generic[ArgsT]):
     role: Role
     exec_context: DSLContext
     run_context: RunContext
-    action_test: ActionTest | None = None
