@@ -131,12 +131,12 @@ export function RegistryActionsTable() {
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Namespace"
+                title="Action Name"
               />
             ),
             cell: ({ row }) => (
-              <div className="font-mono text-xs text-foreground/80">
-                {row.getValue<RegistryActionRead["namespace"]>("namespace")}
+              <div className="font-mono text-xs tracking-tight text-foreground/80">
+                {row.original.action}
               </div>
             ),
             enableSorting: true,
