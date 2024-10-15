@@ -292,9 +292,10 @@ class Repository:
             await self._install_remote_repository(cleaned_url, env=env)
 
         try:
-            # Import the module
             logger.info("Importing remote repository module", module_name=module_name)
-            importlib.invalidate_caches()
+            # We only need to call this at the root level because
+            # this deletes all the submodules as well
+            clean_module(module_name)
             module = importlib.import_module(module_name)
             reloaded_module = importlib.reload(module)
             sys.modules[module_name] = reloaded_module
@@ -457,6 +458,15 @@ class Repository:
     @staticmethod
     def _not_implemented():
         raise NotImplementedError("Template actions has no direct implementation")
+
+
+def clean_module(module_name: str) -> None:
+    """
+    Remove a module and its submodules from sys.modules.
+    """
+    to_remove = [mod for mod in sys.modules if mod.startswith(module_name)]
+    for mod in to_remove:
+        del sys.modules[mod]
 
 
 def attach_validators(func: FunctionType, *validators: Callable):
