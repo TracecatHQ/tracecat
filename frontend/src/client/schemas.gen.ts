@@ -1649,13 +1649,18 @@ export const $RegistryRepositoryRead = {
 
 export const $RegistryRepositoryReadMinimal = {
     properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
         origin: {
             type: 'string',
             title: 'Origin'
         }
     },
     type: 'object',
-    required: ['origin'],
+    required: ['id', 'origin'],
     title: 'RegistryRepositoryReadMinimal'
 } as const;
 

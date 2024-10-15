@@ -613,6 +613,7 @@ export type RegistryRepositoryRead = {
 };
 
 export type RegistryRepositoryReadMinimal = {
+    id: string;
     origin: string;
 };
 
@@ -1190,7 +1191,6 @@ export type PublicIncomingWebhookData = {
     [key: string]: unknown;
 } | null;
     secret: string;
-    validateMethod?: boolean;
 };
 
 export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse;
@@ -1201,19 +1201,10 @@ export type PublicIncomingWebhookWaitData = {
     [key: string]: unknown;
 } | null;
     secret: string;
-    validateMethod?: boolean;
 };
 
 export type PublicIncomingWebhookWaitResponse = {
     [key: string]: unknown;
-};
-
-export type PublicWebhookCallbackData = {
-    service: string;
-};
-
-export type PublicWebhookCallbackResponse = {
-    [key: string]: (string);
 };
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
@@ -1760,23 +1751,6 @@ export type $OpenApiTs = {
                  */
                 200: {
                     [key: string]: unknown;
-                };
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/callback/{service}': {
-        post: {
-            req: PublicWebhookCallbackData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: (string);
                 };
                 /**
                  * Validation Error
