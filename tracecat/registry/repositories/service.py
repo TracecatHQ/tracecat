@@ -54,6 +54,7 @@ class RegistryReposService:
         )
         self.session.add(repository)
         await self.session.commit()
+        await self.session.refresh(repository)
         return repository
 
     async def update_repository(

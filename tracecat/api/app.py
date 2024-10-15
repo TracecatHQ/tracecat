@@ -8,7 +8,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from httpx_oauth.clients.google import GoogleOAuth2
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
@@ -64,10 +64,14 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
     repos_service = RegistryReposService(session, role=admin_role)
     origin = DEFAULT_REGISTRY_ORIGIN
     # Check if the base registry repository already exists
+    # NOTE: Should we sync the base repo every time?
     if await repos_service.get_repository(origin) is None:
-        # If it doesn't exist, create the base registry repository
-        await repos_service.create_repository(RegistryRepositoryCreate(origin=origin))
+        base_repo = await repos_service.create_repository(
+            RegistryRepositoryCreate(origin=origin)
+        )
         logger.info("Created base registry repository", origin=origin)
+        actions_service = RegistryActionsService(session, role=admin_role)
+        await actions_service.sync_actions_from_repository(base_repo)
     else:
         logger.info("Base registry repository already exists", origin=origin)
 
@@ -88,12 +92,11 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
     else:
         logger.info("Remote registry repository not set, skipping")
     repos = await repos_service.list_repositories()
-    logger.info("Loading registry repositories", repos=[repo.origin for repo in repos])
-    actions_service = RegistryActionsService(session, role=admin_role)
-    try:
-        await actions_service.sync_actions(repos)
-    except Exception as e:
-        logger.warning("Error while syncing registry actions", exc=e)
+    logger.info(
+        "Found registry repositories",
+        n=len(repos),
+        repos=[repo.origin for repo in repos],
+    )
 
 
 async def setup_defaults(session: AsyncSession, admin_role: Role):
