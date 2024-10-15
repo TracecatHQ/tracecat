@@ -19,7 +19,7 @@ definition:
         url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/agents
         method: GET
         headers:
-          Authorization: ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
         params:
           lastLoggedInUserName: ${{ inputs.username }}
   returns: ${{ steps.get_agents_by_username.result }}
