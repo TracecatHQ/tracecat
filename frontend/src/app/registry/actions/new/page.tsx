@@ -4,11 +4,12 @@ import React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { TemplateAction_Output, TemplateActionDefinition } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { ArrowLeftIcon, Loader2 } from "lucide-react"
+import { AlertTriangleIcon, ArrowLeftIcon, Loader2 } from "lucide-react"
 import { Controller, useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
 
+import { TracecatApiError } from "@/lib/errors"
 import { useRegistryAction, useRegistryActions } from "@/lib/hooks"
 import { isTemplateAction } from "@/lib/registry"
 import { itemOrEmptyString } from "@/lib/utils"
@@ -20,6 +21,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import { Form, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CustomEditor } from "@/components/editor"
@@ -124,6 +126,7 @@ function NewTemplateActionForm({
   origin: string
   baseTemplateAction: TemplateAction_Output
 }) {
+  const [error, setError] = React.useState<string | null>(null)
   const router = useRouter()
   const { createRegistryAction, createRegistryActionIsPending } =
     useRegistryActions()
@@ -137,6 +140,7 @@ function NewTemplateActionForm({
   })
 
   const onSubmit = async (data: NewTemplateActionFormSchema) => {
+    setError(null)
     console.log("Form submitted:", data)
     try {
       const defn = YAML.parse(data.definition) as TemplateActionDefinition
@@ -163,59 +167,68 @@ function NewTemplateActionForm({
       })
       router.push("/registry/actions")
     } catch (error) {
-      console.error("Error creating template action:", error)
+      const apiError = error as TracecatApiError
+      setError(String(apiError.body.detail))
     }
   }
 
   return (
-    <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
-      <div className="space-y-4">
-        <Controller
-          name="origin"
-          control={methods.control}
-          render={({ field }) => (
-            <div>
-              <Label htmlFor="origin">Origin</Label>
-              <Input
-                disabled
-                id="version"
-                placeholder="Enter version"
-                className="font-mono"
-                {...field}
-              />
-            </div>
-          )}
-        />
-
-        <div className="flex flex-col space-y-4">
-          <span className="text-xs text-muted-foreground">
-            Edit the action template in YAML.
-          </span>
+    <Form {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
+        <div className="space-y-4">
           <Controller
-            name="definition"
+            name="origin"
             control={methods.control}
             render={({ field }) => (
-              <CustomEditor
-                className="h-96 w-full"
-                defaultLanguage="yaml"
-                value={field.value}
-                onChange={field.onChange}
-              />
+              <div>
+                <Label htmlFor="origin">Origin</Label>
+                <Input
+                  disabled
+                  id="version"
+                  placeholder="Enter version"
+                  className="font-mono"
+                  {...field}
+                />
+              </div>
             )}
           />
-        </div>
-      </div>
 
-      <Button type="submit" disabled={createRegistryActionIsPending}>
-        {createRegistryActionIsPending ? (
-          <>
-            <Loader2 className="mr-2 size-4 animate-spin" />
-            Creating...
-          </>
-        ) : (
-          "Create Action"
-        )}
-      </Button>
-    </form>
+          <div className="flex flex-col space-y-4">
+            <span className="text-xs text-muted-foreground">
+              Edit the action template in YAML.
+            </span>
+            <Controller
+              name="definition"
+              control={methods.control}
+              render={({ field }) => (
+                <CustomEditor
+                  className="h-96 w-full"
+                  defaultLanguage="yaml"
+                  value={field.value}
+                  onChange={field.onChange}
+                />
+              )}
+            />
+            {error && (
+              <FormMessage className="flex items-center space-x-1">
+                <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />
+                <span>{error}</span>
+              </FormMessage>
+            )}
+          </div>
+        </div>
+
+        <Button type="submit" disabled={createRegistryActionIsPending}>
+          {createRegistryActionIsPending ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Creating...
+            </>
+          ) : (
+            "Create Action"
+          )}
+        </Button>
+      </form>
+    </Form>
   )
 }

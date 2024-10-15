@@ -8,11 +8,12 @@ import {
   TemplateActionDefinition,
 } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { ArrowLeftIcon, Loader2 } from "lucide-react"
+import { AlertTriangleIcon, ArrowLeftIcon, Loader2 } from "lucide-react"
 import { Controller, useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
 
+import { TracecatApiError } from "@/lib/errors"
 import { useRegistryAction, useRegistryActions } from "@/lib/hooks"
 import { isTemplateAction } from "@/lib/registry"
 import { itemOrEmptyString } from "@/lib/utils"
@@ -24,6 +25,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import { Form, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CustomEditor } from "@/components/editor"
@@ -130,6 +132,7 @@ function EditTemplateActionForm({
     updateRegistryActionIsPending,
     updateRegistryActionError,
   } = useRegistryActions()
+  const [error, setError] = React.useState<string | null>(null)
 
   const methods = useForm<EditTemplateActionFormSchema>({
     resolver: zodResolver(editTemplateActionFormSchema),
@@ -140,6 +143,7 @@ function EditTemplateActionForm({
   })
 
   const onSubmit = async (data: EditTemplateActionFormSchema) => {
+    setError(null)
     console.log("Form submitted:", data)
     try {
       const defn = YAML.parse(data.definition) as TemplateActionDefinition
@@ -166,7 +170,8 @@ function EditTemplateActionForm({
       })
     } catch (error) {
       console.error("Error updating template action:", error)
-      // Consider adding a toast notification here for user feedback
+      const apiError = error as TracecatApiError
+      setError(`${apiError.message}: ${apiError.body.detail}`)
     }
   }
 
@@ -178,58 +183,66 @@ function EditTemplateActionForm({
   }
 
   return (
-    <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
-      <div className="space-y-4">
-        <Controller
-          name="origin"
-          control={methods.control}
-          render={({ field }) => (
-            <div className="flex flex-col space-y-2">
-              <Label htmlFor="origin">Origin</Label>
-              <Input
-                disabled
-                id="origin"
-                placeholder="Enter origin"
-                className="font-mono"
-                {...field}
-              />
-            </div>
-          )}
-        />
-
-        <div className="flex flex-col space-y-4">
+    <Form {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
+        <div className="space-y-4">
           <Controller
-            name="definition"
+            name="origin"
             control={methods.control}
             render={({ field }) => (
               <div className="flex flex-col space-y-2">
-                <Label htmlFor="definition">Definition</Label>
-                <span className="text-xs text-muted-foreground">
-                  Edit the action template in YAML. Changes will be reflected in
-                  workflows immediately.
-                </span>
-                <CustomEditor
-                  className="h-96 w-full"
-                  defaultLanguage="yaml"
-                  value={field.value}
-                  onChange={field.onChange}
+                <Label htmlFor="origin">Origin</Label>
+                <Input
+                  disabled
+                  id="origin"
+                  placeholder="Enter origin"
+                  className="font-mono"
+                  {...field}
                 />
               </div>
             )}
           />
-        </div>
-      </div>
 
-      <Button type="submit" disabled={updateRegistryActionIsPending}>
-        {updateRegistryActionIsPending ? (
-          <>
-            <Loader2 className="mr-2 size-4 animate-spin" />
-            Creating...
-          </>
-        ) : (
-          "Update Action"
-        )}
-      </Button>
-    </form>
+          <div className="flex flex-col space-y-4">
+            <Controller
+              name="definition"
+              control={methods.control}
+              render={({ field }) => (
+                <div className="flex flex-col space-y-2">
+                  <Label htmlFor="definition">Definition</Label>
+                  <span className="text-xs text-muted-foreground">
+                    Edit the action template in YAML. Changes will be reflected
+                    in workflows immediately.
+                  </span>
+                  <CustomEditor
+                    className="h-96 w-full"
+                    defaultLanguage="yaml"
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
+                  {error && (
+                    <FormMessage className="flex items-center space-x-1">
+                      <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />
+                      <span>{error}</span>
+                    </FormMessage>
+                  )}
+                </div>
+              )}
+            />
+          </div>
+        </div>
+
+        <Button type="submit" disabled={updateRegistryActionIsPending}>
+          {updateRegistryActionIsPending ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Creating...
+            </>
+          ) : (
+            "Update Action"
+          )}
+        </Button>
+      </form>
+    </Form>
   )
 }
