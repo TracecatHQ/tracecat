@@ -247,7 +247,6 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
 class CreateWorkflowExecutionParams(BaseModel):
     workflow_id: identifiers.WorkflowID
     inputs: dict[str, Any] | None = None
-    enable_runtime_tests: bool = False
 
 
 class CreateWorkflowExecutionResponse(TypedDict):

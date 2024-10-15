@@ -106,7 +106,6 @@ async def create_workflow_execution(
                 dsl=dsl_input,
                 wf_id=params.workflow_id,
                 payload=params.inputs,
-                enable_runtime_tests=params.enable_runtime_tests,
             )
             return response
         except TracecatValidationError as e:

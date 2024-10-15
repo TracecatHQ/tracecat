@@ -81,7 +81,7 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
 
 @pytest.fixture
 def runtime_config() -> DSLConfig:
-    config = DSLConfig(enable_runtime_tests=True, environment="default")
+    config = DSLConfig(environment="default")
     logger.info(f"Runtime config: {config}")
     return config
 
@@ -178,8 +178,6 @@ async def test_workflow_ordering_is_correct(
         "unit_transform_reshape_arrange_loop",
         "unit_transform_reshape_zip",
         "unit_transform_reshape_map_loop",
-        "unit_runtime_test_adder_tree",
-        # "unit_runtime_test_chain", # Skip for now
         "unit_transform_filter_dict",
         "unit_transform_filter_function",
     ],
@@ -967,7 +965,6 @@ async def test_child_workflow_context_passing(
                     "description": "",
                 }
             ],
-            # "config": {"enable_runtime_tests": False, "scheduler": "dynamic"},
             "description": "Testing child workflow",
             "inputs": {},
             "returns": None,
