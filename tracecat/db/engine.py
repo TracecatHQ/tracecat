@@ -8,9 +8,17 @@ import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import Session, create_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+    wait_random,
+)
 
 from tracecat import config
 
@@ -122,20 +130,50 @@ def _create_async_db_engine() -> AsyncEngine:
     return create_async_engine(uri, **engine_kwargs)
 
 
-def get_engine() -> Engine:
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(1) + wait_random(0, 1),
+    retry=retry_if_exception_type(SQLAlchemyError),
+    reraise=True,
+)
+def get_engine(force_recreate=False) -> Engine:
     """Get the db sync connection pool."""
     global _engine
-    if _engine is None:
+    if _engine is None or force_recreate:
+        if _engine is not None:
+            _engine.dispose()
         _engine = _create_db_engine()
-    return _engine
+    try:
+        # Test the connection
+        with _engine.connect() as conn:
+            conn.execute("SELECT 1")
+        return _engine
+    except SQLAlchemyError:
+        _engine = None
+        raise
 
 
-def get_async_engine() -> AsyncEngine:
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(1) + wait_random(0, 1),
+    retry=retry_if_exception_type(SQLAlchemyError),
+    reraise=True,
+)
+async def get_async_engine(force_recreate=False) -> AsyncEngine:
     """Get the db async connection pool."""
     global _async_engine
-    if _async_engine is None:
+    if _async_engine is None or force_recreate:
+        if _async_engine is not None:
+            await _async_engine.dispose()
         _async_engine = _create_async_db_engine()
-    return _async_engine
+    try:
+        # Test the connection
+        async with _async_engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        return _async_engine
+    except SQLAlchemyError:
+        _async_engine = None
+        raise
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -143,12 +181,8 @@ def get_session() -> Generator[Session, None, None]:
         yield session
 
 
-async def get_async_session() -> AsyncGenerator[AsyncSession, None, None]:
-    try:
-        async_engine = get_async_engine()
-    except Exception as e:
-        logger.error("Error getting async session", error=e)
-        raise
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    async_engine = await get_async_engine()
     async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
         yield async_session
 
@@ -157,7 +191,7 @@ def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
     return contextlib.contextmanager(get_session)()
 
 
-def get_async_session_context_manager() -> (
+async def get_async_session_context_manager() -> (
     contextlib.AbstractAsyncContextManager[AsyncSession]
 ):
     return contextlib.asynccontextmanager(get_async_session)()
