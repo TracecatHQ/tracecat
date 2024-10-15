@@ -8,6 +8,7 @@ data:
   TRACECAT__AUTH_TYPES: "basic,google_oauth" # not yet configurable
   TRACECAT__DB_SSLMODE: "require" # not sure?
   TRACECAT__API_ROOT_PATH: "/api"
+  TEMPORAL__CLUSTER_URL: http://temporal-temporal-frontend:7233
   OAUTH_CLIENT_ID: ""
   OAUTH_CLIENT_SECRET: ""
   SMTP_HOST: ""
