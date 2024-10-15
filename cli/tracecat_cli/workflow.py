@@ -83,14 +83,11 @@ def run(
         "--proxy",
         help="If set, run the workflow through the external-facing webhook",
     ),
-    test: bool = typer.Option(
-        False, "--test", help="If set, run the workflow with runtime action tests"
-    ),
 ):
     """Triggers a webhook to run a workflow."""
     rich.print(f"Running workflow {workflow_id!r} {"proxied" if proxy else 'directly'}")
     payload = read_input(data) if data else None
-    return _run_workflow(workflow_id, payload=payload, proxy=proxy, test=test)
+    return _run_workflow(workflow_id, payload=payload, proxy=proxy)
 
 
 @app.command(help="Activate a workflow", no_args_is_help=True)
@@ -172,10 +169,7 @@ def _create_workflow(
 
 
 def _run_workflow(
-    workflow_id: str,
-    payload: dict[str, str] | None = None,
-    proxy: bool = False,
-    test: bool = False,
+    workflow_id: str, payload: dict[str, str] | None = None, proxy: bool = False
 ):
     with Client() as client:
         # Get the webhook url
@@ -190,11 +184,7 @@ def _run_workflow(
         url = f"/webhooks/{workflow_id}/{webhook["secret"]}"
 
     with run_client as client:
-        res = client.post(
-            url,
-            content=content,
-            headers={"X-Tracecat-Enable-Runtime-Tests": "true"} if test else None,
-        )
+        res = client.post(url, content=content)
         try:
             result = Client.handle_response(res)
             rich.print(result)
