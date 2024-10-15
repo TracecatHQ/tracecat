@@ -43,6 +43,7 @@ from tracecat.registry.actions.models import (
     TemplateAction,
 )
 from tracecat.registry.constants import (
+    CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
     GITHUB_SSH_KEY_SECRET_NAME,
 )
@@ -50,6 +51,7 @@ from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import RegistryError
 
 
 class RegisterKwargs(BaseModel):
@@ -229,10 +231,18 @@ class Repository:
             self._load_base_template_actions()
             return
 
+        elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
+            raise RegistryError("You cannot sync this repository.")
+
         # Load from remote
         logger.info("Loading UDFs from origin", origin=self._origin)
 
-        org, repo_name, branch = parse_github_url(self._origin)
+        try:
+            org, repo_name, branch = parse_github_url(self._origin)
+        except ValueError as e:
+            raise RegistryError(
+                "Invalid GitHub URL. Please provide a valid Github SSH URL (git+ssh)."
+            ) from e
         logger.debug(
             "Parsed GitHub URL", org=org, package_name=repo_name, branch=branch
         )
