@@ -41,13 +41,6 @@ paths:
         schema:
           type: string
           title: Secret
-      - name: validate_method
-        in: query
-        required: false
-        schema:
-          type: boolean
-          default: true
-          title: Validate Method
       requestBody:
         content:
           application/json:
@@ -96,13 +89,6 @@ paths:
         schema:
           type: string
           title: Secret
-      - name: validate_method
-        in: query
-        required: false
-        schema:
-          type: boolean
-          default: true
-          title: Validate Method
       requestBody:
         content:
           application/json:
@@ -119,40 +105,6 @@ paths:
               schema:
                 type: object
                 title: Response Public-Incoming Webhook Wait
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /callback/{service}:
-    post:
-      tags:
-      - public
-      summary: Webhook Callback
-      description: 'Receive a callback from an external service.
-
-
-        This can be used to trigger a workflow from an external service, or perform
-        some other actions.'
-      operationId: public-webhook_callback
-      parameters:
-      - name: service
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Service
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties:
-                  type: string
-                title: Response Public-Webhook Callback
         '422':
           description: Validation Error
           content:
@@ -5527,9 +5479,3 @@ tags:
   description: Workflow triggers
 - name: secrets
   description: Secret management
-- name: udfs
-  description: User-defined functions
-- name: events
-  description: Event management
-- name: cases
-  description: Case management

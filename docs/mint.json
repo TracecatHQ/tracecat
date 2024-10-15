@@ -126,7 +126,6 @@
               "pages": [
                 "api-reference/reference/public/incoming-webhook",
                 "api-reference/reference/public/incoming-webhook-wait",
-                "api-reference/reference/public/webhook-callback",
                 "api-reference/reference/public/check-health"
               ]
             },
