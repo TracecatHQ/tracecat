@@ -68,9 +68,3 @@ class WebhookResponse(Resource):
     method: Literal["GET", "POST"]
     workflow_id: str
     url: str
-
-
-class ServiceCallbackAction(BaseModel):
-    action: Literal["webhook"]
-    payload: dict[str, Any]
-    metadata: dict[str, Any]

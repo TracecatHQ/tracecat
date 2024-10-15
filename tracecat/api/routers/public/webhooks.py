@@ -1,10 +1,9 @@
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from tracecat.api.routers.public.dependencies import validate_incoming_webhook
+from tracecat.api.routers.public.dependencies import WorkflowDefinitionFromWebhook
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.logger import logger
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
@@ -15,7 +14,7 @@ router = APIRouter(prefix="/webhooks")
 
 @router.post("/{path}/{secret}", tags=["public"])
 async def incoming_webhook(
-    defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
+    defn: WorkflowDefinitionFromWebhook,
     path: str,
     payload: dict[str, Any] | None = None,
 ) -> CreateWorkflowExecutionResponse:
@@ -38,7 +37,7 @@ async def incoming_webhook(
 
 @router.post("/{path}/{secret}/wait", tags=["public"])
 async def incoming_webhook_wait(
-    defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
+    defn: WorkflowDefinitionFromWebhook,
     path: str,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:

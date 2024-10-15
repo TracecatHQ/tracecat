@@ -12,7 +12,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.api.routers.actions import router as actions_router
-from tracecat.api.routers.public.callbacks import router as callback_router
 from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
@@ -205,9 +204,6 @@ def create_app(**kwargs) -> FastAPI:
             {"name": "actions", "description": "Action management"},
             {"name": "triggers", "description": "Workflow triggers"},
             {"name": "secrets", "description": "Secret management"},
-            {"name": "udfs", "description": "User-defined functions"},
-            {"name": "events", "description": "Event management"},
-            {"name": "cases", "description": "Case management"},
         ],
         generate_unique_id_function=custom_generate_unique_id,
         lifespan=lifespan,
@@ -219,7 +215,6 @@ def create_app(**kwargs) -> FastAPI:
 
     # Routers
     app.include_router(webhook_router)
-    app.include_router(callback_router)
     app.include_router(workspaces_router)
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
