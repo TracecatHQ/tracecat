@@ -295,13 +295,10 @@ class Repository:
             logger.info("Importing remote repository module", module_name=module_name)
             # We only need to call this at the root level because
             # this deletes all the submodules as well
-            clean_module(module_name)
-            module = importlib.import_module(module_name)
-            reloaded_module = importlib.reload(module)
-            sys.modules[module_name] = reloaded_module
+            module = import_and_reload(module_name)
 
             # # Reload the module to ensure fresh execution
-            self._register_udfs_from_package(reloaded_module, origin=cleaned_url)
+            self._register_udfs_from_package(module, origin=cleaned_url)
             logger.trace("AFTER", keys=self.keys)
         except ImportError as e:
             logger.error("Error importing remote udfs", error=e)
@@ -387,13 +384,8 @@ class Repository:
             # Create fully qualified module name
             udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
             udf_module_name = f"{base_package}.{'.'.join(udf_module_parts)}"
-            udf_module = importlib.import_module(udf_module_name)
-            # NOTE: We must reload the module here to ensure that the changes are
-            # reflected in the executor
-            reloaded_module = importlib.reload(udf_module)
-            num_registered = self._register_udfs_from_module(
-                reloaded_module, origin=origin
-            )
+            module = import_and_reload(udf_module_name)
+            num_registered = self._register_udfs_from_module(module, origin=origin)
             num_udfs += num_registered
         time_elapsed = default_timer() - start_time
         logger.info(
@@ -460,13 +452,22 @@ class Repository:
         raise NotImplementedError("Template actions has no direct implementation")
 
 
-def clean_module(module_name: str) -> None:
+def import_and_reload(module_name: str) -> ModuleType:
+    """Import and reload a module.
+
+    Steps
+    -----
+    1. Remove the module from sys.modules
+    2. Import the module
+    3. Reload the module
+    4. Add the module to sys.modules
+    5. Return the reloaded module
     """
-    Remove a module and its submodules from sys.modules.
-    """
-    to_remove = [mod for mod in sys.modules if mod.startswith(module_name)]
-    for mod in to_remove:
-        del sys.modules[mod]
+    sys.modules.pop(module_name, None)
+    module = importlib.import_module(module_name)
+    reloaded_module = importlib.reload(module)
+    sys.modules[module_name] = reloaded_module
+    return reloaded_module
 
 
 def attach_validators(func: FunctionType, *validators: Callable):
