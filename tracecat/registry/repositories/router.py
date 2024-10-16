@@ -20,7 +20,7 @@ from tracecat.registry.repositories.models import (
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import ensure_base_repository
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.types.exceptions import RegistryError, TracecatNotFoundError
 
 router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
 
@@ -66,6 +66,11 @@ async def sync_registry_repositories(
     actions_service = RegistryActionsService(session, role=role)
     try:
         await actions_service.sync_actions(repos)
+    except RegistryError as e:
+        logger.warning("Cannot sync repository", origin=origin, exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except TracecatNotFoundError as e:
         logger.error("Error while syncing repository", exc=e)
         raise HTTPException(

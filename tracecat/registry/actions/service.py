@@ -174,6 +174,15 @@ class RegistryActionsService:
         for repo in repos:
             try:
                 await self.sync_actions_from_repository(repo)
+            except RegistryError as e:
+                if e.detail == "You cannot sync this repository.":
+                    msg = f"Cannot sync repository {repo.origin!r}: {e}"
+                else:
+                    msg = f"Error while syncing repository {repo.origin!r}: {e}"
+
+                self.logger.warning(msg)
+                if raise_on_error:
+                    raise
             except TracecatNotFoundError as e:
                 self.logger.warning(
                     f"Error while syncing repository {repo.origin!r}: {e}"
@@ -196,10 +205,8 @@ class RegistryActionsService:
         - Scan the repositories for implementation details/metadata and update the DB
         """
         repo = Repository(origin=db_repo.origin, role=self.role)
-        try:
-            await repo.load_from_origin()
-        except Exception:
-            raise
+        await repo.load_from_origin()
+
         # Perform diffing here. The expectation for this endpoint is to sync Tracecat's view of
         # the repository with the remote repository -- meaning any creation/updates/deletions to
         # actions should be propogated to the db.
