@@ -203,24 +203,10 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
-    try:
-        return contextlib.contextmanager(get_session)()
-    except SQLAlchemyError:
-        logger.warning(
-            "Database error occurred. Attempting to recreate engine with potentially updated configuration."
-        )
-        get_engine(force_recreate=True)
-        raise
+    return contextlib.contextmanager(get_session)()
 
 
-async def get_async_session_context_manager() -> (
+def get_async_session_context_manager() -> (
     contextlib.AbstractAsyncContextManager[AsyncSession]
 ):
-    try:
-        return contextlib.asynccontextmanager(get_async_session)()
-    except SQLAlchemyError:
-        logger.warning(
-            "Database error occurred. Attempting to recreate async engine with potentially updated configuration."
-        )
-        await get_async_engine(force_recreate=True)
-        raise
+    return contextlib.asynccontextmanager(get_async_session)()
