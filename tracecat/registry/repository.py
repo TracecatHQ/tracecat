@@ -259,20 +259,28 @@ class Repository:
     async def _install_remote_repository(self, repo_url: str, env: _SSHEnv) -> None:
         logger.info("Loading remote repository", url=repo_url)
 
+        cmd = ["uv", "pip", "install", "--system", "--refresh"]
+        extra_args = []
+        if config.TRACECAT__APP_ENV == "production":
+            # We set PYTHONUSERBASE in the prod Dockerfile
+            # Otherwise default to the user's home dir at ~/.local
+            python_user_base = (
+                os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
+            )
+            logger.trace(
+                "Installing to PYTHONUSERBASE", python_user_base=python_user_base
+            )
+            extra_args = ["--target", python_user_base]
         try:
             process = await asyncio.create_subprocess_exec(
-                "uv",
-                "pip",
-                "install",
-                "--system",
-                "--refresh",
+                *cmd,
+                *extra_args,
                 repo_url,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=os.environ.copy() | env,
             )
             _, stderr = await process.communicate()
-
             if process.returncode != 0:
                 error_message = stderr.decode().strip()
                 logger.error(f"Failed to install repository: {error_message}")

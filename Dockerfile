@@ -28,6 +28,16 @@ RUN chmod +x auto-update.sh && \
 RUN groupadd -g 1001 apiuser && \
     useradd -m -u 1001 -g apiuser apiuser
 
+# Set up directories for uv and pip
+RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.local && \
+    chown -R apiuser:apiuser /home/apiuser/.cache /home/apiuser/.local && \
+    chmod -R 755 /home/apiuser/.cache /home/apiuser/.local
+
+ENV PYTHONUSERBASE="/home/apiuser/.local"
+ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
+ENV PYTHONPATH=/home/apiuser/.local:$PYTHONPATH
+ENV PATH=/home/apiuser/.local/bin:$PATH
+
 # Set the working directory inside the container
 WORKDIR /app
 
@@ -47,6 +57,9 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry
 RUN uv pip install .
 RUN uv pip install ./registry
+
+# Ensure apiuser has write permissions to necessary directories
+RUN chown -R apiuser:apiuser /tmp /home/apiuser
 
 # Change to the non-root user
 USER apiuser

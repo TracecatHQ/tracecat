@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import Literal
 
 from tracecat.auth.constants import AuthType
 
@@ -12,7 +13,9 @@ TRACECAT__SCHEDULE_INTERVAL_SECONDS = os.environ.get(
     "TRACECAT__SCHEDULE_INTERVAL_SECONDS", 60
 )
 TRACECAT__SCHEDULE_MAX_CONNECTIONS = 6
-TRACECAT__APP_ENV = os.environ.get("TRACECAT__APP_ENV", "development")
+TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
+    "TRACECAT__APP_ENV", "development"
+)
 TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://localhost:8000")
 TRACECAT__PUBLIC_RUNNER_URL = os.environ.get(
     "TRACECAT__PUBLIC_RUNNER_URL", "http://localhost/api"
