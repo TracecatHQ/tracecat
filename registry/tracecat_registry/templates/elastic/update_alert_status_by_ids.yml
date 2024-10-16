@@ -22,6 +22,7 @@ definition:
         method: POST
         url: ${{ SECRETS.elastic.ELASTIC_API_URL }}/api/detection_engine/signals/status
         headers:
+          kbn-xsrf: kibana
           Authorization: ApiKey ${{ SECRETS.elastic.ELASTIC_API_KEY }}
         payload:
           signal_ids: ${{ inputs.signal_ids }}
