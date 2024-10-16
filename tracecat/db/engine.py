@@ -10,7 +10,7 @@ from loguru import logger
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import (
     retry,
@@ -177,21 +177,62 @@ async def get_async_engine(force_recreate=False) -> AsyncEngine:
 
 
 def get_session() -> Generator[Session, None, None]:
-    with Session(get_engine()) as session:
-        yield session
+    engine = get_engine()
+    with Session(engine) as session:
+        try:
+            # Test the connection
+            session.exec(select(1)).one()
+            yield session
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async_engine = await get_async_engine()
     async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
-        yield async_session
+        try:
+            # Test the connection
+            await async_session.exec(select(1)).one()
+            yield async_session
+        except Exception:
+            await async_session.rollback()
+            raise
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(1) + wait_random(0, 1),
+    retry=retry_if_exception_type(SQLAlchemyError),
+    reraise=True,
+)
 def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
-    return contextlib.contextmanager(get_session)()
+    try:
+        return contextlib.contextmanager(get_session)()
+    except SQLAlchemyError:
+        logger.warning(
+            "Database error occurred. Attempting to recreate engine with potentially updated configuration."
+        )
+        get_engine(force_recreate=True)
+        raise
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(1) + wait_random(0, 1),
+    retry=retry_if_exception_type(SQLAlchemyError),
+    reraise=True,
+)
 async def get_async_session_context_manager() -> (
     contextlib.AbstractAsyncContextManager[AsyncSession]
 ):
-    return contextlib.asynccontextmanager(get_async_session)()
+    try:
+        return contextlib.asynccontextmanager(get_async_session)()
+    except SQLAlchemyError:
+        logger.warning(
+            "Database error occurred. Attempting to recreate async engine with potentially updated configuration."
+        )
+        await get_async_engine(force_recreate=True)
+        raise
