@@ -202,12 +202,6 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(1) + wait_random(0, 1),
-    retry=retry_if_exception_type(SQLAlchemyError),
-    reraise=True,
-)
 def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
     try:
         return contextlib.contextmanager(get_session)()
@@ -219,12 +213,6 @@ def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
         raise
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(1) + wait_random(0, 1),
-    retry=retry_if_exception_type(SQLAlchemyError),
-    reraise=True,
-)
 async def get_async_session_context_manager() -> (
     contextlib.AbstractAsyncContextManager[AsyncSession]
 ):
