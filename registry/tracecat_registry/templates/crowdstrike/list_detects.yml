@@ -29,10 +29,9 @@ definition:
     - ref: query_detects
       action: integrations.crowdstrike.call_falconpy_command
       args:
-        operation_id: GetQueriesDetectionsV1
+        operation_id: QueryDetects
         member_cid: ${{ inputs.member_cid }}
         params:
-          body:
-            filter: ${{ inputs.filter || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<='FN.to_isoformat(inputs.end_time)'"  }}
-            limit: ${{ inputs.limit }}
+          filter: ${{ inputs.filter || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<='FN.to_isoformat(inputs.end_time)'"  }}
+          limit: ${{ inputs.limit }}
   returns: ${{ steps.query_detects.result }}
