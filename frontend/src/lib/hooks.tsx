@@ -1011,7 +1011,7 @@ export function useRegistryRepositories() {
               <div>
                 <p>Repositories: {variables.origins?.join(", ")}</p>
                 <p>
-                  {apiError.message} {String(apiError.body.detail)}
+                  {apiError.message}: {String(apiError.body.detail)}
                 </p>
               </div>
             ),
