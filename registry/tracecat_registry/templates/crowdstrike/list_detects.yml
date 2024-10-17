@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: List CrowdStrike Detcects
+  title: List CrowdStrike Detects
   description: Query for CrowdStrike detects via the Falcon SIEM API.
   display_group: CrowdStrike
   namespace: integrations.crowdstrike
