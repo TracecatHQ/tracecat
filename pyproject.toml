@@ -21,6 +21,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
+    "aioboto3==13.0.1",
     "alembic_utils==0.8.4",
     "alembic-postgresql-enum==1.3.0",
     "alembic==1.13.2",
