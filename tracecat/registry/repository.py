@@ -323,23 +323,9 @@ class Repository:
             raise
 
         try:
-            start_time = default_timer()
-            pkg_root = importlib.resources.files(module_name)
-            pkg_path = Path(pkg_root)
-
-            n_loaded = self.load_template_actions_from_path(
-                path=pkg_path, origin=cleaned_url
+            self.load_template_actions_from_package(
+                package_name=module_name, origin=cleaned_url
             )
-
-            time_elapsed = default_timer() - start_time
-            if n_loaded > 0:
-                logger.info(
-                    f"✅ Registered {n_loaded} template actions in {time_elapsed:.2f}s",
-                    num_templates=n_loaded,
-                    time_elapsed=time_elapsed,
-                )
-            else:
-                logger.warning("No template actions found in remote repository")
         except Exception as e:
             logger.error("Error importing remote repository template actions", error=e)
             raise
@@ -437,21 +423,30 @@ class Repository:
     def _load_base_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
+        return self.load_template_actions_from_package(
+            package_name=DEFAULT_REGISTRY_ORIGIN, origin=DEFAULT_REGISTRY_ORIGIN
+        )
+
+    def load_template_actions_from_package(
+        self, *, package_name: str, origin: str
+    ) -> None:
+        """Load template actions from a package."""
         start_time = default_timer()
-        # Use importlib to find path to tracecat_registry package
-        pkg_root = importlib.resources.files("tracecat_registry")
+        pkg_root = importlib.resources.files(package_name)
         pkg_path = Path(pkg_root)
-
-        n_loaded = self.load_template_actions_from_path(
-            path=pkg_path, origin=DEFAULT_REGISTRY_ORIGIN
-        )
-
+        n_loaded = self.load_template_actions_from_path(path=pkg_path, origin=origin)
         time_elapsed = default_timer() - start_time
-        logger.info(
-            f"✅ Registered {n_loaded} template actions in {time_elapsed:.2f}s",
-            num_templates=n_loaded,
-            time_elapsed=time_elapsed,
-        )
+        if n_loaded > 0:
+            logger.info(
+                f"✅ Registered {n_loaded} template actions in {time_elapsed:.2f}s",
+                num_templates=n_loaded,
+                time_elapsed=time_elapsed,
+                package_name=package_name,
+            )
+        else:
+            logger.info(
+                "No template actions found in package", package_name=package_name
+            )
 
     def load_template_actions_from_path(self, *, path: Path, origin: str) -> int:
         """Load template actions from a package."""
