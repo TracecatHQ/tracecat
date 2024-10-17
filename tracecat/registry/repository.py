@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import importlib.resources
 import inspect
 import json
 import os
@@ -11,7 +12,6 @@ import sys
 import tempfile
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from importlib.resources import files
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
@@ -319,7 +319,29 @@ class Repository:
             self._register_udfs_from_package(module, origin=cleaned_url)
             logger.trace("AFTER", keys=self.keys)
         except ImportError as e:
-            logger.error("Error importing remote udfs", error=e)
+            logger.error("Error importing remote repository udfs", error=e)
+            raise
+
+        try:
+            start_time = default_timer()
+            pkg_root = importlib.resources.files(module_name)
+            pkg_path = Path(pkg_root)
+
+            n_loaded = self.load_template_actions_from_path(
+                path=pkg_path, origin=cleaned_url
+            )
+
+            time_elapsed = default_timer() - start_time
+            if n_loaded > 0:
+                logger.info(
+                    f"✅ Registered {n_loaded} template actions in {time_elapsed:.2f}s",
+                    num_templates=n_loaded,
+                    time_elapsed=time_elapsed,
+                )
+            else:
+                logger.warning("No template actions found in remote repository")
+        except Exception as e:
+            logger.error("Error importing remote repository template actions", error=e)
             raise
         return module
 
@@ -417,10 +439,12 @@ class Repository:
 
         start_time = default_timer()
         # Use importlib to find path to tracecat_registry package
-        pkg_root = files("tracecat_registry")
+        pkg_root = importlib.resources.files("tracecat_registry")
         pkg_path = Path(pkg_root)
 
-        n_loaded = self.load_template_actions_from_path(pkg_path)
+        n_loaded = self.load_template_actions_from_path(
+            path=pkg_path, origin=DEFAULT_REGISTRY_ORIGIN
+        )
 
         time_elapsed = default_timer() - start_time
         logger.info(
@@ -429,7 +453,7 @@ class Repository:
             time_elapsed=time_elapsed,
         )
 
-    def load_template_actions_from_path(self, path: Path) -> int:
+    def load_template_actions_from_path(self, *, path: Path, origin: str) -> int:
         """Load template actions from a package."""
         # Load the default templates
         logger.info(f"Loading template actions from {path!s}")
@@ -459,9 +483,7 @@ class Repository:
                 logger.info(f"Template {key!r} already registered, skipping")
                 continue
 
-            self.register_template_action(
-                template_action, origin=DEFAULT_REGISTRY_ORIGIN
-            )
+            self.register_template_action(template_action, origin=origin)
             n_loaded += 1
         return n_loaded
 
