@@ -16,6 +16,13 @@ data "aws_db_snapshot" "core_snapshots" {
   most_recent            = true
   include_shared         = false
   include_public         = false
+
+  lifecycle {
+    postcondition {
+      condition     = self.id != null || var.restore_from_snapshot == false
+      error_message = "No snapshot found for core database and restore_from_snapshot is set to true"
+    }
+  }
 }
 
 # Check if snapshots exist for temporal database
@@ -24,6 +31,13 @@ data "aws_db_snapshot" "temporal_snapshots" {
   most_recent            = true
   include_shared         = false
   include_public         = false
+
+  lifecycle {
+    postcondition {
+      condition     = self.id != null || var.restore_from_snapshot == false
+      error_message = "No snapshot found for temporal database and restore_from_snapshot is set to true"
+    }
+  }
 }
 
 resource "aws_db_instance" "core_database" {
@@ -41,7 +55,7 @@ resource "aws_db_instance" "core_database" {
   vpc_security_group_ids       = [aws_security_group.core_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
   final_snapshot_identifier    = "final-core-db-${local.snapshot_timestamp}-${random_string.core_snapshot_suffix.result}"
-  snapshot_identifier          = var.restore_from_snapshot && data.aws_db_snapshot.core_snapshots.db_snapshot_arn != null ? data.aws_db_snapshot.core_snapshots.db_snapshot_arn : null
+  snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.core_snapshots.db_snapshot_arn, null) : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
@@ -71,7 +85,7 @@ resource "aws_db_instance" "temporal_database" {
   vpc_security_group_ids       = [aws_security_group.temporal_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
   final_snapshot_identifier    = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix.result}"
-  snapshot_identifier          = var.restore_from_snapshot && data.aws_db_snapshot.temporal_snapshots.db_snapshot_arn != null ? data.aws_db_snapshot.temporal_snapshots.db_snapshot_arn : null
+  snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.temporal_snapshots.db_snapshot_arn, null) : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
