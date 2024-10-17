@@ -1,0 +1,16 @@
+resources:
+  - deployment.yaml
+  - rbac.yaml
+  - service.yaml
+configMapGenerator:
+  - name: tracecat-key-scripts
+    behavior: create
+    options:
+      disableNameSuffixHash: true
+    files:
+      - tracecat-key-manager.sh
+      - fernet-key-generator.sh
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/component: tracecat-api

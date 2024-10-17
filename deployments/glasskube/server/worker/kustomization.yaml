@@ -1,0 +1,6 @@
+resources:
+  - deployment.yaml
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/component: tracecat-worker
