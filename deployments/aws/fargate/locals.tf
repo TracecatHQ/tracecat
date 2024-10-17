@@ -17,9 +17,6 @@ locals {
   # Tracecat postgres env vars
   # See: https://github.com/TracecatHQ/tracecat/blob/abd5ff/tracecat/db/engine.py#L21
   tracecat_db_configs = {
-    # NOTE: still missing
-    # TRACECAT__DB_ENDPOINT which is the hostname of the RDS instance (from RDS resource)
-    # TRACECAT__DB_PASS which is the password for the database (from secrets manager)
     TRACECAT__DB_USER      = "postgres"
     TRACECAT__DB_PORT      = "5432"
     TRACECAT__DB_NAME      = "postgres" # Hardcoded in RDS resource configs
