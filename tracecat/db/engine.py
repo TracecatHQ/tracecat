@@ -1,16 +1,14 @@
 import contextlib
 import json
 import os
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 from typing import Literal
 
-import boto3
+import aioboto3
+import asyncpg.exceptions
 from botocore.exceptions import ClientError
-from loguru import logger
-from sqlalchemy import Engine
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlmodel import Session, create_engine, select
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import (
     retry,
@@ -21,12 +19,14 @@ from tenacity import (
 )
 
 from tracecat import config
+from tracecat.logger import logger
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
 # connections and not create a new pool on every request
-_engine: Engine | None = None
 _async_engine: AsyncEngine | None = None
+
+DBDriver = Literal["asyncpg", "psycopg"]
 
 
 def get_connection_string(
@@ -37,84 +37,33 @@ def get_connection_string(
     port: int | str = 5432,
     database: str = "postgres",
     scheme: str = "postgresql",
-    driver: Literal["asyncpg", "psycopg"] = "asyncpg",
+    driver: DBDriver = "asyncpg",
 ) -> str:
     return f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
 
 
-def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
-    # Check if AWS environment
-    if config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS__ARN:
-        logger.info("Retrieving database password from AWS Secrets Manager...")
-        try:
-            session = boto3.session.Session()
-            client = session.client(service_name="secretsmanager")
-            response = client.get_secret_value(SecretId=config.TRACECAT__DB_PASS__ARN)
-            password = json.loads(response["SecretString"])["password"]
-        except ClientError as e:
-            logger.error(
-                "Error retrieving secret from AWS secrets manager."
-                " Please check that the ECS task has sufficient permissions to read the secret and that the secret exists.",
-                error=e,
-            )
-            raise e
-        except KeyError as e:
-            logger.error(
-                "Error retrieving secret from AWS secrets manager."
-                " `password` not found in secret."
-                " Please check that the database secret in AWS Secrets Manager is a valid JSON object"
-                " with `username` and `password`"
-            )
-            raise e
+def get_db_uri(driver: DBDriver = "asyncpg") -> str:
+    username = os.getenv("TRACECAT__DB_USER", "postgres")
+    host = os.getenv("TRACECAT__DB_ENDPOINT", "postgres_db")
+    port = os.getenv("TRACECAT__DB_PORT", 5432)
+    database = os.getenv("TRACECAT__DB_NAME", "postgres")
 
-        # Get the password from AWS Secrets Manager
+    if password := os.getenv("TRACECAT__DB_PASS"):
+        logger.trace("Using database password from environment variable")
         uri = get_connection_string(
-            username=config.TRACECAT__DB_USER,
+            username=username,
             password=password,
-            host=config.TRACECAT__DB_ENDPOINT,
-            port=config.TRACECAT__DB_PORT,
-            database=config.TRACECAT__DB_NAME,
+            host=host,
+            port=port,
+            database=database,
             driver=driver,
         )
-        logger.info("Successfully retrieved database password from AWS Secrets Manager")
-    # Else check if the password is in the local environment
-    elif config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS:
-        uri = get_connection_string(
-            username=config.TRACECAT__DB_USER,
-            password=config.TRACECAT__DB_PASS,
-            host=config.TRACECAT__DB_ENDPOINT,
-            port=config.TRACECAT__DB_PORT,
-            database=config.TRACECAT__DB_NAME,
-            driver=driver,
-        )
-    # Else use the default URI
     else:
+        logger.trace("Using full database URI from environment variable")
         uri = config.TRACECAT__DB_URI
         if driver == "asyncpg":
             uri = uri.replace("psycopg", "asyncpg")
-    logger.trace("Using database URI", uri=uri)
     return uri
-
-
-def _create_db_engine() -> Engine:
-    if config.TRACECAT__APP_ENV == "production":
-        # Postgres
-        sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
-        engine_kwargs = {
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "connect_args": {"sslmode": sslmode},
-        }
-    else:
-        # Postgres as default
-        engine_kwargs = {
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "connect_args": {"sslmode": "disable"},
-        }
-
-    uri = _get_db_uri(driver="psycopg")
-    return create_engine(uri, **engine_kwargs)
 
 
 def _create_async_db_engine() -> AsyncEngine:
@@ -126,84 +75,98 @@ def _create_async_db_engine() -> AsyncEngine:
         "pool_recycle": 3600,
     }
 
-    uri = _get_db_uri(driver="asyncpg")
+    uri = get_db_uri("asyncpg")
     return create_async_engine(uri, **engine_kwargs)
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(1) + wait_random(0, 1),
-    retry=retry_if_exception_type(SQLAlchemyError),
-    reraise=True,
-)
-def get_engine(force_recreate=False) -> Engine:
-    """Get the db sync connection pool."""
-    global _engine
-    if _engine is None or force_recreate:
-        if _engine is not None:
-            _engine.dispose()
-        _engine = _create_db_engine()
+async def get_db_password_from_secrets_manager(secret_arn: str) -> str:
+    logger.info("Retrieving database password from AWS Secrets Manager")
     try:
-        # Test the connection
-        with _engine.connect() as conn:
-            conn.execute("SELECT 1")
-        return _engine
-    except SQLAlchemyError:
-        _engine = None
+        async with aioboto3.Session().client(service_name="secretsmanager") as client:
+            response = await client.get_secret_value(SecretId=secret_arn)
+    except ClientError as e:
+        logger.error(
+            "Error retrieving secret from AWS secrets manager. "
+            "Please check that the ECS task has sufficient permissions to read the secret and that the secret exists.",
+            error=e,
+        )
+        raise
+
+    try:
+        secret_string = response["SecretString"]
+        secret_dict = json.loads(secret_string)
+        return secret_dict["password"]
+    except json.JSONDecodeError:
+        logger.error(
+            "Error decoding secret from AWS secrets manager. "
+            "Please check that the secret is a valid JSON object "
+            "with `username` and `password`"
+        )
+        raise
+    except KeyError:
+        logger.error(
+            "Error retrieving secret from AWS secrets manager. "
+            "`password` not found in secret. "
+            "Please check that the database secret in AWS Secrets Manager is a valid JSON object "
+            "with `username` and `password`"
+        )
         raise
 
 
+async def fetch_db_password() -> str:
+    if password_arn := os.getenv("TRACECAT__DB_PASS__ARN"):
+        return await get_db_password_from_secrets_manager(password_arn)
+    if password := os.getenv("TRACECAT__DB_PASS"):
+        return password
+    raise ValueError("Database password not found")
+
+
+async def recreate_db_engine() -> AsyncEngine:
+    """Recreate the db async connection pool."""
+    global _async_engine
+    if _async_engine is not None:
+        logger.info("Disposing of existing async engine")
+        await _async_engine.dispose()
+    #  We need to update the password in the environment
+    # so we don't have to fetch it from AWS again
+    password = await fetch_db_password()
+    os.environ["TRACECAT__DB_PASS"] = password
+    _async_engine = _create_async_db_engine()
+    return _async_engine
+
+
+async def db_engine_ok(engine: AsyncEngine) -> bool:
+    """Ping the database connection, returning True if successful."""
+    try:
+        async with AsyncSession(engine) as session:
+            await session.exec(select(1))
+        return True
+    except asyncpg.exceptions.InvalidPasswordError as e:
+        logger.error("Invalid database password", error=e)
+        return False
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(1) + wait_random(0, 1),
-    retry=retry_if_exception_type(SQLAlchemyError),
+    retry=retry_if_exception_type(asyncpg.exceptions.InvalidPasswordError),
     reraise=True,
 )
-async def get_async_engine(force_recreate=False) -> AsyncEngine:
+async def get_async_engine() -> AsyncEngine:
     """Get the db async connection pool."""
     global _async_engine
-    if _async_engine is None or force_recreate:
-        if _async_engine is not None:
-            await _async_engine.dispose()
+    if _async_engine is None:
         _async_engine = _create_async_db_engine()
-    try:
-        # Test the connection
-        async with _async_engine.connect() as conn:
-            await conn.execute("SELECT 1")
-        return _async_engine
-    except SQLAlchemyError:
-        _async_engine = None
-        raise
-
-
-def get_session() -> Generator[Session, None, None]:
-    engine = get_engine()
-    with Session(engine) as session:
-        try:
-            # Test the connection
-            session.exec(select(1)).one()
-            yield session
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+    elif not (engine_ok := await db_engine_ok(_async_engine)):
+        logger.info("Recreating async engine", engine_ok=engine_ok)
+        _async_engine = await recreate_db_engine()
+    return _async_engine
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async_engine = await get_async_engine()
     async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
-        try:
-            # Test the connection
-            await async_session.exec(select(1)).one()
-            yield async_session
-        except Exception:
-            await async_session.rollback()
-            raise
-
-
-def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
-    return contextlib.contextmanager(get_session)()
+        yield async_session
 
 
 def get_async_session_context_manager() -> (
