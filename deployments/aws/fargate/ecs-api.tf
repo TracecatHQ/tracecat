@@ -32,6 +32,14 @@ resource "aws_ecs_task_definition" "api_task_definition" {
         {
           name  = "TRACECAT__DB_ENDPOINT"
           value = local.core_db_hostname
+        },
+        {
+          name  = "TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME"
+          value = var.remote_repository_package_name
+        },
+        {
+          name  = "TRACECAT__REMOTE_REPOSITORY_URL"
+          value = var.remote_repository_url
         }
       ])
       secrets = local.tracecat_secrets

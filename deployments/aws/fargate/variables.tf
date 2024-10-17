@@ -11,6 +11,20 @@ variable "az_count" {
   default     = 2
 }
 
+### (Optional) Custom Integrations
+
+variable "remote_repository_package_name" {
+  type        = string
+  description = "The package name of the remote repository"
+  default     = null
+}
+
+variable "remote_repository_url" {
+  type        = string
+  description = "The URL of the remote repository"
+  default     = null
+}
+
 ### Images and Versions
 
 variable "temporal_server_image" {
