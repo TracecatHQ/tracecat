@@ -21,7 +21,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
-from tracecat.auth.schemas import UserCreate, UserRole
+from tracecat.auth.models import UserCreate, UserRole
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,

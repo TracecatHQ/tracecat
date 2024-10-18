@@ -16,7 +16,7 @@ from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
-from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
