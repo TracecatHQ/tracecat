@@ -111,3 +111,21 @@ locals {
   core_db_hostname   = sensitive(split(":", aws_db_instance.core_database.endpoint)[0])
   temp_db_hostname   = sensitive(split(":", aws_db_instance.temporal_database.endpoint)[0])
 }
+
+# Use the output of the `master_user_secret` object for core database
+resource "aws_secretsmanager_secret_rotation" "core_rotation" {
+  secret_id = aws_db_instance.core_database.master_user_secret[0].secret_arn
+
+  rotation_rules {
+    schedule_expression = "rate(365 days)"
+  }
+}
+
+# Use the output of the `master_user_secret` object for temporal database
+resource "aws_secretsmanager_secret_rotation" "temporal_rotation" {
+  secret_id = aws_db_instance.temporal_database.master_user_secret[0].secret_arn
+
+  rotation_rules {
+    schedule_expression = "rate(365 days)"
+  }
+}

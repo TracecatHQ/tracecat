@@ -144,11 +144,7 @@ def get_session() -> Generator[Session, None, None]:
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None, None]:
-    try:
-        async_engine = get_async_engine()
-    except Exception as e:
-        logger.error("Error getting async session", error=e)
-        raise
+    async_engine = get_async_engine()
     async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
         yield async_session
 
