@@ -1,0 +1,71 @@
+services:
+  ssoready-auth:
+    image: ssoready/ssoready-auth:sha-18090f8
+    environment:
+      AUTH_SERVE_ADDR: ":80"
+
+      # Have this point at ssoready-db. In this example, that's the `postgres` docker-compose service above.
+      AUTH_DB: ${SSOREADY__DB_URI}
+
+      # Have this point at where this service will be accessible from the public internet.
+      AUTH_BASE_URL: "http://localhost:8080"
+
+      # See "SAML State Signing Key" below. For initial testing, this default value is fine.
+      AUTH_SAML_STATE_SIGNING_KEY: ${SSOREADY__SAML_STATE_SIGNING_KEY}
+    ports:
+      - "8080:80"
+
+  ssoready-api:
+    image: ssoready/ssoready-api:sha-18090f8
+    environment:
+      API_SERVE_ADDR: ":80"
+
+      # Have this point at ssoready-db. In this example, that's the `postgres` docker-compose service above.
+      API_DB: ${SSOREADY__DB_URI}
+
+      # Have this point at where the ssoready-auth service will be accessible from the public internet.
+      API_DEFAULT_AUTH_URL: "http://localhost:8080"
+
+      # (Optional -- skip if you're not using ssoready-admin)
+      #
+      # Have this point at where the ssoready-admin service will be accessible from the public internet, followed by "/setup".
+      API_DEFAULT_ADMIN_SETUP_URL: "http://localhost:8083/setup"
+
+      # See "Supporting Login Methods" below.
+      API_GOOGLE_OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+
+      # See "SAML State Signing Key" below. For initial testing, this default value is fine.
+      API_SAML_STATE_SIGNING_KEY: ${SSOREADY__SAML_STATE_SIGNING_KEY}
+    ports:
+      - "8081:80"
+
+  ssoready-app:
+    image: ssoready/ssoready-app:sha-18090f8
+    environment:
+      APP_SERVE_PORT: "80"
+
+      # Have this point at where the ssoready-app service will be accessible from the public internet.
+      APP_APP_URL: "http://localhost:8082"
+
+      # Have this point at where the ssoready-api service will be accessible from the public internet,
+      APP_PUBLIC_API_URL: "http://localhost:8081"
+
+      # Have this point at APP_PUBLIC_API_URL, followed by "/internal/connect".
+      APP_API_URL: "http://localhost:8081/internal/connect"
+
+      # See "Supporting Login Methods" below.
+      APP_GOOGLE_OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+    ports:
+      - "8082:80"
+
+  # Optional. If you don't need the self-serve setup UI for configuring SAML and
+  # SCIM, you can skip ssoready-admin
+  ssoready-admin:
+    image: ssoready/ssoready-admin:sha-18090f8
+    environment:
+      ADMIN_SERVE_PORT: "80"
+
+      # Have this point at APP_PUBLIC_API_URL, followed by "/internal/connect".
+      ADMIN_API_URL: "http://localhost:8081/internal/connect"
+    ports:
+      - "8083:80"
