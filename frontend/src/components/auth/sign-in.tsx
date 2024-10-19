@@ -31,6 +31,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
+import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
 
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
@@ -71,6 +72,9 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
           )}
           {authConfig.authTypes.includes("google_oauth") && (
             <GoogleOAuthButton className="w-full" />
+          )}
+          {authConfig.authTypes.includes("saml") && (
+            <SamlSSOButton className="w-full" />
           )}
           {/* <GithubOAuthButton disabled className="hover:cur" /> */}
         </CardContent>
