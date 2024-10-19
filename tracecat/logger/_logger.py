@@ -9,12 +9,13 @@ try:
     base_logger.remove(0)
 except ValueError:
     pass
-
 base_logger.add(
     sink=sys.stderr,
     colorize=True,
     level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="{time} | <level>{level: <8}</level> [{process}] <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | {extra}",
+    format="<fg #808080>{time:YYYY-MM-DD HH:mm:ss.SSSSSS}Z [{process}] |</fg #808080>"
+    " <level>{level: <8}  <fg #808080>{name}:{function}:{line} -</fg #808080> {message}"
+    " <fg #808080>|</fg #808080> {extra}</level>",
 )
 
 logger = base_logger
