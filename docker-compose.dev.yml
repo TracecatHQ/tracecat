@@ -60,6 +60,12 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
       # This is only used for testing
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-true}
+      # ======= TESTING =======
+      TRACECAT__SETUP_ADMIN_EMAIL: ${TRACECAT__SETUP_ADMIN_EMAIL}
+      TRACECAT__SETUP_ADMIN_PASSWORD: ${TRACECAT__SETUP_ADMIN_PASSWORD}
+      SSOREADY__API_KEY: ${SSOREADY__API_KEY}
+      SSOREADY__ORG_EXTERNAL_ID: ${SSOREADY__ORG_EXTERNAL_ID}
+      SSOREADY__API_URL: ${SSOREADY__API_URL}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -110,6 +116,7 @@ services:
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      NEXT_PUBLIC_SSOREADY_ORG_EXTERNAL_ID: ${SSOREADY__ORG_EXTERNAL_ID}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: ${NODE_ENV}
     depends_on:
@@ -164,7 +171,7 @@ services:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
     container_name: temporal_ui
     ports:
-      - 8080:8080
+      - 9090:8080
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
