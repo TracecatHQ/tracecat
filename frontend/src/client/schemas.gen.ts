@@ -1850,6 +1850,18 @@ export const $RunContext = {
     description: 'This is the runtime context model for a workflow run. Passed into activities.'
 } as const;
 
+export const $SamlAuthorizeResponse = {
+    properties: {
+        authorization_url: {
+            type: 'string',
+            title: 'Authorization Url'
+        }
+    },
+    type: 'object',
+    required: ['authorization_url'],
+    title: 'SamlAuthorizeResponse'
+} as const;
+
 export const $Schedule = {
     properties: {
         owner_id: {

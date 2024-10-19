@@ -678,6 +678,10 @@ export type RunContext = {
     environment: string;
 };
 
+export type SamlAuthorizeResponse = {
+    authorization_url: string;
+};
+
 export type Schedule = {
     owner_id: string;
     created_at: string;
@@ -1721,6 +1725,18 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 };
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
+
+export type AuthSamlDatabaseAuthorizeData = {
+    organizationExternalId: string;
+};
+
+export type AuthSamlDatabaseAuthorizeResponse = SamlAuthorizeResponse;
+
+export type AuthSamlDatabaseCallbackData = {
+    samlAccessCode: string;
+};
+
+export type AuthSamlDatabaseCallbackResponse = unknown;
 
 export type PublicCheckHealthResponse = {
     [key: string]: (string);
@@ -2863,6 +2879,36 @@ export type $OpenApiTs = {
                  * Bad Request
                  */
                 400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/saml/authorize': {
+        get: {
+            req: AuthSamlDatabaseAuthorizeData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: SamlAuthorizeResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/saml/callback': {
+        get: {
+            req: AuthSamlDatabaseCallbackData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */
