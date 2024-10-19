@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 from fastapi_users import schemas
+from pydantic import BaseModel
 
 
 class UserRole(StrEnum):
@@ -34,3 +35,7 @@ class UserUpdate(schemas.BaseUserUpdate):
     first_name: str | None = None
     last_name: str | None = None
     settings: dict[str, Any] | None = None
+
+
+class SamlAuthorizeResponse(BaseModel):
+    authorization_url: str

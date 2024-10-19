@@ -296,6 +296,11 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth",
             tags=["auth"],
         )
+    if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
+        from tracecat.auth.saml import router as saml_router
+
+        logger.info("SAML auth type enabled")
+        app.include_router(saml_router)
 
     # Development endpoints
     if config.TRACECAT__APP_ENV == "development":
