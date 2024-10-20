@@ -155,6 +155,7 @@ services:
       - 11434:11434
     volumes:
       - ollama:/root/.ollama
+
 volumes:
   core-db:
   temporal-db:

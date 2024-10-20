@@ -1,7 +1,19 @@
 {$BASE_DOMAIN} {
-	bind {$ADDRESS} # Binds to all available network interfaces if not specified
+	bind {$ADDRESS}
 	handle_path /api* {
 		reverse_proxy http://api:8000
+	}
+	handle_path /sso-auth* {
+		uri strip_prefix /sso-auth
+		reverse_proxy http://ssoready-auth:80
+	}
+	handle_path /sso-api* {
+		uri strip_prefix /sso-api
+		reverse_proxy http://ssoready-api:80
+	}
+	handle_path /sso-app* {
+		uri strip_prefix /sso-app
+		reverse_proxy http://ssoready-app:80
 	}
 	reverse_proxy http://ui:3000
 }
