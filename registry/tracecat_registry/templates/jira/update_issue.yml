@@ -32,7 +32,7 @@ definition:
         url: http://${{ inputs.domain }}/rest/api/2/issue/${{ inputs.issue_id }}?returnIssue=${{ inputs.return_issue }}
         method: PUT
         headers:
-          Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_b64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+          Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
         payload:
           fields: ${{ inputs.fields }}
           update: ${{ inputs.update }}
