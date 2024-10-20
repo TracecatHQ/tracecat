@@ -1,0 +1,8 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: tracecat-api
+spec:
+  ports:
+    - port: 8000
+      name: tracecat-api

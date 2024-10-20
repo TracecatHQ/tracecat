@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tracecat-ui
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-next-upstream-tries: "10"
+spec:
+  rules:
+    - host: ""
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: tracecat-api
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tracecat-ui
+                port:
+                  number: 3000
+  tls:
+    - hosts: []
+# TODO TLS?
