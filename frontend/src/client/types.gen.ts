@@ -145,6 +145,10 @@ export type Body_auth_reset_reset_password = {
     password: string;
 };
 
+export type Body_auth_sso_acs = {
+    saml_response: string;
+};
+
 export type Body_auth_verify_request_token = {
     email: string;
 };
@@ -1726,17 +1730,13 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
 
-export type AuthSamlDatabaseAuthorizeData = {
-    organizationExternalId: string;
+export type AuthSamlDatabaseLoginResponse = SamlAuthorizeResponse;
+
+export type AuthSsoAcsData = {
+    formData: Body_auth_sso_acs;
 };
 
-export type AuthSamlDatabaseAuthorizeResponse = SamlAuthorizeResponse;
-
-export type AuthSamlDatabaseCallbackData = {
-    samlAccessCode: string;
-};
-
-export type AuthSamlDatabaseCallbackResponse = unknown;
+export type AuthSsoAcsResponse = unknown;
 
 export type PublicCheckHealthResponse = {
     [key: string]: (string);
@@ -2886,24 +2886,19 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/auth/saml/authorize': {
+    '/auth/saml/login': {
         get: {
-            req: AuthSamlDatabaseAuthorizeData;
             res: {
                 /**
                  * Successful Response
                  */
                 200: SamlAuthorizeResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
             };
         };
     };
-    '/auth/saml/callback': {
-        get: {
-            req: AuthSamlDatabaseCallbackData;
+    '/auth/saml/acs': {
+        post: {
+            req: AuthSsoAcsData;
             res: {
                 /**
                  * Successful Response

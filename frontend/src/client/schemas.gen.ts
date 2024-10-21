@@ -382,6 +382,18 @@ export const $Body_auth_reset_reset_password = {
     title: 'Body_auth-reset:reset_password'
 } as const;
 
+export const $Body_auth_sso_acs = {
+    properties: {
+        saml_response: {
+            type: 'string',
+            title: 'Saml Response'
+        }
+    },
+    type: 'object',
+    required: ['saml_response'],
+    title: 'Body_auth-sso_acs'
+} as const;
+
 export const $Body_auth_verify_request_token = {
     properties: {
         email: {
