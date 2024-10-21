@@ -67,15 +67,11 @@ async def callback(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No email found in SAML response",
         )
-    org_id = redeem_result.organization_id
-    organization_external_id = redeem_result.organization_external_id
 
     # Try to get the user from the database
     try:
         user = await user_manager.saml_callback(
             email=email,
-            organization_id=org_id,
-            organization_external_id=organization_external_id,
             request=request,
             associate_by_email=True,  # Assuming we want to associate by email
             is_verified_by_default=True,  # Assuming SAML-authenticated users are verified by default

@@ -64,8 +64,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self,
         *,
         email: str,
-        organization_id: str,
-        organization_external_id: str,
         request: Request | None = None,
         associate_by_email: bool = True,
         is_verified_by_default: bool = True,
@@ -74,8 +72,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Handle the callback after a successful SAML authentication.
 
         :param email: Email of the user from SAML response.
-        :param organization_id: ID of the organization from SAML response.
-        :param organization_external_id: External ID of the organization from SAML response.
         :param request: Optional FastAPI request that triggered the operation.
         :param associate_by_email: If True, associate existing user with the same email. Defaults to True.
         :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
@@ -85,14 +81,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             user = await self.get_by_email(email)
             if not associate_by_email:
                 raise UserAlreadyExists()
-            # Update user's organization details if needed
-            saml_dict = {
-                "settings": {
-                    "ssoready.organization_id": organization_id,
-                    "ssoready.organization_external_id": organization_external_id,
-                }
-            }
-            await self.user_db.update(user, saml_dict)
         except UserNotExists:
             # Create account
             password = self.password_helper.generate()
@@ -100,8 +88,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 "email": email,
                 "hashed_password": self.password_helper.hash(password),
                 "is_verified": is_verified_by_default,
-                "organization_id": organization_id,
-                "organization_external_id": organization_external_id,
             }
             user = await self.user_db.create(user_dict)
             await self.on_after_register(user, request)
