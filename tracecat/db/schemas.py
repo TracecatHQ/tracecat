@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
-from tracecat.auth.schemas import UserRole
+from tracecat.auth.models import UserRole
 from tracecat.db.adapter import (
     SQLModelBaseAccessToken,
     SQLModelBaseOAuthAccount,
