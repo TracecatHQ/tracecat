@@ -64,7 +64,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self,
         *,
         email: str,
-        request: Request | None = None,
         associate_by_email: bool = True,
         is_verified_by_default: bool = True,
     ) -> User:
@@ -72,7 +71,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Handle the callback after a successful SAML authentication.
 
         :param email: Email of the user from SAML response.
-        :param request: Optional FastAPI request that triggered the operation.
         :param associate_by_email: If True, associate existing user with the same email. Defaults to True.
         :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
         :return: A user.
@@ -90,7 +88,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 "is_verified": is_verified_by_default,
             }
             user = await self.user_db.create(user_dict)
-            await self.on_after_register(user, request)
+            await self.on_after_register(user)
 
         self.logger.info(f"User {user.id} authenticated via SAML.")
         return user
