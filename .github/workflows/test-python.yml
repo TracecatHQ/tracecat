@@ -97,6 +97,8 @@ jobs:
       - name: Run integration tests
         env:
           LOG_LEVEL: WARNING
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: uv run pytest tests/integration --temporal-no-restart --tracecat-no-restart
 
       - name: Run unit tests
