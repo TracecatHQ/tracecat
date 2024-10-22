@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Report Email to Emailrep
+  description: |
+    Report an email address as malicious to Emailrep.
+    API docs: https://docs.sublime.security/reference/post_report
+  display_group: Emailrep
+  namespace: integrations.emailrep
+  name: report_email
+  secrets:
+    - name: emailrep
+      keys: ["EMAILREP_API_KEY"]
+  expects:
+    email:
+      type: str
+      description: The email address to report
+    tags:
+      type: list[str]
+      description: List of tags to associate with the email address
+  steps:
+    - ref: report_email
+      action: core.http_request
+      args:
+        url: https://emailrep.io/report
+        method: POST
+        headers:
+          Key: ${{ SECRETS.emailrep.EMAILREP_API_KEY }}
+          User-Agent: tracecat-client
+        payload:
+          email: ${{ inputs.email }}
+          tags: ${{ inputs.tags }}
+  returns: ${{ steps.report_email.result }}

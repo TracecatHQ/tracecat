@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: List Okta User Events
+  description: List events for an Okta user by user ID for a specified time range.
+  display_group: Okta
+  namespace: integrations.okta
+  name: list_user_events
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
+  expects:
+    user_id:
+      type: str
+      description: ID of the user whose events to list
+    start_time:
+      type: datetime
+      description: Start ISO timestamp for the query (inclusive)
+    end_time:
+      type: datetime
+      description: End ISO timestamp for the query (exclusive)
+    limit:
+      type: int
+      description: Maximum number of events to return
+  steps:
+    - ref: list_user_events
+      action: core.http_request
+      args:
+        method: GET
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/logs
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+        params:
+          filter: actor.id eq "${{ input.user_id }}"
+          since: ${{ FN.to_datestring(input.start_time, "%Y-%m-%dT%H:%M:%S") }}
+          until: ${{ FN.to_datestring(input.end_time, "%Y-%m-%dT%H:%M:%S") }}
+          limit: ${{ input.limit }}
+  returns: ${{ steps.list_user_events.result }}

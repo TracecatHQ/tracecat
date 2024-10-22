@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Expire Okta Sessions
+  description: Expire all sessions for an Okta user by user ID
+  display_group: Okta
+  namespace: integrations.okta
+  name: expire_sessions
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
+  expects:
+    user_id:
+      type: str
+      description: ID of the user whose sessions to expire
+  steps:
+    - ref: expire_sessions
+      action: core.http_request
+      args:
+        method: DELETE
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}/sessions
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+  returns: ${{ steps.expire_sessions.result }}
