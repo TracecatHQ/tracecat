@@ -99,3 +99,17 @@ jobs:
           LOG_LEVEL: WARNING
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.GH_JURY_DEPLOY_KEY }}
+
+      - name: Install Jury
+        run: |
+          uv pip install -U git+ssh://git@github.com/TracecatHQ/jury.git
+
+      - name: Run integration tests
+        env:
+          LOG_LEVEL: WARNING
+        run: uv run pytest tests/integration --temporal-no-restart --tracecat-no-restart
