@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import ollama
 import orjson
@@ -24,6 +24,7 @@ class OllamaModel(StrEnum):
 
 class OpenAIModel(StrEnum):
     GPT4O = "gpt-4o"
+    GPT4O_MINI = "gpt-4o-mini"
     GPT4_TURBO = "gpt-4-turbo"
     GPT4_TURBO_PREVIEW = "gpt-4-turbo-preview"
     GPT4_0125_PREVIEW = "gpt-4-0125-preview"
@@ -32,7 +33,7 @@ class OpenAIModel(StrEnum):
 
 
 ModelType = OllamaModel | OpenAIModel
-DEFAULT_MODEL_TYPE: ModelType = OpenAIModel.GPT4O
+DEFAULT_MODEL_TYPE: ModelType = OpenAIModel.GPT4O_MINI
 DEFAULT_SYSTEM_CONTEXT = "You are a helpful assistant."
 
 # Create sets for easy membership testing
@@ -50,7 +51,7 @@ async def async_openai_call(  # type: ignore
     stream: bool = False,
     parse_json: bool = True,
     **kwargs,
-):
+) -> Mapping[str, Any] | str | ChatCompletion:
     """Call the OpenAI API with the given prompt and return the response.
 
     Returns
@@ -103,7 +104,7 @@ def _get_ollama_client() -> ollama.AsyncClient:
     return ollama.AsyncClient(host=config.OLLAMA__API_URL)
 
 
-async def async_ollama_call(*, prompt: str, model: OllamaModel) -> dict[str, Any]:
+async def async_ollama_call(*, prompt: str, model: OllamaModel) -> Mapping[str, Any]:
     client = _get_ollama_client()
     try:
         response = await client.chat(
@@ -124,15 +125,17 @@ async def route_llm_call(
     model: ModelType,
     system_context: str = DEFAULT_SYSTEM_CONTEXT,
     additional_config: dict[str, Any] | None = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Mapping[str, Any] | str | ChatCompletion:
     kwargs.update(additional_config or {})
     if model in OLLAMA_MODELS:
-        return await async_ollama_call(prompt=prompt, model=model, **kwargs)
+        return await async_ollama_call(
+            prompt=prompt, model=cast(OllamaModel, model), **kwargs
+        )
     elif model in OPENAI_MODELS:
         return await async_openai_call(
             prompt=prompt,
-            model=model,
+            model=cast(OpenAIModel, model),
             system_context=system_context,
             **kwargs,
         )
