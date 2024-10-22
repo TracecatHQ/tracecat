@@ -69,10 +69,14 @@ dev = [
     "pytest==8.3.2",
     "python-dotenv",
     "respx",
+    "jury @ git+ssh://git@github.com/TracecatHQ/jury.git",
 ]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.mypy]
 strict = true
