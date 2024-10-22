@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field
 
 from tracecat import config
-from tracecat.auth.schemas import UserRole
+from tracecat.auth.models import UserRole
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
 # === Workspace === #

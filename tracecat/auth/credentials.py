@@ -21,7 +21,7 @@ from pydantic import UUID4
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.auth.schemas import UserRole
+from tracecat.auth.models import UserRole
 from tracecat.auth.users import (
     current_active_user,
     is_unprivileged,

@@ -16,7 +16,7 @@ from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
-from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
@@ -296,6 +296,11 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth",
             tags=["auth"],
         )
+    if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
+        from tracecat.auth.saml import router as saml_router
+
+        logger.info("SAML auth type enabled")
+        app.include_router(saml_router)
 
     # Development endpoints
     if config.TRACECAT__APP_ENV == "development":
