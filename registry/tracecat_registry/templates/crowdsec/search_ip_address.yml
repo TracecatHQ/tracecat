@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Search for an IP address using the CTI CrowdSec API
+  description: Get threat intel report for an IP address from CrowdSec.
+  display_group: CrowdSec
+  namespace: integrations.crowdsec
+  name: search_ip_address
+  secrets:
+    - name: crowdsec
+      keys: ["CROWDSEC_API_KEY"]
+  expects:
+    ip_address:
+      type: str
+      description: The IP address to search
+  steps:
+    - ref: search_ip_address
+      action: core.http_request
+      args:
+        url: https://cti.api.crowdsec.net/v2/smoke/{{ inputs.ip_address }}
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.crowdsec.CROWDSEC_API_KEY }}
+  returns: ${{ steps.search_ip_address.result }}
