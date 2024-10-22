@@ -3,9 +3,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from jury.artifacts import load_file
+from jury.artifacts import load_artifact
 from jury.judge.enums import Judgement
 from jury.judge.service import Judge
+from jury.logger import logger
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -49,11 +50,27 @@ def load_action(*, action: str, type: str, str_path: str):
             "template",
             "registry/tracecat_registry/templates/jira/update_issue.yml",
         ),
+        (
+            "integrations.virustotal.search_ip_address",
+            "template",
+            "registry/tracecat_registry/templates/virustotal/search_ip_address.yml",
+        ),
+        (
+            "integrations.virustotal.search_malware_sample",
+            "template",
+            "registry/tracecat_registry/templates/virustotal/search_malware_sample.yml",
+        ),
+        (
+            "integrations.virustotal.search_url",
+            "template",
+            "registry/tracecat_registry/templates/virustotal/search_url.yml",
+        ),
     ],
 )
 def test_against_schema(setup_openai, action: str, type: str, source_path: str):
     judge = Judge()
     integration = load_action(action=action, type=type, str_path=source_path)
-    schema = load_file(action)
-    judgement = judge.verify(integration=integration, schema=schema)
-    assert judgement == Judgement.YES
+    schema = load_artifact(action)
+    response = judge.verify(integration=integration, schema=schema)
+    logger.info(f"Response: {response.reasoning.format()}")
+    assert response.reasoning.judgement == Judgement.YES
