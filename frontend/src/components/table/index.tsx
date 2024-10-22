@@ -1,6 +1,0 @@
-export { DataTableColumnHeader } from "./column-header"
-export { DataTablePagination } from "./pagination"
-export { DataTableFacetedFilter } from "./faceted-filter"
-export { DataTable } from "./table"
-export { DataTableViewOptions } from "./view-options"
-export { DataTableToolbar, type DataTableToolbarProps } from "./toolbar"
