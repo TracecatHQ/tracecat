@@ -80,6 +80,11 @@ jobs:
       - name: Verify Tracecat API is running
         run: curl -s http://localhost/api/health | jq -e '.status == "ok"'
 
+      - name: Setup SSH agent for private repos
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.GH_JURY_DEPLOY_KEY }}
+
       - name: uv install Tracecat
         run: |
           uv pip install ".[dev]"
@@ -88,6 +93,11 @@ jobs:
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
+
+      - name: Run integration tests
+        env:
+          LOG_LEVEL: WARNING
+        run: uv run pytest tests/integration --temporal-no-restart --tracecat-no-restart
 
       - name: Run unit tests
         env:
@@ -99,17 +109,3 @@ jobs:
           LOG_LEVEL: WARNING
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart
-
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.GH_JURY_DEPLOY_KEY }}
-
-      - name: Install Jury
-        run: |
-          uv pip install -U git+ssh://git@github.com/TracecatHQ/jury.git
-
-      - name: Run integration tests
-        env:
-          LOG_LEVEL: WARNING
-        run: uv run pytest tests/integration --temporal-no-restart --tracecat-no-restart
