@@ -72,5 +72,6 @@ def test_against_schema(setup_openai, action: str, type: str, source_path: str):
     integration = load_action(action=action, type=type, str_path=source_path)
     schema = load_artifact(action)
     response = judge.verify(integration=integration, schema=schema)
-    logger.info(f"Response: {response.reasoning.format()}")
+    if response.reasoning.judgement != Judgement.YES:
+        logger.warning(f"Response: {response.reasoning.format()}")
     assert response.reasoning.judgement == Judgement.YES
