@@ -19,7 +19,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
-from tracecat.dsl.models import DSLContext, UDFActionInput
+from tracecat.dsl.models import DSLContext, RunActionInput
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -101,7 +101,10 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
 
 
 EventInput = TypeVar(
-    "EventInput", UDFActionInput, DSLRunArgs, GetWorkflowDefinitionActivityInputs
+    "EventInput",
+    RunActionInput,
+    DSLRunArgs,
+    GetWorkflowDefinitionActivityInputs,
 )
 
 IGNORED_UTILITY_ACTIONS = {
@@ -143,7 +146,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
         elif act_type in IGNORED_UTILITY_ACTIONS:
             return None
         else:
-            action_input = UDFActionInput(**action_stmt_data)
+            action_input = RunActionInput(**action_stmt_data)
         # Create an event group
         if action_input.task:
             namespace, task_name = destructure_slugified_namespace(

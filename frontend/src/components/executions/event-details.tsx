@@ -2,7 +2,7 @@ import React from "react"
 import {
   DSLRunArgs,
   EventHistoryResponse,
-  UDFActionInput_Output,
+  RunActionInput_Output,
 } from "@/client"
 import JsonView from "react18-json-view"
 
@@ -117,7 +117,7 @@ export function WorkflowExecutionEventDetailView({
           </AccordionItem>
         )}
 
-        {isUDFActionInput_Output(event.event_group?.action_input) && (
+        {isRunActionInput_Output(event.event_group?.action_input) && (
           <>
             <AccordionItem value="result">
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -241,7 +241,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
         )}
       </div>
 
-      {isUDFActionInput_Output(event_group?.action_input) && (
+      {isRunActionInput_Output(event_group?.action_input) && (
         <ActionEventGeneralInfo input={event_group.action_input} />
       )}
       {isDSLRunArgs(event_group?.action_input) && (
@@ -278,7 +278,7 @@ function ChildWorkflowEventGeneralInfo({ input }: { input: DSLRunArgs }) {
   )
 }
 
-function ActionEventGeneralInfo({ input }: { input: UDFActionInput_Output }) {
+function ActionEventGeneralInfo({ input }: { input: RunActionInput_Output }) {
   return (
     <div>
       <div className="space-x-2">
@@ -331,14 +331,14 @@ function ActionEventGeneralInfo({ input }: { input: UDFActionInput_Output }) {
   )
 }
 
-function isUDFActionInput_Output(
+function isRunActionInput_Output(
   actionInput: unknown
-): actionInput is UDFActionInput_Output {
+): actionInput is RunActionInput_Output {
   return (
     typeof actionInput === "object" &&
     actionInput !== null &&
     "task" in actionInput &&
-    typeof (actionInput as UDFActionInput_Output).task === "object"
+    typeof (actionInput as RunActionInput_Output).task === "object"
   )
 }
 

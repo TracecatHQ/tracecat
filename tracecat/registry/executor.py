@@ -17,7 +17,7 @@ from tracecat.dsl.models import (
     ActionStatement,
     DSLContext,
     DSLNodeResult,
-    UDFActionInput,
+    RunActionInput,
 )
 from tracecat.expressions.eval import (
     eval_templated_object,
@@ -166,7 +166,7 @@ async def run_template_action(
     return eval_templated_object(defn.returns, operand=template_context)
 
 
-async def run_action_from_input(input: UDFActionInput[ArgsT]) -> Any:
+async def run_action_from_input(input: RunActionInput[ArgsT]) -> Any:
     """This runs on the executor (API, not worker)"""
     ctx_run.set(input.run_context)
     ctx_role.set(input.role)

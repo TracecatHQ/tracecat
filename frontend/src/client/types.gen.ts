@@ -357,7 +357,7 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: UDFActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
+    action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
 };
 
@@ -669,6 +669,26 @@ export type type2 = 'user' | 'service';
 export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 
 /**
+ * This object contains all the information needed to execute an action.
+ */
+export type RunActionInput_Input = {
+    task: ActionStatement_Input;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+};
+
+/**
+ * This object contains all the information needed to execute an action.
+ */
+export type RunActionInput_Output = {
+    task: ActionStatement_Output;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+};
+
+/**
  * This is the runtime context model for a workflow run. Passed into activities.
  */
 export type RunContext = {
@@ -913,26 +933,6 @@ export type Trigger = {
 };
 
 export type type3 = 'schedule' | 'webhook';
-
-/**
- * This object contains all the information needed to execute an action.
- */
-export type UDFActionInput_Input = {
-    task: ActionStatement_Input;
-    role: Role;
-    exec_context: DSLContext;
-    run_context: RunContext;
-};
-
-/**
- * This object contains all the information needed to execute an action.
- */
-export type UDFActionInput_Output = {
-    task: ActionStatement_Output;
-    role: Role;
-    exec_context: DSLContext;
-    run_context: RunContext;
-};
 
 export type UpdateActionParams = {
     title?: string | null;
@@ -1630,7 +1630,7 @@ export type RegistryActionsDeleteRegistryActionResponse = void;
 
 export type RegistryActionsRunRegistryActionData = {
     actionName: string;
-    requestBody: UDFActionInput_Input;
+    requestBody: RunActionInput_Input;
 };
 
 export type RegistryActionsRunRegistryActionResponse = unknown;

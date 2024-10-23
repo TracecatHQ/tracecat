@@ -966,7 +966,7 @@ export const $EventGroup = {
         action_input: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/UDFActionInput-Output'
+                    '$ref': '#/components/schemas/RunActionInput-Output'
                 },
                 {
                     '$ref': '#/components/schemas/DSLRunArgs'
@@ -1814,6 +1814,48 @@ Service roles
 - A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`
 } as const;
 
+export const $RunActionInput_Input = {
+    properties: {
+        task: {
+            '$ref': '#/components/schemas/ActionStatement-Input'
+        },
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        exec_context: {
+            '$ref': '#/components/schemas/DSLContext'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        }
+    },
+    type: 'object',
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'RunActionInput',
+    description: 'This object contains all the information needed to execute an action.'
+} as const;
+
+export const $RunActionInput_Output = {
+    properties: {
+        task: {
+            '$ref': '#/components/schemas/ActionStatement-Output'
+        },
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        exec_context: {
+            '$ref': '#/components/schemas/DSLContext'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        }
+    },
+    type: 'object',
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'RunActionInput',
+    description: 'This object contains all the information needed to execute an action.'
+} as const;
+
 export const $RunContext = {
     properties: {
         wf_id: {
@@ -2649,48 +2691,6 @@ export const $Trigger = {
     type: 'object',
     required: ['type', 'ref'],
     title: 'Trigger'
-} as const;
-
-export const $UDFActionInput_Input = {
-    properties: {
-        task: {
-            '$ref': '#/components/schemas/ActionStatement-Input'
-        },
-        role: {
-            '$ref': '#/components/schemas/Role'
-        },
-        exec_context: {
-            '$ref': '#/components/schemas/DSLContext'
-        },
-        run_context: {
-            '$ref': '#/components/schemas/RunContext'
-        }
-    },
-    type: 'object',
-    required: ['task', 'role', 'exec_context', 'run_context'],
-    title: 'UDFActionInput',
-    description: 'This object contains all the information needed to execute an action.'
-} as const;
-
-export const $UDFActionInput_Output = {
-    properties: {
-        task: {
-            '$ref': '#/components/schemas/ActionStatement-Output'
-        },
-        role: {
-            '$ref': '#/components/schemas/Role'
-        },
-        exec_context: {
-            '$ref': '#/components/schemas/DSLContext'
-        },
-        run_context: {
-            '$ref': '#/components/schemas/RunContext'
-        }
-    },
-    type: 'object',
-    required: ['task', 'role', 'exec_context', 'run_context'],
-    title: 'UDFActionInput',
-    description: 'This object contains all the information needed to execute an action.'
 } as const;
 
 export const $UpdateActionParams = {
