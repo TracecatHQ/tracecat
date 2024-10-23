@@ -137,7 +137,7 @@ class DSLContext(TypedDict, total=False):
         )
 
 
-class UDFActionInput(BaseModel, Generic[ArgsT]):
+class RunActionInput(BaseModel, Generic[ArgsT]):
     """This object contains all the information needed to execute an action."""
 
     task: ActionStatement[ArgsT]

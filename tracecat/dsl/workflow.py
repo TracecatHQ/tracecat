@@ -44,7 +44,7 @@ with workflow.unsafe.imports_passed_through():
         DSLContext,
         DSLEnvironment,
         DSLNodeResult,
-        UDFActionInput,
+        RunActionInput,
     )
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
@@ -790,7 +790,7 @@ class DSLWorkflow:
         )
 
     def _run_action(self, task: ActionStatement[ArgsT]) -> Awaitable[Any]:
-        arg = UDFActionInput(
+        arg = RunActionInput(
             task=task,
             role=self.role,
             run_context=self.run_context,

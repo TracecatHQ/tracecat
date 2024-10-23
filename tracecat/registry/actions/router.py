@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.dependencies import OrgUserOrServiceRole
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.dsl.models import UDFActionInput
+from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
 from tracecat.registry import executor
 from tracecat.registry.actions.models import (
@@ -119,7 +119,7 @@ async def delete_registry_action(
 
 @router.post("/{action_name}/execute")
 async def run_registry_action(
-    role: OrgUserOrServiceRole, action_name: str, action_input: UDFActionInput
+    role: OrgUserOrServiceRole, action_name: str, action_input: RunActionInput
 ) -> Any:
     """Execute a registry action."""
     ref = action_input.task.ref

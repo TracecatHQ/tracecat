@@ -9,7 +9,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.dsl.models import ActionStatement, ArgsT, UDFActionInput
+from tracecat.dsl.models import ActionStatement, ArgsT, RunActionInput
 from tracecat.expressions.shared import context_locator
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
@@ -36,7 +36,7 @@ class DSLActivities:
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod
-    def load(cls) -> list[Callable[[UDFActionInput[ArgsT]], Any]]:
+    def load(cls) -> list[Callable[[RunActionInput[ArgsT]], Any]]:
         """Load and return all UDFs in the class."""
         return [
             getattr(cls, method_name)
@@ -64,7 +64,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def run_action_activity(input: UDFActionInput[ArgsT]) -> Any:
+    async def run_action_activity(input: RunActionInput[ArgsT]) -> Any:
         """Run an action.
         Goals:
         - Think of this as a controller activity that will orchestrate the execution of the action.
