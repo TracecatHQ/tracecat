@@ -4,135 +4,55 @@
 
 import re
 import smtplib
+import socket
 import ssl
-from abc import abstractmethod
 from email.message import EmailMessage
 from typing import Any
 
-# NOTE: We use the app config here. In custom actions you may use your own config
-from tracecat import config
-
-from tracecat_registry import logger, registry
+from tracecat_registry import RegistrySecret, registry, secrets
 
 SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
+smtp_secret = RegistrySecret(
+    name="smtp",
+    keys=["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"],
+)
+"""SMTP secret.
 
-class EmailBouncedError(Exception):
-    pass
-
-
-class EmailNotFoundError(Exception):
-    pass
-
-
-class SmtpException(Exception):
-    pass
-
-
-class AsyncMailProvider:
-    def __init__(
-        self,
-        sender: str,
-        recipients: str | list[str],
-        subject: str,
-        body: str | None = None,
-        bcc: str | list[str] | None = None,
-        cc: str | list[str] | None = None,
-        reply_to: str | list[str] | None = None,
-        headers: dict[str, str] | None = None,
-    ):
-        self.sender = sender
-        self.recipients = recipients
-        self.subject = subject
-        self.body = body
-        self.bcc = bcc
-        self.cc = cc
-        self.reply_to = reply_to
-        self.headers = headers
-
-    @abstractmethod
-    async def _send(
-        self,
-        sender: str,
-        recipients: str | list[str],
-        subject: str,
-        body: str | None = None,
-        bcc: str | list[str] | None = None,
-        cc: str | list[str] | None = None,
-        reply_to: str | list[str] | None = None,
-        headers: dict[str, str] | None = None,
-    ):
-        pass
-
-    async def send(self):
-        await self._send(
-            sender=self.sender,
-            recipients=self.recipients,
-            subject=self.subject,
-            body=self.body,
-            bcc=self.bcc,
-            cc=self.cc,
-            reply_to=self.reply_to,
-            headers=self.headers,
-        )
+- name: `smtp`
+- keys:
+    - `SMTP_HOST`
+    - `SMTP_PORT`
+    - `SMTP_USER`
+    - `SMTP_PASS`
+"""
 
 
-class SmtpMailProvider(AsyncMailProvider):
-    async def _send(
-        self,
-        sender: str,
-        recipients: str | list[str],
-        subject: str,
-        body: str | None = None,
-        bcc: str | list[str] | None = None,
-        cc: str | list[str] | None = None,
-        reply_to: str | list[str] | None = None,
-        headers: dict[str, str] | None = None,
-    ):
-        msg = EmailMessage()
-        msg.set_content(body)
-        msg["From"] = sender
-        if type(recipients) is list:
-            msg["To"] = ",".join(recipients)
-        else:
-            msg["To"] = recipients
-        msg["Subject"] = subject
-        if bcc is not None:
-            msg["Bcc"] = bcc
-        if cc is not None:
-            msg["Cc"] = cc
-        if reply_to is not None:
-            msg["Reply-To"] = reply_to
-
-        try:
-            if config.SMTP_SSL_ENABLED:
-                context = None
-                if config.SMTP_IGNORE_CERT_ERRORS:
-                    context = ssl._create_unverified_context()
-                server = smtplib.SMTP_SSL(
-                    config.SMTP_HOST, config.SMTP_PORT, context=context
-                )
-            else:
-                server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT)
-
-            server.ehlo()
-
-            if config.SMTP_STARTTLS_ENABLED:
-                context = None
-                if config.SMTP_IGNORE_CERT_ERRORS:
-                    context = ssl._create_unverified_context()
-                server.starttls(context=context)
-
-            if config.SMTP_AUTH_ENABLED:
-                server.login(config.SMTP_USER, config.SMTP_PASS)
-
-            # Send the email
-            server.send_message(msg)
-            server.quit()
-        except Exception as e:
-            raise SmtpException("Could not send email") from e
-
-        return None
+def _build_email_message(
+    sender: str,
+    recipients: list[str],
+    subject: str,
+    body: str,
+    bcc: str | list[str] | None = None,
+    cc: str | list[str] | None = None,
+    reply_to: str | list[str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> EmailMessage:
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg["From"] = sender
+    msg["To"] = recipients
+    msg["Subject"] = subject
+    if bcc:
+        msg["Bcc"] = bcc
+    if cc:
+        msg["Cc"] = cc
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    if headers:
+        for header, value in headers.items():
+            msg[header] = value
+    return msg
 
 
 @registry.register(
@@ -140,63 +60,53 @@ class SmtpMailProvider(AsyncMailProvider):
     description="Perform a send email action using SMTP",
     default_title="Send Email (SMTP)",
 )
-async def send_email_smtp(
+def send_email_smtp(
+    sender: str,
     recipients: list[str],
     subject: str,
     body: str,
-    sender: str = "mail@tracecat.com",
+    timeout: float | None = None,
+    headers: dict[str, str] | None = None,
+    enable_starttls: bool = False,
+    enable_ssl: bool = False,
+    enable_auth: bool = False,
+    ignore_cert_errors: bool = False,
 ) -> dict[str, Any]:
-    """Run a send email action."""
-    logger.debug(
-        "Perform send email (SMTP) action",
-        sender=sender,
-        recipients=recipients,
-        subject=subject,
-        body=body,
-    )
+    """Run a send email action.
 
-    email_provider = SmtpMailProvider(
-        sender=sender,
-        recipients=recipients,
-        subject=subject,
-        body=body,
-    )
+    Parameters
+    ----------
+    timeout: float | None
+        Timeout for the SMTP connection.
+        If None, the default socket timeout is used.
 
-    try:
-        await email_provider.send()
-    except SmtpException as smtp_e:
-        msg = "Failed to send email"
-        logger.opt(exception=smtp_e).error(msg, exc_info=smtp_e)
-        email_response = {
-            "status": "error",
-            "message": msg,
-            "provider": "smtp",
-            "sender": sender,
-            "recipients": recipients,
-            "subject": subject,
-            "body": body,
-        }
-    except Exception as e:
-        msg = "Failed to send email"
-        logger.error(msg, exc_info=e)
-        email_response = {
-            "status": "error",
-            "message": msg,
-            "provider": "smtp",
-            "sender": sender,
-            "recipients": recipients,
-            "subject": subject,
-            "body": body,
-        }
-    else:
-        email_response = {
-            "status": "ok",
-            "message": "Successfully sent email",
-            "provider": "smtp",
-            "sender": sender,
-            "recipients": recipients,
-            "subject": subject,
-            "body": body,
-        }
+    Returns
+    -------
+    Empty dict if all recipients were accepted.
+    Otherwise, a dict with one entry for each recipient that was refused.
+    Entry entry contains a tuple of the SMTP error code and the accompanying error message sent by the server.
+    """
 
-    return email_response
+    timeout = timeout or socket.getdefaulttimeout() or 10.0
+    smtp_host = secrets.get("SMTP_HOST")
+    smtp_port = int(secrets.get("SMTP_PORT"))
+    smtp_user = secrets.get("SMTP_USER")
+    smtp_pass = secrets.get("SMTP_PASS")
+
+    msg = _build_email_message(sender, recipients, subject, body, headers=headers)
+
+    context = ssl.create_default_context()
+    if ignore_cert_errors:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+    create_smtp_server = smtplib.SMTP_SSL if enable_ssl else smtplib.SMTP
+
+    with create_smtp_server(host=smtp_host, port=smtp_port, timeout=timeout) as server:
+        if enable_starttls:
+            server.starttls(context=context)
+        if enable_auth:
+            server.login(smtp_user, smtp_pass)
+        response = server.send_message(msg)
+
+    return response
