@@ -15,10 +15,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: api
+    deploy:
+      mode: replicated
+      replicas: 2  # Scale as needed
+      endpoint_mode: vip
     restart: unless-stopped
     ports:
-      - 8000:8000
+      - 8000
     environment:
       # App
       DUMP_TRACECAT_RESULT: 0
@@ -62,6 +65,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    container_name: worker
     restart: unless-stopped
     environment:
       DUMP_TRACECAT_RESULT: 0
