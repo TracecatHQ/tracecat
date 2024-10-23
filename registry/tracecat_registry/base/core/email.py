@@ -45,6 +45,13 @@ def _build_email_message(
     msg["From"] = sender
     msg["To"] = recipients
     msg["Subject"] = subject
+
+    # Check email pattern
+    if not SAFE_EMAIL_PATTERN.match(sender):
+        raise ValueError(f"Invalid sender email address: {sender}")
+    if not all(SAFE_EMAIL_PATTERN.match(recipient) for recipient in recipients):
+        raise ValueError(f"Invalid recipient email address: {recipients}")
+
     if bcc:
         msg["Bcc"] = bcc
     if cc:
