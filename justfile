@@ -20,3 +20,13 @@ up:
 
 build:
 	docker compose build --no-cache
+
+lint-ui:
+	cd frontend && pnpm lint && cd ..
+lint-app:
+	ruff check .
+
+lint: lint-ui lint-app
+
+gen-client:
+	cd frontend && pnpm generate-client && cd ..
