@@ -1,6 +1,6 @@
 name: search_ip_address
 namespace: integrations.crowdsec
-title: Search for an IP address using the CTI CrowdSec API"
+title: Search for an IP address using the CTI CrowdSec API.
 description: Get threat intel report for an IP address from CrowdSec.
 display_group: CrowdSec
 secrets:
