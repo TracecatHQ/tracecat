@@ -804,7 +804,7 @@ class DSLWorkflow:
             arg=arg,
             start_to_close_timeout=timedelta(seconds=task.retry_policy.timeout),
             retry_policy=RetryPolicy(
-                maximum_attempts=task.retry_policy.maximum_attempts,
+                maximum_attempts=task.retry_policy.max_attempts,
             ),
         )
 

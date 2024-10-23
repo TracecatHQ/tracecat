@@ -122,10 +122,10 @@ export const $ActionResponse = {
 
 export const $ActionRetryPolicy = {
     properties: {
-        maximum_attempts: {
+        max_attempts: {
             type: 'integer',
-            title: 'Maximum Attempts',
-            description: 'Number of attempts if the action fails.',
+            title: 'Max Attempts',
+            description: 'Total number of execution attempts. 0 means unlimited, 1 means no retries.',
             default: 1
         },
         timeout: {
@@ -3486,30 +3486,6 @@ export const $WorkflowExecutionResponse = {
             type: 'integer',
             title: 'History Length',
             description: 'Number of events in the history'
-        },
-        parent_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Parent Id',
-            description: 'The ID of the parent workflow if this was started as a child.'
-        },
-        parent_run_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Parent Run Id',
-            description: 'The run ID of the parent workflow if this was started as a child.'
         }
     },
     type: 'object',

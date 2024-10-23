@@ -24,8 +24,9 @@ ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
 
 
 class ActionRetryPolicy(BaseModel):
-    maximum_attempts: int = Field(
-        default=1, description="Number of attempts if the action fails."
+    max_attempts: int = Field(
+        default=1,
+        description="Total number of execution attempts. 0 means unlimited, 1 means no retries.",
     )
     timeout: int = Field(
         default=DEFAULT_ACTION_TIMEOUT, description="Timeout for the action in seconds."

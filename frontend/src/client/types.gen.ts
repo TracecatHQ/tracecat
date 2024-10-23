@@ -36,9 +36,9 @@ export type ActionResponse = {
 
 export type ActionRetryPolicy = {
     /**
-     * Number of attempts if the action fails.
+     * Total number of execution attempts. 0 means unlimited, 1 means no retries.
      */
-    maximum_attempts?: number;
+    max_attempts?: number;
     /**
      * Timeout for the action in seconds.
      */
@@ -1131,14 +1131,6 @@ export type WorkflowExecutionResponse = {
      * Number of events in the history
      */
     history_length: number;
-    /**
-     * The ID of the parent workflow if this was started as a child.
-     */
-    parent_id?: string | null;
-    /**
-     * The run ID of the parent workflow if this was started as a child.
-     */
-    parent_run_id?: string | null;
 };
 
 export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';

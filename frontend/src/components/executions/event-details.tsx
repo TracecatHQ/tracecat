@@ -142,7 +142,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
   const { event_group } = event
   const formattedEventType = parseEventType(event.event_type)
   const eventTimeDate = new Date(event.event_time)
-  const { maximum_attempts, timeout } = event_group?.retry_policy || {}
+  const { max_attempts, timeout } = event_group?.retry_policy || {}
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
       <div className="flex w-full items-center space-x-4">
@@ -250,7 +250,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
           </Label>
           <DescriptorBadge
             className="font-mono"
-            text={`${maximum_attempts && maximum_attempts > 0 ? `Max ${maximum_attempts} attempt(s)` : "Unlimited attempts"}${timeout ? `, ${timeout}s timeout` : ""}`}
+            text={`${max_attempts && max_attempts > 0 ? `Max ${max_attempts} attempt(s)` : "Unlimited attempts"}${timeout ? `, ${timeout}s timeout` : ""}`}
           />
         </div>
       )}

@@ -165,7 +165,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_description=task.description,
             action_input=action_input,
             retry_policy=ActionRetryPolicy(
-                maximum_attempts=retry_policy.maximum_attempts,
+                max_attempts=retry_policy.maximum_attempts,
                 timeout=timeout.seconds,
             ),
         )
