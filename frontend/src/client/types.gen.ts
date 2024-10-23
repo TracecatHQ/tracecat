@@ -8,6 +8,7 @@ export type AccessLevel = 0 | 999;
 export type ActionControlFlow = {
     run_if?: string | null;
     for_each?: string | Array<(string)> | null;
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionMetadataResponse = {
@@ -31,6 +32,17 @@ export type ActionResponse = {
     };
     key: string;
     control_flow?: ActionControlFlow;
+};
+
+export type ActionRetryPolicy = {
+    /**
+     * Number of attempts if the action fails.
+     */
+    maximum_attempts?: number;
+    /**
+     * Timeout for the action in seconds.
+     */
+    timeout?: number;
 };
 
 export type ActionStatement_Input = {
@@ -65,6 +77,10 @@ export type ActionStatement_Input = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionStatement_Output = {
@@ -95,6 +111,10 @@ export type ActionStatement_Output = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionStatement_Any_ = {
@@ -123,6 +143,10 @@ export type ActionStatement_Any_ = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionStep = {
@@ -359,6 +383,8 @@ export type EventGroup = {
     action_description: string;
     action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
+    current_attempt?: number | null;
+    retry_policy: ActionRetryPolicy;
 };
 
 export type EventHistoryResponse = {
@@ -1105,6 +1131,14 @@ export type WorkflowExecutionResponse = {
      * Number of events in the history
      */
     history_length: number;
+    /**
+     * The ID of the parent workflow if this was started as a child.
+     */
+    parent_id?: string | null;
+    /**
+     * The run ID of the parent workflow if this was started as a child.
+     */
+    parent_run_id?: string | null;
 };
 
 export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
