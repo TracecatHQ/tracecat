@@ -142,6 +142,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
   const { event_group } = event
   const formattedEventType = parseEventType(event.event_type)
   const eventTimeDate = new Date(event.event_time)
+  const { maximum_attempts, timeout } = event_group?.retry_policy || {}
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
       <div className="flex w-full items-center space-x-4">
@@ -241,6 +242,19 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
         )}
       </div>
 
+      {/* Retry policy */}
+      {event_group?.retry_policy && (
+        <div className="space-x-2">
+          <Label className="w-24 text-xs text-muted-foreground">
+            Retry Policy
+          </Label>
+          <DescriptorBadge
+            className="font-mono"
+            text={`${maximum_attempts && maximum_attempts > 0 ? `Max ${maximum_attempts} attempt(s)` : "Unlimited attempts"}${timeout ? `, ${timeout}s timeout` : ""}`}
+          />
+        </div>
+      )}
+
       {isRunActionInput_Output(event_group?.action_input) && (
         <ActionEventGeneralInfo input={event_group.action_input} />
       )}
@@ -258,7 +272,7 @@ export function DescriptorBadge({
   return (
     <Badge
       variant="secondary"
-      className={cn("bg-indigo-50 text-foreground/60", className)}
+      className={cn("bg-muted-foreground/5 text-foreground/60", className)}
     >
       {text}
     </Badge>
@@ -282,7 +296,7 @@ function ActionEventGeneralInfo({ input }: { input: RunActionInput_Output }) {
   return (
     <div>
       <div className="space-x-2">
-        {input.task.depends_on && (
+        {input.task.depends_on && input.task.depends_on.length > 0 && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
               Dependencies
