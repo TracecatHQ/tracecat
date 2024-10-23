@@ -11,6 +11,7 @@ from collections.abc import (
     Generator,
     Iterable,
 )
+from datetime import timedelta
 from typing import Any, TypedDict
 
 from temporalio import workflow
@@ -796,12 +797,15 @@ class DSLWorkflow:
             run_context=self.run_context,
             exec_context=self.context,
         )
-        self.logger.debug("RUN UDF ACTIVITY", arg=arg)
+        self.logger.debug("RUN UDF ACTIVITY", arg=arg, task=task)
+
         return workflow.execute_activity(
             DSLActivities.run_action_activity,
             arg=arg,
-            start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            start_to_close_timeout=timedelta(seconds=task.retry_policy.timeout),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.maximum_attempts,
+            ),
         )
 
     def _run_child_workflow(self, run_args: DSLRunArgs) -> Awaitable[Any]:

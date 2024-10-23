@@ -274,6 +274,7 @@ class RFGraph(TSObject):
             control_flow = ActionControlFlow(
                 run_if=action.control_flow.get("run_if"),
                 for_each=action.control_flow.get("for_each"),
+                retry_policy=action.control_flow.get("retry_policy"),
             )
             action_stmt = ActionStatement(
                 id=action.id,
@@ -283,6 +284,7 @@ class RFGraph(TSObject):
                 depends_on=dependencies,
                 run_if=control_flow.run_if,
                 for_each=control_flow.for_each,
+                retry_policy=control_flow.retry_policy,
             )
             statements.append(action_stmt)
         return statements

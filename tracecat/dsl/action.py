@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -15,13 +14,17 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.registry.client import RegistryClient
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryActionError, TracecatException
+from tracecat.types.exceptions import RegistryActionError
 
 
 def _contextualize_message(
-    task: ActionStatement[ArgsT], msg: str | BaseException, *, loc: str = "run_action"
+    task: ActionStatement[ArgsT],
+    msg: str | BaseException,
+    *,
+    attempt: int,
+    loc: str = "run_action",
 ) -> str:
-    return f"[{context_locator(task, loc)}]\n\n{msg}"
+    return f"[{context_locator(task, loc)}] (Attempt {attempt})\n\n{msg}"
 
 
 class ValidateActionActivityInput(BaseModel):
@@ -85,60 +88,41 @@ class DSLActivities:
         )
         ctx_logger.set(act_logger)
 
-        # NOTE(arch): Should we move this to the registry service?
-        # - Reasons for
-        #   - Process secrets in the registry executors in a fully isolated environment
-        #   - We can reuse the same logic for local execution
-        #   - We can add more context to the expression resolution (e.g. loop iteration)
+        act_info = activity.info()
+        attempt = act_info.attempt
+        act_logger.info(
+            "Run action activity",
+            task=task,
+            attempt=attempt,
+            retry_policy=task.retry_policy,
+        )
         try:
             # Delegate to the registry client
             client = RegistryClient(role=input.role)
             return await client.call_action(input)
         except RegistryActionError as e:
-            act_logger.error("Registry action error occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(task, e),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-        except TracecatException as e:
-            err_type = e.__class__.__name__
-            msg = _contextualize_message(task, e)
+            # We only expect RegistryActionError to be raised from the registry client
+            kind = e.__class__.__name__
+            msg = _contextualize_message(task, e, attempt=attempt)
             act_logger.error(
                 "Application exception occurred", error=msg, detail=e.detail
             )
-            raise ApplicationError(
-                msg, e.detail, non_retryable=True, type=err_type
-            ) from e
-        except httpx.HTTPStatusError as e:
-            act_logger.error("HTTP status error occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(
-                    task, f"HTTP status error {e.response.status_code}"
-                ),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
-        except httpx.ReadTimeout as e:
-            act_logger.error("HTTP read timeout occurred", error=e)
-            raise ApplicationError(
-                _contextualize_message(task, "HTTP read timeout"),
-                non_retryable=True,
-                type=e.__class__.__name__,
-            ) from e
+            raise ApplicationError(msg, e.detail, type=kind) from e
         except ApplicationError as e:
+            # Unexpected application error - depends
             act_logger.error("ApplicationError occurred", error=e)
             raise ApplicationError(
-                _contextualize_message(task, e.message),
+                _contextualize_message(task, e.message, attempt=attempt),
                 non_retryable=e.non_retryable,
                 type=e.type,
             ) from e
         except Exception as e:
-            act_logger.error("Unexpected error occurred", error=e)
+            # Unexpected errors - non-retryable
+            kind = e.__class__.__name__
+            raw_msg = f"{kind} occurred:\n{e}"
+            act_logger.error(raw_msg)
             raise ApplicationError(
-                _contextualize_message(
-                    task, f"Unexpected error {e.__class__.__name__}: {e}"
-                ),
+                _contextualize_message(task, raw_msg, attempt=attempt),
+                type=kind,
                 non_retryable=True,
-                type=e.__class__.__name__,
             ) from e
