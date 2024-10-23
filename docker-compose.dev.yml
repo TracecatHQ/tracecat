@@ -58,6 +58,7 @@ services:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
       - ./alembic:/app/alembic
+      - registry:/usr/local/lib/python3.12
     depends_on:
       - ollama
 

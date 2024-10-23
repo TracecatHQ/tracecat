@@ -52,6 +52,9 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+    volumes:
+      # Python packages are installed under .local in the container
+      - registry:/home/apiuser/.local
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.11.7}
@@ -146,6 +149,7 @@ services:
     volumes:
       - ollama:/root/.ollama
 volumes:
+  registry:
   core-db:
   temporal-db:
   ollama:
