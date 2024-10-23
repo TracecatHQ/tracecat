@@ -15,10 +15,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: api
+    deploy:
+      mode: replicated
+      replicas: 2  # Scale as needed
+      endpoint_mode: vip
     restart: unless-stopped
     ports:
-      - 8000:8000
+      - 8000
     environment:
       # App
       DUMP_TRACECAT_RESULT: 0
@@ -41,15 +44,6 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-      # SMTP
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_STARTTLS_ENABLED: ${SMTP_STARTTLS_ENABLED}
-      SMTP_SSL_ENABLED: ${SMTP_SSL_ENABLED}
-      SMTP_IGNORE_CERT_ERRORS: ${SMTP_IGNORE_CERT_ERRORS}
-      SMTP_AUTH_ENABLED: ${SMTP_AUTH_ENABLED}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
       # Migrations
       RUN_MIGRATIONS: "true"
       # Remote registry
@@ -64,6 +58,7 @@ services:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
       - ./alembic:/app/alembic
+      - registry:/usr/local/lib/python3.12
     depends_on:
       - ollama
 
@@ -71,6 +66,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    container_name: worker
     restart: unless-stopped
     environment:
       DUMP_TRACECAT_RESULT: 0

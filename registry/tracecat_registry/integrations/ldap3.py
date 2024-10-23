@@ -18,12 +18,14 @@ from tracecat_registry import RegistrySecret, registry, secrets
 
 ldap_secret = RegistrySecret(
     name="ldap",
-    keys=["LDAP_BIND_DN", "LDAP_BIND_PASS"],
+    keys=["LDAP_HOST", "LDAP_PORT", "LDAP_BIND_DN", "LDAP_BIND_PASS"],
 )
 """LDAP secret.
 
 - name: `ldap`
 - keys:
+    - `LDAP_HOST`
+    - `LDAP_PORT`
     - `LDAP_BIND_DN`
     - `LDAP_BIND_PASS`
 """
@@ -56,8 +58,8 @@ class LdapClient:
 
         self._connection = ldap3.Connection(
             self._server,
-            secrets.get("LDAP_BIND_DN"),
-            secrets.get("LDAP_BIND_PASS"),
+            user=secrets.get("LDAP_BIND_DN"),
+            password=secrets.get("LDAP_BIND_PASS"),
             auto_bind=True,
         )
 
@@ -106,19 +108,15 @@ class LdapClient:
         return self._connection.modify(user_dn, {"userAccountControl": [(2, [512])]})
 
 
-def create_ldap_client() -> LdapClient:
-    LDAP_BIND_DN = secrets.get("LDAP_BIND_DN")
-    LDAP_BIND_PASS = secrets.get("LDAP_BIND_PASS")
-
-    if LDAP_BIND_DN is None:
-        raise ValueError("LDAP_BIND_DN is not set")
-    if LDAP_BIND_PASS is None:
-        raise ValueError("LDAP_BIND_PASS is not set")
+def create_ldap_client(
+    use_ssl: bool = True,
+    is_active_directory: bool = False,
+) -> LdapClient:
     client = LdapClient(
         host=secrets.get("LDAP_HOST"),
         port=secrets.get("LDAP_PORT"),
-        use_ssl=(secrets.get("LDAP_SSL") == 1),
-        is_active_directory=(secrets.get("LDAP_TYPE") == "AD"),
+        use_ssl=use_ssl,
+        is_active_directory=is_active_directory,
     )
     return client
 
@@ -130,7 +128,7 @@ def create_ldap_client() -> LdapClient:
     namespace="integrations.ldap",
     secrets=[ldap_secret],
 )
-async def find_ldap_users(
+def find_ldap_users(
     username_or_email: Annotated[
         str,
         Field(..., description="Login username or e-mail to find"),
@@ -139,8 +137,18 @@ async def find_ldap_users(
         str,
         Field(..., description="Search base DN for querying LDAP"),
     ],
+    use_ssl: Annotated[
+        bool,
+        Field(..., description="Use SSL for LDAP connection"),
+    ] = True,
+    is_active_directory: Annotated[
+        bool,
+        Field(..., description="Is Active Directory"),
+    ] = False,
 ) -> list[dict[str, Any]]:
-    with create_ldap_client() as client:
+    with create_ldap_client(
+        use_ssl=use_ssl, is_active_directory=is_active_directory
+    ) as client:
         return client.find_users(base_dn, username_or_email)
 
 
@@ -151,18 +159,19 @@ async def find_ldap_users(
     namespace="integrations.ldap",
     secrets=[ldap_secret],
 )
-async def disable_ad_user(
+def disable_active_directory_user(
     user_dn: Annotated[
         str,
         Field(..., description="User distinguished name"),
     ],
+    use_ssl: Annotated[
+        bool,
+        Field(..., description="Use SSL for LDAP connection"),
+    ] = True,
 ) -> dict[str, Any]:
-    with create_ldap_client() as client:
+    with create_ldap_client(use_ssl=use_ssl, is_active_directory=True) as client:
         result = client.disable_user(user_dn)
-        if result:
-            return {"success": True}
-        else:
-            return {"success": False, "error": client._connection.last_error}
+        return result
 
 
 @registry.register(
@@ -172,15 +181,16 @@ async def disable_ad_user(
     namespace="integrations.ldap",
     secrets=[ldap_secret],
 )
-async def enable_ad_user(
+def enable_active_directory_user(
     user_dn: Annotated[
         str,
         Field(..., description="User distinguished name"),
     ],
+    use_ssl: Annotated[
+        bool,
+        Field(..., description="Use SSL for LDAP connection"),
+    ] = True,
 ) -> dict[str, Any]:
-    with create_ldap_client() as client:
+    with create_ldap_client(use_ssl=use_ssl, is_active_directory=True) as client:
         result = client.enable_user(user_dn)
-        if result:
-            return {"success": True}
-        else:
-            return {"success": False, "error": client._connection.last_error}
+        return result
