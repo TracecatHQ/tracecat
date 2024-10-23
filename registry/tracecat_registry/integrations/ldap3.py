@@ -128,7 +128,7 @@ def create_ldap_client(
     namespace="integrations.ldap",
     secrets=[ldap_secret],
 )
-async def find_ldap_users(
+def find_ldap_users(
     username_or_email: Annotated[
         str,
         Field(..., description="Login username or e-mail to find"),
@@ -159,7 +159,7 @@ async def find_ldap_users(
     namespace="integrations.ldap",
     secrets=[ldap_secret],
 )
-async def disable_ad_user(
+def disable_active_directory_user(
     user_dn: Annotated[
         str,
         Field(..., description="User distinguished name"),
@@ -168,19 +168,10 @@ async def disable_ad_user(
         bool,
         Field(..., description="Use SSL for LDAP connection"),
     ] = True,
-    is_active_directory: Annotated[
-        bool,
-        Field(..., description="Is Active Directory"),
-    ] = False,
 ) -> dict[str, Any]:
-    with create_ldap_client(
-        use_ssl=use_ssl, is_active_directory=is_active_directory
-    ) as client:
+    with create_ldap_client(use_ssl=use_ssl, is_active_directory=True) as client:
         result = client.disable_user(user_dn)
-        if result:
-            return {"success": True}
-        else:
-            return {"success": False, "error": client._connection.last_error}
+        return result
 
 
 @registry.register(
@@ -190,7 +181,7 @@ async def disable_ad_user(
     namespace="integrations.ldap",
     secrets=[ldap_secret],
 )
-async def enable_ad_user(
+def enable_active_directory_user(
     user_dn: Annotated[
         str,
         Field(..., description="User distinguished name"),
@@ -199,16 +190,7 @@ async def enable_ad_user(
         bool,
         Field(..., description="Use SSL for LDAP connection"),
     ] = True,
-    is_active_directory: Annotated[
-        bool,
-        Field(..., description="Is Active Directory"),
-    ] = False,
 ) -> dict[str, Any]:
-    with create_ldap_client(
-        use_ssl=use_ssl, is_active_directory=is_active_directory
-    ) as client:
+    with create_ldap_client(use_ssl=use_ssl, is_active_directory=True) as client:
         result = client.enable_user(user_dn)
-        if result:
-            return {"success": True}
-        else:
-            return {"success": False, "error": client._connection.last_error}
+        return result
