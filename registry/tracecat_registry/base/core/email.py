@@ -7,7 +7,9 @@ import smtplib
 import socket
 import ssl
 from email.message import EmailMessage
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -61,24 +63,32 @@ def _build_email_message(
     default_title="Send Email (SMTP)",
 )
 def send_email_smtp(
-    sender: str,
-    recipients: list[str],
-    subject: str,
-    body: str,
-    timeout: float | None = None,
-    headers: dict[str, str] | None = None,
-    enable_starttls: bool = False,
-    enable_ssl: bool = False,
-    enable_auth: bool = False,
-    ignore_cert_errors: bool = False,
+    sender: Annotated[str, Field(..., description="Email address of the sender")],
+    recipients: Annotated[
+        list[str], Field(..., description="List of recipient email addresses")
+    ],
+    subject: Annotated[str, Field(..., description="Subject of the email")],
+    body: Annotated[str, Field(..., description="Body content of the email")],
+    timeout: Annotated[
+        float | None, Field(None, description="Timeout for SMTP operations in seconds")
+    ] = None,
+    headers: Annotated[
+        dict[str, str] | None, Field(None, description="Additional email headers")
+    ] = None,
+    enable_starttls: Annotated[
+        bool, Field(False, description="Enable STARTTLS for secure connection")
+    ] = False,
+    enable_ssl: Annotated[
+        bool, Field(False, description="Enable SSL for secure connection")
+    ] = False,
+    enable_auth: Annotated[
+        bool, Field(False, description="Enable SMTP authentication")
+    ] = False,
+    ignore_cert_errors: Annotated[
+        bool, Field(False, description="Ignore SSL certificate errors")
+    ] = False,
 ) -> dict[str, Any]:
     """Run a send email action.
-
-    Parameters
-    ----------
-    timeout: float | None
-        Timeout for the SMTP connection.
-        If None, the default socket timeout is used.
 
     Returns
     -------
