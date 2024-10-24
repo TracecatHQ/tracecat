@@ -255,6 +255,20 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
         </div>
       )}
 
+      {/* Start delay */}
+      {event_group?.start_delay !== undefined &&
+        event_group.start_delay > 0 && (
+          <div className="space-x-2">
+            <Label className="w-24 text-xs text-muted-foreground">
+              Start Delay
+            </Label>
+            <DescriptorBadge
+              className="font-mono"
+              text={`${event_group.start_delay.toFixed(1)}s`}
+            />
+          </div>
+        )}
+
       {isRunActionInput_Output(event_group?.action_input) && (
         <ActionEventGeneralInfo input={event_group.action_input} />
       )}
