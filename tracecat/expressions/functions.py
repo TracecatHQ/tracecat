@@ -337,6 +337,8 @@ BUILTIN_TYPE_MAPPING = {
 
 # Supported Formulas / Functions
 _FUNCTION_MAPPING = {
+    # String transforms
+    "slice": lambda x, start_index, length: x[start_index : start_index + length],
     # Comparison
     "less_than": operator.lt,
     "less_than_or_equal": operator.le,
