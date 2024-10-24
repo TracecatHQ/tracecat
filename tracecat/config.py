@@ -86,6 +86,14 @@ OAUTH_CLIENT_SECRET = (
 )
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 
+# SAML SSO
+SAML_IDP_ENTITY_ID = os.environ.get("SAML_IDP_ENTITY_ID")
+SAML_IDP_REDIRECT_URL = os.environ.get("SAML_IDP_REDIRECT_URL")
+SAML_IDP_CERTIFICATE = os.environ.get("SAML_IDP_CERTIFICATE")
+SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
+SAML_SP_ACS_URL = os.environ.get("SAML_SP_ACS_URL")
+XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
+
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
 # own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.
@@ -153,11 +161,3 @@ TRACECAT__PRELOAD_OSS_MODELS = (
 ) or []
 
 OLLAMA__API_URL = os.environ.get("OLLAMA__API_URL", "http://ollama:11434")
-
-# === SAML SSO settings === #
-# TODO: To be removed, we should set these via the root user's settings page in the UI
-# and store them in the Tracecat secrets manager.
-SAML_IDP_ENTITY_ID = os.environ.get("SAML_IDP_ENTITY_ID")
-SAML_IDP_REDIRECT_URL = os.environ.get("SAML_IDP_REDIRECT_URL")
-SAML_IDP_CERTIFICATE = os.environ.get("SAML_IDP_CERTIFICATE")
-XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
