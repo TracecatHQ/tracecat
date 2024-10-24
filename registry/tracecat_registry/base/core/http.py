@@ -200,6 +200,7 @@ async def http_request(
             timeout=httpx.Timeout(timeout),
             follow_redirects=follow_redirects,
             max_redirects=max_redirects,
+            verify=verify_ssl,
         ) as client:
             response = await client.request(
                 method=method,
@@ -208,7 +209,6 @@ async def http_request(
                 params=params,
                 json=payload,
                 data=form_data,
-                verify=verify_ssl,
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
