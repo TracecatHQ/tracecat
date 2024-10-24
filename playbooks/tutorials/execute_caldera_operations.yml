@@ -1,18 +1,31 @@
 definition:
   title: Execute Caldera operations
-  triggers: []
   description: |
     Example playbook that executes pre-configured Caldera operations in a sequence.
     Built by Jason Ostrom (@securitypuck) for his SANS SEC598 course on security automation.
-  entrypoint:
-    expects: {}
-    ref: receive_operations
   config:
     environment: default
+  entrypoint:
+    expects: {}
+    ref: generate_uuid
   inputs:
     caldera_api_url: https://ec2-3-145-148-210.us-east-2.compute.amazonaws.com:8443/api/v2
   returns: null
+  triggers: []
   actions:
+  - action: core.transform.reshape
+    args:
+      value: ${{ FN.slice(FN.uuid4(), 0, 6) }}
+    depends_on: []
+    description: ''
+    for_each: null
+    ref: generate_uuid
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  # Receive operations from Caldera
   - action: core.http_request
     args:
       headers:
@@ -20,7 +33,8 @@ definition:
       method: GET
       url: ${{ INPUTS.caldera_api_url }}/operations
       verify_ssl: false
-    depends_on: []
+    depends_on:
+    - generate_uuid
     description: ''
     for_each: null
     ref: receive_operations
@@ -29,10 +43,12 @@ definition:
       timeout: 300
     run_if: null
     start_delay: 0.0
+  # Execute the Discovery operation
   - action: core.http_request
     args:
       headers:
         KEY: ${{ SECRETS.caldera.API_KEY }}
+      method: POST
       payload:
         adversary:
           adversary_id: 0f4c3c67-845e-49a0-927e-90ed33c044e0
@@ -59,7 +75,7 @@ definition:
         group: ''
         id: ${{ FN.uuid4() }}
         jitter: 2/8
-        name: ${{ ENV.workflow.start_time }}
+        name: Operation Discovery - ${{ ACTIONS.generate_uuid.result }}
         obfuscator: plain-text
         objective:
           description: string
@@ -163,11 +179,13 @@ definition:
       max_attempts: 1
       timeout: 300
     run_if: null
-    start_delay: 60.0
+    start_delay: 10.0
+  # Execute the Thief operation
   - action: core.http_request
     args:
       headers:
         KEY: ${{ SECRETS.caldera.API_KEY }}
+      method: POST
       payload:
         adversary:
           adversary_id: 1a98b8e6-18ce-4617-8cc5-e65a1a9d490e
@@ -187,7 +205,7 @@ definition:
         group: ''
         id: ${{ FN.uuid4() }}
         jitter: 2/8
-        name: ${{ ENV.workflow.start_time }}
+        name: Operation Thief - ${{ ACTIONS.generate_uuid.result }}
         obfuscator: plain-text
         objective:
           description: string
@@ -291,11 +309,13 @@ definition:
       max_attempts: 1
       timeout: 300
     run_if: null
-    start_delay: 60.0
+    start_delay: 10.0
+  # Execute the Alice 2.0 operation
   - action: core.http_request
     args:
       headers:
         KEY: ${{ SECRETS.caldera.API_KEY }}
+      method: POST
       payload:
         adversary:
           adversary_id: 50855e29-3b4e-4562-aa55-b3d7f93c26b8
@@ -319,7 +339,7 @@ definition:
         group: ''
         id: ${{ FN.uuid4() }}
         jitter: 2/8
-        name: ${{ ENV.workflow.start_time }}
+        name: Operation Alice 2.0 - ${{ ACTIONS.generate_uuid.result }}
         obfuscator: plain-text
         objective:
           description: string
@@ -423,4 +443,4 @@ definition:
       max_attempts: 1
       timeout: 300
     run_if: null
-    start_delay: 60.0
+    start_delay: 10.0
