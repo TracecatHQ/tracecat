@@ -80,7 +80,7 @@ function getLayoutedElements(
   edges: Edge[]
 } {
   const isHorizontal = direction === "LR"
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 100, ranksep: 100 })
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 100, ranksep: 150 })
 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, {
