@@ -4,6 +4,7 @@ import "react18-json-view/src/style.css"
 
 import React, { useCallback, useState } from "react"
 import {
+  ActionControlFlow,
   ApiError,
   registryActionsValidateRegistryAction,
   RegistryActionValidateResponse,
@@ -70,13 +71,15 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
 
-type UDFFormSchema = {
+// These are YAML strings
+type ActionFormSchema = {
   title?: string
   description?: string
   inputs?: string
   control_flow: {
     for_each?: string
     run_if?: string
+    retry_policy?: string
   }
 }
 
@@ -96,7 +99,7 @@ export function UDFActionPanel({
   const actionName = node.data.type
   const { getRegistryAction } = useWorkbenchRegistryActions()
   const registryAction = getRegistryAction(actionName)
-  const methods = useForm<UDFFormSchema>({
+  const methods = useForm<ActionFormSchema>({
     values: {
       title: action?.title,
       description: action?.description,
@@ -108,6 +111,9 @@ export function UDFActionPanel({
         run_if: action?.control_flow?.run_if
           ? YAML.stringify(action?.control_flow?.run_if)
           : "",
+        retry_policy: action?.control_flow?.retry_policy
+          ? YAML.stringify(action?.control_flow?.retry_policy)
+          : "",
       },
     },
   })
@@ -116,7 +122,7 @@ export function UDFActionPanel({
     useState<RegistryActionValidateResponse | null>(null)
 
   const onSubmit = useCallback(
-    async (values: UDFFormSchema) => {
+    async (values: ActionFormSchema) => {
       console.log("registry action", registryAction)
       console.log("action", action)
       if (!registryAction || !action) {
@@ -146,7 +152,10 @@ export function UDFActionPanel({
         run_if: control_flow.run_if
           ? YAML.parse(control_flow.run_if)
           : undefined,
-      }
+        retry_policy: control_flow?.retry_policy
+          ? YAML.parse(control_flow.retry_policy)
+          : undefined,
+      } as ActionControlFlow
       try {
         const validateResponse = await registryActionsValidateRegistryAction({
           actionName: registryAction.action,
@@ -520,6 +529,42 @@ export function UDFActionPanel({
                     )}
                   />
                 </div>
+                {/* Maximum Attempts */}
+                <div className="flex flex-col space-y-4 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Retry Policy</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        sideOffset={20}
+                      >
+                        <RetryPolicyTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define the retry policy for the action.
+                    </span>
+                  </div>
+                  <Controller
+                    name="control_flow.retry_policy"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <CustomEditor
+                        className="h-72 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
@@ -609,6 +654,62 @@ function ForEachTooltip() {
             <span>
               {"- ${{ for var.second in ACTIONS.second_action.result }}"}
             </span>
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RetryPolicyTooltip() {
+  return (
+    <div className="w-full space-y-4">
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">
+            maximum_attempts
+          </span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            integer
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          Specifies the maximum number of times an action will be retried upon
+          failure.
+        </div>
+        <div>Defaults to 1.</div>
+        <div>
+          <b className="text-rose-500">WARNING</b> If this value is 0, the
+          action will be retried indefinitely.
+        </div>
+      </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">timeout</span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            integer
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          Defines the maximum duration (in seconds) that an action is allowed to
+          run before it is terminated. If not specified, the action will run
+          until completion or failure.
+        </div>
+        <div>Defaults to 300s (5 minutes).</div>
+      </div>
+      <div className="w-full items-center text-start">
+        <span>Example inputs: </span>
+      </div>
+      <div className="flex w-full flex-col text-muted-foreground">
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            {"maximum_attempts: 5\ntimeout: 300  # 5 minutes"}
           </pre>
         </div>
       </div>

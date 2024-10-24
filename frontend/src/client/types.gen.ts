@@ -8,6 +8,7 @@ export type AccessLevel = 0 | 999;
 export type ActionControlFlow = {
     run_if?: string | null;
     for_each?: string | Array<(string)> | null;
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionMetadataResponse = {
@@ -31,6 +32,17 @@ export type ActionResponse = {
     };
     key: string;
     control_flow?: ActionControlFlow;
+};
+
+export type ActionRetryPolicy = {
+    /**
+     * Total number of execution attempts. 0 means unlimited, 1 means no retries.
+     */
+    max_attempts?: number;
+    /**
+     * Timeout for the action in seconds.
+     */
+    timeout?: number;
 };
 
 export type ActionStatement_Input = {
@@ -65,6 +77,10 @@ export type ActionStatement_Input = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionStatement_Output = {
@@ -95,6 +111,10 @@ export type ActionStatement_Output = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionStatement_Any_ = {
@@ -123,6 +143,10 @@ export type ActionStatement_Any_ = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
 };
 
 export type ActionStep = {
@@ -359,6 +383,8 @@ export type EventGroup = {
     action_description: string;
     action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
+    current_attempt?: number | null;
+    retry_policy: ActionRetryPolicy;
 };
 
 export type EventHistoryResponse = {

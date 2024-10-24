@@ -36,6 +36,9 @@ export const $ActionControlFlow = {
                 }
             ],
             title: 'For Each'
+        },
+        retry_policy: {
+            '$ref': '#/components/schemas/ActionRetryPolicy'
         }
     },
     type: 'object',
@@ -117,6 +120,25 @@ export const $ActionResponse = {
     title: 'ActionResponse'
 } as const;
 
+export const $ActionRetryPolicy = {
+    properties: {
+        max_attempts: {
+            type: 'integer',
+            title: 'Max Attempts',
+            description: 'Total number of execution attempts. 0 means unlimited, 1 means no retries.',
+            default: 1
+        },
+        timeout: {
+            type: 'integer',
+            title: 'Timeout',
+            description: 'Timeout for the action in seconds.',
+            default: 300
+        }
+    },
+    type: 'object',
+    title: 'ActionRetryPolicy'
+} as const;
+
 export const $ActionStatement_Input = {
     properties: {
         id: {
@@ -190,6 +212,14 @@ export const $ActionStatement_Input = {
             ],
             title: 'For Each',
             description: 'Iterate over a list of items and run the task for each item.'
+        },
+        retry_policy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/ActionRetryPolicy'
+                }
+            ],
+            description: 'Retry policy for the action.'
         }
     },
     type: 'object',
@@ -258,6 +288,14 @@ export const $ActionStatement_Output = {
             ],
             title: 'For Each',
             description: 'Iterate over a list of items and run the task for each item.'
+        },
+        retry_policy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/ActionRetryPolicy'
+                }
+            ],
+            description: 'Retry policy for the action.'
         }
     },
     type: 'object',
@@ -325,6 +363,14 @@ export const $ActionStatement_Any_ = {
             ],
             title: 'For Each',
             description: 'Iterate over a list of items and run the task for each item.'
+        },
+        retry_policy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/ActionRetryPolicy'
+                }
+            ],
+            description: 'Retry policy for the action.'
         }
     },
     type: 'object',
@@ -985,10 +1031,24 @@ export const $EventGroup = {
                 }
             ],
             title: 'Action Result'
+        },
+        current_attempt: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Attempt'
+        },
+        retry_policy: {
+            '$ref': '#/components/schemas/ActionRetryPolicy'
         }
     },
     type: 'object',
-    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input'],
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input', 'retry_policy'],
     title: 'EventGroup'
 } as const;
 

@@ -244,12 +244,13 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED:
                     # The parent event here is always the scheduled event, which has the UDF name
-                    parent_event_id = (
-                        event.activity_task_started_event_attributes.scheduled_event_id
-                    )
+                    attrs = event.activity_task_started_event_attributes
+                    parent_event_id = attrs.scheduled_event_id
                     if not (group := event_group_names.get(parent_event_id)):
                         continue
-                    event_group_names[event.event_id] = group
+                    event_group_names[event.event_id] = group.model_copy(
+                        update={"current_attempt": attrs.attempt}
+                    )
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,

@@ -293,6 +293,7 @@ class WorkflowsManagementService:
                 control_flow={
                     "run_if": act_stmt.run_if,
                     "for_each": act_stmt.for_each,
+                    "retry_policy": act_stmt.retry_policy.model_dump(),
                 },
             )
             actions.append(new_action)
