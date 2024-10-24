@@ -90,6 +90,10 @@ async def http_request(
         dict[str, Any],
         Field(description="URL query parameters"),
     ] = None,
+    form_data: Annotated[
+        dict[str, Any],
+        Field(description="HTTP form encoded data"),
+    ] = None,
     method: Annotated[
         RequestMethods,
         Field(description="HTTP request method"),
@@ -197,6 +201,7 @@ async def http_request(
                 headers=headers,
                 params=params,
                 json=payload,
+                data=form_data,
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
