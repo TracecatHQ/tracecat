@@ -131,10 +131,15 @@ const nodeTypes = {
 }
 
 const defaultEdgeOptions = {
+  type: "smoothstep",
   markerEnd: {
     type: MarkerType.ArrowClosed,
   },
   style: { strokeWidth: 2 },
+  // Increase the radius of the smoothstep curve
+  pathOptions: {
+    borderRadius: 100, // Adjust this value to increase or decrease the curve radius
+  },
 }
 
 export function isInvincible<T>(node: Node<T>): boolean {
