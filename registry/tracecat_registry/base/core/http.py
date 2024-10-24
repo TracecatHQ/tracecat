@@ -164,6 +164,12 @@ async def http_request(
             description="Authorization header value (must contain `{token}` in the string) to pass into HTTP headers. If None, defaults to 'Bearer {token}'}"
         ),
     ] = "Bearer {token}",
+    verify_ssl: Annotated[
+        bool,
+        Field(
+            description="Verify SSL certificates. Defaults to True, disable at own risk."
+        ),
+    ] = True,
 ) -> HTTPResponse:
     access_token = None
     if jwt_url is not None:
@@ -202,6 +208,7 @@ async def http_request(
                 params=params,
                 json=payload,
                 data=form_data,
+                verify=verify_ssl,
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
