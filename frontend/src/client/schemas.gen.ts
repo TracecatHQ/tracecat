@@ -39,6 +39,12 @@ export const $ActionControlFlow = {
         },
         retry_policy: {
             '$ref': '#/components/schemas/ActionRetryPolicy'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -220,6 +226,12 @@ export const $ActionStatement_Input = {
                 }
             ],
             description: 'Retry policy for the action.'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -296,6 +308,12 @@ export const $ActionStatement_Output = {
                 }
             ],
             description: 'Retry policy for the action.'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -371,6 +389,12 @@ export const $ActionStatement_Any_ = {
                 }
             ],
             description: 'Retry policy for the action.'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -1045,10 +1069,14 @@ export const $EventGroup = {
         },
         retry_policy: {
             '$ref': '#/components/schemas/ActionRetryPolicy'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay'
         }
     },
     type: 'object',
-    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input', 'retry_policy'],
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input', 'retry_policy', 'start_delay'],
     title: 'EventGroup'
 } as const;
 

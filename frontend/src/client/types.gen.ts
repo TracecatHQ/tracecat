@@ -9,6 +9,10 @@ export type ActionControlFlow = {
     run_if?: string | null;
     for_each?: string | Array<(string)> | null;
     retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionMetadataResponse = {
@@ -81,6 +85,10 @@ export type ActionStatement_Input = {
      * Retry policy for the action.
      */
     retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStatement_Output = {
@@ -115,6 +123,10 @@ export type ActionStatement_Output = {
      * Retry policy for the action.
      */
     retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStatement_Any_ = {
@@ -147,6 +159,10 @@ export type ActionStatement_Any_ = {
      * Retry policy for the action.
      */
     retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStep = {
@@ -385,6 +401,7 @@ export type EventGroup = {
     action_result?: unknown | null;
     current_attempt?: number | null;
     retry_policy: ActionRetryPolicy;
+    start_delay: number;
 };
 
 export type EventHistoryResponse = {
