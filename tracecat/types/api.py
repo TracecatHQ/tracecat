@@ -18,6 +18,9 @@ class ActionControlFlow(BaseModel):
     run_if: str | None = None
     for_each: str | list[str] | None = None
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
+    start_delay: float = Field(
+        default=0.0, description="Delay before starting the action in seconds."
+    )
 
 
 class ActionResponse(BaseModel):
