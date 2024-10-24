@@ -8,6 +8,9 @@ ENV PORT=8000
 # Expose the application port
 EXPOSE $PORT
 
+# Install xmlsec1
+RUN apt-get update && apt-get install -y xmlsec1
+
 # Set the working directory inside the container
 WORKDIR /app
 
