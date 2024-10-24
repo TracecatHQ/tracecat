@@ -122,6 +122,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     action_result: Any | None = None
     current_attempt: int | None = None
     retry_policy: ActionRetryPolicy
+    start_delay: float
 
     @staticmethod
     def from_scheduled_activity(
@@ -148,9 +149,9 @@ class EventGroup(BaseModel, Generic[EventInput]):
             # It's a utility action.
             return None
         # Create an event group
-        retry_policy = attrs.retry_policy
-        timeout = attrs.start_to_close_timeout
         task = action_input.task
+        action_retry_policy = task.retry_policy
+
         namespace, task_name = destructure_slugified_namespace(
             task.action, delimiter="."
         )
@@ -164,10 +165,8 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_title=task.title,
             action_description=task.description,
             action_input=action_input,
-            retry_policy=ActionRetryPolicy(
-                max_attempts=retry_policy.maximum_attempts,
-                timeout=timeout.seconds,
-            ),
+            retry_policy=action_retry_policy,
+            start_delay=task.start_delay,
         )
 
     @staticmethod

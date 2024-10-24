@@ -271,11 +271,7 @@ class RFGraph(TSObject):
             )
 
             action = ref2action[node.ref]
-            control_flow = ActionControlFlow(
-                run_if=action.control_flow.get("run_if"),
-                for_each=action.control_flow.get("for_each"),
-                retry_policy=action.control_flow.get("retry_policy"),
-            )
+            control_flow = ActionControlFlow.model_validate(action.control_flow)
             action_stmt = ActionStatement(
                 id=action.id,
                 ref=node.ref,
@@ -285,6 +281,7 @@ class RFGraph(TSObject):
                 run_if=control_flow.run_if,
                 for_each=control_flow.for_each,
                 retry_policy=control_flow.retry_policy,
+                start_delay=control_flow.start_delay,
             )
             statements.append(action_stmt)
         return statements

@@ -57,6 +57,8 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
+    """Control flow options"""
+
     run_if: Annotated[
         str | None,
         Field(default=None, description="Condition to run the task"),
@@ -73,6 +75,9 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
     ]
     retry_policy: ActionRetryPolicy = Field(
         default_factory=ActionRetryPolicy, description="Retry policy for the action."
+    )
+    start_delay: float = Field(
+        default=0.0, description="Delay before starting the action in seconds."
     )
 
     @property

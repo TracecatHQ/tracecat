@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -96,6 +97,12 @@ class DSLActivities:
             attempt=attempt,
             retry_policy=task.retry_policy,
         )
+
+        # Add a delay
+        if task.start_delay > 0:
+            act_logger.info("Starting action with delay", delay=task.start_delay)
+            await asyncio.sleep(task.start_delay)
+
         try:
             # Delegate to the registry client
             client = RegistryClient(role=input.role)
