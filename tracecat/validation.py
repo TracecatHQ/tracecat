@@ -55,7 +55,7 @@ from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.shared import ExprType, context_locator
 from tracecat.logger import logger
-from tracecat.registry.actions.models import ArgsT
+from tracecat.registry.actions.models import ArgsT, RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
@@ -302,7 +302,8 @@ async def vadliate_registry_action_args(
     try:
         service = RegistryActionsService(session)
         action = await service.get_action(action_name=action_name)
-        model = json_schema_to_pydantic(action.interface)
+        interface = RegistryActionInterface(**action.interface)
+        model = json_schema_to_pydantic(interface["expects"])
         try:
             # Note that we're allowing type coercion for the input arguments
             # Use cases would be transforming a UTC string to a datetime object

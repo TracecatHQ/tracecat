@@ -2,7 +2,7 @@ import React from "react"
 import {
   DSLRunArgs,
   EventHistoryResponse,
-  UDFActionInput_Output,
+  RunActionInput_Output,
 } from "@/client"
 import JsonView from "react18-json-view"
 
@@ -117,7 +117,7 @@ export function WorkflowExecutionEventDetailView({
           </AccordionItem>
         )}
 
-        {isUDFActionInput_Output(event.event_group?.action_input) && (
+        {isRunActionInput_Output(event.event_group?.action_input) && (
           <>
             <AccordionItem value="result">
               <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -142,6 +142,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
   const { event_group } = event
   const formattedEventType = parseEventType(event.event_type)
   const eventTimeDate = new Date(event.event_time)
+  const { max_attempts, timeout } = event_group?.retry_policy || {}
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
       <div className="flex w-full items-center space-x-4">
@@ -241,7 +242,34 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
         )}
       </div>
 
-      {isUDFActionInput_Output(event_group?.action_input) && (
+      {/* Retry policy */}
+      {event_group?.retry_policy && (
+        <div className="space-x-2">
+          <Label className="w-24 text-xs text-muted-foreground">
+            Retry Policy
+          </Label>
+          <DescriptorBadge
+            className="font-mono"
+            text={`${max_attempts && max_attempts > 0 ? `Max ${max_attempts} attempt(s)` : "Unlimited attempts"}${timeout ? `, ${timeout}s timeout` : ""}`}
+          />
+        </div>
+      )}
+
+      {/* Start delay */}
+      {event_group?.start_delay !== undefined &&
+        event_group.start_delay > 0 && (
+          <div className="space-x-2">
+            <Label className="w-24 text-xs text-muted-foreground">
+              Start Delay
+            </Label>
+            <DescriptorBadge
+              className="font-mono"
+              text={`${event_group.start_delay.toFixed(1)}s`}
+            />
+          </div>
+        )}
+
+      {isRunActionInput_Output(event_group?.action_input) && (
         <ActionEventGeneralInfo input={event_group.action_input} />
       )}
       {isDSLRunArgs(event_group?.action_input) && (
@@ -258,7 +286,7 @@ export function DescriptorBadge({
   return (
     <Badge
       variant="secondary"
-      className={cn("bg-indigo-50 text-foreground/60", className)}
+      className={cn("bg-muted-foreground/5 text-foreground/60", className)}
     >
       {text}
     </Badge>
@@ -278,11 +306,11 @@ function ChildWorkflowEventGeneralInfo({ input }: { input: DSLRunArgs }) {
   )
 }
 
-function ActionEventGeneralInfo({ input }: { input: UDFActionInput_Output }) {
+function ActionEventGeneralInfo({ input }: { input: RunActionInput_Output }) {
   return (
     <div>
       <div className="space-x-2">
-        {input.task.depends_on && (
+        {input.task.depends_on && input.task.depends_on.length > 0 && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
               Dependencies
@@ -331,14 +359,14 @@ function ActionEventGeneralInfo({ input }: { input: UDFActionInput_Output }) {
   )
 }
 
-function isUDFActionInput_Output(
+function isRunActionInput_Output(
   actionInput: unknown
-): actionInput is UDFActionInput_Output {
+): actionInput is RunActionInput_Output {
   return (
     typeof actionInput === "object" &&
     actionInput !== null &&
     "task" in actionInput &&
-    typeof (actionInput as UDFActionInput_Output).task === "object"
+    typeof (actionInput as RunActionInput_Output).task === "object"
   )
 }
 

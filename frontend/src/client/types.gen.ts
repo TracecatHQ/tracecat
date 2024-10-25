@@ -8,6 +8,11 @@ export type AccessLevel = 0 | 999;
 export type ActionControlFlow = {
     run_if?: string | null;
     for_each?: string | Array<(string)> | null;
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionMetadataResponse = {
@@ -31,6 +36,17 @@ export type ActionResponse = {
     };
     key: string;
     control_flow?: ActionControlFlow;
+};
+
+export type ActionRetryPolicy = {
+    /**
+     * Total number of execution attempts. 0 means unlimited, 1 means no retries.
+     */
+    max_attempts?: number;
+    /**
+     * Timeout for the action in seconds.
+     */
+    timeout?: number;
 };
 
 export type ActionStatement_Input = {
@@ -65,6 +81,14 @@ export type ActionStatement_Input = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStatement_Output = {
@@ -95,6 +119,14 @@ export type ActionStatement_Output = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStatement_Any_ = {
@@ -123,6 +155,14 @@ export type ActionStatement_Any_ = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStep = {
@@ -357,8 +397,11 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: UDFActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
+    action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
+    current_attempt?: number | null;
+    retry_policy: ActionRetryPolicy;
+    start_delay: number;
 };
 
 export type EventHistoryResponse = {
@@ -669,6 +712,26 @@ export type type2 = 'user' | 'service';
 export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 
 /**
+ * This object contains all the information needed to execute an action.
+ */
+export type RunActionInput_Input = {
+    task: ActionStatement_Input;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+};
+
+/**
+ * This object contains all the information needed to execute an action.
+ */
+export type RunActionInput_Output = {
+    task: ActionStatement_Output;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+};
+
+/**
  * This is the runtime context model for a workflow run. Passed into activities.
  */
 export type RunContext = {
@@ -913,26 +976,6 @@ export type Trigger = {
 };
 
 export type type3 = 'schedule' | 'webhook';
-
-/**
- * This object contains all the information needed to execute an action.
- */
-export type UDFActionInput_Input = {
-    task: ActionStatement_Input;
-    role: Role;
-    exec_context: DSLContext;
-    run_context: RunContext;
-};
-
-/**
- * This object contains all the information needed to execute an action.
- */
-export type UDFActionInput_Output = {
-    task: ActionStatement_Output;
-    role: Role;
-    exec_context: DSLContext;
-    run_context: RunContext;
-};
 
 export type UpdateActionParams = {
     title?: string | null;
@@ -1630,7 +1673,7 @@ export type RegistryActionsDeleteRegistryActionResponse = void;
 
 export type RegistryActionsRunRegistryActionData = {
     actionName: string;
-    requestBody: UDFActionInput_Input;
+    requestBody: RunActionInput_Input;
 };
 
 export type RegistryActionsRunRegistryActionResponse = unknown;

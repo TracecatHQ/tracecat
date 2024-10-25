@@ -9,17 +9,12 @@ import temporalio.api.common.v1
 import temporalio.api.enums.v1
 import temporalio.api.history.v1
 from google.protobuf.json_format import MessageToDict
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    PlainSerializer,
-)
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
-from tracecat.dsl.models import DSLContext, UDFActionInput
+from tracecat.dsl.models import ActionRetryPolicy, DSLContext, RunActionInput
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -101,7 +96,10 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
 
 
 EventInput = TypeVar(
-    "EventInput", UDFActionInput, DSLRunArgs, GetWorkflowDefinitionActivityInputs
+    "EventInput",
+    RunActionInput,
+    DSLRunArgs,
+    GetWorkflowDefinitionActivityInputs,
 )
 
 IGNORED_UTILITY_ACTIONS = {
@@ -122,6 +120,9 @@ class EventGroup(BaseModel, Generic[EventInput]):
     action_description: str
     action_input: EventInput
     action_result: Any | None = None
+    current_attempt: int | None = None
+    retry_policy: ActionRetryPolicy
+    start_delay: float
 
     @staticmethod
     def from_scheduled_activity(
@@ -133,35 +134,40 @@ class EventGroup(BaseModel, Generic[EventInput]):
         ):
             raise ValueError("Event is not an activity task scheduled event.")
         # Load the input data
-        action_stmt_data = orjson.loads(
-            event.activity_task_scheduled_event_attributes.input.payloads[0].data
-        )
+        attrs = event.activity_task_scheduled_event_attributes
+        activity_input_data = orjson.loads(attrs.input.payloads[0].data)
+        # Retry policy
 
-        act_type = event.activity_task_scheduled_event_attributes.activity_type.name
-        if act_type == "get_workflow_definition_activity":
-            action_input = GetWorkflowDefinitionActivityInputs(**action_stmt_data)
-        elif act_type in IGNORED_UTILITY_ACTIONS:
+        act_type = attrs.activity_type.name
+        if act_type in IGNORED_UTILITY_ACTIONS:
             return None
+        if act_type == "get_workflow_definition_activity":
+            action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
         else:
-            action_input = UDFActionInput(**action_stmt_data)
+            action_input = RunActionInput(**activity_input_data)
+        if action_input.task is None:
+            # It's a utility action.
+            return None
         # Create an event group
-        if action_input.task:
-            namespace, task_name = destructure_slugified_namespace(
-                action_input.task.action, delimiter="."
-            )
-            return EventGroup(
-                event_id=event.event_id,
-                udf_namespace=namespace,
-                udf_name=task_name,
-                udf_key=action_input.task.action,
-                action_id=action_input.task.id,
-                action_ref=action_input.task.ref,
-                action_title=action_input.task.title,
-                action_description=action_input.task.description,
-                action_input=action_input,
-            )
-        # It's a utility action.
-        return None
+        task = action_input.task
+        action_retry_policy = task.retry_policy
+
+        namespace, task_name = destructure_slugified_namespace(
+            task.action, delimiter="."
+        )
+        return EventGroup(
+            event_id=event.event_id,
+            udf_namespace=namespace,
+            udf_name=task_name,
+            udf_key=task.action,
+            action_id=task.id,
+            action_ref=task.ref,
+            action_title=task.title,
+            action_description=task.description,
+            action_input=action_input,
+            retry_policy=action_retry_policy,
+            start_delay=task.start_delay,
+        )
 
     @staticmethod
     def from_initiated_child_workflow(

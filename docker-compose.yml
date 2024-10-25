@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.11.6}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.11.7}
     container_name: api
     restart: unless-stopped
     networks:
@@ -43,20 +43,6 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-      # SMTP
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_STARTTLS_ENABLED: ${SMTP_STARTTLS_ENABLED}
-      SMTP_SSL_ENABLED: ${SMTP_SSL_ENABLED}
-      SMTP_IGNORE_CERT_ERRORS: ${SMTP_IGNORE_CERT_ERRORS}
-      SMTP_AUTH_ENABLED: ${SMTP_AUTH_ENABLED}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      # LDAP
-      LDAP_HOST: ${LDAP_HOST}
-      LDAP_PORT: ${LDAP_PORT}
-      LDAP_SSL: ${LDAP_SSL}
-      LDAP_TYPE: ${LDAP_TYPE}
       # Remote registry
       TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
       TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
@@ -65,7 +51,7 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.11.6}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.11.7}
     restart: unless-stopped
     networks:
       - core
@@ -89,7 +75,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.11.6}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.11.7}
     container_name: ui
     restart: unless-stopped
     networks:

@@ -8,7 +8,7 @@ import orjson
 from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
-from tracecat.dsl.models import UDFActionInput
+from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     ArgsT,
@@ -41,7 +41,7 @@ class RegistryClient:
 
     """Execution"""
 
-    async def call_action(self, input: UDFActionInput[ArgsT]) -> httpx.Response:
+    async def call_action(self, input: RunActionInput[ArgsT]) -> httpx.Response:
         """
         Call an action in the registry asynchronously.
 

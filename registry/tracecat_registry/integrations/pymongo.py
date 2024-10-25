@@ -62,7 +62,7 @@ async def perform_mongodb_crud(
             {**item, "_id": str(item["_id"])} if "_id" in item else item
             for item in list(result)
         ]
-    else:
+    elif isinstance(result, dict) and "_id" in result:
         result["_id"] = str(result["_id"])
 
     return result
