@@ -384,13 +384,13 @@ export const $Body_auth_reset_reset_password = {
 
 export const $Body_auth_sso_acs = {
     properties: {
-        saml_response: {
+        SAMLResponse: {
             type: 'string',
-            title: 'Saml Response'
+            title: 'Samlresponse'
         }
     },
     type: 'object',
-    required: ['saml_response'],
+    required: ['SAMLResponse'],
     title: 'Body_auth-sso_acs'
 } as const;
 
@@ -1862,16 +1862,16 @@ export const $RunContext = {
     description: 'This is the runtime context model for a workflow run. Passed into activities.'
 } as const;
 
-export const $SamlAuthorizeResponse = {
+export const $SAMLDatabaseLoginResponse = {
     properties: {
-        authorization_url: {
+        redirect_url: {
             type: 'string',
-            title: 'Authorization Url'
+            title: 'Redirect Url'
         }
     },
     type: 'object',
-    required: ['authorization_url'],
-    title: 'SamlAuthorizeResponse'
+    required: ['redirect_url'],
+    title: 'SAMLDatabaseLoginResponse'
 } as const;
 
 export const $Schedule = {

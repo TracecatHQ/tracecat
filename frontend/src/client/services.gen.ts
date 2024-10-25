@@ -1641,7 +1641,7 @@ export const authOauthGoogleDatabaseCallback = (data: AuthOauthGoogleDatabaseCal
 
 /**
  * Saml:Database.Login
- * @returns SamlAuthorizeResponse Successful Response
+ * @returns SAMLDatabaseLoginResponse Successful Response
  * @throws ApiError
  */
 export const authSamlDatabaseLogin = (): CancelablePromise<AuthSamlDatabaseLoginResponse> => { return __request(OpenAPI, {

@@ -5,5 +5,4 @@ export const authConfig = {
     .split(",")
     .map((x) => x.toLowerCase()),
   staleTime: 5 * 60 * 1000, // 5 minutes
-  samlAuthorizationUrl: env("NEXT_PUBLIC_SAML_AUTHORIZATION_URL") || "http://localhost/api/auth/saml/login",
 }

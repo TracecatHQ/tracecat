@@ -91,7 +91,9 @@ SAML_IDP_ENTITY_ID = os.environ.get("SAML_IDP_ENTITY_ID")
 SAML_IDP_REDIRECT_URL = os.environ.get("SAML_IDP_REDIRECT_URL")
 SAML_IDP_CERTIFICATE = os.environ.get("SAML_IDP_CERTIFICATE")
 SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
-SAML_SP_ACS_URL = os.environ.get("SAML_SP_ACS_URL")
+SAML_SP_ACS_URL = os.environ.get(
+    "SAML_SP_ACS_URL", "http://localhost/api/auth/saml/acs"
+)
 XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
 
 # === CORS config === #

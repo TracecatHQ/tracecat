@@ -146,7 +146,7 @@ export type Body_auth_reset_reset_password = {
 };
 
 export type Body_auth_sso_acs = {
-    saml_response: string;
+    SAMLResponse: string;
 };
 
 export type Body_auth_verify_request_token = {
@@ -682,8 +682,8 @@ export type RunContext = {
     environment: string;
 };
 
-export type SamlAuthorizeResponse = {
-    authorization_url: string;
+export type SAMLDatabaseLoginResponse = {
+    redirect_url: string;
 };
 
 export type Schedule = {
@@ -1730,7 +1730,7 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
 
-export type AuthSamlDatabaseLoginResponse = SamlAuthorizeResponse;
+export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse;
 
 export type AuthSsoAcsData = {
     formData: Body_auth_sso_acs;
@@ -2892,7 +2892,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: SamlAuthorizeResponse;
+                200: SAMLDatabaseLoginResponse;
             };
         };
     };

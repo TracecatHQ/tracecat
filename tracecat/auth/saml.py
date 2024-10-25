@@ -1,4 +1,3 @@
-import os
 import tempfile
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
@@ -6,8 +5,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
 from fastapi_users.exceptions import UserAlreadyExists
+from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST, BINDING_HTTP_REDIRECT
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
@@ -25,6 +24,10 @@ from tracecat.config import (
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
+
+
+class SAMLDatabaseLoginResponse(BaseModel):
+    redirect_url: str
 
 
 @dataclass
@@ -222,19 +225,20 @@ def create_saml_client() -> Saml2Client:
 
 
 @router.get("/login", name=f"saml:{auth_backend.name}.login")
-async def login():
+async def login() -> SAMLDatabaseLoginResponse:
     client = create_saml_client()
     _, info = client.prepare_for_authenticate()
     try:
         headers = info["headers"]
         # Select the IdP URL to send the AuthN request to
-        redirect_url = next(v for k, v in headers if k == "location")
-    except (KeyError, IndexError):
+        redirect_url = next(v for k, v in headers if k == "Location")
+    except (KeyError, StopIteration):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Redirect URL not found in the SAML response.",
         ) from None
-    return RedirectResponse(redirect_url, status_code=status.HTTP_302_FOUND)
+    # Return the redirect URL
+    return SAMLDatabaseLoginResponse(redirect_url=redirect_url)
 
 
 @router.post("/acs")

@@ -2,9 +2,9 @@
 
 import { ComponentPropsWithoutRef, useState } from "react"
 
-import { authConfig } from "@/config/auth"
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
+import { authSamlDatabaseLogin } from "@/client"
 
 type SamlSSOButtonProps = ComponentPropsWithoutRef<typeof Button>
 export function SamlSSOButton(props: SamlSSOButtonProps) {
@@ -12,7 +12,9 @@ export function SamlSSOButton(props: SamlSSOButtonProps) {
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      window.location.href = authConfig.samlAuthorizationUrl
+      // Call api/auth/saml/login
+      const { redirect_url } = await authSamlDatabaseLogin()
+      window.location.href = redirect_url
     } catch (error) {
       console.error("Error authorizing with SAML", error)
     } finally {
