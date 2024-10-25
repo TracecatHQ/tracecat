@@ -90,6 +90,10 @@ async def http_request(
         dict[str, Any],
         Field(description="URL query parameters"),
     ] = None,
+    form_data: Annotated[
+        dict[str, Any],
+        Field(description="HTTP form encoded data"),
+    ] = None,
     method: Annotated[
         RequestMethods,
         Field(description="HTTP request method"),
@@ -160,6 +164,12 @@ async def http_request(
             description="Authorization header value (must contain `{token}` in the string) to pass into HTTP headers. If None, defaults to 'Bearer {token}'}"
         ),
     ] = "Bearer {token}",
+    verify_ssl: Annotated[
+        bool,
+        Field(
+            description="Verify SSL certificates. Defaults to True, disable at own risk."
+        ),
+    ] = True,
 ) -> HTTPResponse:
     access_token = None
     if jwt_url is not None:
@@ -190,6 +200,7 @@ async def http_request(
             timeout=httpx.Timeout(timeout),
             follow_redirects=follow_redirects,
             max_redirects=max_redirects,
+            verify=verify_ssl,
         ) as client:
             response = await client.request(
                 method=method,
@@ -197,6 +208,7 @@ async def http_request(
                 headers=headers,
                 params=params,
                 json=payload,
+                data=form_data,
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:

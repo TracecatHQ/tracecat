@@ -6,6 +6,7 @@ from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 from pydantic import BaseModel, Field
 
 from tracecat.contexts import RunContext
+from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.auth import Role
@@ -20,6 +21,16 @@ class DSLNodeResult(TypedDict):
 
 
 ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
+
+
+class ActionRetryPolicy(BaseModel):
+    max_attempts: int = Field(
+        default=1,
+        description="Total number of execution attempts. 0 means unlimited, 1 means no retries.",
+    )
+    timeout: int = Field(
+        default=DEFAULT_ACTION_TIMEOUT, description="Timeout for the action in seconds."
+    )
 
 
 class ActionStatement(BaseModel, Generic[ArgsT]):
@@ -46,6 +57,8 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
+    """Control flow options"""
+
     run_if: Annotated[
         str | None,
         Field(default=None, description="Condition to run the task"),
@@ -60,6 +73,12 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
         ),
         TemplateValidator(),
     ]
+    retry_policy: ActionRetryPolicy = Field(
+        default_factory=ActionRetryPolicy, description="Retry policy for the action."
+    )
+    start_delay: float = Field(
+        default=0.0, description="Delay before starting the action in seconds."
+    )
 
     @property
     def title(self) -> str:

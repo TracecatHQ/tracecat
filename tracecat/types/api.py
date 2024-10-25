@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Resource
+from tracecat.dsl.models import ActionRetryPolicy
 
 # TODO: Consistent API design
 # Action and Workflow create / update params
@@ -16,6 +17,10 @@ RunStatus = Literal["pending", "running", "failure", "success", "canceled"]
 class ActionControlFlow(BaseModel):
     run_if: str | None = None
     for_each: str | list[str] | None = None
+    retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
+    start_delay: float = Field(
+        default=0.0, description="Delay before starting the action in seconds."
+    )
 
 
 class ActionResponse(BaseModel):

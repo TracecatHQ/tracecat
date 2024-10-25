@@ -1,0 +1,1 @@
+DEFAULT_ACTION_TIMEOUT = 300  # Seconds

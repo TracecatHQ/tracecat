@@ -4,6 +4,7 @@ import "react18-json-view/src/style.css"
 
 import React, { useCallback, useState } from "react"
 import {
+  ActionControlFlow,
   ApiError,
   registryActionsValidateRegistryAction,
   RegistryActionValidateResponse,
@@ -69,14 +70,23 @@ import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
+import {
+  ControlFlowConfigTooltip,
+  ForEachTooltip,
+  RetryPolicyTooltip,
+  RunIfTooltip,
+} from "@/components/workbench/panel/udf-panel-tooltips"
 
-type UDFFormSchema = {
+// These are YAML strings
+type ActionFormSchema = {
   title?: string
   description?: string
   inputs?: string
   control_flow: {
     for_each?: string
     run_if?: string
+    retry_policy?: string
+    options?: string
   }
 }
 
@@ -96,18 +106,18 @@ export function UDFActionPanel({
   const actionName = node.data.type
   const { getRegistryAction } = useWorkbenchRegistryActions()
   const registryAction = getRegistryAction(actionName)
-  const methods = useForm<UDFFormSchema>({
+  const { for_each, run_if, retry_policy, ...options } =
+    action?.control_flow ?? {}
+  const methods = useForm<ActionFormSchema>({
     values: {
       title: action?.title,
       description: action?.description,
       inputs: itemOrEmptyString(action?.inputs),
       control_flow: {
-        for_each: action?.control_flow?.for_each
-          ? YAML.stringify(action?.control_flow?.for_each)
-          : "",
-        run_if: action?.control_flow?.run_if
-          ? YAML.stringify(action?.control_flow?.run_if)
-          : "",
+        for_each: for_each ? YAML.stringify(for_each) : "",
+        run_if: run_if ? YAML.stringify(run_if) : "",
+        retry_policy: retry_policy ? YAML.stringify(retry_policy) : "",
+        options: options ? YAML.stringify(options) : "",
       },
     },
   })
@@ -116,7 +126,7 @@ export function UDFActionPanel({
     useState<RegistryActionValidateResponse | null>(null)
 
   const onSubmit = useCallback(
-    async (values: UDFFormSchema) => {
+    async (values: ActionFormSchema) => {
       console.log("registry action", registryAction)
       console.log("action", action)
       if (!registryAction || !action) {
@@ -139,6 +149,9 @@ export function UDFActionPanel({
           description: "Please see the error window for more details",
         })
       }
+      const options: { start_delay?: number } | undefined = control_flow.options
+        ? YAML.parse(control_flow.options)
+        : undefined
       const actionControlFlow = {
         for_each: control_flow.for_each
           ? YAML.parse(control_flow.for_each)
@@ -146,7 +159,11 @@ export function UDFActionPanel({
         run_if: control_flow.run_if
           ? YAML.parse(control_flow.run_if)
           : undefined,
-      }
+        retry_policy: control_flow?.retry_policy
+          ? YAML.parse(control_flow.retry_policy)
+          : undefined,
+        start_delay: options?.start_delay,
+      } as ActionControlFlow
       try {
         const validateResponse = await registryActionsValidateRegistryAction({
           actionName: registryAction.action,
@@ -520,98 +537,83 @@ export function UDFActionPanel({
                     )}
                   />
                 </div>
+                {/* Retry Policy */}
+                <div className="flex flex-col space-y-4 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Retry Policy</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        sideOffset={20}
+                      >
+                        <RetryPolicyTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define the retry policy for the action.
+                    </span>
+                  </div>
+                  <Controller
+                    name="control_flow.retry_policy"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <CustomEditor
+                        className="h-24 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                {/* Other options */}
+                <div className="flex flex-col space-y-4 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Options</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        sideOffset={20}
+                      >
+                        <ControlFlowConfigTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define additional control flow options for the action.
+                    </span>
+                  </div>
+                  <Controller
+                    name="control_flow.options"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <CustomEditor
+                        className="h-24 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
         </form>
       </FormProvider>
-    </div>
-  )
-}
-
-function RunIfTooltip() {
-  return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">run_if</span>
-        <span className="text-xs text-muted-foreground/80">(optional)</span>
-      </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span>
-          A run-if expression is a conditional expression that evaluates to a
-          truthy or falsy value:
-        </span>
-      </div>
-      <div className="rounded-md border bg-muted-foreground/10 p-2">
-        <pre className="text-xs text-foreground/70">{"${{ <condition> }}"}</pre>
-      </div>
-      <div className="w-full items-center text-start">
-        <span>Example inputs: </span>
-      </div>
-      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ FN.not_empty(ACTIONS.my_action.result) }}"}
-          </pre>
-        </div>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ ACTIONS.my_action.result.value > 5 }}"}
-          </pre>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ForEachTooltip() {
-  return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">for_each</span>
-        <span className="text-xs text-muted-foreground/80">(optional)</span>
-      </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span>A loop expression has the form:</span>
-      </div>
-      <div className="rounded-md border bg-muted-foreground/10 p-2">
-        <pre className="text-xs text-foreground/70">
-          {"${{ for var.item in <collection> }}"}
-        </pre>
-      </div>
-      <div className="w-full items-center text-start text-muted-foreground ">
-        <span>
-          Here, `var.item` references an item in the collection, and is local to
-          a single loop iteration. This is synonymous to assigning a loop
-          variable.
-        </span>
-      </div>
-      <div className="w-full items-center text-start">
-        <span>Example inputs: </span>
-      </div>
-      <div className="flex w-full flex-col text-muted-foreground ">
-        <span className="mt-2">Single expression (string):</span>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ for var.item in ACTIONS.my_action.result }}"}
-          </pre>
-        </div>
-      </div>
-      <div className="w-full text-muted-foreground ">
-        <span className="mt-2">
-          Multiple expressions (array; zipped/lockstep iteration):
-        </span>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="flex flex-col text-xs text-foreground/70">
-            <span>
-              {"- ${{ for var.first in ACTIONS.first_action.result }}"}
-            </span>
-            <span>
-              {"- ${{ for var.second in ACTIONS.second_action.result }}"}
-            </span>
-          </pre>
-        </div>
-      </div>
     </div>
   )
 }
