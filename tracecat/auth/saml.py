@@ -235,9 +235,7 @@ async def login():
     try:
         headers = info["headers"]
         # Select the IdP URL to send the AuthN request to
-        for k, v in headers:
-            if k == "Location":
-                redirect_url = v
+        redirect_url = next(v for k, v in headers if k == "location")
     except (KeyError, IndexError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
