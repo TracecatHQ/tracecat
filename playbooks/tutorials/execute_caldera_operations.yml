@@ -9,7 +9,7 @@ definition:
     expects: {}
     ref: generate_uuid
   inputs:
-    caldera_api_url: https://ec2-3-145-148-210.us-east-2.compute.amazonaws.com:8443/api/v2
+    caldera_api_url: <paste-your-caldera-url-here>/api/v2
   returns: null
   triggers: []
   actions:
