@@ -188,7 +188,7 @@ def create_saml_client() -> Saml2Client:
                     ],
                 },
                 # Security settings
-                "allow_unsolicited": True,  # If true, it allows the IdP to initiate the authentication (not yet supported)
+                "allow_unsolicited": True,  # If true, it allows the IdP to initiate the authentication
                 "authn_requests_signed": False,  # Don't need to sign authn requests because we don't control the IdP
                 "want_assertions_signed": True,  # We require the IdP to sign the assertions
                 "want_response_signed": False,
@@ -204,9 +204,7 @@ def create_saml_client() -> Saml2Client:
             config.load(saml_settings)
     else:
         # Save the cert to a temporary file
-        with tempfile.NamedTemporaryFile(
-            mode="w+", suffix=".crt", delete=False
-        ) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
             tmp_file.write(SAML_IDP_CERTIFICATE)
             tmp_file.flush()
             saml_settings["metadata"] = {
