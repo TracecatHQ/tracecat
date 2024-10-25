@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
   const redirectResponse = NextResponse.redirect(redirectUrl, {
     status: 303 // Force GET request
   })
-  console.log("Setting set-cookie header:", setCookieHeader)
   redirectResponse.headers.set("set-cookie", setCookieHeader)
   return redirectResponse
 }
