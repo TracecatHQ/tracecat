@@ -802,7 +802,9 @@ class DSLWorkflow:
         return workflow.execute_activity(
             DSLActivities.run_action_activity,
             arg=arg,
-            start_to_close_timeout=timedelta(seconds=task.retry_policy.timeout),
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
             retry_policy=RetryPolicy(
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
