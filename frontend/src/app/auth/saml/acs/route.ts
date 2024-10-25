@@ -28,7 +28,6 @@ export async function POST(request: NextRequest) {
     method: 'POST',
     body: backendFormData,
   })
-  console.log("Backend response:", backendResponse)
 
   if (!backendResponse.ok) {
     console.error("Error from backend:", await backendResponse.text())
