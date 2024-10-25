@@ -2,9 +2,9 @@ import tempfile
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST, BINDING_HTTP_REDIRECT
@@ -224,9 +224,11 @@ def create_saml_client() -> Saml2Client:
     return client
 
 
+SamlClientDep = Annotated[Saml2Client, Depends(create_saml_client)]
+
+
 @router.get("/login", name=f"saml:{auth_backend.name}.login")
-async def login() -> SAMLDatabaseLoginResponse:
-    client = create_saml_client()
+async def login(client: SamlClientDep) -> SAMLDatabaseLoginResponse:
     _, info = client.prepare_for_authenticate()
     try:
         headers = info["headers"]
@@ -245,16 +247,16 @@ async def login() -> SAMLDatabaseLoginResponse:
 async def sso_acs(
     request: Request,
     *,
-    SAMLResponse: str = Form(...),  # Changed from saml_response to SAMLResponse
+    saml_response: str = Form(..., alias="SAMLResponse"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
+    client: SamlClientDep,
 ):
     """Handle the SAML SSO response from the IdP post-authentication."""
 
     # Get email in the SAML response from the IdP
-    client = create_saml_client()
     authn_response = client.parse_authn_request_response(
-        SAMLResponse, BINDING_HTTP_POST
+        saml_response, BINDING_HTTP_POST
     )
     parser = SAMLParser(str(authn_response))
     email = parser.get_attribute_value("email")
