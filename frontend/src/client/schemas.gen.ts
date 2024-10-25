@@ -452,6 +452,18 @@ export const $Body_auth_reset_reset_password = {
     title: 'Body_auth-reset:reset_password'
 } as const;
 
+export const $Body_auth_sso_acs = {
+    properties: {
+        SAMLResponse: {
+            type: 'string',
+            title: 'Samlresponse'
+        }
+    },
+    type: 'object',
+    required: ['SAMLResponse'],
+    title: 'Body_auth-sso_acs'
+} as const;
+
 export const $Body_auth_verify_request_token = {
     properties: {
         email: {
@@ -1978,6 +1990,18 @@ export const $RunContext = {
     required: ['wf_id', 'wf_exec_id', 'wf_run_id', 'environment'],
     title: 'RunContext',
     description: 'This is the runtime context model for a workflow run. Passed into activities.'
+} as const;
+
+export const $SAMLDatabaseLoginResponse = {
+    properties: {
+        redirect_url: {
+            type: 'string',
+            title: 'Redirect Url'
+        }
+    },
+    type: 'object',
+    required: ['redirect_url'],
+    title: 'SAMLDatabaseLoginResponse'
 } as const;
 
 export const $Schedule = {

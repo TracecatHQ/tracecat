@@ -185,6 +185,10 @@ export type Body_auth_reset_reset_password = {
     password: string;
 };
 
+export type Body_auth_sso_acs = {
+    SAMLResponse: string;
+};
+
 export type Body_auth_verify_request_token = {
     email: string;
 };
@@ -739,6 +743,10 @@ export type RunContext = {
     wf_exec_id: string;
     wf_run_id: string;
     environment: string;
+};
+
+export type SAMLDatabaseLoginResponse = {
+    redirect_url: string;
 };
 
 export type Schedule = {
@@ -1764,6 +1772,14 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 };
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
+
+export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse;
+
+export type AuthSsoAcsData = {
+    formData: Body_auth_sso_acs;
+};
+
+export type AuthSsoAcsResponse = unknown;
 
 export type PublicCheckHealthResponse = {
     [key: string]: (string);
@@ -2906,6 +2922,31 @@ export type $OpenApiTs = {
                  * Bad Request
                  */
                 400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/saml/login': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: SAMLDatabaseLoginResponse;
+            };
+        };
+    };
+    '/auth/saml/acs': {
+        post: {
+            req: AuthSsoAcsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */

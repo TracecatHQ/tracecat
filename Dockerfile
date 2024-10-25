@@ -10,7 +10,7 @@ EXPOSE $PORT
 
 # Install necessary packages
 RUN apt-get update && \
-    apt-get install -y acl git && \
+    apt-get install -y acl git xmlsec1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy and run the script to install additional packages

@@ -46,6 +46,7 @@ dependencies = [
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
     "python-slugify==8.0.4",
+    "pysaml2==7.5.0",
     "sqlmodel==0.0.18",
     "tenacity==8.3.0",
     "temporalio==1.6.0",

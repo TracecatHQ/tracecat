@@ -1,6 +1,8 @@
 import contextlib
+import os
 import uuid
 from collections.abc import AsyncGenerator, Awaitable
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
@@ -14,14 +16,14 @@ from fastapi_users.authentication.strategy.db import (
     DatabaseStrategy,
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
-from fastapi_users.exceptions import UserAlreadyExists
+from fastapi_users.exceptions import UserAlreadyExists, UserNotExists
 from fastapi_users.openapi import OpenAPIResponseType
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
-from tracecat.auth.schemas import UserCreate, UserRole
+from tracecat.auth.models import UserCreate, UserRole
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -57,6 +59,39 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.info(
             f"Verification requested for user {user.id}. Verification token: {token}"
         )
+
+    async def saml_callback(
+        self,
+        *,
+        email: str,
+        associate_by_email: bool = True,
+        is_verified_by_default: bool = True,
+    ) -> User:
+        """
+        Handle the callback after a successful SAML authentication.
+
+        :param email: Email of the user from SAML response.
+        :param associate_by_email: If True, associate existing user with the same email. Defaults to True.
+        :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
+        :return: A user.
+        """
+        try:
+            user = await self.get_by_email(email)
+            if not associate_by_email:
+                raise UserAlreadyExists()
+        except UserNotExists:
+            # Create account
+            password = self.password_helper.generate()
+            user_dict = {
+                "email": email,
+                "hashed_password": self.password_helper.hash(password),
+                "is_verified": is_verified_by_default,
+            }
+            user = await self.user_db.create(user_dict)
+            await self.on_after_register(user)
+
+        self.logger.info(f"User {user.id} authenticated via SAML.")
+        return user
 
 
 async def get_user_db(session: SQLAlchemyAsyncSession = Depends(get_async_session)):
@@ -109,6 +144,11 @@ auth_backend = AuthenticationBackend(
     transport=cookie_transport,
     get_strategy=get_database_strategy,
 )
+
+AuthBackendStrategyDep = Annotated[
+    Strategy[models.UP, models.ID], Depends(auth_backend.get_strategy)
+]
+UserManagerDep = Annotated[UserManager, Depends(get_user_manager)]
 
 
 class FastAPIUserWithLogoutRouter(FastAPIUsers[models.UP, models.ID]):
@@ -193,11 +233,16 @@ async def list_users(*, session: SQLModelAsyncSession) -> list[User]:
 
 
 def default_admin_user() -> UserCreate:
+    if not (email := os.getenv("TRACECAT__SETUP_ADMIN_EMAIL")):
+        raise ValueError("TRACECAT__SETUP_ADMIN_EMAIL is not set")
+    if not (password := os.getenv("TRACECAT__SETUP_ADMIN_PASSWORD")):
+        raise ValueError("TRACECAT__SETUP_ADMIN_PASSWORD is not set")
+
     return UserCreate(
-        email="admin@domain.com",
-        first_name="Admin",
+        email=email,
+        first_name="Root",
         last_name="User",
-        password="password",
+        password=password,
         is_superuser=True,
         is_verified=True,
         role=UserRole.ADMIN,
