@@ -159,20 +159,13 @@ def generate_saml_metadata_file():
     )
 
     # Create a temporary file
-    with tempfile.NamedTemporaryFile(
-        mode="w+", suffix=".xml", delete=False
-    ) as tmp_file:
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".xml") as tmp_file:
         # Write the XML to the temporary file
         tree = ET.ElementTree(root)
         tree.write(tmp_file, encoding="unicode", xml_declaration=True)
         tmp_file.flush()
         tmp_file_path = tmp_file.name
-
-    try:
         yield tmp_file_path
-    finally:
-        # Clean up the temporary file
-        os.unlink(tmp_file_path)
 
 
 def create_saml_client() -> Saml2Client:
