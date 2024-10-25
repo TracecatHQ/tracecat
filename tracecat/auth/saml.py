@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST, BINDING_HTTP_REDIRECT
@@ -251,7 +251,7 @@ async def sso_acs(
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
     client: SamlClientDep,
-):
+) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""
 
     # Get email in the SAML response from the IdP
