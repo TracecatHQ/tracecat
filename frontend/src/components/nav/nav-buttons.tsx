@@ -51,20 +51,3 @@ export function BackToWorkspaceNavButton() {
     </Link>
   )
 }
-
-export function IntegrationsNavButton() {
-  const pathname = usePathname()
-  return (
-    <Link
-      href="https://docs.tracecat.com/integrations/introduction"
-      target="_blank"
-      className={cn(
-        "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-        pathname.startsWith("/integrations") && "text-primary"
-      )}
-    >
-      <BlocksIcon className="mr-2 size-4" />
-      <span>Integrations</span>
-    </Link>
-  )
-}
