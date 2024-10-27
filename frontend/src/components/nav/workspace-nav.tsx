@@ -8,7 +8,6 @@ import { WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
-  IntegrationsNavButton,
   OrganizationNavButton,
   RegistryNavButton,
 } from "@/components/nav/nav-buttons"
@@ -32,7 +31,6 @@ export function WorkspaceNav() {
         <WorkflowIcon className="mr-2 size-4" />
         <span>Workflows</span>
       </Link>
-      <IntegrationsNavButton />
       <RegistryNavButton />
       <OrganizationNavButton />
     </nav>
