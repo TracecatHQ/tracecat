@@ -121,8 +121,8 @@ class EventGroup(BaseModel, Generic[EventInput]):
     action_input: EventInput
     action_result: Any | None = None
     current_attempt: int | None = None
-    retry_policy: ActionRetryPolicy
-    start_delay: float
+    retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
+    start_delay: float = 0.0
 
     @staticmethod
     def from_scheduled_activity(
