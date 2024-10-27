@@ -32,4 +32,4 @@ mypy path:
 gen-client:
 	cd frontend && pnpm generate-client && cd ..
 update-version before after:
-	-./scripts/update_version.sh {{before}} {{after}}
+	-./scripts/update-version.sh {{before}} {{after}}
