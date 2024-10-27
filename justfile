@@ -22,11 +22,12 @@ build:
 	docker compose build --no-cache
 
 lint-ui:
-	cd frontend && pnpm lint && cd ..
+	cd frontend && pnpm lint:fix && cd ..
 lint-app:
 	ruff check .
 
 lint: lint-ui lint-app
-
+mypy path:
+	mypy --ignore-missing-imports --enable-incomplete-feature=NewGenericSyntax {{path}}
 gen-client:
 	cd frontend && pnpm generate-client && cd ..
