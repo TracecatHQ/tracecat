@@ -71,7 +71,9 @@
       "group": "Tutorials",
       "pages": [
         "tutorials/actions-registry",
-        "tutorials/custom-integrations"
+        "tutorials/custom-integrations",
+        "tutorials/triggers",
+        "tutorials/updating"
       ]
     },
     {
@@ -92,9 +94,17 @@
             "self-hosting/authentication/basic",
             "self-hosting/authentication/google"
           ]
-        },
-        "self-hosting/external-facing-webhooks",
-        "self-hosting/updating"
+        }
+      ]
+    },
+    {
+      "group": "Platform",
+      "pages": [
+        "platform/workflows",
+        "platform/actions",
+        "platform/secrets",
+        "platform/expressions",
+        "platform/functions"
       ]
     },
     {
