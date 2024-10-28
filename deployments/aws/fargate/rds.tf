@@ -12,6 +12,7 @@ resource "random_string" "temporal_snapshot_suffix" {
 
 # Check if snapshots exist for core database
 data "aws_db_snapshot" "core_snapshots" {
+  count                  = var.restore_from_snapshot ? 1 : 0
   db_instance_identifier = "core-database"
   most_recent            = true
   include_shared         = false
@@ -19,7 +20,7 @@ data "aws_db_snapshot" "core_snapshots" {
 
   lifecycle {
     postcondition {
-      condition     = self.id != null || var.restore_from_snapshot == false
+      condition     = !var.restore_from_snapshot || length(self) > 0
       error_message = "No snapshot found for core database and restore_from_snapshot is set to true"
     }
   }
@@ -27,6 +28,7 @@ data "aws_db_snapshot" "core_snapshots" {
 
 # Check if snapshots exist for temporal database
 data "aws_db_snapshot" "temporal_snapshots" {
+  count                  = var.restore_from_snapshot ? 1 : 0
   db_instance_identifier = "temporal-database"
   most_recent            = true
   include_shared         = false
@@ -34,7 +36,7 @@ data "aws_db_snapshot" "temporal_snapshots" {
 
   lifecycle {
     postcondition {
-      condition     = self.id != null || var.restore_from_snapshot == false
+      condition     = !var.restore_from_snapshot || length(self) > 0
       error_message = "No snapshot found for temporal database and restore_from_snapshot is set to true"
     }
   }
@@ -55,7 +57,7 @@ resource "aws_db_instance" "core_database" {
   vpc_security_group_ids       = [aws_security_group.core_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
   final_snapshot_identifier    = "final-core-db-${local.snapshot_timestamp}-${random_string.core_snapshot_suffix.result}"
-  snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.core_snapshots.db_snapshot_arn, null) : null
+  snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.core_snapshots[0].db_snapshot_arn, null) : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period
@@ -85,7 +87,7 @@ resource "aws_db_instance" "temporal_database" {
   vpc_security_group_ids       = [aws_security_group.temporal_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
   final_snapshot_identifier    = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix.result}"
-  snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.temporal_snapshots.db_snapshot_arn, null) : null
+  snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.temporal_snapshots[0].db_snapshot_arn, null) : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
   backup_retention_period      = var.rds_backup_retention_period

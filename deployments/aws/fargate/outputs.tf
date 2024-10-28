@@ -31,13 +31,11 @@ output "local_dns_namespace" {
 # Outputs
 
 output "latest_core_snapshot_encrypted" {
+  value       = var.restore_from_snapshot ? data.aws_db_snapshot.core_snapshots[0].encrypted : null
   description = "Whether the latest core database snapshot is encrypted"
-  value       = data.aws_db_snapshot.core_snapshots.encrypted
-  sensitive   = false
 }
 
 output "latest_temporal_snapshot_encrypted" {
+  value       = var.restore_from_snapshot ? data.aws_db_snapshot.temporal_snapshots[0].encrypted : null
   description = "Whether the latest temporal database snapshot is encrypted"
-  value       = data.aws_db_snapshot.temporal_snapshots.encrypted
-  sensitive   = false
 }
