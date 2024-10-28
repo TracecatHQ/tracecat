@@ -5,9 +5,8 @@ import base64
 import ipaddress
 import itertools
 import json
-import operator
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta
 from functools import wraps
 from html.parser import HTMLParser
@@ -24,72 +23,7 @@ from tracecat.expressions.validation import is_iterable
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
-OPERATORS = {
-    "||": lambda x, y: x or y,
-    "&&": lambda x, y: x and y,
-    "==": lambda x, y: x == y,
-    "!=": lambda x, y: x != y,
-    "<": lambda x, y: x < y,
-    "<=": lambda x, y: x <= y,
-    ">": lambda x, y: x > y,
-    ">=": lambda x, y: x >= y,
-    "+": lambda x, y: x + y,
-    "-": lambda x, y: x - y,
-    "*": lambda x, y: x * y,
-    "/": lambda x, y: x / y,
-    "%": lambda x, y: x % y,
-    "!": lambda x: not x,
-}
-
-
-def _bool(x: Any) -> bool:
-    if isinstance(x, bool):
-        return x
-    if isinstance(x, str):
-        return x.lower() in ("true", "1")
-    # Use default bool for everything else
-    return bool(x)
-
-
-def from_timestamp(x: int, unit: str) -> datetime:
-    if unit == "ms":
-        dt = datetime.fromtimestamp(x / 1000)
-    else:
-        dt = datetime.fromtimestamp(x)
-    return dt
-
-
-def format_string(template: str, *values: Any) -> str:
-    """Format a string with the given arguments."""
-    return template.format(*values)
-
-
-def str_to_b64(x: str) -> str:
-    return base64.b64encode(x.encode()).decode()
-
-
-def b64_to_str(x: str) -> str:
-    return base64.b64decode(x).decode()
-
-
-def ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
-    if IPv4Address(ipv4) in IPv4Network(subnet):
-        return True
-    return False
-
-
-def ipv6_in_subnet(ipv6: str, subnet: str) -> bool:
-    if IPv6Address(ipv6) in IPv6Network(subnet):
-        return True
-    return False
-
-
-def ipv4_is_public(ipv4: str) -> bool:
-    return IPv4Address(ipv4).is_global
-
-
-def ipv6_is_public(ipv6: str) -> bool:
-    return IPv6Address(ipv6).is_global
+T = TypeVar("T")
 
 
 class SafeEvaluator(ast.NodeVisitor):
@@ -133,9 +67,6 @@ class SafeEvaluator(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-T = TypeVar("T")
-
-
 class FunctionConstraint(TypedDict):
     jsonpath: str | None
     function: str
@@ -150,6 +81,7 @@ class OperatorConstraint(TypedDict):
 def custom_filter(
     items: list[T], constraint: str | list[T] | FunctionConstraint | OperatorConstraint
 ) -> list[T]:
+    """Custom collection filter with support for jsonpath, lambda expressions and operators."""
     logger.warning("Using custom filter function")
     match constraint:
         case str():
@@ -185,12 +117,7 @@ def custom_filter(
 
 
 def lambda_filter(collection: list[T], filter_expr: str) -> list[T]:
-    """Filter a collection based on a condition.
-
-    This function references each collection item as `x` in the lambda expression.
-
-    e.g. `x > 2` will filter out all items less than or equal to 2.
-    """
+    """Filter a collection based on a constrained lambda expression."""
     # Check if the string has any blacklisted symbols
     if any(
         word in filter_expr
@@ -220,14 +147,62 @@ def lambda_filter(collection: list[T], filter_expr: str) -> list[T]:
     return filtered_collection
 
 
-def cast(x: Any, typename: str) -> Any:
-    if typename not in BUILTIN_TYPE_MAPPING:
-        raise ValueError(f"Unknown type {typename!r} for cast operation.")
-    return BUILTIN_TYPE_MAPPING[typename](x)
+def _bool(x: Any) -> bool:
+    """Convert input to boolean."""
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, str):
+        return x.lower() in ("true", "1")
+    # Use default bool for everything else
+    return bool(x)
 
 
-def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
-    return f"{context_type}.{expr}" if context_type else expr
+def from_timestamp(x: int, unit: str) -> datetime:
+    """Convert timestamp to datetime, handling milliseconds if unit is 'ms'."""
+    if unit == "ms":
+        dt = datetime.fromtimestamp(x / 1000)
+    else:
+        dt = datetime.fromtimestamp(x)
+    return dt
+
+
+def format_string(template: str, *values: Any) -> str:
+    """Format a string with the given arguments."""
+    return template.format(*values)
+
+
+def str_to_b64(x: str) -> str:
+    """Encode string to base64."""
+    return base64.b64encode(x.encode()).decode()
+
+
+def b64_to_str(x: str) -> str:
+    """Decode base64 string to string."""
+    return base64.b64decode(x).decode()
+
+
+def ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
+    """Check if IPv4 address is in the given subnet."""
+    if IPv4Address(ipv4) in IPv4Network(subnet):
+        return True
+    return False
+
+
+def ipv6_in_subnet(ipv6: str, subnet: str) -> bool:
+    """Check if IPv6 address is in the given subnet."""
+    if IPv6Address(ipv6) in IPv6Network(subnet):
+        return True
+    return False
+
+
+def ipv4_is_public(ipv4: str) -> bool:
+    """Check if IPv4 address is public/global."""
+    return IPv4Address(ipv4).is_global
+
+
+def ipv6_is_public(ipv6: str) -> bool:
+    """Check if IPv6 address is public/global."""
+    return IPv6Address(ipv6).is_global
 
 
 def eval_jsonpath(
@@ -237,19 +212,7 @@ def eval_jsonpath(
     context_type: ExprContext | None = None,
     strict: bool = False,
 ) -> T | None:
-    """Evaluate a jsonpath expression on the operand.
-
-    Parameters
-    ----------
-    expr : str
-        The jsonpath expression to evaluate.
-    operand : dict[str, Any]
-        The operand to evaluate the jsonpath on.
-    context_type : ExprContext, optional
-        The context type of the expression, by default None.
-    strict : bool, optional
-        Whether to raise an error if the jsonpath doesn't match, by default False.
-    """
+    """Evaluate a jsonpath expression on the target object (operand)."""
 
     if operand is None or not isinstance(operand, dict | list):
         logger.error("Invalid operand for jsonpath", operand=operand)
@@ -289,6 +252,7 @@ def eval_jsonpath(
 
 
 def to_datetime(x: Any) -> datetime:
+    """Convert input to datetime object from timestamp, ISO string or existing datetime."""
     if isinstance(x, datetime):
         return x
     if isinstance(x, int):
@@ -299,6 +263,7 @@ def to_datetime(x: Any) -> datetime:
 
 
 def extract_text_from_html(input: str) -> list[str]:
+    """Extract text content from HTML string using HTMLToTextParser."""
     parser = HTMLToTextParser()
     parser.feed(input)
     parser.close()
@@ -315,7 +280,8 @@ class HTMLToTextParser(HTMLParser):
         self._output += [data.strip()]
 
 
-def custom_chain(*args):
+def custom_chain(*args) -> Any:
+    """Recursively flattens nested iterables into a single generator."""
     for arg in args:
         if is_iterable(arg, container_only=True):
             yield from custom_chain(*arg)
@@ -324,6 +290,7 @@ def custom_chain(*args):
 
 
 def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
+    """Parse newline-delimited JSON string into list of dictionaries."""
     return [orjson.loads(line) for line in x.splitlines()]
 
 
@@ -335,86 +302,323 @@ BUILTIN_TYPE_MAPPING = {
     # TODO: Perhaps support for URLs for files?
 }
 
-# Supported Formulas / Functions
+
+def slice_str(x: str, start_index: int, length: int) -> str:
+    """Extract a substring from start_index with given length."""
+    return x[start_index : start_index + length]
+
+
+def not_null(x: Any) -> bool:
+    """Check if value is not None."""
+    return x is not None
+
+
+def is_null(x: Any) -> bool:
+    """Check if value is None."""
+    return x is None
+
+
+def regex_extract(pattern: str, text: str) -> str:
+    """Extract first match of regex pattern from text."""
+    return re.search(pattern, text).group(0)
+
+
+def regex_match(pattern: str, text: str) -> bool:
+    """Check if text matches regex pattern."""
+    return bool(re.match(pattern, text))
+
+
+def regex_not_match(pattern: str, text: str) -> bool:
+    """Check if text does not match regex pattern."""
+    return not bool(re.match(pattern, text))
+
+
+def contains(item: Any, container: Sequence[Any]) -> bool:
+    """Check if item exists in container."""
+    return item in container
+
+
+def does_not_contain(item: Any, container: Sequence[Any]) -> bool:
+    """Check if item does not exist in container."""
+    return item not in container
+
+
+def is_empty(x: Sequence[Any]) -> bool:
+    """Check if sequence is empty."""
+    return len(x) == 0
+
+
+def not_empty(x: Sequence[Any]) -> bool:
+    """Check if sequence is not empty."""
+    return len(x) > 0
+
+
+def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
+    """Flatten nested sequences into a single list."""
+    return list(custom_chain(*iterables))
+
+
+def unique_items(items: Sequence[Any]) -> list[Any]:
+    """Return unique items from sequence."""
+    return list(set(items))
+
+
+def join_strings(items: Sequence[str], sep: str) -> str:
+    """Join sequence of strings with separator."""
+    return sep.join(items)
+
+
+def concat_strings(*items: str) -> str:
+    """Concatenate multiple strings."""
+    return "".join(items)
+
+
+def zip_iterables(*iterables: Sequence[Any]) -> list[tuple[Any, ...]]:
+    """Zip multiple sequences together."""
+    return list(zip(*iterables, strict=False))
+
+
+def iter_product(*iterables: Sequence[Any]) -> list[tuple[Any, ...]]:
+    """Generate cartesian product of sequences."""
+    return list(itertools.product(*iterables))
+
+
+def generate_uuid() -> str:
+    """Generate a random UUID string."""
+    return str(uuid4())
+
+
+def dict_keys(x: dict[Any, Any]) -> list[Any]:
+    """Extract keys from dictionary."""
+    return list(x.keys())
+
+
+def dict_values(x: dict[Any, Any]) -> list[Any]:
+    """Extract values from dictionary."""
+    return list(x.values())
+
+
+def serialize_to_json(x: Any) -> str:
+    """Convert object to JSON string."""
+    return orjson.dumps(x).decode()
+
+
+def prettify_json_str(x: Any) -> str:
+    """Convert object to formatted JSON string."""
+    return json.dumps(x, indent=2)
+
+
+def to_timestamp_str(x: datetime) -> float:
+    """Convert datetime to timestamp."""
+    return x.timestamp()
+
+
+def create_minutes(x: int) -> timedelta:
+    """Create timedelta with specified minutes."""
+    return timedelta(minutes=x)
+
+
+def to_date_string(x: datetime, format: str) -> str:
+    """Format datetime to string using specified format."""
+    return x.strftime(format)
+
+
+def to_iso_format(x: datetime) -> str:
+    """Convert datetime to ISO format string."""
+    return x.isoformat()
+
+
+def dict_lookup(d: dict[Any, Any], k: Any) -> Any:
+    """Safely get value from dictionary."""
+    return d.get(k)
+
+
+def check_ip_version(ip: str) -> int:
+    """Get IP address version (4 or 6)."""
+    return ipaddress.ip_address(ip).version
+
+
+def less_than(a: Any, b: Any) -> bool:
+    """Check if a is less than b."""
+    return a < b
+
+
+def less_than_or_equal(a: Any, b: Any) -> bool:
+    """Check if a is less than or equal to b."""
+    return a <= b
+
+
+def greater_than(a: Any, b: Any) -> bool:
+    """Check if a is greater than b."""
+    return a > b
+
+
+def greater_than_or_equal(a: Any, b: Any) -> bool:
+    """Check if a is greater than or equal to b."""
+    return a >= b
+
+
+def not_equal(a: Any, b: Any) -> bool:
+    """Check if a is not equal to b."""
+    return a != b
+
+
+def is_equal(a: Any, b: Any) -> bool:
+    """Check if a is equal to b."""
+    return a == b
+
+
+def add(a: float | int, b: float | int) -> float | int:
+    """Add two numbers together."""
+    return a + b
+
+
+def sub(a: float | int, b: float | int) -> float | int:
+    """Subtract second number from first number."""
+    return a - b
+
+
+def mul(a: float | int, b: float | int) -> float | int:
+    """Multiply two numbers together."""
+    return a * b
+
+
+def div(a: float | int, b: float | int) -> float:
+    """Divide first number by second number."""
+    if b == 0:
+        raise ZeroDivisionError("Cannot divide by zero")
+    return a / b
+
+
+def mod(a: float | int, b: float | int) -> float | int:
+    """Calculate modulo (remainder) of first number divided by second."""
+    if b == 0:
+        raise ZeroDivisionError("Cannot calculate modulo with zero")
+    return a % b
+
+
+def pow(a: float | int, b: float | int) -> float | int:
+    """Raise first number to the power of second number."""
+    return a**b
+
+
+def now() -> datetime:
+    """Return the current datetime."""
+    return datetime.now()
+
+
+def sum_(iterable: Iterable[float | int], start: float | int = 0) -> float | int:
+    """Return the sum of a 'start' value (default: 0) plus an iterable of numbers."""
+    return sum(iterable, start)
+
+
+def not_(x: bool) -> bool:
+    """Logical NOT operation."""
+    return not x
+
+
+def and_(a: bool, b: bool) -> bool:
+    """Logical AND operation."""
+    return a and b
+
+
+def or_(a: bool, b: bool) -> bool:
+    """Logical OR operation."""
+    return a or b
+
+
 _FUNCTION_MAPPING = {
     # String transforms
-    "slice": lambda x, start_index, length: x[start_index : start_index + length],
+    "slice": slice_str,
     # Comparison
-    "less_than": operator.lt,
-    "less_than_or_equal": operator.le,
-    "greater_than": operator.gt,
-    "greater_than_or_equal": operator.ge,
-    "not_equal": operator.ne,
-    "is_equal": operator.eq,
-    "not_null": lambda x: x is not None,
-    "is_null": lambda x: x is None,
+    "less_than": less_than,
+    "less_than_or_equal": less_than_or_equal,
+    "greater_than": greater_than,
+    "greater_than_or_equal": greater_than_or_equal,
+    "not_equal": not_equal,
+    "is_equal": is_equal,
+    "not_null": not_null,
+    "is_null": is_null,
     # Regex
-    "regex_extract": lambda pattern, text: re.search(pattern, text).group(0),
-    "regex_match": lambda pattern, text: bool(re.match(pattern, text)),
-    "regex_not_match": lambda pattern, text: not bool(re.match(pattern, text)),
+    "regex_extract": regex_extract,
+    "regex_match": regex_match,
+    "regex_not_match": regex_not_match,
     # Collections
-    "contains": lambda item, container: item in container,
-    "does_not_contain": lambda item, container: item not in container,
+    "contains": contains,
+    "does_not_contain": does_not_contain,
     "length": len,
-    "is_empty": lambda x: len(x) == 0,
-    "not_empty": lambda x: len(x) > 0,
-    "flatten": lambda iterables: list(custom_chain(*iterables)),
-    "unique": lambda items: list(set(items)),
+    "is_empty": is_empty,
+    "not_empty": not_empty,
+    "flatten": flatten,
+    "unique": unique_items,
     # Math
-    "add": operator.add,
-    "sub": operator.sub,
-    "mul": operator.mul,
-    "div": operator.truediv,
-    "mod": operator.mod,
-    "pow": operator.pow,
-    "sum": sum,
+    "add": add,
+    "sub": sub,
+    "mul": mul,
+    "div": div,
+    "mod": mod,
+    "pow": pow,
+    "sum": sum_,
     # Transform
-    "join": lambda items, sep: sep.join(items),
-    "concat": lambda *items: "".join(items),
+    "join": join_strings,
+    "concat": concat_strings,
     "format": format_string,
     "filter": custom_filter,
     "jsonpath": eval_jsonpath,
     # Iteration
-    "zip": lambda *iterables: list(zip(*iterables, strict=False)),
-    "iter_product": lambda *iterables: list(itertools.product(*iterables)),
+    "zip": zip_iterables,
+    "iter_product": iter_product,
     # Generators
-    "uuid4": lambda: str(uuid4()),
+    "uuid4": generate_uuid,
     # Extract JSON keys and values
-    "to_keys": lambda x: list(x.keys()),
-    "to_values": lambda x: list(x.values()),
+    "to_keys": dict_keys,
+    "to_values": dict_values,
     # Logical
-    "and": lambda a, b: a and b,
-    "or": lambda a, b: a or b,
-    "not": lambda a: not a,
+    "and": and_,
+    "or": or_,
+    "not": not_,
     # Type conversion
-    # Convert JSON to string
-    "serialize_json": lambda x: orjson.dumps(x).decode(),
-    # Convert JSON string to dictionary
+    "serialize_json": serialize_to_json,
     "deserialize_json": orjson.loads,
-    # Pretty-print JSON
-    "prettify_json": lambda x: json.dumps(x, indent=2),
-    # Convert NDJSON to list of dictionaries
+    "prettify_json": prettify_json_str,
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
     # Time related
-    "from_timestamp": lambda x, unit,: from_timestamp(x, unit),
-    "to_timestamp": lambda x: x.timestamp(),
-    "minutes": lambda x: timedelta(minutes=x),
-    "now": datetime.now,
-    "to_datestring": lambda x, format: x.strftime(format),
+    "from_timestamp": from_timestamp,
+    "to_timestamp": to_timestamp_str,
+    "minutes": create_minutes,
+    "now": now,
+    "to_datestring": to_date_string,
     "to_datetime": to_datetime,
-    "to_isoformat": lambda x: x.isoformat(),
+    "to_isoformat": to_iso_format,
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
     # Utils
-    "lookup": lambda d, k: d.get(k),
+    "lookup": dict_lookup,
     # IP addresses
-    "ipv4_in_subnet": lambda ip, subnet: ipv4_in_subnet(ip, subnet),
-    "ipv6_in_subnet": lambda ip, subnet: ipv4_in_subnet(ip, subnet),
+    "ipv4_in_subnet": ipv4_in_subnet,
+    "ipv6_in_subnet": ipv6_in_subnet,
     "ipv4_is_public": ipv4_is_public,
     "ipv6_is_public": ipv6_is_public,
-    "check_ip_version": lambda ip: ipaddress.ip_address(ip).version,
+    "check_ip_version": check_ip_version,
+}
+
+OPERATORS = {
+    "||": or_,
+    "&&": and_,
+    "==": is_equal,
+    "!=": not_equal,
+    "<": less_than,
+    "<=": less_than_or_equal,
+    ">": greater_than,
+    ">=": greater_than_or_equal,
+    "+": add,
+    "-": sub,
+    "*": mul,
+    "/": div,
+    "%": mod,
+    "!": not_,
 }
 
 
@@ -438,7 +642,18 @@ def mappable(func: Callable[P, R]) -> Callable[P, R]:
         return [func(*zipped) for zipped in zipped_args]
 
     wrapper.map = broadcast_map
+    wrapper.__doc__ = func.__doc__
     return wrapper
+
+
+def cast(x: Any, typename: str) -> Any:
+    if typename not in BUILTIN_TYPE_MAPPING:
+        raise ValueError(f"Unknown type {typename!r} for cast operation.")
+    return BUILTIN_TYPE_MAPPING[typename](x)
+
+
+def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
+    return f"{context_type}.{expr}" if context_type else expr
 
 
 FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
