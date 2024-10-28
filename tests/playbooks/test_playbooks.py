@@ -1,4 +1,5 @@
 import os
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
@@ -21,6 +23,14 @@ from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+
+
+@pytest_asyncio.fixture
+async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
+    """Test session that connexts to a live database."""
+    logger.info("Creating test session")
+    async with get_async_session_context_manager() as session:
+        yield session
 
 
 # Fixture to create Tracecat secrets
