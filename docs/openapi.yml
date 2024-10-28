@@ -2284,7 +2284,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UDFActionInput-Input'
+              $ref: '#/components/schemas/RunActionInput-Input'
       responses:
         '200':
           description: Successful Response
@@ -2879,6 +2879,13 @@ components:
             type: array
           - type: 'null'
           title: For Each
+        retry_policy:
+          $ref: '#/components/schemas/ActionRetryPolicy'
+        start_delay:
+          type: number
+          title: Start Delay
+          description: Delay before starting the action in seconds.
+          default: 0.0
       type: object
       title: ActionControlFlow
     ActionMetadataResponse:
@@ -2949,6 +2956,21 @@ components:
       - inputs
       - key
       title: ActionResponse
+    ActionRetryPolicy:
+      properties:
+        max_attempts:
+          type: integer
+          title: Max Attempts
+          description: Total number of execution attempts. 0 means unlimited, 1 means
+            no retries.
+          default: 1
+        timeout:
+          type: integer
+          title: Timeout
+          description: Timeout for the action in seconds.
+          default: 300
+      type: object
+      title: ActionRetryPolicy
     ActionStatement-Input:
       properties:
         id:
@@ -2997,6 +3019,15 @@ components:
           - type: 'null'
           title: For Each
           description: Iterate over a list of items and run the task for each item.
+        retry_policy:
+          allOf:
+          - $ref: '#/components/schemas/ActionRetryPolicy'
+          description: Retry policy for the action.
+        start_delay:
+          type: number
+          title: Start Delay
+          description: Delay before starting the action in seconds.
+          default: 0.0
       type: object
       required:
       - ref
@@ -3043,6 +3074,15 @@ components:
           - type: 'null'
           title: For Each
           description: Iterate over a list of items and run the task for each item.
+        retry_policy:
+          allOf:
+          - $ref: '#/components/schemas/ActionRetryPolicy'
+          description: Retry policy for the action.
+        start_delay:
+          type: number
+          title: Start Delay
+          description: Delay before starting the action in seconds.
+          default: 0.0
       type: object
       required:
       - ref
@@ -3088,6 +3128,15 @@ components:
           - type: 'null'
           title: For Each
           description: Iterate over a list of items and run the task for each item.
+        retry_policy:
+          allOf:
+          - $ref: '#/components/schemas/ActionRetryPolicy'
+          description: Retry policy for the action.
+        start_delay:
+          type: number
+          title: Start Delay
+          description: Delay before starting the action in seconds.
+          default: 0.0
       type: object
       required:
       - ref
@@ -3549,7 +3598,7 @@ components:
           title: Action Description
         action_input:
           anyOf:
-          - $ref: '#/components/schemas/UDFActionInput-Output'
+          - $ref: '#/components/schemas/RunActionInput-Output'
           - $ref: '#/components/schemas/DSLRunArgs'
           - $ref: '#/components/schemas/GetWorkflowDefinitionActivityInputs'
           title: Action Input
@@ -3558,6 +3607,17 @@ components:
           - {}
           - type: 'null'
           title: Action Result
+        current_attempt:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Current Attempt
+        retry_policy:
+          $ref: '#/components/schemas/ActionRetryPolicy'
+        start_delay:
+          type: number
+          title: Start Delay
+          default: 0.0
       type: object
       required:
       - event_id
@@ -4022,11 +4082,16 @@ components:
       title: RegistryRepositoryRead
     RegistryRepositoryReadMinimal:
       properties:
+        id:
+          type: string
+          format: uuid4
+          title: Id
         origin:
           type: string
           title: Origin
       type: object
       required:
+      - id
       - origin
       title: RegistryRepositoryReadMinimal
     RegistryRepositoryUpdate:
@@ -4125,6 +4190,42 @@ components:
         -------------\n- Service roles are authenticated via API key.\n- Used for\
         \ internal services to authenticate with the API.\n- A service's `user_id`\
         \ is the user it's acting on behalf of. This can be None for internal services."
+    RunActionInput-Input:
+      properties:
+        task:
+          $ref: '#/components/schemas/ActionStatement-Input'
+        role:
+          $ref: '#/components/schemas/Role'
+        exec_context:
+          $ref: '#/components/schemas/DSLContext'
+        run_context:
+          $ref: '#/components/schemas/RunContext'
+      type: object
+      required:
+      - task
+      - role
+      - exec_context
+      - run_context
+      title: RunActionInput
+      description: This object contains all the information needed to execute an action.
+    RunActionInput-Output:
+      properties:
+        task:
+          $ref: '#/components/schemas/ActionStatement-Output'
+        role:
+          $ref: '#/components/schemas/Role'
+        exec_context:
+          $ref: '#/components/schemas/DSLContext'
+        run_context:
+          $ref: '#/components/schemas/RunContext'
+      type: object
+      required:
+      - task
+      - role
+      - exec_context
+      - run_context
+      title: RunActionInput
+      description: This object contains all the information needed to execute an action.
     RunContext:
       properties:
         wf_id:
@@ -4687,42 +4788,6 @@ components:
       - type
       - ref
       title: Trigger
-    UDFActionInput-Input:
-      properties:
-        task:
-          $ref: '#/components/schemas/ActionStatement-Input'
-        role:
-          $ref: '#/components/schemas/Role'
-        exec_context:
-          $ref: '#/components/schemas/DSLContext'
-        run_context:
-          $ref: '#/components/schemas/RunContext'
-      type: object
-      required:
-      - task
-      - role
-      - exec_context
-      - run_context
-      title: UDFActionInput
-      description: This object contains all the information needed to execute an action.
-    UDFActionInput-Output:
-      properties:
-        task:
-          $ref: '#/components/schemas/ActionStatement-Output'
-        role:
-          $ref: '#/components/schemas/Role'
-        exec_context:
-          $ref: '#/components/schemas/DSLContext'
-        run_context:
-          $ref: '#/components/schemas/RunContext'
-      type: object
-      required:
-      - task
-      - role
-      - exec_context
-      - run_context
-      title: UDFActionInput
-      description: This object contains all the information needed to execute an action.
     UpdateActionParams:
       properties:
         title:
