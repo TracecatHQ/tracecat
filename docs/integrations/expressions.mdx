@@ -1,0 +1,87 @@
+---
+title: Expressions Cheatsheet
+description: A cheatsheet of all the expressions supported by Tracecat.
+---
+
+## Expressions
+
+| Expression               | Description                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `slice`                  | Extract a substring from start_index with given length.                               |
+| `less_than`              | Check if a is less than b.                                                            |
+| `less_than_or_equal`     | Check if a is less than or equal to b.                                                |
+| `greater_than`           | Check if a is greater than b.                                                         |
+| `greater_than_or_equal`  | Check if a is greater than or equal to b.                                             |
+| `not_equal`              | Check if a is not equal to b.                                                         |
+| `is_equal`               | Check if a is equal to b.                                                             |
+| `not_null`               | Check if value is not None.                                                           |
+| `is_null`                | Check if value is None.                                                               |
+| `regex_extract`          | Extract first match of regex pattern from text.                                       |
+| `regex_match`            | Check if text matches regex pattern.                                                  |
+| `regex_not_match`        | Check if text does not match regex pattern.                                           |
+| `contains`               | Check if item exists in container.                                                    |
+| `does_not_contain`       | Check if item does not exist in container.                                            |
+| `length`                 | Return the number of items in a container.                                            |
+| `is_empty`               | Check if sequence is empty.                                                           |
+| `not_empty`              | Check if sequence is not empty.                                                       |
+| `flatten`                | Flatten nested sequences into a single list.                                          |
+| `unique`                 | Return unique items from sequence.                                                    |
+| `add`                    | Add two numbers together.                                                             |
+| `sub`                    | Subtract second number from first number.                                             |
+| `mul`                    | Multiply two numbers together.                                                        |
+| `div`                    | Divide first number by second number.                                                 |
+| `mod`                    | Calculate modulo (remainder) of first number divided by second.                       |
+| `pow`                    | Raise first number to the power of second number.                                     |
+| `sum`                    | Return the sum of a 'start' value (default: 0) plus an iterable of numbers.           |
+| `join`                   | Join sequence of strings with separator.                                              |
+| `concat`                 | Concatenate multiple strings.                                                         |
+| `format`                 | Format a string with the given arguments.                                             |
+| `filter`                 | Custom collection filter with support for jsonpath, lambda expressions and operators. |
+| `jsonpath`               | Evaluate a jsonpath expression on the target object (operand).                        |
+| `zip`                    | Zip multiple sequences together.                                                      |
+| `iter_product`           | Generate cartesian product of sequences.                                              |
+| `uuid4`                  | Generate a random UUID string.                                                        |
+| `to_keys`                | Extract keys from dictionary.                                                         |
+| `to_values`              | Extract values from dictionary.                                                       |
+| `and`                    | Logical AND operation.                                                                |
+| `or`                     | Logical OR operation.                                                                 |
+| `not`                    | Logical NOT operation.                                                                |
+| `serialize_json`         | Convert object to JSON string.                                                        |
+| `deserialize_json`       | Deserialize JSON to Python objects.                                                   |
+| `prettify_json`          | Convert object to formatted JSON string.                                              |
+| `deserialize_ndjson`     | Parse newline-delimited JSON string into list of dictionaries.                        |
+| `extract_text_from_html` | Extract text content from HTML string using HTMLToTextParser.                         |
+| `from_timestamp`         | Convert timestamp to datetime, handling milliseconds if unit is 'ms'.                 |
+| `to_timestamp`           | Convert datetime to timestamp.                                                        |
+| `minutes`                | Create timedelta with specified minutes.                                              |
+| `now`                    | Return the current datetime.                                                          |
+| `to_datestring`          | Format datetime to string using specified format.                                     |
+| `to_datetime`            | Convert input to datetime object from timestamp, ISO string or existing datetime.     |
+| `to_isoformat`           | Convert datetime to ISO format string.                                                |
+| `to_base64`              | Encode string to base64.                                                              |
+| `from_base64`            | Decode base64 string to string.                                                       |
+| `lookup`                 | Safely get value from dictionary.                                                     |
+| `ipv4_in_subnet`         | Check if IPv4 address is in the given subnet.                                         |
+| `ipv6_in_subnet`         | Check if IPv6 address is in the given subnet.                                         |
+| `ipv4_is_public`         | Check if IPv4 address is public/global.                                               |
+| `ipv6_is_public`         | Check if IPv6 address is public/global.                                               |
+| `check_ip_version`       | Get IP address version (4 or 6).                                                      |
+
+## Built-in Operators
+
+| Operator | Description                                                     |
+| -------- | --------------------------------------------------------------- |
+| `\|\|`   | Logical OR operation.                                           |
+| `&&`     | Logical AND operation.                                          |
+| `==`     | Check if a is equal to b.                                       |
+| `!=`     | Check if a is not equal to b.                                   |
+| `<`      | Check if a is less than b.                                      |
+| `<=`     | Check if a is less than or equal to b.                          |
+| `>`      | Check if a is greater than b.                                   |
+| `>=`     | Check if a is greater than or equal to b.                       |
+| `+`      | Add two numbers together.                                       |
+| `-`      | Subtract second number from first number.                       |
+| `*`      | Multiply two numbers together.                                  |
+| `/`      | Divide first number by second number.                           |
+| `%`      | Calculate modulo (remainder) of first number divided by second. |
+| `!`      | Logical NOT operation.                                          |
