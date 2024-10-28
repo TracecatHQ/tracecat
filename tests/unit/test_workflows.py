@@ -135,7 +135,7 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
 )
 @pytest.mark.asyncio
 async def test_workflow_ordering_is_correct(
-    dsl, temporal_cluster, test_role, temporal_client, base_registry
+    dsl, temporal_cluster, test_role, temporal_client
 ):
     """We need to test that the ordering of the workflow tasks is correct."""
 
@@ -186,7 +186,7 @@ async def test_workflow_ordering_is_correct(
 )
 @pytest.mark.asyncio
 async def test_workflow_completes_and_correct(
-    dsl_with_expected, temporal_cluster, test_role, runtime_config, base_registry
+    dsl_with_expected, temporal_cluster, test_role, runtime_config
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
@@ -227,7 +227,7 @@ async def test_workflow_completes_and_correct(
 )
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_stress_workflow(dsl, temporal_cluster, test_role, base_registry):
+async def test_stress_workflow(dsl, temporal_cluster, test_role):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = f"test_stress_workflow-{dsl.title}"
     client = await get_temporal_client()
@@ -282,7 +282,8 @@ async def test_workflow_multi_environ_secret_manager_correctness(
 
     # Setup remote registry
     module_name = "test_module"
-    code = textwrap.dedent(f"""
+    code = textwrap.dedent(
+        f"""
         import asyncio
         import random
         from typing import Any
@@ -301,7 +302,8 @@ async def test_workflow_multi_environ_secret_manager_correctness(
         async def set_environment(value: str) -> dict[str, Any]:
             secret_value = secrets.get("KEY")
             return {{"secret_value": secret_value, "value": value}}
-    """)
+    """
+    )
     client = RegistryClient()
     await client._register_test_module(
         version=version,
@@ -430,7 +432,8 @@ async def test_stress_workflow_udf_secret_manager_correctness(
 
     # Setup remote registry
     module_name = "test_module"
-    code = textwrap.dedent("""
+    code = textwrap.dedent(
+        """
         import asyncio
         import random
         from typing import Any
@@ -453,7 +456,8 @@ async def test_stress_workflow_udf_secret_manager_correctness(
                 "first": first,
                 "second": second,
             }
-    """)
+    """
+    )
     client = RegistryClient()
     await client._register_test_module(
         version=version,
@@ -547,7 +551,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
 @pytest.mark.skip(reason="This test is too slow to run on CI, and breaking atm.")
 @pytest.mark.asyncio
 async def test_stress_workflow_correctness(
-    runs, temporal_cluster, test_role, base_registry, temporal_client
+    runs, temporal_cluster, test_role, temporal_client
 ):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = test_stress_workflow_correctness.__name__
@@ -637,7 +641,7 @@ async def test_stress_workflow_correctness(
 
 @pytest.mark.asyncio
 async def test_workflow_set_environment_correct(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = f"{test_workflow_set_environment_correct.__name__}"
     test_description = (
@@ -697,7 +701,7 @@ async def test_workflow_set_environment_correct(
 
 @pytest.mark.asyncio
 async def test_workflow_override_environment_correct(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = f"{test_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -758,7 +762,7 @@ async def test_workflow_override_environment_correct(
 
 @pytest.mark.asyncio
 async def test_workflow_default_environment_correct(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = f"{test_workflow_default_environment_correct.__name__}"
     test_description = (
@@ -858,9 +862,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
 
 
 @pytest.mark.asyncio
-async def test_child_workflow_success(
-    temporal_cluster, test_role, temporal_client, base_registry
-):
+async def test_child_workflow_success(temporal_cluster, test_role, temporal_client):
     test_name = f"{test_child_workflow_success.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Child
@@ -942,7 +944,7 @@ async def test_child_workflow_success(
 
 @pytest.mark.asyncio
 async def test_child_workflow_context_passing(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     # Setup
     test_name = f"{test_child_workflow_context_passing.__name__}"
@@ -1061,7 +1063,7 @@ async def test_child_workflow_context_passing(
 
 @pytest.mark.asyncio
 async def test_single_child_workflow_override_environment_correct(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = f"{test_single_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1140,7 +1142,7 @@ async def test_single_child_workflow_override_environment_correct(
 
 @pytest.mark.asyncio
 async def test_multiple_child_workflow_override_environment_correct(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = f"{test_multiple_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1219,7 +1221,7 @@ async def test_multiple_child_workflow_override_environment_correct(
 
 @pytest.mark.asyncio
 async def test_single_child_workflow_environment_has_correct_default(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = f"{test_single_child_workflow_environment_has_correct_default.__name__}"
     test_description = (
@@ -1298,7 +1300,7 @@ async def test_single_child_workflow_environment_has_correct_default(
 
 @pytest.mark.asyncio
 async def test_multiple_child_workflow_environments_have_correct_defaults(
-    temporal_cluster, test_role, temporal_client, base_registry
+    temporal_cluster, test_role, temporal_client
 ):
     test_name = (
         f"{test_multiple_child_workflow_environments_have_correct_defaults.__name__}"
@@ -1387,11 +1389,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
 
 @pytest.mark.asyncio
 async def test_single_child_workflow_get_correct_secret_environment(
-    temporal_cluster,
-    test_role,
-    temporal_client,
-    base_registry,
-    monkeysession: pytest.MonkeyPatch,
+    temporal_cluster, test_role, temporal_client
 ):
     # We need to set this on the API server, as we run it in a separate process
     # monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
@@ -1493,9 +1491,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
 
 
 @pytest.mark.asyncio
-async def test_pull_based_workflow_fetches_latest_version(
-    temporal_client, test_role, base_registry
-):
+async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_role):
     """Test that a pull-based workflow fetches the latest version after being updated.
 
     Steps
