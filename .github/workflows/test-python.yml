@@ -86,7 +86,6 @@ jobs:
         run: |
           uv pip install ".[dev]"
           uv pip install ./registry
-          uv pip install ./cli
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
