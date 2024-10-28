@@ -1,20 +1,18 @@
 import asyncio
+import json
 import os
 import subprocess
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
-import pytest_asyncio
-from pytest_mock import MockerFixture
-from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_cli.config import Config, ConfigFileManager
 
 from tracecat import config
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logger import logger
 from tracecat.registry.repository import Repository
@@ -218,48 +216,48 @@ def tracecat_worker(env_sandbox):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def test_config_path(tmp_path_factory):
+def test_config_path(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     tmp_path = tmp_path_factory.mktemp("config")
     config_path = tmp_path / "test_config.json"
     yield config_path
 
 
-@pytest.fixture(autouse=True, scope="session")
-def test_config_manager(test_config_path, session_mocker: MockerFixture):
-    """Use this to manage the config file for the test session."""
-    config = Config(test_config_path)
-    config_manager = ConfigFileManager(test_config_path)
-
-    # Monkey patch the config manager in the cli module
-    session_mocker.patch("cli.tracecat_cli.config.config", config)
-    session_mocker.patch("cli.tracecat_cli.config.manager", config_manager)
-
-    yield config_manager
-
-
 @pytest.fixture(scope="session")
-def authed_test_client(test_config_manager: ConfigFileManager):
-    def _factory():
+def authed_client_controls(test_config_path: Path):
+    def _read_config() -> dict[str, Any]:
+        try:
+            with test_config_path.open() as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def get_client():
         url = os.getenv("TRACECAT__PUBLIC_API_URL")
-        return httpx.Client(base_url=url, cookies=test_config_manager.read_cookies())
+        if cookies_data := _read_config().get("cookies"):
+            return httpx.Client(base_url=url, cookies=httpx.Cookies(cookies_data))
+        raise ValueError("No cookies found in config")
 
-    return _factory
+    def cfg_write(key: str, value: Any | None = None):
+        config_data = _read_config()
+        if value:
+            config_data[key] = value
+        else:
+            config_data.pop(key, None)
+        with test_config_path.open(mode="w") as f:
+            json.dump(config_data, f, indent=2)
+
+    def cfg_read(key: str) -> Any | None:
+        return _read_config().get(key)
+
+    return get_client, cfg_write, cfg_read
 
 
 @pytest.fixture(autouse=True, scope="session")
-def registry():
-    registry = Repository()
-    registry.init()
-    return registry
-
-
-@pytest.fixture(autouse=True, scope="session")
-def test_admin_user(
-    env_sandbox, test_config_manager: ConfigFileManager, authed_test_client
-):
+def test_admin_user(env_sandbox, authed_client_controls):
     # Login
 
     url = os.getenv("TRACECAT__PUBLIC_API_URL")
+    get_client, cfg_write, cfg_read = authed_client_controls
 
     # Login
     try:
@@ -269,11 +267,12 @@ def test_admin_user(
                 data={"username": "admin@domain.com", "password": "password"},
             )
             response.raise_for_status()
-            test_config_manager.write_cookies(response.cookies)
+            cfg_write("cookies", dict(response.cookies))
 
         # Current user
+        logger.info("Getting current user", read_cfg=cfg_read("cookies"))
 
-        with authed_test_client() as client:
+        with get_client() as client:
             response = client.get("/users/me")
             response.raise_for_status()
             user_data = response.json()
@@ -283,22 +282,20 @@ def test_admin_user(
     finally:
         # Logout
         logger.info("Logging out of test session")
-        with authed_test_client() as client:
+        with get_client() as client:
             response = client.post("/auth/logout")
             response.raise_for_status()
-        test_config_manager.delete_cookies()
 
 
 @pytest.fixture(autouse=True, scope="session")
-def test_workspace(
-    test_admin_user, authed_test_client, test_config_manager: ConfigFileManager
-):
+def test_workspace(test_admin_user, authed_client_controls):
     """Create a test workspace for the test session."""
 
+    get_client, cfg_write, cfg_read = authed_client_controls
     # Login
     workspace: WorkspaceMetadataResponse | None = None
     try:
-        with authed_test_client() as client:
+        with get_client() as client:
             response = client.post(
                 "/workspaces",
                 json={"name": "__test_workspace"},
@@ -307,13 +304,13 @@ def test_workspace(
             workspace = WorkspaceMetadataResponse(**response.json())
 
         logger.info("Created test workspace", workspace=workspace)
-        test_config_manager.set_workspace(workspace.id, workspace.name)
+        cfg_write("workspace", workspace.model_dump(mode="json"))
 
         yield workspace
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 409:
             logger.info("Test workspace already exists")
-            workspace = test_config_manager.get_workspace()
+            workspace = cfg_read("workspace")
             if not workspace:
                 raise ValueError(
                     "Unexpected error when retrieving workspace. Workspace either doesn't exist or there was a conflict."
@@ -324,18 +321,9 @@ def test_workspace(
         # NOTE: This will remove all test assets created from the DB
         logger.info("Teardown test workspace")
         if workspace:
-            test_config_manager.reset_workspace()
-            with authed_test_client() as client:
+            with get_client() as client:
                 response = client.delete(f"/workspaces/{workspace.id}")
                 response.raise_for_status()
-
-
-@pytest_asyncio.fixture
-async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
-    """Test session that connexts to a live database."""
-    logger.info("Creating test session")
-    async with get_async_session_context_manager() as session:
-        yield session
 
 
 @pytest.fixture(scope="session")

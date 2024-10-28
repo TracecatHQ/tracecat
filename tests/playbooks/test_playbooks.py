@@ -74,7 +74,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 @pytest.mark.asyncio
 @pytest.mark.dbtest
 async def test_playbook_validation(
-    session: AsyncSession, file_path: str, test_role: Role, base_registry
+    session: AsyncSession, file_path: str, test_role: Role
 ):
     repo = Repository()
     repo.init(include_base=True, include_templates=True)
