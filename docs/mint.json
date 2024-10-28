@@ -260,7 +260,9 @@
                 "api-reference/reference/auth/verify:request-token",
                 "api-reference/reference/auth/verify:verify",
                 "api-reference/reference/auth/oauth:googledatabaseauthorize",
-                "api-reference/reference/auth/oauth:googledatabasecallback"
+                "api-reference/reference/auth/oauth:googledatabasecallback",
+                "api-reference/reference/auth/saml:databaselogin",
+                "api-reference/reference/auth/sso-acs"
               ]
             }
           ]
