@@ -233,8 +233,8 @@ async def list_users(*, session: SQLModelAsyncSession) -> list[User]:
 
 
 def default_admin_user() -> UserCreate:
-    email = os.getenv("TRACECAT__SETUP_ADMIN_EMAIL", "admin@domain.com")
-    password = os.getenv("TRACECAT__SETUP_ADMIN_PASSWORD", "password")
+    email = os.getenv("TRACECAT__SETUP_ADMIN_EMAIL") or "admin@domain.com"
+    password = os.getenv("TRACECAT__SETUP_ADMIN_PASSWORD") or "password"
 
     return UserCreate(
         email=email,
