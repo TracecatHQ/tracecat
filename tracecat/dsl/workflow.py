@@ -839,4 +839,4 @@ class DSLWorkflow:
         self.scheduler.mark_task(task_ref, marker)
 
     def _should_execute_child_workflow(self, task: ActionStatement[ArgsT]) -> bool:
-        return task.action == "core.workflow.execute"
+        return task.action == CHILD_WORKFLOW_EXECUTE_ACTION
