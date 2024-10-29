@@ -40,6 +40,11 @@ spec:
                 configMapKeyRef:
                   name: tracecat-config
                   key: PUBLIC_API_URL
+            - name: TRACECAT__API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracecat-config
+                  key: TRACECAT__API_URL
             - name: TRACECAT__SERVICE_KEY
               valueFrom:
                 secretKeyRef:
