@@ -22,6 +22,7 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
 from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
+from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
