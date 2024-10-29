@@ -99,7 +99,7 @@ def runtime_config() -> DSLConfig:
     "dsl",
     ["shared_adder_tree", "shared_kite", "shared_tree"],
     indirect=True,
-    ids=lambda x: x.title,
+    ids=lambda x: x,
 )
 @pytest.mark.asyncio
 async def test_workflow_can_run_from_yaml(dsl, temporal_cluster, test_role):
@@ -140,7 +140,7 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
     "dsl",
     ["unit_ordering_kite", "unit_ordering_kite2"],
     indirect=True,
-    ids=lambda x: x.title,
+    ids=lambda x: x,
 )
 @pytest.mark.asyncio
 async def test_workflow_ordering_is_correct(
@@ -231,9 +231,7 @@ async def test_workflow_completes_and_correct(
     assert result == expected
 
 
-@pytest.mark.parametrize(
-    "dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x.title
-)
+@pytest.mark.parametrize("dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x)
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_stress_workflow(dsl, temporal_cluster, test_role):
