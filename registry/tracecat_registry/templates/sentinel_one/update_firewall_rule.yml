@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Update SentinelOne Firewall Rule
+  description: Update SentinelOne firewall rule by ID and scope.
+  display_group: SentinelOne
+  namespace: integrations.sentinel_one
+  name: update_firewall_rule
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN", "SENTINEL_ONE_BASE_URL"]
+  expects:
+    rule_id:
+      type: str
+      description: The ID of the firewall rule to update
+    data:
+      type: any
+      description: The data to update the firewall rule with
+  steps:
+    - ref: update_firewall_rule
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/firewall-control/${{ inputs.rule_id }}
+        method: PUT
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: application/json
+        payload:
+          data: ${{ inputs.data }}
+  returns: ${{ steps.update_firewall_rule.result }}

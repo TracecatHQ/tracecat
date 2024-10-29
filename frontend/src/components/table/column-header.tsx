@@ -54,16 +54,25 @@ export function DataTableColumnHeader<TData, TValue>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
+          <DropdownMenuItem
+            onClick={() => column.toggleSorting(false)}
+            className="text-xs"
+          >
             <ArrowUpIcon className="mr-2 size-3.5 text-muted-foreground/70" />
             Ascending
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
+          <DropdownMenuItem
+            onClick={() => column.toggleSorting(true)}
+            className="text-xs"
+          >
             <ArrowDownIcon className="mr-2 size-3.5 text-muted-foreground/70" />
             Descending
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => column.toggleVisibility(false)}>
+          <DropdownMenuItem
+            onClick={() => column.toggleVisibility(false)}
+            className="text-xs"
+          >
             <EyeNoneIcon className="mr-2 size-3.5 text-muted-foreground/70" />
             Hide
           </DropdownMenuItem>

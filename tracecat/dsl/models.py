@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 from collections.abc import Mapping
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
 
+from tracecat.contexts import RunContext
+from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.types.auth import Role
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -16,6 +21,16 @@ class DSLNodeResult(TypedDict):
 
 
 ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
+
+
+class ActionRetryPolicy(BaseModel):
+    max_attempts: int = Field(
+        default=1,
+        description="Total number of execution attempts. 0 means unlimited, 1 means no retries.",
+    )
+    timeout: int = Field(
+        default=DEFAULT_ACTION_TIMEOUT, description="Timeout for the action in seconds."
+    )
 
 
 class ActionStatement(BaseModel, Generic[ArgsT]):
@@ -42,6 +57,8 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
+    """Control flow options"""
+
     run_if: Annotated[
         str | None,
         Field(default=None, description="Condition to run the task"),
@@ -56,6 +73,12 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
         ),
         TemplateValidator(),
     ]
+    retry_policy: ActionRetryPolicy = Field(
+        default_factory=ActionRetryPolicy, description="Retry policy for the action."
+    )
+    start_delay: float = Field(
+        default=0.0, description="Delay before starting the action in seconds."
+    )
 
     @property
     def title(self) -> str:
@@ -63,14 +86,15 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
 
 
 class DSLConfig(BaseModel):
+    """This is the runtime configuration for the workflow.
+
+    Activities don't need access to this.
+    """
+
     scheduler: Literal["static", "dynamic"] = Field(
         default="dynamic",
         description="The type of scheduler to use.",
         exclude=True,  # Exclude from serialization
-    )
-    enable_runtime_tests: bool = Field(
-        default=False,
-        description="Enable runtime action tests. This is dynamically set on workflow entry.",
     )
     environment: ExpressionStr = Field(
         default=DEFAULT_SECRETS_ENVIRONMENT,
@@ -88,15 +112,54 @@ class Trigger(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
-class ActionTest(BaseModel):
-    ref: str = Field(..., pattern=SLUG_PATTERN, description="Action reference")
-    enable: bool = True
-    validate_args: bool = True
-    success: Any = Field(
-        ...,
-        description=(
-            "Patched success output. This can be any data structure."
-            "If it's a fsspec file, it will be read and the contents will be used."
-        ),
-    )
-    failure: Any = Field(default=None, description="Patched failure output")
+class DSLEnvironment(TypedDict, total=False):
+    """DSL Environment context. Has metadata about the workflow."""
+
+    workflow: dict[str, Any]
+    """Metadata about the workflow."""
+
+    environment: str
+    """Target environment for the workflow."""
+
+    variables: dict[str, Any]
+    """Environment variables."""
+
+    registry_version: str
+    """The registry version to use for the workflow."""
+
+
+class DSLContext(TypedDict, total=False):
+    INPUTS: dict[str, Any]
+    """DSL Static Inputs context"""
+
+    ACTIONS: dict[str, Any]
+    """DSL Actions context"""
+
+    TRIGGER: dict[str, Any]
+    """DSL Trigger dynamic inputs context"""
+
+    ENV: DSLEnvironment
+    """DSL Environment context. Has metadata about the workflow."""
+
+    @staticmethod
+    def create_default(
+        INPUTS: dict[str, Any] | None = None,
+        ACTIONS: dict[str, Any] | None = None,
+        TRIGGER: dict[str, Any] | None = None,
+        ENV: dict[str, Any] | None = None,
+    ) -> DSLContext:
+        return DSLContext(
+            INPUTS=INPUTS or {},
+            ACTIONS=ACTIONS or {},
+            TRIGGER=TRIGGER or {},
+            ENV=ENV or {},
+        )
+
+
+class RunActionInput(BaseModel, Generic[ArgsT]):
+    """This object contains all the information needed to execute an action."""
+
+    task: ActionStatement[ArgsT]
+    role: Role
+    exec_context: DSLContext
+    run_context: RunContext

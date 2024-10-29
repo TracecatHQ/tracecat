@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Update CrowdStrike Detect Status
+  description: Update the status of a CrowdStrike detect.
+  display_group: CrowdStrike
+  namespace: integrations.crowdstrike
+  name: update_detect_status
+  expects:
+    detect_ids:
+      type: list[str]
+      description: CrowdStrike detect IDs
+    status:
+      # Allowed values:
+      # ignored
+      # new
+      # in_progress
+      # true_positive
+      # false_positive
+      type: str
+      description: New status for the detect
+  steps:
+    - ref: update_detect_status
+      action: integrations.crowdstrike.call_falconpy_command
+      args:
+        operation_id: UpdateDetectsByIdsV2
+        params:
+          body:
+            ids: ${{ inputs.detect_ids }}
+            status: ${{ inputs.status }}
+  returns: ${{ steps.update_detect_status.result }}

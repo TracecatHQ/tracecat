@@ -1,22 +1,37 @@
+import json
+import logging
 import os
 from logging.config import fileConfig
 
 import alembic_postgresql_enum  # noqa: F401
+import boto3
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from alembic import context
 from tracecat.db import schemas  # noqa: F401
 
-
 TRACECAT__DB_URI = os.getenv("TRACECAT__DB_URI")
 if not TRACECAT__DB_URI:
     username = os.getenv("TRACECAT__DB_USER", "postgres")
-    password = os.getenv("TRACECAT__DB_PASS")
     host = os.getenv("TRACECAT__DB_ENDPOINT")
     port = os.getenv("TRACECAT__DB_PORT", 5432)
     database = os.getenv("TRACECAT__DB_NAME", "postgres")
-    TRACECAT__DB_URI = f"postgresql+psycopg://{username}:{password}@{host}:{port!s}/{database}"
+
+    # Check if in AWS environment
+    if os.getenv("TRACECAT__DB_PASS__ARN"):
+        logging.info("Fetching database password from AWS Secrets Manager")
+        session = boto3.Session()
+        client = session.client("secretsmanager")
+        response = client.get_secret_value(SecretId=os.getenv("TRACECAT__DB_PASS__ARN"))
+        password = json.loads(response["SecretString"])["password"]
+    else:
+        logging.info("Fetching database password from environment variable")
+        password = os.getenv("TRACECAT__DB_PASS")
+
+    TRACECAT__DB_URI = (
+        f"postgresql+psycopg://{username}:{password}@{host}:{port!s}/{database}"
+    )
 
 
 # this is the Alembic Config object, which provides
@@ -59,7 +74,7 @@ def run_migrations_online() -> None:
         configuration=config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        url=TRACECAT__DB_URI
+        url=TRACECAT__DB_URI,
     )
 
     with connectable.connect() as connection:

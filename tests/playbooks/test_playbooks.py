@@ -1,4 +1,5 @@
 import os
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
@@ -9,24 +10,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import DSLActivities, DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprType
-from tracecat.logging import logger
+from tracecat.logger import logger
+from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
 from tracecat.validation import validate_dsl
-from tracecat.workflow.management.definitions import (
-    WorkflowDefinitionsService,
-    get_workflow_definition_activity,
-)
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
-@pytest.fixture
-def playbooks_path() -> Path:
-    return Path(__file__).parent.parent.parent / "playbooks"
+@pytest_asyncio.fixture
+async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
+    """Test session that connexts to a live database."""
+    logger.info("Creating test session")
+    async with get_async_session_context_manager() as session:
+        yield session
 
 
 # Fixture to create Tracecat secrets
@@ -41,7 +45,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
             logger.warning("dotenv not installed, skipping loading .env file")
             pass
 
-    from tracecat.secrets.models import CreateSecretParams, SecretKeyValue
+    from tracecat.secrets.models import SecretCreate, SecretKeyValue
     from tracecat.secrets.service import SecretsService
 
     secrets_service = SecretsService(session, role=test_role)
@@ -55,60 +59,62 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
     # loop = asyncio.get_event_loop()
     for name, env_vars in secrets.items():
         keyvalues = [SecretKeyValue(key=k, value=v) for k, v in env_vars.items()]
-        await secrets_service.create_secret(
-            CreateSecretParams(name=name, keys=keyvalues)
-        )
+        await secrets_service.create_secret(SecretCreate(name=name, keys=keyvalues))
 
     logger.info("Created integration secrets")
 
 
 @pytest.mark.parametrize(
-    "filename",
+    "file_path",
     [
         # Detect
-        "detect/list_alerts/aws_guardduty.yml",
-        "detect/list_alerts/crowdstrike_alerts.yml",
-        "detect/list_alerts/crowdstrike_detection_summaries.yml",
-        "detect/list_alerts/sentinel_one.yml",
-        "detect/webhook_alerts/panther.yml",
-        "detect/extract_iocs.yml",
-        "detect/enrich_iocs/ipv4.yml",
-        "detect/enrich_iocs/urls.yml",
+        "playbooks/detect/webhook_alerts/elastic.yml",
+        "playbooks/detect/webhook_alerts/panther.yml",
+        "playbooks/detect/extract_iocs.yml",
         # Respond
-        "respond/notify_users/slack.yml",
+        "playbooks/respond/notify_users/slack.yml",
         # Quickstart
-        "tutorials/virustotal_quickstart.yml",
+        "playbooks/tutorials/virustotal_quickstart.yml",
+        "playbooks/tutorials/limacharlie/list_tags.yml",
+        "playbooks/tutorials/limacharlie/run_investigation.yml",
+        "playbooks/tutorials/limacharlie/run_tests.yml",
     ],
     ids=lambda x: x,
 )
 @pytest.mark.asyncio
 @pytest.mark.dbtest
 async def test_playbook_validation(
-    session: AsyncSession, playbooks_path: Path, filename: str, test_role: Role
+    session: AsyncSession, file_path: str, test_role: Role
 ):
-    filepath = playbooks_path / filename
+    repo = Repository()
+    repo.init(include_base=True, include_templates=True)
+    logger.info("Initializing registry", length=len(repo), keys=repo.keys)
     mgmt_service = WorkflowsManagementService(session, role=test_role)
-    with filepath.open() as f:
+    with Path(file_path).open() as f:
         playbook_defn_data = yaml.safe_load(f)
     workflow = await mgmt_service.create_workflow_from_external_definition(
         playbook_defn_data
     )
     dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+
     validation_results = await validate_dsl(
-        dsl, validate_secrets=False, exclude_exprs={ExprType.SECRET}
+        session=session,
+        dsl=dsl,
+        validate_secrets=False,
+        exclude_exprs={ExprType.SECRET},
     )
     assert len(validation_results) == 0
 
 
 @pytest.mark.parametrize(
-    "filename, trigger_inputs, expected_actions",
+    "file_path, trigger_inputs, expected_actions",
     [
         (
-            "tutorials/virustotal_quickstart.yml",
+            "playbooks/tutorials/virustotal_quickstart.yml",
             {
-                "url_input": "crowdstrikebluescreen.com",
+                "url_input": "https://crowdstrikebluescreen.com",
             },
-            ["analyze_url", "open_case"],
+            ["search_url"],
         ),
     ],
     ids=lambda x: x,
@@ -118,19 +124,18 @@ async def test_playbook_validation(
 @pytest.mark.dbtest
 async def test_playbook_live_run(
     session: AsyncSession,
-    playbooks_path: Path,
-    filename: str,
+    file_path: str,
     trigger_inputs: dict[str, Any],
     test_role: Role,
     temporal_client: Client,
     integration_secrets,
     expected_actions: list[str],
 ) -> None:
-    filepath = playbooks_path / filename
     # Create
-    logger.info(f"Creating workflow from {filepath}")
+    file_path = Path(file_path)
+    logger.info(f"Creating workflow from {file_path}")
     mgmt_service = WorkflowsManagementService(session, role=test_role)
-    with filepath.open() as f:
+    with file_path.open() as f:
         playbook_defn_data = yaml.safe_load(f)
     workflow = await mgmt_service.create_workflow_from_external_definition(
         playbook_defn_data
@@ -145,7 +150,7 @@ async def test_playbook_live_run(
     logger.info("Creating workflow definition")
     await defn_service.create_workflow_definition(workflow_id=workflow.id, dsl=dsl)
 
-    wf_exec_id = generate_test_exec_id(f"{filepath.stem}-{workflow.title}")
+    wf_exec_id = generate_test_exec_id(f"{file_path.stem}-{workflow.title}")
     run_args = DSLRunArgs(
         role=test_role,
         dsl=dsl,
@@ -158,7 +163,7 @@ async def test_playbook_live_run(
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + [get_workflow_definition_activity],
+        activities=DSLActivities.load() + DSL_UTILITIES,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):

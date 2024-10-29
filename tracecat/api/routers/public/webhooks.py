@@ -1,12 +1,11 @@
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter
 
-from tracecat.api.routers.public.dependencies import validate_incoming_webhook
+from tracecat.api.routers.public.dependencies import WorkflowDefinitionFromWebhook
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
@@ -15,10 +14,9 @@ router = APIRouter(prefix="/webhooks")
 
 @router.post("/{path}/{secret}", tags=["public"])
 async def incoming_webhook(
-    defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
+    defn: WorkflowDefinitionFromWebhook,
     path: str,
     payload: dict[str, Any] | None = None,
-    x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
 ) -> CreateWorkflowExecutionResponse:
     """
     Webhook endpoint to trigger a workflow.
@@ -30,27 +28,18 @@ async def incoming_webhook(
 
     dsl_input = DSLInput(**defn.content)
 
-    enable_runtime_tests = (x_tracecat_enable_runtime_tests or "false").lower() in (
-        "1",
-        "true",
-    )
-
     service = await WorkflowExecutionsService.connect()
     response = service.create_workflow_execution_nowait(
-        dsl=dsl_input,
-        wf_id=path,
-        payload=payload,
-        enable_runtime_tests=enable_runtime_tests,
+        dsl=dsl_input, wf_id=path, payload=payload
     )
     return response
 
 
 @router.post("/{path}/{secret}/wait", tags=["public"])
 async def incoming_webhook_wait(
-    defn: Annotated[WorkflowDefinition, Depends(validate_incoming_webhook)],
+    defn: WorkflowDefinitionFromWebhook,
     path: str,
     payload: dict[str, Any] | None = None,
-    x_tracecat_enable_runtime_tests: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """
     Webhook endpoint to trigger a workflow.
@@ -62,17 +51,9 @@ async def incoming_webhook_wait(
 
     dsl_input = DSLInput(**defn.content)
 
-    enable_runtime_tests = (x_tracecat_enable_runtime_tests or "false").lower() in (
-        "1",
-        "true",
-    )
-
     service = await WorkflowExecutionsService.connect()
     response = await service.create_workflow_execution(
-        dsl=dsl_input,
-        wf_id=path,
-        payload=payload,
-        enable_runtime_tests=enable_runtime_tests,
+        dsl=dsl_input, wf_id=path, payload=payload
     )
 
     return response["final_context"]

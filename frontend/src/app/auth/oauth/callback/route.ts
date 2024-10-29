@@ -3,8 +3,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { buildUrl, getDomain } from "@/lib/ss-utils"
 
 /**
- * Wrapper around the FastAPI endpoint /auth/oauth/callback,
- * which adds back a redirect to the main app.
  * @param request
  * @returns
  */

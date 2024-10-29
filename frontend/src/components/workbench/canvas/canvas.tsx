@@ -80,7 +80,7 @@ function getLayoutedElements(
   edges: Edge[]
 } {
   const isHorizontal = direction === "LR"
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 100, ranksep: 100 })
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 100, ranksep: 150 })
 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, {
@@ -131,10 +131,15 @@ const nodeTypes = {
 }
 
 const defaultEdgeOptions = {
+  type: "smoothstep",
   markerEnd: {
     type: MarkerType.ArrowClosed,
   },
   style: { strokeWidth: 2 },
+  // Increase the radius of the smoothstep curve
+  pathOptions: {
+    borderRadius: 100, // Adjust this value to increase or decrease the curve radius
+  },
 }
 
 export function isInvincible<T>(node: Node<T>): boolean {

@@ -153,16 +153,24 @@ function WorkflowExecutionsViewLayout({
           </ScrollArea>
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={defaultLayout[2]} minSize={25}>
-          <ScrollArea className="overflow-auto">
-            {selectedEvent ? (
-              <WorkflowExecutionEventDetailView event={selectedEvent} />
-            ) : (
-              <span className="flex justify-center p-4 text-center text-xs text-muted-foreground">
-                Select an Event.
-              </span>
-            )}
-          </ScrollArea>
+        <ResizablePanel
+          defaultSize={defaultLayout[2]}
+          minSize={25}
+          className="grow"
+        >
+          <div className="flex h-full flex-col">
+            <ScrollArea className="w-full">
+              {selectedEvent ? (
+                <WorkflowExecutionEventDetailView event={selectedEvent} />
+              ) : (
+                <div className="flex size-full items-center justify-center">
+                  <span className="text-center text-xs text-muted-foreground">
+                    Select an Event.
+                  </span>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
         </ResizablePanel>
       </ResizablePanelGroup>
     </TooltipProvider>

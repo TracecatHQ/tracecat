@@ -1,6 +1,5 @@
 # Get current caller identity and region
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 # Common assume role policy document
 data "aws_iam_policy_document" "assume_role" {
@@ -46,7 +45,6 @@ resource "aws_iam_policy" "secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = compact([
-          aws_db_instance.core_database.master_user_secret[0].secret_arn,
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
@@ -144,7 +142,6 @@ resource "aws_iam_role" "api_worker_task" {
   name               = "TracecatAPIWorkerTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
-
 resource "aws_iam_role_policy" "api_worker_task_db_access" {
   name = "TracecatAPIWorkerDBAccessPolicy"
   role = aws_iam_role.api_worker_task.id
@@ -155,10 +152,12 @@ resource "aws_iam_role_policy" "api_worker_task_db_access" {
       {
         Effect = "Allow"
         Action = [
-          "rds-db:connect"
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
         ]
         Resource = [
-          "arn:aws:rds-db:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.core_database.resource_id}/postgres"
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
         ]
       }
     ]
@@ -184,7 +183,7 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
           "rds-db:connect"
         ]
         Resource = [
-          "arn:aws:rds-db:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.temporal_database.resource_id}/postgres"
+          "${aws_db_instance.temporal_database.arn}/postgres"
         ]
       }
     ]

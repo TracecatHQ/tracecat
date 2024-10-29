@@ -3,7 +3,9 @@ description: Test child workflow
 entrypoint:
   ref: a
   expects:
-    number: int
+    number:
+      type: int
+      description: The input number to be transformed
 
 actions:
   - ref: a

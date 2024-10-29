@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main"]
     paths:
+      - tests/**
       - tracecat/**
       - playbooks/**
       - pyproject.toml
@@ -11,6 +12,7 @@ on:
   pull_request:
     branches: ["main"]
     paths:
+      - tests/**
       - tracecat/**
       - playbooks/**
       - pyproject.toml
@@ -26,6 +28,9 @@ permissions:
   contents: read
   packages: write
 
+env:
+  UV_SYSTEM_PYTHON: 1
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -34,12 +39,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.20"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: pyproject.toml
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -65,27 +75,30 @@ jobs:
         run: bash env.sh
 
       - name: Start Docker services
+        env:
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+          TRACECAT__SETUP_ADMIN_EMAIL: admin@domain.com
+          TRACECAT__SETUP_ADMIN_PASSWORD: password
         run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker postgres_db caddy
 
       - name: Verify Tracecat API is running
         run: curl -s http://localhost/api/health | jq -e '.status == "ok"'
 
-      - name: pip install Tracecat
+      - name: uv install Tracecat
         run: |
-          python -m pip install --upgrade pip
-          pip install ".[dev]"
-          pip install ./cli
+          uv pip install ".[dev]"
+          uv pip install ./registry
 
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
 
-      - name: Run tests (headless mode)
+      - name: Run unit tests
         env:
           LOG_LEVEL: WARNING
-        run: pytest tests/unit --temporal-no-restart --tracecat-no-restart
+        run: uv run pytest tests/unit --temporal-no-restart --tracecat-no-restart
 
       - name: Run playbook tests
         env:
           LOG_LEVEL: WARNING
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-        run: pytest tests/playbooks --temporal-no-restart --tracecat-no-restart
+        run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart

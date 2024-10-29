@@ -1,14 +1,14 @@
 "use client"
 
 import React, { PropsWithChildren, useCallback } from "react"
-import { SecretResponse, UpdateSecretParams } from "@/client"
+import { SecretReadMinimal, SecretUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { PlusCircle, SaveIcon, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,8 +35,8 @@ interface EditCredentialsDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {
-  selectedSecret: SecretResponse | null
-  setSelectedSecret: (selectedSecret: SecretResponse | null) => void
+  selectedSecret: SecretReadMinimal | null
+  setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
 }
 
 const updateSecretSchema = z.object({
@@ -58,9 +58,9 @@ export function EditCredentialsDialog({
   className,
   ...props
 }: EditCredentialsDialogProps) {
-  const { updateSecretById } = useSecrets()
+  const { updateSecretById } = useWorkspaceSecrets()
 
-  const methods = useForm<UpdateSecretParams>({
+  const methods = useForm<SecretUpdate>({
     resolver: zodResolver(updateSecretSchema),
     defaultValues: {
       name: "",
@@ -72,7 +72,7 @@ export function EditCredentialsDialog({
   const { control, register } = methods
 
   const onSubmit = useCallback(
-    async (values: UpdateSecretParams) => {
+    async (values: SecretUpdate) => {
       if (!selectedSecret) {
         console.error("No secret selected")
         return
@@ -108,7 +108,7 @@ export function EditCredentialsDialog({
     })
   }
 
-  const { fields, append, remove } = useFieldArray<UpdateSecretParams>({
+  const { fields, append, remove } = useFieldArray<SecretUpdate>({
     control,
     name: "keys",
   })
@@ -181,7 +181,7 @@ export function EditCredentialsDialog({
                 name="environment"
                 render={() => (
                   <FormItem>
-                    <FormLabel className="text-sm">Description</FormLabel>
+                    <FormLabel className="text-sm">Environment</FormLabel>
                     <FormControl>
                       <Input
                         className="text-sm"

@@ -1,20 +1,13 @@
-# Required secrets:
-# 1. TRACECAT__DB_PASSWORD
-# 2. TEMPORAL__DB_PASSWORD
-# 3. TRACECAT__DB_ENCRYPTION_KEY
-# 4. TRACECAT__SERVICE_KEY
-# 5. TRACECAT__SIGNING_SECRET
+# Required secrets in AWS Secrets Manager:
+# 1. TRACECAT__DB_ENCRYPTION_KEY
+# 2. TRACECAT__SERVICE_KEY
+# 3. TRACECAT__SIGNING_SECRET
 #
 # Optional secrets:
 # 1. OAUTH_CLIENT_ID
 # 2. OAUTH_CLIENT_SECRET
 
 # Required secrets
-data "aws_secretsmanager_secret" "tracecat_db_password" {
-  arn        = aws_db_instance.core_database.master_user_secret[0].secret_arn
-  depends_on = [aws_db_instance.core_database]
-}
-
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
   arn = var.tracecat_db_encryption_key_arn
 }
@@ -38,17 +31,7 @@ data "aws_secretsmanager_secret" "oauth_client_secret" {
   arn   = var.oauth_client_secret_arn
 }
 
-# Temporal secrets
-
-data "aws_secretsmanager_secret" "temporal_db_password" {
-  arn        = aws_db_instance.temporal_database.master_user_secret[0].secret_arn
-  depends_on = [aws_db_instance.temporal_database]
-}
-
 # Retrieve secret values
-data "aws_secretsmanager_secret_version" "tracecat_db_password" {
-  secret_id = data.aws_secretsmanager_secret.tracecat_db_password.id
-}
 
 data "aws_secretsmanager_secret_version" "tracecat_db_encryption_key" {
   secret_id = data.aws_secretsmanager_secret.tracecat_db_encryption_key.id
@@ -72,16 +55,28 @@ data "aws_secretsmanager_secret_version" "oauth_client_secret" {
   secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
 }
 
+# Database secrets
+
+data "aws_secretsmanager_secret" "tracecat_db_password" {
+  arn        = aws_db_instance.core_database.master_user_secret[0].secret_arn
+  depends_on = [aws_db_instance.core_database]
+}
+
+data "aws_secretsmanager_secret" "temporal_db_password" {
+  arn        = aws_db_instance.temporal_database.master_user_secret[0].secret_arn
+  depends_on = [aws_db_instance.temporal_database]
+}
+
+data "aws_secretsmanager_secret_version" "tracecat_db_password" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_db_password.id
+}
+
 data "aws_secretsmanager_secret_version" "temporal_db_password" {
   secret_id = data.aws_secretsmanager_secret.temporal_db_password.id
 }
 
 locals {
   base_secrets = [
-    {
-      name      = "TRACECAT__DB_PASS"
-      valueFrom = "${data.aws_secretsmanager_secret_version.tracecat_db_password.arn}:password::"
-    },
     {
       name      = "TRACECAT__SERVICE_KEY"
       valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.arn

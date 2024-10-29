@@ -1,14 +1,14 @@
 "use client"
 
 import React, { PropsWithChildren } from "react"
-import { CreateSecretParams } from "@/client"
+import { SecretCreate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
 import { KeyRoundIcon, PlusCircle, Trash2Icon } from "lucide-react"
 import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -56,9 +56,9 @@ export function NewCredentialsDialog({
   className,
 }: NewCredentialsDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
-  const { createSecret } = useSecrets()
+  const { createSecret } = useWorkspaceSecrets()
 
-  const methods = useForm<CreateSecretParams>({
+  const methods = useForm<SecretCreate>({
     resolver: zodResolver(createSecretSchema),
     defaultValues: {
       name: "",
@@ -70,7 +70,7 @@ export function NewCredentialsDialog({
   })
   const { control, register } = methods
 
-  const onSubmit = async (values: CreateSecretParams) => {
+  const onSubmit = async (values: SecretCreate) => {
     console.log("Submitting new secret", values)
     try {
       await createSecret(values)
@@ -87,10 +87,10 @@ export function NewCredentialsDialog({
     })
   }
   const inputKey = "keys"
-  const typedKey = inputKey as FieldPath<CreateSecretParams>
-  const { fields, append, remove } = useFieldArray<CreateSecretParams>({
+  const typedKey = inputKey as FieldPath<SecretCreate>
+  const { fields, append, remove } = useFieldArray<SecretCreate>({
     control,
-    name: inputKey as ArrayPath<CreateSecretParams>,
+    name: inputKey as ArrayPath<SecretCreate>,
   })
 
   return (

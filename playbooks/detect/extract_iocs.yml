@@ -4,7 +4,9 @@ definition:
   entrypoint:
     ref: serialize_json
     expects:
-      json: any
+      json:
+        type: str
+        description: A JSON object containing IoCs
   triggers:
     - type: webhook
       ref: receive_json

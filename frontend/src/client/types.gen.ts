@@ -8,6 +8,11 @@ export type AccessLevel = 0 | 999;
 export type ActionControlFlow = {
     run_if?: string | null;
     for_each?: string | Array<(string)> | null;
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionMetadataResponse = {
@@ -33,7 +38,22 @@ export type ActionResponse = {
     control_flow?: ActionControlFlow;
 };
 
-export type ActionStatement = {
+export type ActionRetryPolicy = {
+    /**
+     * Total number of execution attempts. 0 means unlimited, 1 means no retries.
+     */
+    max_attempts?: number;
+    /**
+     * Timeout for the action in seconds.
+     */
+    timeout?: number;
+};
+
+export type ActionStatement_Input = {
+    /**
+     * The action ID. If this is populated means there is a corresponding actionin the database `Action` table.
+     */
+    id?: string | null;
     /**
      * Unique reference for the task
      */
@@ -61,6 +81,52 @@ export type ActionStatement = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
+};
+
+export type ActionStatement_Output = {
+    /**
+     * Unique reference for the task
+     */
+    ref: string;
+    description?: string;
+    /**
+     * Action type. Equivalent to the UDF key.
+     */
+    action: string;
+    /**
+     * Arguments for the action
+     */
+    args?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Task dependencies
+     */
+    depends_on?: Array<(string)>;
+    /**
+     * Condition to run the task
+     */
+    run_if?: string | null;
+    /**
+     * Iterate over a list of items and run the task for each item.
+     */
+    for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
 export type ActionStatement_Any_ = {
@@ -89,23 +155,25 @@ export type ActionStatement_Any_ = {
      * Iterate over a list of items and run the task for each item.
      */
     for_each?: string | Array<(string)> | null;
+    /**
+     * Retry policy for the action.
+     */
+    retry_policy?: ActionRetryPolicy;
+    /**
+     * Delay before starting the action in seconds.
+     */
+    start_delay?: number;
 };
 
-export type ActionTest = {
+export type ActionStep = {
     /**
-     * Action reference
+     * The reference of the step
      */
     ref: string;
-    enable?: boolean;
-    validate_args?: boolean;
-    /**
-     * Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used.
-     */
-    success: unknown;
-    /**
-     * Patched failure output
-     */
-    failure?: unknown;
+    action: string;
+    args: {
+        [key: string]: unknown;
+    };
 };
 
 export type Body_auth_reset_forgot_password = {
@@ -115,6 +183,10 @@ export type Body_auth_reset_forgot_password = {
 export type Body_auth_reset_reset_password = {
     token: string;
     password: string;
+};
+
+export type Body_auth_sso_acs = {
+    SAMLResponse: string;
 };
 
 export type Body_auth_verify_request_token = {
@@ -136,92 +208,17 @@ export type Body_workflows_create_workflow = {
     file?: (Blob | File) | null;
 };
 
-export type CaseContext = {
-    key: string;
-    value: string;
-};
-
-export type CaseCreate = {
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-};
-
-export type malice = 'malicious' | 'benign';
-
-export type status = 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-
-export type priority = 'low' | 'medium' | 'high' | 'critical';
-
-export type action = 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-
-export type CaseEvent = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    type: string;
-    case_id: string;
-    initiator_role: string;
-    data: {
-    [key: string]: (string | null);
-} | null;
-};
-
-export type CaseEventCreate = {
-    type: 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
-    data: {
-    [key: string]: (string | null);
-} | null;
-};
-
-export type type = 'status_changed' | 'priority_changed' | 'comment_created' | 'case_opened' | 'case_closed';
-
-export type CaseRead = {
-    owner_id: string;
-    workflow_id: string;
-    case_title: string;
-    payload: {
-        [key: string]: unknown;
-    };
-    context: Array<CaseContext>;
-    tags: Array<Tag>;
-    malice: 'malicious' | 'benign';
-    status: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated';
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    action: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise';
-    id: string;
-    created_at: string;
-    updated_at: string;
-};
-
-export type CaseUpdate = {
-    malice?: 'malicious' | 'benign' | null;
-    status?: 'open' | 'closed' | 'in_progress' | 'reported' | 'escalated' | null;
-    priority?: 'low' | 'medium' | 'high' | 'critical' | null;
-    action?: 'ignore' | 'quarantine' | 'informational' | 'sinkhole' | 'active_compromise' | null;
-};
-
 export type CommitWorkflowResponse = {
     workflow_id: string;
     status: 'success' | 'failure';
     message: string;
-    errors?: Array<UDFArgsValidationResponse> | null;
+    errors?: Array<RegistryActionValidateResponse> | null;
     metadata?: {
     [key: string]: unknown;
 } | null;
 };
 
-export type status2 = 'success' | 'failure';
+export type status = 'success' | 'failure';
 
 export type CreateActionParams = {
     workflow_id: string;
@@ -229,32 +226,11 @@ export type CreateActionParams = {
     title: string;
 };
 
-/**
- * Create a new secret.
- *
- * Secret types
- * ------------
- * - `custom`: Arbitrary user-defined types
- * - `token`: A token, e.g. API Key, JWT Token (TBC)
- * - `oauth2`: OAuth2 Client Credentials (TBC)
- */
-export type CreateSecretParams = {
-    type?: "custom";
-    name: string;
-    description?: string | null;
-    keys: Array<SecretKeyValue>;
-    tags?: {
-    [key: string]: (string);
-} | null;
-    environment?: string;
-};
-
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
     inputs?: {
     [key: string]: unknown;
 } | null;
-    enable_runtime_tests?: boolean;
 };
 
 export type CreateWorkflowExecutionResponse = {
@@ -275,15 +251,16 @@ export type CreateWorkspaceParams = {
     owner_id?: string;
 };
 
+/**
+ * This is the runtime configuration for the workflow.
+ *
+ * Activities don't need access to this.
+ */
 export type DSLConfig_Input = {
     /**
      * The type of scheduler to use.
      */
     scheduler?: 'static' | 'dynamic';
-    /**
-     * Enable runtime action tests. This is dynamically set on workflow entry.
-     */
-    enable_runtime_tests?: boolean;
     /**
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
@@ -295,11 +272,12 @@ export type DSLConfig_Input = {
  */
 export type scheduler = 'static' | 'dynamic';
 
+/**
+ * This is the runtime configuration for the workflow.
+ *
+ * Activities don't need access to this.
+ */
 export type DSLConfig_Output = {
-    /**
-     * Enable runtime action tests. This is dynamically set on workflow entry.
-     */
-    enable_runtime_tests?: boolean;
     /**
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
@@ -325,9 +303,11 @@ export type DSLEntrypoint = {
      */
     ref: string;
     /**
-     * Expected trigger input shape
+     * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
      */
-    expects?: unknown | null;
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
 };
 
 /**
@@ -341,6 +321,7 @@ export type DSLEnvironment = {
     variables?: {
         [key: string]: unknown;
     };
+    registry_version?: string;
 };
 
 /**
@@ -357,7 +338,7 @@ export type DSLInput = {
     title: string;
     description: string;
     entrypoint: DSLEntrypoint;
-    actions: Array<ActionStatement>;
+    actions: Array<ActionStatement_Output>;
     config?: DSLConfig_Output;
     triggers?: Array<Trigger>;
     /**
@@ -366,10 +347,6 @@ export type DSLInput = {
     inputs?: {
         [key: string]: unknown;
     };
-    /**
-     * Action tests
-     */
-    tests?: Array<ActionTest>;
     /**
      * The action ref or value to return.
      */
@@ -424,8 +401,11 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: UDFActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
+    action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
+    current_attempt?: number | null;
+    retry_policy: ActionRetryPolicy;
+    start_delay: number;
 };
 
 export type EventHistoryResponse = {
@@ -447,6 +427,12 @@ export type EventHistoryResponse = {
  */
 export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
 
+export type ExpectedField = {
+    type: string;
+    description?: string | null;
+    default?: unknown | null;
+};
+
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     workflow_id: string;
@@ -460,6 +446,235 @@ export type HTTPValidationError = {
 
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;
+};
+
+/**
+ * API create model for a registered action.
+ */
+export type RegistryActionCreate = {
+    /**
+     * The name of the action
+     */
+    name: string;
+    /**
+     * The description of the action
+     */
+    description: string;
+    /**
+     * The namespace of the action
+     */
+    namespace: string;
+    /**
+     * The type of the action
+     */
+    type: 'udf' | 'template';
+    /**
+     * The origin of the action as a url
+     */
+    origin: string;
+    /**
+     * The secrets required by the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    interface: RegistryActionInterface;
+    implementation?: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl;
+    /**
+     * The default title of the action
+     */
+    default_title?: string | null;
+    /**
+     * The presentation group of the action
+     */
+    display_group?: string | null;
+    /**
+     * The options for the action
+     */
+    options?: RegistryActionOptions;
+    /**
+     * The repository id
+     */
+    repository_id: string;
+};
+
+/**
+ * The type of the action
+ */
+export type type = 'udf' | 'template';
+
+export type RegistryActionInterface = {
+    expects: {
+        [key: string]: unknown;
+    };
+    returns: unknown;
+};
+
+export type RegistryActionOptions = {
+    include_in_schema?: boolean;
+};
+
+/**
+ * API read model for a registered action.
+ */
+export type RegistryActionRead = {
+    /**
+     * The name of the action
+     */
+    name: string;
+    /**
+     * The description of the action
+     */
+    description: string;
+    /**
+     * The namespace of the action
+     */
+    namespace: string;
+    /**
+     * The type of the action
+     */
+    type: 'udf' | 'template';
+    /**
+     * The origin of the action as a url
+     */
+    origin: string;
+    /**
+     * The secrets required by the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    interface: RegistryActionInterface;
+    implementation?: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl;
+    /**
+     * The default title of the action
+     */
+    default_title?: string | null;
+    /**
+     * The presentation group of the action
+     */
+    display_group?: string | null;
+    /**
+     * The options for the action
+     */
+    options?: RegistryActionOptions;
+    /**
+     * The repository id
+     */
+    repository_id: string;
+    /**
+     * The full action identifier.
+     */
+    readonly action: string;
+    /**
+     * Whether the action is a template.
+     */
+    readonly is_template: boolean;
+};
+
+export type RegistryActionTemplateImpl_Input = {
+    type?: "template";
+    /**
+     * The template action
+     */
+    template_action: TemplateAction_Input;
+};
+
+export type RegistryActionTemplateImpl_Output = {
+    type?: "template";
+    /**
+     * The template action
+     */
+    template_action: TemplateAction_Output;
+};
+
+export type RegistryActionUDFImpl = {
+    type?: "udf";
+    /**
+     * The package url
+     */
+    url: string;
+    /**
+     * The module name
+     */
+    module: string;
+    /**
+     * The name of the UDF function name
+     */
+    name: string;
+};
+
+/**
+ * API update model for a registered action.
+ */
+export type RegistryActionUpdate = {
+    /**
+     * Update the name of the action
+     */
+    name?: string | null;
+    /**
+     * Update the description of the action
+     */
+    description?: string | null;
+    /**
+     * Update the secrets of the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    /**
+     * Update the interface of the action
+     */
+    interface?: RegistryActionInterface | null;
+    /**
+     * Update the implementation of the action
+     */
+    implementation?: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl | null;
+    /**
+     * Update the default title of the action
+     */
+    default_title?: string | null;
+    /**
+     * Update the display group of the action
+     */
+    display_group?: string | null;
+    /**
+     * Update the options of the action
+     */
+    options?: RegistryActionOptions | null;
+};
+
+export type RegistryActionValidate = {
+    args: {
+        [key: string]: unknown;
+    };
+};
+
+export type RegistryActionValidateResponse = {
+    ok: boolean;
+    message: string;
+    detail?: unknown | null;
+};
+
+export type RegistryRepositoryCreate = {
+    origin: string;
+};
+
+export type RegistryRepositoryRead = {
+    origin: string;
+    actions: Array<RegistryActionRead>;
+};
+
+export type RegistryRepositoryReadMinimal = {
+    id: string;
+    origin: string;
+};
+
+export type RegistryRepositoryUpdate = {
+    name?: string | null;
+    include_base?: boolean;
+    include_remote?: boolean;
+    include_templates?: boolean;
+};
+
+export type RegistrySecret = {
+    name: string;
+    keys?: Array<(string)> | null;
+    optional_keys?: Array<(string)> | null;
 };
 
 /**
@@ -500,10 +715,38 @@ export type type2 = 'user' | 'service';
 
 export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
 
+/**
+ * This object contains all the information needed to execute an action.
+ */
+export type RunActionInput_Input = {
+    task: ActionStatement_Input;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+};
+
+/**
+ * This object contains all the information needed to execute an action.
+ */
+export type RunActionInput_Output = {
+    task: ActionStatement_Output;
+    role: Role;
+    exec_context: DSLContext;
+    run_context: RunContext;
+};
+
+/**
+ * This is the runtime context model for a workflow run. Passed into activities.
+ */
 export type RunContext = {
     wf_id: string;
     wf_exec_id: string;
     wf_run_id: string;
+    environment: string;
+};
+
+export type SAMLDatabaseLoginResponse = {
+    redirect_url: string;
 };
 
 export type Schedule = {
@@ -560,7 +803,7 @@ export type ScheduleCreate = {
     status?: 'online' | 'offline';
 };
 
-export type status3 = 'online' | 'offline';
+export type status2 = 'online' | 'offline';
 
 export type ScheduleSearch = {
     workflow_id?: string | null;
@@ -595,22 +838,24 @@ export type ScheduleUpdate = {
     status?: 'online' | 'offline' | null;
 };
 
-export type Secret = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    type?: string;
-    /**
-     * Secret names should be unique within a user's scope.
-     */
+/**
+ * Create a new secret.
+ *
+ * Secret types
+ * ------------
+ * - `custom`: Arbitrary user-defined types
+ * - `token`: A token, e.g. API Key, JWT Token (TBC)
+ * - `oauth2`: OAuth2 Client Credentials (TBC)
+ */
+export type SecretCreate = {
+    type?: SecretType;
     name: string;
     description?: string | null;
-    encrypted_keys: (Blob | File);
-    environment?: string;
-    tags: {
+    keys: Array<SecretKeyValue>;
+    tags?: {
     [key: string]: (string);
 } | null;
+    environment?: string;
 };
 
 export type SecretKeyValue = {
@@ -618,18 +863,112 @@ export type SecretKeyValue = {
     value: string;
 };
 
-export type SecretResponse = {
+/**
+ * The level of a secret.
+ */
+export type SecretLevel = 'workspace' | 'organization';
+
+export type SecretRead = {
     id: string;
-    type: "custom";
+    type: SecretType;
+    name: string;
+    description?: string | null;
+    encrypted_keys: (Blob | File);
+    environment: string;
+    tags?: {
+    [key: string]: (string);
+} | null;
+    owner_id: string;
+    created_at: string;
+    updated_at: string;
+};
+
+export type SecretReadMinimal = {
+    id: string;
+    type: SecretType;
     name: string;
     description?: string | null;
     keys: Array<(string)>;
     environment: string;
 };
 
-export type Tag = {
-    tag: string;
-    value: string;
+/**
+ * The type of a secret.
+ */
+export type SecretType = 'custom' | 'ssh-key';
+
+/**
+ * Update a secret.
+ *
+ * Secret types
+ * ------------
+ * - `custom`: Arbitrary user-defined types
+ * - `token`: A token, e.g. API Key, JWT Token (TBC)
+ * - `oauth2`: OAuth2 Client Credentials (TBC)
+ */
+export type SecretUpdate = {
+    type?: SecretType | null;
+    name?: string | null;
+    description?: string | null;
+    keys?: Array<SecretKeyValue> | null;
+    tags?: {
+    [key: string]: (string);
+} | null;
+    environment?: string | null;
+    level?: SecretLevel | null;
+};
+
+export type TemplateAction_Input = {
+    type?: "action";
+    definition: TemplateActionDefinition;
+};
+
+export type TemplateAction_Output = {
+    type?: "action";
+    definition: TemplateActionDefinition;
+};
+
+export type TemplateActionDefinition = {
+    /**
+     * The action name
+     */
+    name: string;
+    /**
+     * The namespace of the action
+     */
+    namespace: string;
+    /**
+     * The title of the action
+     */
+    title: string;
+    /**
+     * The description of the action
+     */
+    description?: string;
+    /**
+     * The display group of the action
+     */
+    display_group: string;
+    /**
+     * The secrets to pass to the action
+     */
+    secrets?: Array<RegistrySecret> | null;
+    /**
+     * The arguments to pass to the action
+     */
+    expects: {
+        [key: string]: ExpectedField;
+    };
+    /**
+     * The sequence of steps for the action
+     */
+    steps: Array<ActionStep>;
+    /**
+     * The result of the action
+     */
+    returns: string | Array<(string)> | {
+    [key: string]: unknown;
+};
 };
 
 export type TerminateWorkflowExecutionParams = {
@@ -646,44 +985,6 @@ export type Trigger = {
 
 export type type3 = 'schedule' | 'webhook';
 
-export type UDFActionInput = {
-    task: ActionStatement;
-    role: Role;
-    exec_context: DSLContext;
-    run_context: RunContext;
-    action_test?: ActionTest | null;
-};
-
-export type UDFArgsValidationResponse = {
-    ok: boolean;
-    message: string;
-    detail?: unknown | null;
-};
-
-/**
- * UDF spec.
- *
- * Used in:
- * 1. Frontend action library
- * 2. Frontend integration action form
- */
-export type UDFSpec = {
-    owner_id: string;
-    created_at: string;
-    updated_at: string;
-    id?: string;
-    description: string;
-    namespace: string;
-    key: string;
-    version?: string | null;
-    json_schema: {
-    [key: string]: unknown;
-} | null;
-    meta: {
-    [key: string]: unknown;
-} | null;
-};
-
 export type UpdateActionParams = {
     title?: string | null;
     description?: string | null;
@@ -692,26 +993,6 @@ export type UpdateActionParams = {
     [key: string]: unknown;
 } | null;
     control_flow?: ActionControlFlow | null;
-};
-
-/**
- * Create a new secret.
- *
- * Secret types
- * ------------
- * - `custom`: Arbitrary user-defined types
- * - `token`: A token, e.g. API Key, JWT Token (TBC)
- * - `oauth2`: OAuth2 Client Credentials (TBC)
- */
-export type UpdateSecretParams = {
-    type?: "custom" | null;
-    name?: string | null;
-    description?: string | null;
-    keys?: Array<SecretKeyValue> | null;
-    tags?: {
-    [key: string]: (string);
-} | null;
-    environment?: string | null;
 };
 
 export type UpdateWorkflowParams = {
@@ -726,6 +1007,9 @@ export type UpdateWorkflowParams = {
     icon_url?: string | null;
     static_inputs?: {
     [key: string]: unknown;
+} | null;
+    expects?: {
+    [key: string]: ExpectedField;
 } | null;
     returns?: unknown | null;
     config?: DSLConfig_Input | null;
@@ -874,7 +1158,7 @@ export type WorkflowExecutionResponse = {
     history_length: number;
 };
 
-export type status4 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
+export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
 
 export type WorkflowMetadataResponse = {
     id: string;
@@ -906,6 +1190,9 @@ export type WorkflowResponse = {
     static_inputs: {
         [key: string]: unknown;
     };
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
     returns: unknown;
     config: DSLConfig_Output | null;
 };
@@ -955,8 +1242,6 @@ export type PublicIncomingWebhookData = {
     [key: string]: unknown;
 } | null;
     secret: string;
-    validateMethod?: boolean;
-    xTracecatEnableRuntimeTests?: string | null;
 };
 
 export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse;
@@ -967,20 +1252,10 @@ export type PublicIncomingWebhookWaitData = {
     [key: string]: unknown;
 } | null;
     secret: string;
-    validateMethod?: boolean;
-    xTracecatEnableRuntimeTests?: string | null;
 };
 
 export type PublicIncomingWebhookWaitResponse = {
     [key: string]: unknown;
-};
-
-export type PublicWebhookCallbackData = {
-    service: string;
-};
-
-export type PublicWebhookCallbackResponse = {
-    [key: string]: (string);
 };
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
@@ -1218,132 +1493,68 @@ export type ActionsDeleteActionData = {
 
 export type ActionsDeleteActionResponse = void;
 
-export type UdfsListUdfsData = {
-    limit?: number | null;
-    ns?: Array<(string)> | null;
-    workspaceId: string;
-};
-
-export type UdfsListUdfsResponse = Array<UDFSpec>;
-
-export type UdfsGetUdfData = {
-    namespace?: string;
-    udfKey: string;
-    workspaceId: string;
-};
-
-export type UdfsGetUdfResponse = UDFSpec;
-
-export type UdfsCreateUdfData = {
-    udfKey: string;
-    workspaceId: string;
-};
-
-export type UdfsCreateUdfResponse = UDFSpec;
-
-export type UdfsValidateUdfArgsData = {
-    requestBody: {
-        [key: string]: unknown;
-    };
-    udfKey: string;
-    workspaceId: string;
-};
-
-export type UdfsValidateUdfArgsResponse = UDFArgsValidationResponse;
-
-export type CasesCreateCaseData = {
-    requestBody: CaseCreate;
-    workspaceId: string;
-};
-
-export type CasesCreateCaseResponse = CaseRead;
-
-export type CasesListCasesData = {
-    limit?: number | null;
-    workflowId?: string | null;
-    workspaceId: string;
-};
-
-export type CasesListCasesResponse = Array<CaseRead>;
-
-export type CasesGetCaseData = {
-    caseId: string;
-    workspaceId: string;
-};
-
-export type CasesGetCaseResponse = CaseRead;
-
-export type CasesUpdateCaseData = {
-    caseId: string;
-    requestBody: CaseUpdate;
-    workspaceId: string;
-};
-
-export type CasesUpdateCaseResponse = CaseRead;
-
-export type CasesCreateCaseEventData = {
-    caseId: string;
-    requestBody: CaseEventCreate;
-    workspaceId: string;
-};
-
-export type CasesCreateCaseEventResponse = unknown;
-
-export type CasesListCaseEventsData = {
-    caseId: string;
-    workspaceId: string;
-};
-
-export type CasesListCaseEventsResponse = Array<CaseEvent>;
-
-export type CasesGetCaseEventData = {
-    caseId: string;
-    eventId: string;
-    workspaceId: string;
-};
-
-export type CasesGetCaseEventResponse = unknown;
-
 export type SecretsSearchSecretsData = {
     environment: string;
+    /**
+     * Filter by secret ID
+     */
     id?: Array<(string)> | null;
+    /**
+     * Filter by secret level
+     */
+    level?: Array<SecretLevel> | null;
+    /**
+     * Filter by secret name
+     */
     name?: Array<(string)> | null;
-    workspaceId: string;
+    /**
+     * Filter by secret type
+     */
+    type?: Array<SecretType> | null;
+    workspaceId?: string | null;
 };
 
-export type SecretsSearchSecretsResponse = Array<Secret>;
+export type SecretsSearchSecretsResponse = Array<SecretRead>;
 
 export type SecretsListSecretsData = {
-    workspaceId: string;
+    /**
+     * Filter by secret level
+     */
+    level?: SecretLevel | null;
+    /**
+     * Filter by secret type
+     */
+    type?: Array<SecretType> | null;
+    workspaceId?: string | null;
 };
 
-export type SecretsListSecretsResponse = Array<SecretResponse>;
+export type SecretsListSecretsResponse = Array<SecretReadMinimal>;
 
 export type SecretsCreateSecretData = {
-    requestBody: CreateSecretParams;
-    workspaceId: string;
+    requestBody: SecretCreate;
+    workspaceId?: string | null;
 };
 
 export type SecretsCreateSecretResponse = unknown;
 
 export type SecretsGetSecretByNameData = {
     secretName: string;
-    workspaceId: string;
+    workspaceId?: string | null;
 };
 
-export type SecretsGetSecretByNameResponse = Secret;
+export type SecretsGetSecretByNameResponse = SecretRead;
 
 export type SecretsUpdateSecretByIdData = {
-    requestBody: UpdateSecretParams;
+    requestBody: SecretUpdate;
     secretId: string;
-    workspaceId: string;
+    workspaceId?: string | null;
 };
 
 export type SecretsUpdateSecretByIdResponse = void;
 
 export type SecretsDeleteSecretByIdData = {
     secretId: string;
-    workspaceId: string;
+    workspaceId?: string | null;
 };
 
 export type SecretsDeleteSecretByIdResponse = void;
@@ -1396,13 +1607,91 @@ export type ValidationValidateWorkflowData = {
     workspaceId: string;
 };
 
-export type ValidationValidateWorkflowResponse = Array<UDFArgsValidationResponse>;
+export type ValidationValidateWorkflowResponse = Array<RegistryActionValidateResponse>;
 
 export type UsersSearchUserData = {
     email?: string | null;
 };
 
 export type UsersSearchUserResponse = UserRead;
+
+export type RegistryRepositoriesSyncRegistryRepositoriesData = {
+    /**
+     * Origins to sync. If no origins provided, all repositories will be synced.
+     */
+    origins?: Array<(string)> | null;
+    workspaceId?: string | null;
+};
+
+export type RegistryRepositoriesSyncRegistryRepositoriesResponse = void;
+
+export type RegistryRepositoriesListRegistryRepositoriesResponse = Array<RegistryRepositoryReadMinimal>;
+
+export type RegistryRepositoriesCreateRegistryRepositoryData = {
+    requestBody: RegistryRepositoryCreate;
+};
+
+export type RegistryRepositoriesCreateRegistryRepositoryResponse = RegistryRepositoryRead;
+
+export type RegistryRepositoriesGetRegistryRepositoryData = {
+    origin: string;
+};
+
+export type RegistryRepositoriesGetRegistryRepositoryResponse = RegistryRepositoryRead;
+
+export type RegistryRepositoriesUpdateRegistryRepositoryData = {
+    origin: string;
+    requestBody: RegistryRepositoryUpdate;
+};
+
+export type RegistryRepositoriesUpdateRegistryRepositoryResponse = RegistryRepositoryRead;
+
+export type RegistryRepositoriesDeleteRegistryRepositoryData = {
+    origin: string;
+};
+
+export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void;
+
+export type RegistryActionsListRegistryActionsResponse = Array<RegistryActionRead>;
+
+export type RegistryActionsCreateRegistryActionData = {
+    requestBody: RegistryActionCreate;
+};
+
+export type RegistryActionsCreateRegistryActionResponse = RegistryActionRead;
+
+export type RegistryActionsGetRegistryActionData = {
+    actionName: string;
+};
+
+export type RegistryActionsGetRegistryActionResponse = RegistryActionRead;
+
+export type RegistryActionsUpdateRegistryActionData = {
+    actionName: string;
+    requestBody: RegistryActionUpdate;
+};
+
+export type RegistryActionsUpdateRegistryActionResponse = void;
+
+export type RegistryActionsDeleteRegistryActionData = {
+    actionName: string;
+};
+
+export type RegistryActionsDeleteRegistryActionResponse = void;
+
+export type RegistryActionsRunRegistryActionData = {
+    actionName: string;
+    requestBody: RunActionInput_Input;
+};
+
+export type RegistryActionsRunRegistryActionResponse = unknown;
+
+export type RegistryActionsValidateRegistryActionData = {
+    actionName: string;
+    requestBody: RegistryActionValidate;
+};
+
+export type RegistryActionsValidateRegistryActionResponse = RegistryActionValidateResponse;
 
 export type UsersUsersCurrentUserResponse = UserRead;
 
@@ -1484,6 +1773,14 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown;
 
+export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse;
+
+export type AuthSsoAcsData = {
+    formData: Body_auth_sso_acs;
+};
+
+export type AuthSsoAcsResponse = unknown;
+
 export type PublicCheckHealthResponse = {
     [key: string]: (string);
 };
@@ -1513,23 +1810,6 @@ export type $OpenApiTs = {
                  */
                 200: {
                     [key: string]: unknown;
-                };
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/callback/{service}': {
-        post: {
-            req: PublicWebhookCallbackData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: {
-                    [key: string]: (string);
                 };
                 /**
                  * Validation Error
@@ -1998,163 +2278,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/udfs': {
-        get: {
-            req: UdfsListUdfsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<UDFSpec>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}': {
-        get: {
-            req: UdfsGetUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: UdfsCreateUdfData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFSpec;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/udfs/{udf_key}/validate': {
-        post: {
-            req: UdfsValidateUdfArgsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: UDFArgsValidationResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases': {
-        post: {
-            req: CasesCreateCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: CasesListCasesData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseRead>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}': {
-        get: {
-            req: CasesGetCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        post: {
-            req: CasesUpdateCaseData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: CaseRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}/events': {
-        post: {
-            req: CasesCreateCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                201: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        get: {
-            req: CasesListCaseEventsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<CaseEvent>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/cases/{case_id}/events/{event_id}': {
-        get: {
-            req: CasesGetCaseEventData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
     '/secrets/search': {
         get: {
             req: SecretsSearchSecretsData;
@@ -2162,7 +2285,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<Secret>;
+                200: Array<SecretRead>;
                 /**
                  * Validation Error
                  */
@@ -2177,7 +2300,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<SecretResponse>;
+                200: Array<SecretReadMinimal>;
                 /**
                  * Validation Error
                  */
@@ -2205,7 +2328,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Secret;
+                200: SecretRead;
                 /**
                  * Validation Error
                  */
@@ -2332,7 +2455,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<UDFArgsValidationResponse>;
+                200: Array<RegistryActionValidateResponse>;
                 /**
                  * Validation Error
                  */
@@ -2348,6 +2471,179 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: UserRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/repos/sync': {
+        post: {
+            req: RegistryRepositoriesSyncRegistryRepositoriesData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/repos': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<RegistryRepositoryReadMinimal>;
+            };
+        };
+        post: {
+            req: RegistryRepositoriesCreateRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: RegistryRepositoryRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/repos/{origin}': {
+        get: {
+            req: RegistryRepositoriesGetRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryRepositoryRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: RegistryRepositoriesUpdateRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryRepositoryRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: RegistryRepositoriesDeleteRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<RegistryActionRead>;
+            };
+        };
+        post: {
+            req: RegistryActionsCreateRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: RegistryActionRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions/{action_name}': {
+        get: {
+            req: RegistryActionsGetRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryActionRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: RegistryActionsUpdateRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: RegistryActionsDeleteRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions/{action_name}/execute': {
+        post: {
+            req: RegistryActionsRunRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/actions/{action_name}/validate': {
+        post: {
+            req: RegistryActionsValidateRegistryActionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: RegistryActionValidateResponse;
                 /**
                  * Validation Error
                  */
@@ -2626,6 +2922,31 @@ export type $OpenApiTs = {
                  * Bad Request
                  */
                 400: ErrorModel;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/auth/saml/login': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: SAMLDatabaseLoginResponse;
+            };
+        };
+    };
+    '/auth/saml/acs': {
+        post: {
+            req: AuthSsoAcsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */

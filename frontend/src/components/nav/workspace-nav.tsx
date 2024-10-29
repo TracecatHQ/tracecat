@@ -4,9 +4,13 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
-import { BlocksIcon, ShieldAlertIcon, WorkflowIcon } from "lucide-react"
+import { WorkflowIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import {
+  OrganizationNavButton,
+  RegistryNavButton,
+} from "@/components/nav/nav-buttons"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
 
 export function WorkspaceNav() {
@@ -27,27 +31,8 @@ export function WorkspaceNav() {
         <WorkflowIcon className="mr-2 size-4" />
         <span>Workflows</span>
       </Link>
-      <Link
-        href={`/workspaces/${workspaceId}/cases`}
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.endsWith("/cases") && "text-primary"
-        )}
-      >
-        <ShieldAlertIcon className="mr-2 size-4" />
-        <span>Cases</span>
-      </Link>
-      <Link
-        href="https://docs.tracecat.com/integrations/introduction"
-        target="_blank"
-        className={cn(
-          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
-          pathname.startsWith("/integrations") && "text-primary"
-        )}
-      >
-        <BlocksIcon className="mr-2 size-4" />
-        <span>Integrations</span>
-      </Link>
+      <RegistryNavButton />
+      <OrganizationNavButton />
     </nav>
   )
 }

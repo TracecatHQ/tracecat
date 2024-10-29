@@ -10,7 +10,7 @@ from httpx import Response
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.db.schemas import Secret
+from tracecat.db.schemas import BaseSecret
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
@@ -23,7 +23,7 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.patterns import FULL_TEMPLATE
 from tracecat.expressions.shared import ExprContext, ExprType, IterableExpr
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
@@ -230,7 +230,7 @@ def test_evaluate_templated_secret(test_role):
 
     base_secrets_url = f"{config.TRACECAT__API_URL}/secrets"
 
-    def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:
+    def format_secrets_as_json(secrets: list[BaseSecret]) -> dict[str, str]:
         """Format secrets as a dict."""
         secret_dict = {}
         for secret in secrets:
@@ -246,12 +246,12 @@ def test_evaluate_templated_secret(test_role):
         with httpx.Client(base_url=config.TRACECAT__API_URL) as client:
             response = client.get(f"/secrets/{secret_name}")
             response.raise_for_status()
-        return Secret.model_validate(response.json())
+        return BaseSecret.model_validate(response.json())
 
     with respx.mock:
         # Mock workflow getter from API side
         for secret_name, secret_keys in TEST_SECRETS.items():
-            secret = Secret(
+            secret = BaseSecret(
                 name=secret_name,
                 owner_id=uuid.uuid4(),
                 encrypted_keys=encrypt_keyvalues(

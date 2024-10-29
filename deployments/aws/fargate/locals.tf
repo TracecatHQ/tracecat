@@ -2,8 +2,9 @@
 locals {
 
   # Tracecat version
-  sha256_image_tag   = "sha256:${var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA}"
-  tracecat_image_tag = coalesce(local.sha256_image_tag, var.tracecat_image_tag)
+  git_sha            = var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA
+  sha256_image_tag   = local.git_sha != null ? "sha-${substr(local.git_sha, 0, 7)}" : null
+  tracecat_image_tag = var.use_git_commit_sha ? local.sha256_image_tag : var.tracecat_image_tag
 
   # Tracecat common URLs
   public_app_url         = "https://${var.domain_name}"
@@ -16,12 +17,10 @@ locals {
   # Tracecat postgres env vars
   # See: https://github.com/TracecatHQ/tracecat/blob/abd5ff/tracecat/db/engine.py#L21
   tracecat_db_configs = {
-    # NOTE: still missing
-    # TRACECAT__DB_ENDPOINT which is the hostname of the RDS instance (from RDS resource)
-    # TRACECAT__DB_PASS which is the password for the database (from secrets manager)
-    TRACECAT__DB_USER = "postgres"
-    TRACECAT__DB_PORT = "5432"
-    TRACECAT__DB_NAME = "postgres" # Hardcoded in RDS resource configs
+    TRACECAT__DB_USER      = "postgres"
+    TRACECAT__DB_PORT      = "5432"
+    TRACECAT__DB_NAME      = "postgres" # Hardcoded in RDS resource configs
+    TRACECAT__DB_PASS__ARN = data.aws_secretsmanager_secret_version.tracecat_db_password.arn
   }
 
   api_env = [

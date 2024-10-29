@@ -36,6 +36,15 @@ export const $ActionControlFlow = {
                 }
             ],
             title: 'For Each'
+        },
+        retry_policy: {
+            '$ref': '#/components/schemas/ActionRetryPolicy'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -117,7 +126,120 @@ export const $ActionResponse = {
     title: 'ActionResponse'
 } as const;
 
-export const $ActionStatement = {
+export const $ActionRetryPolicy = {
+    properties: {
+        max_attempts: {
+            type: 'integer',
+            title: 'Max Attempts',
+            description: 'Total number of execution attempts. 0 means unlimited, 1 means no retries.',
+            default: 1
+        },
+        timeout: {
+            type: 'integer',
+            title: 'Timeout',
+            description: 'Timeout for the action in seconds.',
+            default: 300
+        }
+    },
+    type: 'object',
+    title: 'ActionRetryPolicy'
+} as const;
+
+export const $ActionStatement_Input = {
+    properties: {
+        id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Id',
+            description: 'The action ID. If this is populated means there is a corresponding actionin the database `Action` table.'
+        },
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref',
+            description: 'Unique reference for the task'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            default: ''
+        },
+        action: {
+            type: 'string',
+            pattern: '^[a-z0-9_.]+$',
+            title: 'Action',
+            description: 'Action type. Equivalent to the UDF key.'
+        },
+        args: {
+            type: 'object',
+            title: 'Args',
+            description: 'Arguments for the action'
+        },
+        depends_on: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Depends On',
+            description: 'Task dependencies'
+        },
+        run_if: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run If',
+            description: 'Condition to run the task'
+        },
+        for_each: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'For Each',
+            description: 'Iterate over a list of items and run the task for each item.'
+        },
+        retry_policy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/ActionRetryPolicy'
+                }
+            ],
+            description: 'Retry policy for the action.'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
+        }
+    },
+    type: 'object',
+    required: ['ref', 'action'],
+    title: 'ActionStatement'
+} as const;
+
+export const $ActionStatement_Output = {
     properties: {
         ref: {
             type: 'string',
@@ -178,6 +300,20 @@ export const $ActionStatement = {
             ],
             title: 'For Each',
             description: 'Iterate over a list of items and run the task for each item.'
+        },
+        retry_policy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/ActionRetryPolicy'
+                }
+            ],
+            description: 'Retry policy for the action.'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -245,6 +381,20 @@ export const $ActionStatement_Any_ = {
             ],
             title: 'For Each',
             description: 'Iterate over a list of items and run the task for each item.'
+        },
+        retry_policy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/ActionRetryPolicy'
+                }
+            ],
+            description: 'Retry policy for the action.'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay',
+            description: 'Delay before starting the action in seconds.',
+            default: 0
         }
     },
     type: 'object',
@@ -252,36 +402,25 @@ export const $ActionStatement_Any_ = {
     title: 'ActionStatement[Any]'
 } as const;
 
-export const $ActionTest = {
+export const $ActionStep = {
     properties: {
         ref: {
             type: 'string',
-            pattern: '^[a-z0-9_]+$',
             title: 'Ref',
-            description: 'Action reference'
+            description: 'The reference of the step'
         },
-        enable: {
-            type: 'boolean',
-            title: 'Enable',
-            default: true
+        action: {
+            type: 'string',
+            title: 'Action'
         },
-        validate_args: {
-            type: 'boolean',
-            title: 'Validate Args',
-            default: true
-        },
-        success: {
-            title: 'Success',
-            description: "Patched success output. This can be any data structure.If it's a fsspec file, it will be read and the contents will be used."
-        },
-        failure: {
-            title: 'Failure',
-            description: 'Patched failure output'
+        args: {
+            type: 'object',
+            title: 'Args'
         }
     },
     type: 'object',
-    required: ['ref', 'success'],
-    title: 'ActionTest'
+    required: ['ref', 'action', 'args'],
+    title: 'ActionStep'
 } as const;
 
 export const $Body_auth_reset_forgot_password = {
@@ -311,6 +450,18 @@ export const $Body_auth_reset_reset_password = {
     type: 'object',
     required: ['token', 'password'],
     title: 'Body_auth-reset:reset_password'
+} as const;
+
+export const $Body_auth_sso_acs = {
+    properties: {
+        SAMLResponse: {
+            type: 'string',
+            title: 'Samlresponse'
+        }
+    },
+    type: 'object',
+    required: ['SAMLResponse'],
+    title: 'Body_auth-sso_acs'
 } as const;
 
 export const $Body_auth_verify_request_token = {
@@ -397,306 +548,6 @@ export const $Body_workflows_create_workflow = {
     title: 'Body_workflows-create_workflow'
 } as const;
 
-export const $CaseContext = {
-    properties: {
-        key: {
-            type: 'string',
-            title: 'Key'
-        },
-        value: {
-            type: 'string',
-            title: 'Value'
-        }
-    },
-    type: 'object',
-    required: ['key', 'value'],
-    title: 'CaseContext'
-} as const;
-
-export const $CaseCreate = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        workflow_id: {
-            type: 'string',
-            pattern: 'wf-[0-9a-f]{32}',
-            title: 'Workflow Id'
-        },
-        case_title: {
-            type: 'string',
-            title: 'Case Title'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        },
-        context: {
-            items: {
-                '$ref': '#/components/schemas/CaseContext'
-            },
-            type: 'array',
-            title: 'Context'
-        },
-        tags: {
-            items: {
-                '$ref': '#/components/schemas/Tag'
-            },
-            type: 'array',
-            title: 'Tags'
-        },
-        malice: {
-            type: 'string',
-            enum: ['malicious', 'benign'],
-            title: 'Malice'
-        },
-        status: {
-            type: 'string',
-            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
-            title: 'Status'
-        },
-        priority: {
-            type: 'string',
-            enum: ['low', 'medium', 'high', 'critical'],
-            title: 'Priority'
-        },
-        action: {
-            type: 'string',
-            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
-            title: 'Action'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'context', 'tags', 'malice', 'status', 'priority', 'action'],
-    title: 'CaseCreate'
-} as const;
-
-export const $CaseEvent = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        type: {
-            type: 'string',
-            title: 'Type'
-        },
-        case_id: {
-            type: 'string',
-            title: 'Case Id'
-        },
-        initiator_role: {
-            type: 'string',
-            title: 'Initiator Role'
-        },
-        data: {
-            anyOf: [
-                {
-                    additionalProperties: {
-                        anyOf: [
-                            {
-                                type: 'string'
-                            },
-                            {
-                                type: 'null'
-                            }
-                        ]
-                    },
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Data'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'type', 'case_id', 'initiator_role', 'data'],
-    title: 'CaseEvent'
-} as const;
-
-export const $CaseEventCreate = {
-    properties: {
-        type: {
-            type: 'string',
-            enum: ['status_changed', 'priority_changed', 'comment_created', 'case_opened', 'case_closed'],
-            title: 'Type'
-        },
-        data: {
-            anyOf: [
-                {
-                    additionalProperties: {
-                        anyOf: [
-                            {
-                                type: 'string'
-                            },
-                            {
-                                type: 'null'
-                            }
-                        ]
-                    },
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Data'
-        }
-    },
-    type: 'object',
-    required: ['type', 'data'],
-    title: 'CaseEventCreate'
-} as const;
-
-export const $CaseRead = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        workflow_id: {
-            type: 'string',
-            pattern: 'wf-[0-9a-f]{32}',
-            title: 'Workflow Id'
-        },
-        case_title: {
-            type: 'string',
-            title: 'Case Title'
-        },
-        payload: {
-            type: 'object',
-            title: 'Payload'
-        },
-        context: {
-            items: {
-                '$ref': '#/components/schemas/CaseContext'
-            },
-            type: 'array',
-            title: 'Context'
-        },
-        tags: {
-            items: {
-                '$ref': '#/components/schemas/Tag'
-            },
-            type: 'array',
-            title: 'Tags'
-        },
-        malice: {
-            type: 'string',
-            enum: ['malicious', 'benign'],
-            title: 'Malice'
-        },
-        status: {
-            type: 'string',
-            enum: ['open', 'closed', 'in_progress', 'reported', 'escalated'],
-            title: 'Status'
-        },
-        priority: {
-            type: 'string',
-            enum: ['low', 'medium', 'high', 'critical'],
-            title: 'Priority'
-        },
-        action: {
-            type: 'string',
-            enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise'],
-            title: 'Action'
-        },
-        id: {
-            type: 'string',
-            pattern: 'case-[0-9a-f]{32}',
-            title: 'Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'workflow_id', 'case_title', 'payload', 'context', 'tags', 'malice', 'status', 'priority', 'action', 'id', 'created_at', 'updated_at'],
-    title: 'CaseRead'
-} as const;
-
-export const $CaseUpdate = {
-    properties: {
-        malice: {
-            anyOf: [
-                {
-                    type: 'string',
-                    enum: ['malicious', 'benign']
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Malice'
-        },
-        status: {
-            anyOf: [
-                {
-                    type: 'string',
-                    enum: ['open', 'closed', 'in_progress', 'reported', 'escalated']
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Status'
-        },
-        priority: {
-            anyOf: [
-                {
-                    type: 'string',
-                    enum: ['low', 'medium', 'high', 'critical']
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Priority'
-        },
-        action: {
-            anyOf: [
-                {
-                    type: 'string',
-                    enum: ['ignore', 'quarantine', 'informational', 'sinkhole', 'active_compromise']
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Action'
-        }
-    },
-    type: 'object',
-    title: 'CaseUpdate'
-} as const;
-
 export const $CommitWorkflowResponse = {
     properties: {
         workflow_id: {
@@ -716,7 +567,7 @@ export const $CommitWorkflowResponse = {
             anyOf: [
                 {
                     items: {
-                        '$ref': '#/components/schemas/UDFArgsValidationResponse'
+                        '$ref': '#/components/schemas/RegistryActionValidateResponse'
                     },
                     type: 'array'
                 },
@@ -763,67 +614,6 @@ export const $CreateActionParams = {
     title: 'CreateActionParams'
 } as const;
 
-export const $CreateSecretParams = {
-    properties: {
-        type: {
-            const: 'custom',
-            title: 'Type',
-            default: 'custom'
-        },
-        name: {
-            type: 'string',
-            title: 'Name'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        keys: {
-            items: {
-                '$ref': '#/components/schemas/SecretKeyValue'
-            },
-            type: 'array',
-            title: 'Keys'
-        },
-        tags: {
-            anyOf: [
-                {
-                    additionalProperties: {
-                        type: 'string'
-                    },
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Tags'
-        },
-        environment: {
-            type: 'string',
-            title: 'Environment',
-            default: 'default'
-        }
-    },
-    type: 'object',
-    required: ['name', 'keys'],
-    title: 'CreateSecretParams',
-    description: `Create a new secret.
-
-Secret types
-------------
-- \`custom\`: Arbitrary user-defined types
-- \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`
-} as const;
-
 export const $CreateWorkflowExecutionParams = {
     properties: {
         workflow_id: {
@@ -841,11 +631,6 @@ export const $CreateWorkflowExecutionParams = {
                 }
             ],
             title: 'Inputs'
-        },
-        enable_runtime_tests: {
-            type: 'boolean',
-            title: 'Enable Runtime Tests',
-            default: false
         }
     },
     type: 'object',
@@ -929,12 +714,6 @@ export const $DSLConfig_Input = {
             description: 'The type of scheduler to use.',
             default: 'dynamic'
         },
-        enable_runtime_tests: {
-            type: 'boolean',
-            title: 'Enable Runtime Tests',
-            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
-            default: false
-        },
         environment: {
             type: 'string',
             title: 'Environment',
@@ -943,17 +722,14 @@ export const $DSLConfig_Input = {
         }
     },
     type: 'object',
-    title: 'DSLConfig'
+    title: 'DSLConfig',
+    description: `This is the runtime configuration for the workflow.
+
+Activities don't need access to this.`
 } as const;
 
 export const $DSLConfig_Output = {
     properties: {
-        enable_runtime_tests: {
-            type: 'boolean',
-            title: 'Enable Runtime Tests',
-            description: 'Enable runtime action tests. This is dynamically set on workflow entry.',
-            default: false
-        },
         environment: {
             type: 'string',
             title: 'Environment',
@@ -962,7 +738,10 @@ export const $DSLConfig_Output = {
         }
     },
     type: 'object',
-    title: 'DSLConfig'
+    title: 'DSLConfig',
+    description: `This is the runtime configuration for the workflow.
+
+Activities don't need access to this.`
 } as const;
 
 export const $DSLContext = {
@@ -996,13 +775,18 @@ export const $DSLEntrypoint = {
         },
         expects: {
             anyOf: [
-                {},
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
                 {
                     type: 'null'
                 }
             ],
             title: 'Expects',
-            description: 'Expected trigger input shape'
+            description: 'Expected trigger input schema. Use this to specify the expected shape of the trigger input.'
         }
     },
     type: 'object',
@@ -1023,6 +807,10 @@ export const $DSLEnvironment = {
         variables: {
             type: 'object',
             title: 'Variables'
+        },
+        registry_version: {
+            type: 'string',
+            title: 'Registry Version'
         }
     },
     type: 'object',
@@ -1045,7 +833,7 @@ export const $DSLInput = {
         },
         actions: {
             items: {
-                '$ref': '#/components/schemas/ActionStatement'
+                '$ref': '#/components/schemas/ActionStatement-Output'
             },
             type: 'array',
             title: 'Actions'
@@ -1064,14 +852,6 @@ export const $DSLInput = {
             type: 'object',
             title: 'Inputs',
             description: 'Static input parameters'
-        },
-        tests: {
-            items: {
-                '$ref': '#/components/schemas/ActionTest'
-            },
-            type: 'array',
-            title: 'Tests',
-            description: 'Action tests'
         },
         returns: {
             anyOf: [
@@ -1268,7 +1048,7 @@ export const $EventGroup = {
         action_input: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/UDFActionInput'
+                    '$ref': '#/components/schemas/RunActionInput-Output'
                 },
                 {
                     '$ref': '#/components/schemas/DSLRunArgs'
@@ -1287,10 +1067,28 @@ export const $EventGroup = {
                 }
             ],
             title: 'Action Result'
+        },
+        current_attempt: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Attempt'
+        },
+        retry_policy: {
+            '$ref': '#/components/schemas/ActionRetryPolicy'
+        },
+        start_delay: {
+            type: 'number',
+            title: 'Start Delay'
         }
     },
     type: 'object',
-    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input'],
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input', 'retry_policy', 'start_delay'],
     title: 'EventGroup'
 } as const;
 
@@ -1365,6 +1163,38 @@ export const $EventHistoryType = {
     description: 'The event types we care about.'
 } as const;
 
+export const $ExpectedField = {
+    properties: {
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        default: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default'
+        }
+    },
+    type: 'object',
+    required: ['type'],
+    title: 'ExpectedField'
+} as const;
+
 export const $GetWorkflowDefinitionActivityInputs = {
     properties: {
         role: {
@@ -1426,6 +1256,588 @@ export const $OAuth2AuthorizeResponse = {
     type: 'object',
     required: ['authorization_url'],
     title: 'OAuth2AuthorizeResponse'
+} as const;
+
+export const $RegistryActionCreate = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The name of the action'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: 'The description of the action'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace',
+            description: 'The namespace of the action'
+        },
+        type: {
+            type: 'string',
+            enum: ['udf', 'template'],
+            title: 'Type',
+            description: 'The type of the action'
+        },
+        origin: {
+            type: 'string',
+            title: 'Origin',
+            description: 'The origin of the action as a url'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'The secrets required by the action'
+        },
+        interface: {
+            '$ref': '#/components/schemas/RegistryActionInterface'
+        },
+        implementation: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionTemplateImpl-Input'
+                },
+                {
+                    '$ref': '#/components/schemas/RegistryActionUDFImpl'
+                }
+            ],
+            title: 'Implementation'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title',
+            description: 'The default title of the action'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group',
+            description: 'The presentation group of the action'
+        },
+        options: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionOptions'
+                }
+            ],
+            description: 'The options for the action'
+        },
+        repository_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Repository Id',
+            description: 'The repository id'
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'namespace', 'type', 'origin', 'interface', 'repository_id'],
+    title: 'RegistryActionCreate',
+    description: 'API create model for a registered action.'
+} as const;
+
+export const $RegistryActionInterface = {
+    properties: {
+        expects: {
+            type: 'object',
+            title: 'Expects'
+        },
+        returns: {
+            title: 'Returns'
+        }
+    },
+    type: 'object',
+    required: ['expects', 'returns'],
+    title: 'RegistryActionInterface'
+} as const;
+
+export const $RegistryActionOptions = {
+    properties: {
+        include_in_schema: {
+            type: 'boolean',
+            title: 'Include In Schema',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'RegistryActionOptions'
+} as const;
+
+export const $RegistryActionRead = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The name of the action'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: 'The description of the action'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace',
+            description: 'The namespace of the action'
+        },
+        type: {
+            type: 'string',
+            enum: ['udf', 'template'],
+            title: 'Type',
+            description: 'The type of the action'
+        },
+        origin: {
+            type: 'string',
+            title: 'Origin',
+            description: 'The origin of the action as a url'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'The secrets required by the action'
+        },
+        interface: {
+            '$ref': '#/components/schemas/RegistryActionInterface'
+        },
+        implementation: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionTemplateImpl-Output'
+                },
+                {
+                    '$ref': '#/components/schemas/RegistryActionUDFImpl'
+                }
+            ],
+            title: 'Implementation'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title',
+            description: 'The default title of the action'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group',
+            description: 'The presentation group of the action'
+        },
+        options: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionOptions'
+                }
+            ],
+            description: 'The options for the action'
+        },
+        repository_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Repository Id',
+            description: 'The repository id'
+        },
+        action: {
+            type: 'string',
+            title: 'Action',
+            description: 'The full action identifier.',
+            readOnly: true
+        },
+        is_template: {
+            type: 'boolean',
+            title: 'Is Template',
+            description: 'Whether the action is a template.',
+            readOnly: true
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'namespace', 'type', 'origin', 'interface', 'repository_id', 'action', 'is_template'],
+    title: 'RegistryActionRead',
+    description: 'API read model for a registered action.'
+} as const;
+
+export const $RegistryActionTemplateImpl_Input = {
+    properties: {
+        type: {
+            const: 'template',
+            title: 'Type',
+            default: 'template'
+        },
+        template_action: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/TemplateAction-Input'
+                }
+            ],
+            description: 'The template action'
+        }
+    },
+    type: 'object',
+    required: ['template_action'],
+    title: 'RegistryActionTemplateImpl'
+} as const;
+
+export const $RegistryActionTemplateImpl_Output = {
+    properties: {
+        type: {
+            const: 'template',
+            title: 'Type',
+            default: 'template'
+        },
+        template_action: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/TemplateAction-Output'
+                }
+            ],
+            description: 'The template action'
+        }
+    },
+    type: 'object',
+    required: ['template_action'],
+    title: 'RegistryActionTemplateImpl'
+} as const;
+
+export const $RegistryActionUDFImpl = {
+    properties: {
+        type: {
+            const: 'udf',
+            title: 'Type',
+            default: 'udf'
+        },
+        url: {
+            type: 'string',
+            title: 'Url',
+            description: 'The package url'
+        },
+        module: {
+            type: 'string',
+            title: 'Module',
+            description: 'The module name'
+        },
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The name of the UDF function name'
+        }
+    },
+    type: 'object',
+    required: ['url', 'module', 'name'],
+    title: 'RegistryActionUDFImpl'
+} as const;
+
+export const $RegistryActionUpdate = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name',
+            description: 'Update the name of the action'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description',
+            description: 'Update the description of the action'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'Update the secrets of the action'
+        },
+        interface: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionInterface'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            description: 'Update the interface of the action'
+        },
+        implementation: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionTemplateImpl-Input'
+                },
+                {
+                    '$ref': '#/components/schemas/RegistryActionUDFImpl'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Implementation',
+            description: 'Update the implementation of the action'
+        },
+        default_title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Default Title',
+            description: 'Update the default title of the action'
+        },
+        display_group: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Display Group',
+            description: 'Update the display group of the action'
+        },
+        options: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RegistryActionOptions'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            description: 'Update the options of the action'
+        }
+    },
+    type: 'object',
+    title: 'RegistryActionUpdate',
+    description: 'API update model for a registered action.'
+} as const;
+
+export const $RegistryActionValidate = {
+    properties: {
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['args'],
+    title: 'RegistryActionValidate'
+} as const;
+
+export const $RegistryActionValidateResponse = {
+    properties: {
+        ok: {
+            type: 'boolean',
+            title: 'Ok'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        detail: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Detail'
+        }
+    },
+    type: 'object',
+    required: ['ok', 'message'],
+    title: 'RegistryActionValidateResponse'
+} as const;
+
+export const $RegistryRepositoryCreate = {
+    properties: {
+        origin: {
+            type: 'string',
+            title: 'Origin'
+        }
+    },
+    type: 'object',
+    required: ['origin'],
+    title: 'RegistryRepositoryCreate'
+} as const;
+
+export const $RegistryRepositoryRead = {
+    properties: {
+        origin: {
+            type: 'string',
+            title: 'Origin'
+        },
+        actions: {
+            items: {
+                '$ref': '#/components/schemas/RegistryActionRead'
+            },
+            type: 'array',
+            title: 'Actions'
+        }
+    },
+    type: 'object',
+    required: ['origin', 'actions'],
+    title: 'RegistryRepositoryRead'
+} as const;
+
+export const $RegistryRepositoryReadMinimal = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
+        origin: {
+            type: 'string',
+            title: 'Origin'
+        }
+    },
+    type: 'object',
+    required: ['id', 'origin'],
+    title: 'RegistryRepositoryReadMinimal'
+} as const;
+
+export const $RegistryRepositoryUpdate = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        include_base: {
+            type: 'boolean',
+            title: 'Include Base',
+            default: true
+        },
+        include_remote: {
+            type: 'boolean',
+            title: 'Include Remote',
+            default: true
+        },
+        include_templates: {
+            type: 'boolean',
+            title: 'Include Templates',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'RegistryRepositoryUpdate'
+} as const;
+
+export const $RegistrySecret = {
+    properties: {
+        name: {
+            type: 'string',
+            pattern: '[a-z0-9_]+',
+            title: 'Name'
+        },
+        keys: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string',
+                        pattern: '[a-zA-Z0-9_]+'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Keys'
+        },
+        optional_keys: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string',
+                        pattern: '[a-zA-Z0-9_]+'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Optional Keys'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'RegistrySecret'
 } as const;
 
 export const $Role = {
@@ -1502,6 +1914,48 @@ Service roles
 - A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`
 } as const;
 
+export const $RunActionInput_Input = {
+    properties: {
+        task: {
+            '$ref': '#/components/schemas/ActionStatement-Input'
+        },
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        exec_context: {
+            '$ref': '#/components/schemas/DSLContext'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        }
+    },
+    type: 'object',
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'RunActionInput',
+    description: 'This object contains all the information needed to execute an action.'
+} as const;
+
+export const $RunActionInput_Output = {
+    properties: {
+        task: {
+            '$ref': '#/components/schemas/ActionStatement-Output'
+        },
+        role: {
+            '$ref': '#/components/schemas/Role'
+        },
+        exec_context: {
+            '$ref': '#/components/schemas/DSLContext'
+        },
+        run_context: {
+            '$ref': '#/components/schemas/RunContext'
+        }
+    },
+    type: 'object',
+    required: ['task', 'role', 'exec_context', 'run_context'],
+    title: 'RunActionInput',
+    description: 'This object contains all the information needed to execute an action.'
+} as const;
+
 export const $RunContext = {
     properties: {
         wf_id: {
@@ -1526,11 +1980,28 @@ export const $RunContext = {
             type: 'string',
             format: 'uuid4',
             title: 'Wf Run Id'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
         }
     },
     type: 'object',
-    required: ['wf_id', 'wf_exec_id', 'wf_run_id'],
-    title: 'RunContext'
+    required: ['wf_id', 'wf_exec_id', 'wf_run_id', 'environment'],
+    title: 'RunContext',
+    description: 'This is the runtime context model for a workflow run. Passed into activities.'
+} as const;
+
+export const $SAMLDatabaseLoginResponse = {
+    properties: {
+        redirect_url: {
+            type: 'string',
+            title: 'Redirect Url'
+        }
+    },
+    type: 'object',
+    required: ['redirect_url'],
+    title: 'SAMLDatabaseLoginResponse'
 } as const;
 
 export const $Schedule = {
@@ -1879,43 +2350,24 @@ export const $ScheduleUpdate = {
     title: 'ScheduleUpdate'
 } as const;
 
-export const $Secret = {
+export const $SecretCreate = {
     properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
         type: {
-            type: 'string',
-            title: 'Type',
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/SecretType'
+                }
+            ],
             default: 'custom'
         },
         name: {
             type: 'string',
-            maxLength: 255,
-            title: 'Name',
-            description: "Secret names should be unique within a user's scope."
+            title: 'Name'
         },
         description: {
             anyOf: [
                 {
-                    type: 'string',
-                    maxLength: 255
+                    type: 'string'
                 },
                 {
                     type: 'null'
@@ -1923,15 +2375,12 @@ export const $Secret = {
             ],
             title: 'Description'
         },
-        encrypted_keys: {
-            type: 'string',
-            format: 'binary',
-            title: 'Encrypted Keys'
-        },
-        environment: {
-            type: 'string',
-            title: 'Environment',
-            default: 'default'
+        keys: {
+            items: {
+                '$ref': '#/components/schemas/SecretKeyValue'
+            },
+            type: 'array',
+            title: 'Keys'
         },
         tags: {
             anyOf: [
@@ -1946,11 +2395,23 @@ export const $Secret = {
                 }
             ],
             title: 'Tags'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment',
+            default: 'default'
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'name', 'encrypted_keys', 'tags'],
-    title: 'Secret'
+    required: ['name', 'keys'],
+    title: 'SecretCreate',
+    description: `Create a new secret.
+
+Secret types
+------------
+- \`custom\`: Arbitrary user-defined types
+- \`token\`: A token, e.g. API Key, JWT Token (TBC)
+- \`oauth2\`: OAuth2 Client Credentials (TBC)`
 } as const;
 
 export const $SecretKeyValue = {
@@ -1971,15 +2432,89 @@ export const $SecretKeyValue = {
     title: 'SecretKeyValue'
 } as const;
 
-export const $SecretResponse = {
+export const $SecretLevel = {
+    type: 'string',
+    enum: ['workspace', 'organization'],
+    title: 'SecretLevel',
+    description: 'The level of a secret.'
+} as const;
+
+export const $SecretRead = {
     properties: {
         id: {
             type: 'string',
             title: 'Id'
         },
         type: {
-            const: 'custom',
-            title: 'Type'
+            '$ref': '#/components/schemas/SecretType'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        encrypted_keys: {
+            type: 'string',
+            format: 'binary',
+            title: 'Encrypted Keys'
+        },
+        environment: {
+            type: 'string',
+            title: 'Environment'
+        },
+        tags: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        type: 'string'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Tags'
+        },
+        owner_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Owner Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'type', 'name', 'encrypted_keys', 'environment', 'owner_id', 'created_at', 'updated_at'],
+    title: 'SecretRead'
+} as const;
+
+export const $SecretReadMinimal = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        type: {
+            '$ref': '#/components/schemas/SecretType'
         },
         name: {
             type: 'string',
@@ -2010,270 +2545,27 @@ export const $SecretResponse = {
     },
     type: 'object',
     required: ['id', 'type', 'name', 'keys', 'environment'],
-    title: 'SecretResponse'
+    title: 'SecretReadMinimal'
 } as const;
 
-export const $Tag = {
-    properties: {
-        tag: {
-            type: 'string',
-            title: 'Tag'
-        },
-        value: {
-            type: 'string',
-            title: 'Value'
-        }
-    },
-    type: 'object',
-    required: ['tag', 'value'],
-    title: 'Tag'
+export const $SecretType = {
+    type: 'string',
+    enum: ['custom', 'ssh-key'],
+    title: 'SecretType',
+    description: 'The type of a secret.'
 } as const;
 
-export const $TerminateWorkflowExecutionParams = {
-    properties: {
-        reason: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Reason'
-        }
-    },
-    type: 'object',
-    title: 'TerminateWorkflowExecutionParams'
-} as const;
-
-export const $Trigger = {
+export const $SecretUpdate = {
     properties: {
         type: {
-            type: 'string',
-            enum: ['schedule', 'webhook'],
-            title: 'Type'
-        },
-        ref: {
-            type: 'string',
-            pattern: '^[a-z0-9_]+$',
-            title: 'Ref'
-        },
-        args: {
-            type: 'object',
-            title: 'Args'
-        }
-    },
-    type: 'object',
-    required: ['type', 'ref'],
-    title: 'Trigger'
-} as const;
-
-export const $UDFActionInput = {
-    properties: {
-        task: {
-            '$ref': '#/components/schemas/ActionStatement'
-        },
-        role: {
-            '$ref': '#/components/schemas/Role'
-        },
-        exec_context: {
-            '$ref': '#/components/schemas/DSLContext'
-        },
-        run_context: {
-            '$ref': '#/components/schemas/RunContext'
-        },
-        action_test: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/ActionTest'
+                    '$ref': '#/components/schemas/SecretType'
                 },
                 {
                     type: 'null'
                 }
             ]
-        }
-    },
-    type: 'object',
-    required: ['task', 'role', 'exec_context', 'run_context'],
-    title: 'UDFActionInput'
-} as const;
-
-export const $UDFArgsValidationResponse = {
-    properties: {
-        ok: {
-            type: 'boolean',
-            title: 'Ok'
-        },
-        message: {
-            type: 'string',
-            title: 'Message'
-        },
-        detail: {
-            anyOf: [
-                {},
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Detail'
-        }
-    },
-    type: 'object',
-    required: ['ok', 'message'],
-    title: 'UDFArgsValidationResponse'
-} as const;
-
-export const $UDFSpec = {
-    properties: {
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
-        description: {
-            type: 'string',
-            title: 'Description'
-        },
-        namespace: {
-            type: 'string',
-            title: 'Namespace'
-        },
-        key: {
-            type: 'string',
-            title: 'Key'
-        },
-        version: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Version'
-        },
-        json_schema: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Json Schema'
-        },
-        meta: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Meta'
-        }
-    },
-    type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'description', 'namespace', 'key', 'json_schema', 'meta'],
-    title: 'UDFSpec',
-    description: `UDF spec.
-
-Used in:
-1. Frontend action library
-2. Frontend integration action form`
-} as const;
-
-export const $UpdateActionParams = {
-    properties: {
-        title: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        status: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Status'
-        },
-        inputs: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Inputs'
-        },
-        control_flow: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/ActionControlFlow'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        }
-    },
-    type: 'object',
-    title: 'UpdateActionParams'
-} as const;
-
-export const $UpdateSecretParams = {
-    properties: {
-        type: {
-            anyOf: [
-                {
-                    const: 'custom'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Type'
         },
         name: {
             anyOf: [
@@ -2335,17 +2627,243 @@ export const $UpdateSecretParams = {
                 }
             ],
             title: 'Environment'
+        },
+        level: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/SecretLevel'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',
-    title: 'UpdateSecretParams',
-    description: `Create a new secret.
+    title: 'SecretUpdate',
+    description: `Update a secret.
 
 Secret types
 ------------
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)`
+} as const;
+
+export const $TemplateAction_Input = {
+    properties: {
+        type: {
+            const: 'action',
+            title: 'Type',
+            default: 'action'
+        },
+        definition: {
+            '$ref': '#/components/schemas/TemplateActionDefinition'
+        }
+    },
+    type: 'object',
+    required: ['definition'],
+    title: 'TemplateAction'
+} as const;
+
+export const $TemplateAction_Output = {
+    properties: {
+        type: {
+            const: 'action',
+            title: 'Type',
+            default: 'action'
+        },
+        definition: {
+            '$ref': '#/components/schemas/TemplateActionDefinition'
+        }
+    },
+    type: 'object',
+    required: ['definition'],
+    title: 'TemplateAction'
+} as const;
+
+export const $TemplateActionDefinition = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name',
+            description: 'The action name'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace',
+            description: 'The namespace of the action'
+        },
+        title: {
+            type: 'string',
+            title: 'Title',
+            description: 'The title of the action'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: 'The description of the action',
+            default: ''
+        },
+        display_group: {
+            type: 'string',
+            title: 'Display Group',
+            description: 'The display group of the action'
+        },
+        secrets: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistrySecret'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Secrets',
+            description: 'The secrets to pass to the action'
+        },
+        expects: {
+            additionalProperties: {
+                '$ref': '#/components/schemas/ExpectedField'
+            },
+            type: 'object',
+            title: 'Expects',
+            description: 'The arguments to pass to the action'
+        },
+        steps: {
+            items: {
+                '$ref': '#/components/schemas/ActionStep'
+            },
+            type: 'array',
+            title: 'Steps',
+            description: 'The sequence of steps for the action'
+        },
+        returns: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'object'
+                }
+            ],
+            title: 'Returns',
+            description: 'The result of the action'
+        }
+    },
+    type: 'object',
+    required: ['name', 'namespace', 'title', 'display_group', 'expects', 'steps', 'returns'],
+    title: 'TemplateActionDefinition'
+} as const;
+
+export const $TerminateWorkflowExecutionParams = {
+    properties: {
+        reason: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reason'
+        }
+    },
+    type: 'object',
+    title: 'TerminateWorkflowExecutionParams'
+} as const;
+
+export const $Trigger = {
+    properties: {
+        type: {
+            type: 'string',
+            enum: ['schedule', 'webhook'],
+            title: 'Type'
+        },
+        ref: {
+            type: 'string',
+            pattern: '^[a-z0-9_]+$',
+            title: 'Ref'
+        },
+        args: {
+            type: 'object',
+            title: 'Args'
+        }
+    },
+    type: 'object',
+    required: ['type', 'ref'],
+    title: 'Trigger'
+} as const;
+
+export const $UpdateActionParams = {
+    properties: {
+        title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Status'
+        },
+        inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inputs'
+        },
+        control_flow: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ActionControlFlow'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    title: 'UpdateActionParams'
 } as const;
 
 export const $UpdateWorkflowParams = {
@@ -2438,6 +2956,20 @@ export const $UpdateWorkflowParams = {
                 }
             ],
             title: 'Static Inputs'
+        },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
         },
         returns: {
             anyOf: [
@@ -3145,6 +3677,20 @@ export const $WorkflowResponse = {
         static_inputs: {
             type: 'object',
             title: 'Static Inputs'
+        },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
         },
         returns: {
             title: 'Returns'

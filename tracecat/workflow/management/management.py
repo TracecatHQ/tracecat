@@ -16,8 +16,8 @@ from tracecat.db.schemas import Action, Webhook, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.graph import RFGraph
 from tracecat.identifiers import WorkflowID
-from tracecat.logging import logger
-from tracecat.types.api import UDFArgsValidationResponse
+from tracecat.logger import logger
+from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.models import (
@@ -132,24 +132,26 @@ class WorkflowsManagementService:
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_dsl_validation_error(e)
+                RegistryActionValidateResponse.from_dsl_validation_error(e)
                 for e in eg.exceptions
             )
         except* ValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_pydantic_validation_error(e)
+                RegistryActionValidateResponse.from_pydantic_validation_error(e)
                 for e in eg.exceptions
             )
         if construction_errors:
             return CreateWorkflowFromDSLResponse(errors=construction_errors)
 
         if not skip_secret_validation:
-            if val_errors := await validation.validate_dsl(dsl):
+            if val_errors := await validation.validate_dsl(
+                session=self.session, dsl=dsl
+            ):
                 logger.warning("Validation errors", errors=val_errors)
                 return CreateWorkflowFromDSLResponse(
                     errors=[
-                        UDFArgsValidationResponse.from_validation_result(val_res)
+                        RegistryActionValidateResponse.from_validation_result(val_res)
                         for val_res in val_errors
                     ]
                 )
@@ -204,8 +206,7 @@ class WorkflowsManagementService:
             entrypoint={
                 # XXX: Sus
                 "ref": graph.logical_entrypoint.ref,
-                # TODO: Add expects for UI -> DSL
-                "expects": {},
+                "expects": workflow.expects,
             },
             actions=action_statements,
             inputs=workflow.static_inputs,
@@ -250,6 +251,7 @@ class WorkflowsManagementService:
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
         logger.info("Creating workflow from DSL", dsl=dsl)
+        entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
             "title": dsl.title,
             "description": dsl.description,
@@ -257,6 +259,7 @@ class WorkflowsManagementService:
             "static_inputs": dsl.inputs,
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
+            "expects": entrypoint.get("expects"),
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id
@@ -290,6 +293,8 @@ class WorkflowsManagementService:
                 control_flow={
                     "run_if": act_stmt.run_if,
                     "for_each": act_stmt.for_each,
+                    "retry_policy": act_stmt.retry_policy.model_dump(),
+                    "start_delay": act_stmt.start_delay,
                 },
             )
             actions.append(new_action)

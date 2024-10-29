@@ -3,7 +3,7 @@ import functools
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar, cast
 
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
 
@@ -32,7 +32,7 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
                     raise TracecatAuthorizationError(
                         f"User does not have required access level: {level.name}"
                     )
-                logger.info(
+                logger.debug(
                     "Access level ok", user_id=user_role.user_id, level=level.name
                 )
                 return await fn(self, *args, **kwargs)
@@ -52,7 +52,7 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
                     raise TracecatAuthorizationError(
                         f"User does not have required access level: {level.name}"
                     )
-                logger.info(
+                logger.debug(
                     "Access level ok", user_id=user_role.user_id, level=level.name
                 )
                 return fn(self, *args, **kwargs)

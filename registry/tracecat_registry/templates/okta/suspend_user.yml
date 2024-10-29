@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Suspend Okta User
+  description: Suspend an Okta user by user ID
+  display_group: Okta
+  namespace: integrations.okta
+  name: suspend_user
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
+  expects:
+    user_id:
+      type: str
+      description: ID of the user to suspend
+  steps:
+    - ref: suspend_user
+      action: core.http_request
+      args:
+        method: POST
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}/lifecycle/suspend
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+  returns: ${{ steps.suspend_user.result }}

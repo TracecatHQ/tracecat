@@ -6,13 +6,13 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import UUID4, computed_field, field_validator
+from pydantic import UUID4, ConfigDict, computed_field, field_validator
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
-from tracecat.auth.schemas import UserRole
+from tracecat.auth.models import UserRole
 from tracecat.db.adapter import (
     SQLModelBaseAccessToken,
     SQLModelBaseOAuthAccount,
@@ -142,12 +142,8 @@ class AccessToken(SQLModelBaseAccessToken, table=True):
     pass
 
 
-class Secret(Resource, table=True):
-    __table_args__ = (
-        UniqueConstraint(
-            "name", "environment", "owner_id", name="uq_secret_name_env_owner"
-        ),
-    )
+class BaseSecret(Resource):
+    model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: str = Field(
         default_factory=id_factory("secret"), nullable=False, unique=True, index=True
     )
@@ -163,68 +159,23 @@ class Secret(Resource, table=True):
     # We store this object as encrypted bytes, but first validate that it's the correct type
     encrypted_keys: bytes
     environment: str = Field(default=DEFAULT_SECRETS_ENVIRONMENT, nullable=False)
-    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
+    # Use sa_type over sa_column for inheritance
+    tags: dict[str, str] | None = Field(sa_type=JSONB)
+
+
+class OrganizationSecret(BaseSecret, table=True):
+    __table_args__ = (UniqueConstraint("name", "environment"),)
+
+
+class Secret(BaseSecret, table=True):
+    """Workspace secrets."""
+
+    __table_args__ = (UniqueConstraint("name", "environment", "owner_id"),)
+
     owner_id: OwnerID = Field(
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
     owner: Workspace | None = Relationship(back_populates="secrets")
-
-
-class Case(Resource, table=True):
-    """The case state."""
-
-    id: str = Field(
-        default_factory=id_factory("case"), nullable=False, unique=True, index=True
-    )
-    workflow_id: str
-    case_title: str
-    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    malice: str
-    status: str
-    priority: str
-    action: str | None = None
-    context: dict[str, str] | None = Field(sa_column=Column(JSONB))
-    tags: dict[str, str] | None = Field(sa_column=Column(JSONB))
-
-
-class CaseEvent(Resource, table=True):
-    id: str = Field(
-        default_factory=id_factory("case-evt"), nullable=False, unique=True, index=True
-    )
-    type: str  # The CaseEvent type
-    case_id: str = Field(
-        sa_column=Column(String, ForeignKey("case.id", ondelete="CASCADE"))
-    )
-    # Tells us what kind of role modified the case
-    initiator_role: str  # "user", "service"
-    # Changes: We'll use a dict to store the changes
-    # The dict takes key-value pairs where the key is a field name in the Case model
-    # The value represents the new value.
-    # Possible events:
-    # - Key not in dict: The field was not modified
-    # - Key in dict with value None: The field was deleted
-    # - Key in dict with value: The field was modified
-    data: dict[str, str | None] | None = Field(sa_column=Column(JSONB))
-
-
-class UDFSpec(Resource, table=True):
-    """UDF spec.
-
-    Used in:
-    1. Frontend action library
-    2. Frontend integration action form
-    """
-
-    id: str = Field(
-        default_factory=id_factory("udf"), nullable=False, unique=True, index=True
-    )
-    description: str
-    namespace: str
-    key: str
-    version: str | None = None
-    json_schema: dict[str, Any] | None = Field(sa_column=Column(JSONB))
-    # Can put the icon url in the metadata
-    meta: dict[str, Any] | None = Field(sa_column=Column(JSONB))
 
 
 class WorkflowDefinition(Resource, table=True):
@@ -296,6 +247,11 @@ class Workflow(Resource, table=True):
         default_factory=dict,
         sa_column=Column(JSONB),
         description="Static inputs for the workflow",
+    )
+    expects: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Input schema for the workflow",
     )
     returns: Any | None = Field(
         None,
@@ -438,3 +394,85 @@ class Action(Resource, table=True):
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
         return action.ref(self.title)
+
+
+class RegistryRepository(Resource, table=True):
+    """A repository of templates and actions."""
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
+    origin: str = Field(
+        ...,
+        description=(
+            "Tells you where the template action was created from."
+            "Can use this to track the hierarchy of templates."
+            "Depending on where the TA was created, this could be a few things:\n"
+            "- Git url if created via a git sync\n"
+            "- file://<path> if it's a custom action that was created from a file"
+            "- None if it's a custom action that was created from scratch"
+        ),
+        unique=True,
+        nullable=False,
+    )
+    actions: list["RegistryAction"] = Relationship(
+        back_populates="repository",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class RegistryAction(Resource, table=True):
+    """A registry action.
+
+
+    A registry action can be a template action or a udf.
+    A udf is a python user-defined function that can be used to create new actions.
+    A template action is a reusable action that can be used to create new actions.
+    Template actions loaded from tracecat base can be cloned but not edited.
+    This is to ensure portability of templates across different users/systems.
+    Custom template actions can be edited and cloned
+
+    """
+
+    __table_args__ = (
+        UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
+    name: str = Field(..., description="The name of the action")
+    description: str = Field(..., description="The description of the action")
+    namespace: str = Field(..., description="The namespace of the action")
+    origin: str = Field(..., description="The origin of the action as a url")
+    type: str = Field(..., description="The type of the action")
+    default_title: str | None = Field(
+        None, description="The default title of the action", nullable=True
+    )
+    display_group: str | None = Field(
+        None, description="The presentation group of the action", nullable=True
+    )
+    secrets: list[dict[str, Any]] | None = Field(
+        None, sa_column=Column(JSONB), description="The secrets required by the action"
+    )
+    interface: dict[str, Any] = Field(
+        ..., sa_column=Column(JSONB), description="The interface of the action"
+    )
+    implementation: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="The action's implementation",
+    )
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="The action's options",
+    )
+    # Relationships
+    repository_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("registryrepository.id", ondelete="CASCADE")),
+    )
+    repository: RegistryRepository = Relationship(back_populates="actions")
+
+    @property
+    def action(self):
+        return f"{self.namespace}.{self.name}"

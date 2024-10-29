@@ -1,14 +1,28 @@
 ## AWS provider variables
 
 variable "aws_region" {
-  type    = string
-  default = "us-west-2"
+  type        = string
+  description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
 variable "az_count" {
   type        = number
   description = "Number of AZs to cover in a given region"
   default     = 2
+}
+
+### (Optional) Custom Integrations
+
+variable "remote_repository_package_name" {
+  type        = string
+  description = "The package name of the remote repository"
+  default     = null
+}
+
+variable "remote_repository_url" {
+  type        = string
+  description = "The URL of the remote repository"
+  default     = null
 }
 
 ### Images and Versions
@@ -41,7 +55,13 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.10.1"
+  default = "0.12.3"
+}
+
+variable "use_git_commit_sha" {
+  type        = bool
+  description = "Use the git commit SHA as the image tag"
+  default     = false
 }
 
 variable "force_new_deployment" {
@@ -151,6 +171,56 @@ variable "db_instance_class" {
 variable "db_instance_size" {
   type    = string
   default = "medium"
+}
+
+### RDS Settings
+
+variable "restore_from_snapshot" {
+  type        = bool
+  description = "Restore RDS instances from a snapshot"
+  default     = false
+}
+
+variable "rds_multi_az" {
+  type        = bool
+  description = "Enable Multi-AZ for RDS instances"
+  default     = false
+}
+
+variable "rds_skip_final_snapshot" {
+  type        = bool
+  description = "Skip final snapshot when deleting RDS instances"
+  default     = false
+}
+
+variable "rds_deletion_protection" {
+  type        = bool
+  description = "Enable deletion protection for RDS instances"
+  default     = true
+}
+
+variable "rds_apply_immediately" {
+  type        = bool
+  description = "Apply changes immediately to RDS instances"
+  default     = true
+}
+
+variable "rds_backup_retention_period" {
+  type        = number
+  description = "The number of days to retain backups for RDS instances"
+  default     = 7
+}
+
+variable "rds_performance_insights_enabled" {
+  type        = bool
+  description = "Enable Performance Insights for RDS instances"
+  default     = false
+}
+
+variable "rds_auto_minor_version_upgrade" {
+  type        = bool
+  description = "Enable auto minor version upgrades for RDS instances"
+  default     = false
 }
 
 ### Container Env Vars

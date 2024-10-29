@@ -1,47 +1,42 @@
-title: Test kite order
+title: Test kite order 2
 description: Tests execution order correctness
-config:
-  # Static -> node execution order is fixed, less performant
-  # Dynamic -> node execution order is not fixed
-  scheduler: dynamic
 entrypoint:
   ref: a
-inputs:
-  another_url: "http://api:8000"
-  value: 1
-
-triggers:
-  - type: webhook
-    ref: my_webhook
-    id: wh-XXXXXX
-
-    args:
-      url: http://api:8000/test/items/1
-      method: GET
 
 # The workflow executor will parse these into nodes
 # This contains information about the tasks and their dependencies, which
 # form an execution DAG.
 actions:
   - ref: a
-    action: integration_test.count
+    action: core.transform.reshape
+    args:
+      value: 1
 
   - ref: b
-    action: integration_test.count
+    action: core.transform.reshape
     depends_on:
       - a
+    args:
+      value: 2
 
   - ref: c
-    action: integration_test.count
-    depends_on:
-      - a
-
-  - ref: d
-    action: integration_test.count
+    action: core.transform.reshape
     depends_on:
       - b
-      - c
-  - ref: e
-    action: integration_test.count
+    args:
+      value: 3
+
+  - ref: d
+    action: core.transform.reshape
     depends_on:
+      - b
+    args:
+      value: 4
+
+  - ref: e
+    action: core.transform.reshape
+    depends_on:
+      - c
       - d
+    args:
+      value: 5

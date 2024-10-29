@@ -2,6 +2,7 @@
 
 import React from "react"
 import Link from "next/link"
+import { useParams } from "next/navigation"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Icons } from "@/components/icons"
@@ -11,6 +12,7 @@ interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode
 }
 export function Navbar({ children, ...props }: NavbarProps) {
+  const { workspaceId } = useParams<{ workspaceId?: string }>()
   return (
     <TooltipProvider delayDuration={300}>
       <div className="w-full space-x-8 border-b" {...props}>
@@ -19,9 +21,11 @@ export function Navbar({ children, ...props }: NavbarProps) {
             <Icons.logo className="size-5" />
           </Link>
           {children}
-          <div className="flex flex-1 items-center justify-end space-x-6">
-            <UserNav />
-          </div>
+          {workspaceId && (
+            <div className="flex flex-1 items-center justify-end space-x-6">
+              <UserNav />
+            </div>
+          )}
         </div>
       </div>
     </TooltipProvider>

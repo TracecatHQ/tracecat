@@ -4,8 +4,12 @@ description: Test sending a Slack notification
 entrypoint:
   ref: send_slack_notifications
   expects:
-    header: str
-    description: str
+    header:
+      type: str
+      description: The header text for the Slack message
+    description:
+      type: str
+      description: The description text for the Slack message
 
 triggers:
   - type: webhook
@@ -14,7 +18,7 @@ triggers:
 
 actions:
   - ref: send_slack_notifications
-    action: integrations.chat.slack.post_slack_message
+    action: integrations.slack.post_message
     args:
       channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
       text: Integration Test

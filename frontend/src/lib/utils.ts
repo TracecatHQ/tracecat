@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import YAML from "yaml"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -136,4 +137,8 @@ export function isEmptyObjectOrNullish(value: unknown) {
 }
 export function isEmptyObject(obj: object) {
   return typeof obj === "object" && Object.keys(obj).length === 0
+}
+
+export function itemOrEmptyString(item: unknown | undefined) {
+  return isEmptyObjectOrNullish(item) ? "" : YAML.stringify(item)
 }

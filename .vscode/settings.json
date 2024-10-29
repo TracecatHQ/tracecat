@@ -4,5 +4,6 @@
   "python.testing.pytestEnabled": true,
   "yaml.schemas": {
     "https://json.schemastore.org/yamllint.json": "playbooks/*.yml"
-  }
+  },
+  "python.analysis.extraPaths": ["./registry"]
 }

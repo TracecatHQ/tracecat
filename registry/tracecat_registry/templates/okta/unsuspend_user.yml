@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Unsuspend Okta User
+  description: Unsuspend an Okta user by user ID
+  display_group: Okta
+  namespace: integrations.okta
+  name: unsuspend_user
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
+  expects:
+    user_id:
+      type: str
+      description: ID of the user to unsuspend
+  steps:
+    - ref: unsuspend_user
+      action: core.http_request
+      args:
+        method: POST
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}/lifecycle/unsuspend
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+  returns: ${{ steps.unsuspend_user.result }}

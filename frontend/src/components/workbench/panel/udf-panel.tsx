@@ -4,9 +4,10 @@ import "react18-json-view/src/style.css"
 
 import React, { useCallback, useState } from "react"
 import {
+  ActionControlFlow,
   ApiError,
-  UDFArgsValidationResponse,
-  udfsValidateUdfArgs,
+  registryActionsValidateRegistryAction,
+  RegistryActionValidateResponse,
   UpdateActionParams,
 } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
@@ -23,9 +24,8 @@ import { Controller, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { usePanelAction } from "@/lib/hooks"
-import { useUDFSchema } from "@/lib/udf"
-import { isEmptyObjectOrNullish } from "@/lib/utils"
+import { usePanelAction, useWorkbenchRegistryActions } from "@/lib/hooks"
+import { itemOrEmptyString } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -70,18 +70,24 @@ import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
+import {
+  ControlFlowConfigTooltip,
+  ForEachTooltip,
+  RetryPolicyTooltip,
+  RunIfTooltip,
+} from "@/components/workbench/panel/udf-panel-tooltips"
 
-type UDFFormSchema = {
+// These are YAML strings
+type ActionFormSchema = {
   title?: string
   description?: string
   inputs?: string
   control_flow: {
     for_each?: string
     run_if?: string
+    retry_policy?: string
+    options?: string
   }
-}
-function itemOrEmptyString(item: object | undefined) {
-  return isEmptyObjectOrNullish(item) ? "" : YAML.stringify(item)
 }
 
 export function UDFActionPanel({
@@ -92,37 +98,38 @@ export function UDFActionPanel({
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
-  const {
-    action,
-    isLoading: actionLoading,
-    mutateAsync: updateAction,
-  } = usePanelAction(node.id, workspaceId, workflowId)
-  const udfKey = node.data.type
-  const { udf, isLoading: schemaLoading } = useUDFSchema(udfKey, workspaceId)
-  const methods = useForm<UDFFormSchema>({
+  const { action, actionIsLoading, updateAction } = usePanelAction(
+    node.id,
+    workspaceId,
+    workflowId
+  )
+  const actionName = node.data.type
+  const { getRegistryAction } = useWorkbenchRegistryActions()
+  const registryAction = getRegistryAction(actionName)
+  const { for_each, run_if, retry_policy, ...options } =
+    action?.control_flow ?? {}
+  const methods = useForm<ActionFormSchema>({
     values: {
       title: action?.title,
       description: action?.description,
       inputs: itemOrEmptyString(action?.inputs),
       control_flow: {
-        for_each: action?.control_flow?.for_each
-          ? YAML.stringify(action?.control_flow?.for_each)
-          : "",
-        run_if: action?.control_flow?.run_if
-          ? YAML.stringify(action?.control_flow?.run_if)
-          : "",
+        for_each: for_each ? YAML.stringify(for_each) : "",
+        run_if: run_if ? YAML.stringify(run_if) : "",
+        retry_policy: retry_policy ? YAML.stringify(retry_policy) : "",
+        options: options ? YAML.stringify(options) : "",
       },
     },
   })
 
   const [validationErrors, setValidationErrors] =
-    useState<UDFArgsValidationResponse | null>(null)
+    useState<RegistryActionValidateResponse | null>(null)
 
   const onSubmit = useCallback(
-    async (values: UDFFormSchema) => {
-      console.log("udf", udf)
+    async (values: ActionFormSchema) => {
+      console.log("registry action", registryAction)
       console.log("action", action)
-      if (!udf || !action) {
+      if (!registryAction || !action) {
         console.error("UDF or action not found")
         return
       }
@@ -142,6 +149,9 @@ export function UDFActionPanel({
           description: "Please see the error window for more details",
         })
       }
+      const options: { start_delay?: number } | undefined = control_flow.options
+        ? YAML.parse(control_flow.options)
+        : undefined
       const actionControlFlow = {
         for_each: control_flow.for_each
           ? YAML.parse(control_flow.for_each)
@@ -149,12 +159,17 @@ export function UDFActionPanel({
         run_if: control_flow.run_if
           ? YAML.parse(control_flow.run_if)
           : undefined,
-      }
+        retry_policy: control_flow?.retry_policy
+          ? YAML.parse(control_flow.retry_policy)
+          : undefined,
+        start_delay: options?.start_delay,
+      } as ActionControlFlow
       try {
-        const validateResponse = await udfsValidateUdfArgs({
-          udfKey: udf.key,
-          requestBody: actionInputs,
-          workspaceId,
+        const validateResponse = await registryActionsValidateRegistryAction({
+          actionName: registryAction.action,
+          requestBody: {
+            args: actionInputs,
+          },
         })
         console.log("Validation passed", validateResponse)
         if (!validateResponse.ok) {
@@ -183,18 +198,18 @@ export function UDFActionPanel({
         }
       }
     },
-    [workspaceId, udf, action]
+    [workspaceId, registryAction, action]
   )
 
-  if (schemaLoading || actionLoading) {
+  if (actionIsLoading) {
     return <CenteredSpinner />
   }
-  if (!udf) {
+  if (!registryAction) {
     return (
       <div className="flex h-full items-center justify-center space-x-2 p-4">
         <AlertNotification
           level="error"
-          message={`Could not load UDF schema '${udfKey}'.`}
+          message={`Could not load UDF schema '${actionName}'.`}
         />
       </div>
     )
@@ -209,6 +224,7 @@ export function UDFActionPanel({
       </div>
     )
   }
+  console.log("registryAction", registryAction)
 
   return (
     <div className="size-full overflow-auto">
@@ -221,7 +237,7 @@ export function UDFActionPanel({
             <div className="col-span-2 overflow-hidden">
               <h3 className="p-4">
                 <div className="flex w-full items-center space-x-4">
-                  {getIcon(udf.key, {
+                  {getIcon(registryAction.action, {
                     className: "size-10 p-2",
                     flairsize: "md",
                   })}
@@ -234,6 +250,14 @@ export function UDFActionPanel({
                         {action.description || (
                           <span className="italic">No description</span>
                         )}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Type: {registryAction.type === "udf" && "UDF"}
+                        {registryAction.type === "template" &&
+                          "Template Action"}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Origin: {registryAction.origin}
                       </p>
                     </div>
                   </div>
@@ -334,7 +358,7 @@ export function UDFActionPanel({
               <AccordionContent className="space-y-4">
                 {/* UDF secrets */}
                 <div className="space-y-4 px-4">
-                  {udf.secrets ? (
+                  {registryAction.secrets ? (
                     <div className="text-xs text-muted-foreground">
                       <span>This action requires the following secrets:</span>
                       <Table>
@@ -344,18 +368,26 @@ export function UDFActionPanel({
                               Secret Name
                             </TableHead>
                             <TableHead className="font-bold" colSpan={1}>
-                              Secret Keys
+                              Required Keys
+                            </TableHead>
+                            <TableHead className="font-bold" colSpan={1}>
+                              Optional Keys
                             </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {udf.secrets.map((secret, idx) => (
+                          {registryAction.secrets.map((secret, idx) => (
                             <TableRow
                               key={idx}
                               className="font-mono text-xs tracking-tight text-muted-foreground"
                             >
                               <TableCell>{secret.name}</TableCell>
-                              <TableCell>{secret.keys.join(", ")}</TableCell>
+                              <TableCell>
+                                {secret.keys?.join(", ") || "-"}
+                              </TableCell>
+                              <TableCell>
+                                {secret.optional_keys?.join(", ") || "-"}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -372,7 +404,7 @@ export function UDFActionPanel({
                   <span className="text-xs text-muted-foreground">
                     Hover over each row for details.
                   </span>
-                  <JSONSchemaTable schema={udf.args} />
+                  <JSONSchemaTable schema={registryAction.interface.expects} />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -505,98 +537,83 @@ export function UDFActionPanel({
                     )}
                   />
                 </div>
+                {/* Retry Policy */}
+                <div className="flex flex-col space-y-4 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Retry Policy</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        sideOffset={20}
+                      >
+                        <RetryPolicyTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define the retry policy for the action.
+                    </span>
+                  </div>
+                  <Controller
+                    name="control_flow.retry_policy"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <CustomEditor
+                        className="h-24 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                {/* Other options */}
+                <div className="flex flex-col space-y-4 px-4">
+                  <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                    <span>Options</span>
+                  </FormLabel>
+                  <div className="flex items-center">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[500px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        sideOffset={20}
+                      >
+                        <ControlFlowConfigTooltip />
+                      </HoverCardContent>
+                    </HoverCard>
+
+                    <span className="text-xs text-muted-foreground">
+                      Define additional control flow options for the action.
+                    </span>
+                  </div>
+                  <Controller
+                    name="control_flow.options"
+                    control={methods.control}
+                    render={({ field }) => (
+                      <CustomEditor
+                        className="h-24 w-full"
+                        defaultLanguage="yaml"
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
         </form>
       </FormProvider>
-    </div>
-  )
-}
-
-function RunIfTooltip() {
-  return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">run_if</span>
-        <span className="text-xs text-muted-foreground/80">(optional)</span>
-      </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span>
-          A run-if expression is a conditional expression that evaluates to a
-          truthy or falsy value:
-        </span>
-      </div>
-      <div className="rounded-md border bg-muted-foreground/10 p-2">
-        <pre className="text-xs text-foreground/70">{"${{ <condition> }}"}</pre>
-      </div>
-      <div className="w-full items-center text-start">
-        <span>Example inputs: </span>
-      </div>
-      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ FN.not_empty(ACTIONS.my_action.result) }}"}
-          </pre>
-        </div>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ ACTIONS.my_action.result.value > 5 }}"}
-          </pre>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ForEachTooltip() {
-  return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">for_each</span>
-        <span className="text-xs text-muted-foreground/80">(optional)</span>
-      </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span>A loop expression has the form:</span>
-      </div>
-      <div className="rounded-md border bg-muted-foreground/10 p-2">
-        <pre className="text-xs text-foreground/70">
-          {"${{ for var.item in <collection> }}"}
-        </pre>
-      </div>
-      <div className="w-full items-center text-start text-muted-foreground ">
-        <span>
-          Here, `var.item` references an item in the collection, and is local to
-          a single loop iteration. This is synonymous to assigning a loop
-          variable.
-        </span>
-      </div>
-      <div className="w-full items-center text-start">
-        <span>Example inputs: </span>
-      </div>
-      <div className="flex w-full flex-col text-muted-foreground ">
-        <span className="mt-2">Single expression (string):</span>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ for var.item in ACTIONS.my_action.result }}"}
-          </pre>
-        </div>
-      </div>
-      <div className="w-full text-muted-foreground ">
-        <span className="mt-2">
-          Multiple expressions (array; zipped/lockstep iteration):
-        </span>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="flex flex-col text-xs text-foreground/70">
-            <span>
-              {"- ${{ for var.first in ACTIONS.first_action.result }}"}
-            </span>
-            <span>
-              {"- ${{ for var.second in ACTIONS.second_action.result }}"}
-            </span>
-          </pre>
-        </div>
-      </div>
     </div>
   )
 }

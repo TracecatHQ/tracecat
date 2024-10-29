@@ -6,7 +6,7 @@ from lark.exceptions import VisitError
 
 from tracecat.expressions import functions
 from tracecat.expressions.shared import ExprContext, ExprContextType, IterableExpr
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 LiteralT = TypeVar("LiteralT", int, float, str, bool)
@@ -145,6 +145,24 @@ class ExprEvaluator(Transformer):
         logger.trace("Visiting trigger:", args=jsonpath)
         return functions.eval_jsonpath(
             ExprContext.TRIGGER + jsonpath, self._context, strict=self._strict
+        )
+
+    @v_args(inline=True)
+    def template_action_inputs(self, jsonpath: str):
+        logger.trace("Visiting template_action_inputs:", args=jsonpath)
+        return functions.eval_jsonpath(
+            ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath,
+            self._context,
+            strict=self._strict,
+        )
+
+    @v_args(inline=True)
+    def template_action_steps(self, jsonpath: str):
+        logger.trace("Visiting template_action_steps:", args=jsonpath)
+        return functions.eval_jsonpath(
+            ExprContext.TEMPLATE_ACTION_STEPS + jsonpath,
+            self._context,
+            strict=self._strict,
         )
 
     @v_args(inline=True)

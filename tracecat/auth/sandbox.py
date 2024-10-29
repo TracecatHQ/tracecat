@@ -9,11 +9,11 @@ from types import TracebackType
 from typing import Any, Literal, Self
 
 from tracecat.contexts import ctx_role
-from tracecat.db.schemas import Secret
-from tracecat.logging import logger
+from tracecat.db.schemas import BaseSecret
+from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.models import SearchSecretsParams, SecretKeyValue
+from tracecat.secrets.models import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
@@ -31,14 +31,17 @@ class AuthSandbox:
     def __init__(
         self,
         role: Role | None = None,
-        secrets: list[str] | None = None,
-        target: Literal["env", "context"] = "env",
+        secrets: list[str]
+        | None = None,  # This can be either 'my_secret.KEY' or 'my_secret'
+        target: Literal["env", "context"] = "context",
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
-        self._secret_objs: Sequence[Secret] = []
+        self._secret_objs: Sequence[BaseSecret] = []
         self._target = target
+        if self._target == "env":
+            raise ValueError("Target env is no longer supported.")
         self._context: dict[str, Any] = {}
         self._environment = environment
         try:
@@ -86,45 +89,40 @@ class AuthSandbox:
 
     def _iter_secrets(self) -> Iterator[tuple[str, SecretKeyValue]]:
         """Iterate over the secrets."""
-        for secret in self._secret_objs:
-            keyvalues = decrypt_keyvalues(
-                secret.encrypted_keys, key=self._encryption_key
-            )
-            for kv in keyvalues:
-                yield secret.name, kv
+        try:
+            for secret in self._secret_objs:
+                keyvalues = decrypt_keyvalues(
+                    secret.encrypted_keys, key=self._encryption_key
+                )
+                for kv in keyvalues:
+                    yield secret.name, kv
+        except Exception as e:
+            logger.error(f"Error decrypting secrets: {e!r}")
+            raise
 
     def _set_secrets(self) -> None:
         """Set secrets in the target."""
-        if self._target == "context":
-            logger.info(
-                "Setting secrets in the context",
-                paths=self._secret_paths,
-                objs=self._secret_objs,
-            )
-            for name, kv in self._iter_secrets():
-                if name not in self._context:
-                    self._context[name] = {}
-                self._context[name][kv.key] = kv.value.get_secret_value()
-        else:
-            logger.info("Setting secrets in the environment", paths=self._secret_paths)
-            for _, kv in self._iter_secrets():
-                os.environ[kv.key] = kv.value.get_secret_value()
+        logger.info(
+            "Setting secrets",
+            paths=self._secret_paths,
+            objs=self._secret_objs,
+        )
+        for name, kv in self._iter_secrets():
+            if name not in self._context:
+                self._context[name] = {}
+            self._context[name][kv.key] = kv.value.get_secret_value()
 
     def _unset_secrets(self) -> None:
-        if self._target == "context":
-            for secret in self._secret_objs:
-                if secret.name in self._context:
-                    del self._context[secret.name]
-        else:
-            for _, kv in self._iter_secrets():
-                if kv.key in os.environ:
-                    del os.environ[kv.key]
+        logger.info("Cleaning up secrets")
+        for secret in self._secret_objs:
+            if secret.name in self._context:
+                del self._context[secret.name]
 
-    async def _get_secrets(self) -> Sequence[Secret]:
+    async def _get_secrets(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from a secrets manager."""
         return await self._get_secrets_from_service()
 
-    async def _get_secrets_from_service(self) -> Sequence[Secret]:
+    async def _get_secrets_from_service(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from the secrets service."""
         logger.debug(
             "Retrieving secrets directly from db",
@@ -138,7 +136,7 @@ class AuthSandbox:
             logger.info("Retrieving secrets", secret_names=unique_secret_names)
 
             secrets = await service.search_secrets(
-                SearchSecretsParams(
+                SecretSearch(
                     names=list(unique_secret_names), environment=self._environment
                 )
             )

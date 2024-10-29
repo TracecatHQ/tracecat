@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling >= 1.13.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracecat_registry"
+description = "Tracecat managed actions and integrations registry."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0"
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "adbc-driver-postgresql==1.0.0",
+    "adbc-driver-snowflake==1.0.0",
+    "adbc-driver-sqlite==1.0.0",
+    "aioboto3==13.0.1",
+    "boto3==1.34.70",
+    "crowdstrike-falconpy==1.4.4",
+    "dnspython==2.6.1",
+    "httpx==0.27.0",
+    "ldap3==2.9.1",
+    "polars-lts-cpu==1.2.0",
+    "pymongo==4.8.0",
+    "slack-sdk==3.28.0",
+    "tenacity==8.3.0",
+    "types-aioboto3[guardduty]==13.0.1",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://tracecat.com"
+Documentation = "https://docs.tracecat.com"
+Repository = "https://github.com/TracecatHQ/tracecat"
+
+[tool.hatch.version]
+path = "tracecat_registry/__init__.py"
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+fix = true
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long, handled by ruff
+    "B008", # do not perform function calls in argument defaults
+    "W191", # indentation contains tabs
+]
+
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers", "-vvrP"]
+xfail_strict = true
+log_level = "INFO"
+log_cli = true
+log_cli_level = "INFO"
+markers = [
+    "webtest: marks tests that require the web",
+    "slow: marks tests as slow",
+    "dbtest: marks tests that make database calls",
+    "disable_fixture: marks tests that disable fixtures",
+]

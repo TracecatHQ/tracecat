@@ -8,40 +8,31 @@ from tempfile import SpooledTemporaryFile
 from typing import Any, Self, TypedDict
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.enums import FailStrategy, LoopStrategy
 from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeData
-from tracecat.dsl.models import ActionStatement, ActionTest, DSLConfig, Trigger
-from tracecat.dsl.validation import SchemaValidatorFactory
+from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
 from tracecat.expressions import patterns
+from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID, WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatDSLError, TracecatValidationError
+from tracecat.types.exceptions import TracecatDSLError
 
 
 class DSLEntrypoint(BaseModel):
     ref: str = Field(..., description="The entrypoint action ref")
-    expects: Any | None = Field(None, description="Expected trigger input shape")
+    expects: dict[str, ExpectedField] | None = Field(
+        None,
+        description=(
+            "Expected trigger input schema. "
+            "Use this to specify the expected shape of the trigger input."
+        ),
+    )
     """Trigger input schema."""
-
-    @field_validator("expects")
-    def validate_expects(cls, expects: Any) -> Any:
-        if not expects:
-            return expects
-        logger.trace("Validating expects", expects=expects)
-        try:
-            factory = SchemaValidatorFactory(expects)
-            _ = factory.create()
-            return expects
-        except* TracecatValidationError as eg:
-            logger.error(
-                "Failed to validate `entrypoint.expects`", errors=eg.exceptions
-            )
-            raise eg
 
 
 class DSLInput(BaseModel):
@@ -55,6 +46,8 @@ class DSLInput(BaseModel):
     This allows the execution of the workflow to be fully deterministic.
     """
 
+    # Using this for backwards compatibility of existing workflow definitions
+    model_config: ConfigDict = ConfigDict(extra="ignore")
     title: str
     description: str
     entrypoint: DSLEntrypoint
@@ -64,7 +57,6 @@ class DSLInput(BaseModel):
     inputs: dict[str, Any] = Field(
         default_factory=dict, description="Static input parameters"
     )
-    tests: list[ActionTest] = Field(default_factory=list, description="Action tests")
     returns: Any | None = Field(None, description="The action ref or value to return.")
 
     @model_validator(mode="after")
@@ -88,13 +80,9 @@ class DSLInput(BaseModel):
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
         if n_entrypoints != 1:
             raise TracecatDSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
-        # Validate that all the refs in tests are valid actions
-        valid_actions = {a.ref for a in self.actions}
-        invalid_refs = {t.ref for t in self.tests} - valid_actions
-        if invalid_refs:
-            raise TracecatDSLError(f"Invalid action refs in tests: {invalid_refs}")
 
         # Validate that all the refs in depends_on are valid actions
+        valid_actions = {a.ref for a in self.actions}
         dependencies = {dep for a in self.actions for dep in a.depends_on}
         invalid_deps = dependencies - valid_actions
         if invalid_deps:
@@ -215,7 +203,7 @@ class ExecuteChildWorkflowArgs(TypedDict):
     workflow_id: WorkflowID
     trigger_inputs: dict[str, Any]
     environment: str | None = None
-    version: int | None = None
+    version: int | None = None  # Workflow defn version
     loop_strategy: LoopStrategy | None = None
     batch_size: int | None = None
     fail_strategy: FailStrategy | None = None

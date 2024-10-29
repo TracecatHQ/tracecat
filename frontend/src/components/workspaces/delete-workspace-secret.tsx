@@ -1,9 +1,9 @@
 "use client"
 
 import React from "react"
-import { SecretResponse } from "@/client"
+import { SecretReadMinimal } from "@/client"
 
-import { useSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,10 +21,10 @@ export function DeleteSecretAlertDialog({
   setSelectedSecret,
   children,
 }: React.PropsWithChildren<{
-  selectedSecret: SecretResponse | null
-  setSelectedSecret: (selectedSecret: SecretResponse | null) => void
+  selectedSecret: SecretReadMinimal | null
+  setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
 }>) {
-  const { deleteSecretById } = useSecrets()
+  const { deleteSecretById } = useWorkspaceSecrets()
   return (
     <AlertDialog
       onOpenChange={(isOpen) => {

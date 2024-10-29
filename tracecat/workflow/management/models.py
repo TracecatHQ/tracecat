@@ -3,15 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
+from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Schedule, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import ActionStatement, DSLConfig
+from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
+from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.api import (
     ActionResponse,
-    UDFArgsValidationResponse,
     WebhookResponse,
 )
 from tracecat.types.auth import Role
@@ -19,7 +21,7 @@ from tracecat.types.auth import Role
 
 class CreateWorkflowFromDSLResponse(BaseModel):
     workflow: Workflow | None = None
-    errors: list[UDFArgsValidationResponse] | None = None
+    errors: list[RegistryActionValidateResponse] | None = None
 
 
 class WorkflowResponse(BaseModel):
@@ -35,6 +37,7 @@ class WorkflowResponse(BaseModel):
     schedules: list[Schedule]
     entrypoint: str | None
     static_inputs: dict[str, Any]
+    expects: dict[str, ExpectedField] | None = None
     returns: Any
     config: DSLConfig | None
 
@@ -48,6 +51,7 @@ class UpdateWorkflowParams(BaseModel):
     entrypoint: str | None = None
     icon_url: str | None = None
     static_inputs: dict[str, Any] | None = None
+    expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None
 
@@ -115,4 +119,17 @@ class ExternalWorkflowDefinition(BaseModel):
             updated_at=defn.updated_at,
             version=defn.version,
             definition=defn.content,
+        )
+
+
+class CommitWorkflowResponse(BaseModel):
+    workflow_id: str
+    status: Literal["success", "failure"]
+    message: str
+    errors: list[RegistryActionValidateResponse] | None = None
+    metadata: dict[str, Any] | None = None
+
+    def to_orjson(self, status_code: int) -> ORJSONResponse:
+        return ORJSONResponse(
+            status_code=status_code, content=self.model_dump(exclude_none=True)
         )

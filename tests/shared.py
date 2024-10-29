@@ -9,8 +9,10 @@ from pathlib import Path
 import httpx
 from slugify import slugify
 
-from tracecat.db.schemas import Secret
+from tracecat.db.schemas import BaseSecret
+from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.identifiers.resource import ResourcePrefix
+from tracecat.workflow.management.definitions import get_workflow_definition_activity
 
 
 def write_cookies(cookies: httpx.Cookies, cookies_path: Path) -> None:
@@ -81,7 +83,7 @@ async def activate_workflow(workflow_id: str, with_webhook: bool = False):
             res.raise_for_status()
 
 
-def format_secrets_as_json(secrets: list[Secret]) -> dict[str, str]:
+def format_secrets_as_json(secrets: list[BaseSecret]) -> dict[str, str]:
     """Format secrets as a dict."""
     secret_dict = {}
     for secret in secrets:
@@ -129,3 +131,6 @@ def generate_test_exec_id(name: str) -> str:
         + f":{ResourcePrefix.WORKFLOW_EXECUTION}-"
         + slugify(name, separator="_")
     )
+
+
+DSL_UTILITIES = [get_workflow_definition_activity, validate_trigger_inputs_activity]

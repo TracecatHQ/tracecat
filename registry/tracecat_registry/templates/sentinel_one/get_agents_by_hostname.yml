@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get SentinelOne Agents by Hostname (contains)
+  description: Get SentinelOne agents by partial match on hostname
+  display_group: SentinelOne
+  namespace: integrations.sentinel_one
+  name: get_agents_by_hostname
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN", "SENTINEL_ONE_BASE_URL"]
+  expects:
+    hostname:
+      type: str
+      description: The hostname of the agent
+  steps:
+    - ref: get_agents_by_hostname
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/agents
+        method: GET
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          computerName__contains: ${{ inputs.hostname }}
+  returns: ${{ steps.get_agents_by_hostname.result }}

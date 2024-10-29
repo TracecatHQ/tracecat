@@ -2,7 +2,7 @@ import { ApiError } from "@/client"
 
 export interface TracecatApiError extends ApiError {
   readonly body: {
-    detail: string
+    detail: unknown
   }
 }
 

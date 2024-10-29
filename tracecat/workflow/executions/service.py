@@ -27,7 +27,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.logging import logger
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.models import (
@@ -244,12 +244,13 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED:
                     # The parent event here is always the scheduled event, which has the UDF name
-                    parent_event_id = (
-                        event.activity_task_started_event_attributes.scheduled_event_id
-                    )
+                    attrs = event.activity_task_started_event_attributes
+                    parent_event_id = attrs.scheduled_event_id
                     if not (group := event_group_names.get(parent_event_id)):
                         continue
-                    event_group_names[event.event_id] = group
+                    event_group_names[event.event_id] = group.model_copy(
+                        update={"current_attempt": attrs.attempt}
+                    )
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
@@ -319,18 +320,12 @@ class WorkflowExecutionsService:
         *,
         wf_id: identifiers.WorkflowID,
         payload: dict[str, Any] | None = None,
-        enable_runtime_tests: bool = False,
     ) -> CreateWorkflowExecutionResponse:
         """Create a new workflow execution.
 
         Note: This method schedules the workflow execution and returns immediately.
         """
-        coro = self.create_workflow_execution(
-            dsl=dsl,
-            wf_id=wf_id,
-            payload=payload,
-            enable_runtime_tests=enable_runtime_tests,
-        )
+        coro = self.create_workflow_execution(dsl=dsl, wf_id=wf_id, payload=payload)
         _ = asyncio.create_task(coro)
         return CreateWorkflowExecutionResponse(
             message="Workflow execution started",
@@ -344,7 +339,6 @@ class WorkflowExecutionsService:
         *,
         wf_id: identifiers.WorkflowID,
         payload: dict[str, Any] | None = None,
-        enable_runtime_tests: bool = False,
     ) -> Awaitable[DispatchWorkflowResult]:
         """Create a new workflow execution.
 
@@ -357,8 +351,6 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        # XXX: We need to rethink how to pass runtime config overrides
-        dsl.config.enable_runtime_tests = enable_runtime_tests
         wf_exec_id = identifiers.workflow.exec_id(wf_id)
         return self._dispatch_workflow(
             dsl=dsl,

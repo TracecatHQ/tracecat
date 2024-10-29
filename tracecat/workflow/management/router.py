@@ -25,11 +25,10 @@ from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.identifiers import WorkflowID
-from tracecat.logging import logger
+from tracecat.logger import logger
+from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.api import (
     ActionResponse,
-    CommitWorkflowResponse,
-    UDFArgsValidationResponse,
     UpsertWebhookParams,
     WebhookResponse,
 )
@@ -38,6 +37,7 @@ from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
+    CommitWorkflowResponse,
     CreateWorkflowParams,
     ExternalWorkflowDefinition,
     UpdateWorkflowParams,
@@ -179,7 +179,19 @@ async def get_workflow(
     }
     # Add webhook/schedules
     return WorkflowResponse(
-        **workflow.model_dump(),
+        id=workflow.id,
+        owner_id=workflow.owner_id,
+        title=workflow.title,
+        description=workflow.description,
+        icon_url=workflow.icon_url,
+        status=workflow.status,
+        version=workflow.version,
+        expects=workflow.expects,
+        returns=workflow.returns,
+        entrypoint=workflow.entrypoint,
+        object=workflow.object,
+        static_inputs=workflow.static_inputs,
+        config=workflow.config,
         actions=actions_responses,
         webhook=WebhookResponse(**workflow.webhook.model_dump()),
         schedules=workflow.schedules,
@@ -260,13 +272,13 @@ async def commit_workflow(
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_dsl_validation_error(e)
+                RegistryActionValidateResponse.from_dsl_validation_error(e)
                 for e in eg.exceptions
             )
         except* ValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                UDFArgsValidationResponse.from_pydantic_validation_error(e)
+                RegistryActionValidateResponse.from_pydantic_validation_error(e)
                 for e in eg.exceptions
             )
 
@@ -281,14 +293,14 @@ async def commit_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        if val_errors := await validation.validate_dsl(dsl):
+        if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
             logger.warning("Validation errors", errors=val_errors)
             return CommitWorkflowResponse(
                 workflow_id=workflow_id,
                 status="failure",
                 message=f"{len(val_errors)} validation error(s)",
                 errors=[
-                    UDFArgsValidationResponse.from_validation_result(val_res)
+                    RegistryActionValidateResponse.from_validation_result(val_res)
                     for val_res in val_errors
                 ],
             )

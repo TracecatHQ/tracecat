@@ -7,10 +7,18 @@ definition:
   entrypoint:
     ref: send_to_slack
     expects:
-      title: str
-      integration: str
-      alert: any
-      severity: str
+      title:
+        type: str
+        description: The title of the alert
+      integration:
+        type: str
+        description: The integration that triggered the alert
+      alert:
+        type: any
+        description: The alert object in Elastic Common Schema format
+      severity:
+        type: str
+        description: The severity level of the alert
   triggers:
     - type: webhook
       ref: receive_alert
@@ -21,7 +29,7 @@ definition:
 
   actions:
     - ref: send_to_slack
-      action: integrations.chat.slack.post_slack_message
+      action: integrations.slack.post_message
       args:
         channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
         text: 🚨 *An alert has been raised in ${{ TRIGGER.integration }}*
