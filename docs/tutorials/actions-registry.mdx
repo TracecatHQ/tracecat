@@ -2,3 +2,95 @@
 title: Actions Registry
 description: Learn how to use pre-built integrations in your workflows.
 ---
+
+## Goals
+
+By the end of this tutorial, you will learn:
+
+- How to create new actions from **Action Templates** in the **Actions Registry**
+- How to use **Action Templates** to create more powerful integrations
+- How to update an existing **Action Template** across all workflows directly in the UI
+
+## Prerequisites
+
+- Completed the [Quickstart](/tutorials/quickstart) tutorial
+- Completed the [Control Flow](/tutorials/control-flow) tutorial
+
+## Tutorial
+
+<Steps>
+    <Step title="Check out the Actions Registry">
+        Go to the **Actions Registry** by clicking on the **Registry** tab back in the workflows view.
+        ![Actions Registry](/img/tutorials/actions-registry/actions-registry.png)
+
+        Actions are registered at the organization level and can be used across all workflows and workspaces.
+    </Step>
+    <Step title="Clone existing Action Template">
+        As seen in the previous [Control Flow](/tutorials/control-flow) tutorial,
+        the `Search URL with VirusTotal` action returns a lot of data that we don't need.
+
+        Let's clean this up by creating a new action from the existing `Search URL with VirusTotal` action template.
+
+        ![Clone existing Action Template](/img/tutorials/actions-registry/clone-action-template.png)
+
+        You notice that **Action Templates** are YAML configuration-as-code templates similar to GitHub Actions workflows:
+
+        ![Action Template](/img/tutorials/actions-registry/vt-action-template.png)
+    </Step>
+    <Step title="Configure the new action">
+        <Note>
+            Use `secrets.<secret-name>.<secret-key>` to reference secrets and `steps.<step-key>.result` to reference results from previous steps.
+        </Note>
+
+        ![Configure new VirusTotal action](/img/tutorials/actions-registry/new-vt-action.png)
+
+        Copy the following configuration into the YAML editor:
+
+        ```yaml
+        name: Get URL stats from VirusTotal
+        namespace: tracecat
+        title: Get URL stats from VirusTotal
+        description: Get the stats for a given URL from VirusTotal
+        ```
+
+        You notice this new action returns a JSON object with the `url` and `stats` fields already extracted for us!
+    </Step>
+    <Step title="Add the new action to the workflow">
+        Delete the `Reshape` action named `Extract VirusTotal report`, then add the new `Get URL stats from VirusTotal` action to the workflow.
+    </Step>
+    <Step title="Run the workflow">
+        Click on the **Run** button to execute the workflow.
+
+        ![Run workflow](/img/tutorials/actions-registry/run-new-action-workflow.png)
+
+        You'll get the same result as the previous tutorial but with one less action cluttering up the UI.
+    </Step>
+    <Step title="Chain actions together in a template">
+        Let's use our new found knowledge of the Actions Registry to combine the `Get URL stats from VirusTotal` action and the `List VirusTotal comments on URL` action into a single Action Template.
+
+        Tracecat's Action Registry makes it easy to update actions with new functionality without pivoting across workflows.
+
+        ![Combine report and comments](/img/tutorials/actions-registry/combine-report-and-comments.png)
+
+        Copy the following configuration into the YAML editor:
+
+        ```yaml
+        name: Get URL stats and comments from VirusTotal
+        namespace: tracecat
+        ```
+    </Step>
+    <Step title="Run the workflow">
+        Click on the **Run** button to execute the workflow.
+
+        ![Run workflow](/img/tutorials/actions-registry/run-combined-action-workflow.png)
+    </Step>
+    <Step title="Congrats!">
+        You've successfully created a new **Action Template** to consolidate your workflow logic!
+        Action templates should be used to create more powerful reusable integrations across workflows.
+    </Step>
+</Steps>
+
+## Next Steps
+
+Check out the [next tutorial on custom integrations](/tutorials/custom-integrations) to learn how to create new Python integrations and YAML Action Templates.
+All version controlled in your own private GitHub repository.
