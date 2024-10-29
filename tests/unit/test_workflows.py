@@ -42,6 +42,15 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") is not None,
+    reason="Skip if running in GitHub Actions",
+)
+@pytest.fixture(autouse=True, scope="module")
+def additional_env_vars(monkeysession: pytest.MonkeyPatch):
+    monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
+
+
 @pytest.fixture
 def dsl(request: pytest.FixtureRequest) -> DSLInput:
     test_name = request.param
