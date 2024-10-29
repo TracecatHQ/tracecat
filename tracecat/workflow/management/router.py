@@ -91,7 +91,12 @@ async def create_workflow(
     if file:
         raw_data = await file.read()
         match file.content_type:
-            case "application/yaml" | "text/yaml" | "application/x-yaml":
+            case (
+                "application/yaml"
+                | "text/yaml"
+                | "application/x-yaml"
+                | "application/octet-stream"
+            ):
                 logger.info("Parsing YAML file", file=file.filename)
                 try:
                     external_defn_data = yaml.safe_load(raw_data)
