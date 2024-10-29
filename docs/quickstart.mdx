@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Build and deploy the classic VirusTotal enrichment playbook.
+description: Learn Tracecat basics by building the classic VirusTotal enrichment playbook.
 ---
 
 <Warning>
@@ -13,12 +13,9 @@ description: Build and deploy the classic VirusTotal enrichment playbook.
 By the end of this quickstart, you will learn how to:
 
 - Create a new workflow
-- Use Tracecat's secrets manager to securely store and access API keys
-- Use integrations to automate a simple threat enrichment playbook,
-  learn to work with Tracecat's built-in case management system,
-  and run the workflow live.
-
-![crowdstrikebluescreen](/img/quickstart/configure-open-case.png)
+- Add secrets to your workspace
+- Add an action to your workflow (e.g. search a URL with VirusTotal)
+- Manually trigger the workflow
 
 Let's get started!
 
@@ -31,66 +28,83 @@ Let's get started!
 <Steps>
   <Step title="Log into Tracecat">
     <Note>
-        If you are working with a brand new Tracecat deployment, you can find the default admin user's email and password in the [authentication docs](/self-hosting/authentication/introduction).
+        The default admin user's email and password is configured on initial deployment.
+        You can find out more about authentication in our [self-hosting docs](/self-hosting/authentication/introduction).
     </Note>
-    ![Sign-in](/img/signin-page.png)
+    ![Sign-in](/img/tutorials/quickstart/signin-page.png)
   </Step>
-  <Step title="Create a new workflow">
-    ![Create new workflow](/img/quickstart/create-new-workflow.png)
+  <Step title="Create new workflow">
+    ![Create new workflow](/img/tutorials/quickstart/create-new-workflow.png)
   </Step>
   <Step title="Rename workflow">
-      Rename the workflow and save the changes by clicking on the save button.
-    ![Rename workflow](/img/quickstart/change-workflow-name.png)
+    Click onto the canvas to access workflow settings.
+    Rename the workflow and save the changes by clicking on the save button.
+    ![Rename workflow](/img/tutorials/quickstart/rename-workflow.png)
   </Step>
-  <Step title="Add enrichment step">
+  <Step title="Add VirusTotal action">
     From the trigger action, search and select the VirusTotal **Search URL with VirusTotal** integration.
-    ![Add new action](/img/quickstart/add-node.png)
+    ![Add new action](/img/tutorials/quickstart/add-vt-node.png)
   </Step>
-  <Step title="Pass URL from webhook into Search URL action inputs">
+  <Step title="Configure VirusTotal action inputs">
     <Tip>
-        Tracecat comes with a powerful templating language called "expressions" to manipulate data directly in action inputs.
-        You can find out more [here in our docs](/concepts/expressions).
-    </Tip>
-    Use expressions and [JSONPath match syntax](https://www.ietf.org/archive/id/draft-ietf-jsonpath-base-01.html) to select data from the webhook trigger.
+        Tracecat comes with a powerful templating language called "expressions" and a JSONPath-like syntax to reference data directly in action inputs.
 
-    Fill in inputs with the following:
+        Find out more about expressions in our [docs](/platform/expressions).
+    </Tip>
+    Pass data from the trigger into the VirusTotal action by filling in the inputs with the following expression:
 
     ```yaml
-    url: ${{ FN.to_base64(TRIGGER.url_input) }}
+    url: ${{ TRIGGER.url }}
     ```
 
-    You'll need to Base64 encode the URL input using a the `to_base64` function.
-
-    ![Configure VirusTotal URL input](/img/quickstart/configure-vt-input.png)
+    ![Configure VirusTotal Search URL inputs](/img/tutorials/quickstart/configure-vt-inputs.png)
 
     Make sure to save the action inputs by clicking on the **Save** button at the top right of the action panel.
   </Step>
   <Step title="Add secret">
     Add your VirusTotal API key to workspace secrets.
     For the integration to work, you'll need to name the secret `virustotal` and assign your API token to a `VIRUSTOTAL_API_KEY` secret key.
-    ![Secret settings](/img/quickstart/credentials-setting.png)
-    ![Create secret](/img/quickstart/create-secret.png)
+    ![Secret settings](/img/tutorials/quickstart/credentials-setting.png)
+    ![Create secret](/img/tutorials/quickstart/create-secret.png)
+
+    <Note>
+      Must pre-built integrations have been configured with a specific secret name and required keys.
+      Find out more about secrets in our [docs](/platform/secrets).
+    </Note>
   </Step>
-  <Step title="Commit (AKA save) workflow">
-    This publishes a live version of your workflow.
-    ![Save workflow](/img/quickstart/commit-workflow.png)
+  <Step title="Commit (AKA deploy) workflow">
+    This saves a live version of your workflow.
+    Workflows cannot be run until they are committed.
+    ![Commit workflow](/img/tutorials/quickstart/commit-workflow.png)
   </Step>
   <Step title="Trigger workflow">
-    You can now trigger the workflow with a JSON payload directly from the UI.
+    Let's test this workflow with a JSON payload directly from the UI.
     For this demo, we use the following sample payload:
-
     ```json
-    {"url_input": "https://crowdstrikebluescreen.com"}
+    {"url": "https://crowdstrikebluescreen.com"}
     ```
-    ![Trigger workflow](/img/quickstart/trigger-workflow.png)
+    ![Trigger workflow](/img/tutorials/quickstart/trigger-workflow.png)
   </Step>
-  <Step title="View workflow context">
-    Every workflow run comes with context about every step executed in the workflow.
-    You can view this information by switching to the **Runs** tab.
-    ![New run context](/img/quickstart/run-context.png)
+  <Step title="View workflow runs">
+    You can monitor workflow runs and action outputs by switching to the **Runs** tab.
+    ![View workflow runs](/img/tutorials/quickstart/view-runs.png)
   </Step>
   <Step title="Congratulations!">
     🎉 Congratulations on running your first security workflow in Tracecat!
-    Come join us on [Discord](https://discord.gg/n3GF4qxFU8) to discuss new playbook and integration ideas.
   </Step>
 </Steps>
+
+## Next Steps
+
+Learn how to use Tracecat's most powerful features in four self-paced tutorials:
+
+- Define **if-conditions** and **loops** in your workflows. View the [tutorial](/tutorials/control-flow).
+- **Actions Registry** to manage integrations. View the [tutorial](/tutorials/actions-registry).
+- Build **custom integrations** and sync them into Tracecat. View the [tutorial](/tutorials/custom-integrations).
+- **Secrets** to manage sensitive data for actions. View the [docs](/platform/secrets).
+
+Check out the following cheatsheets for a list of Tracecat's integrations and utilities:
+
+- **Expressions** to reference data in action inputs. View the [docs](/platform/expressions).
+- **Prebuilt integrations** and their required secrets. View the [cheatsheet](/integrations).
+- **Functions** to manipulate data. View a list of available functions in the [cheatsheet](/platform/functions).
