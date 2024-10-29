@@ -1592,3 +1592,390 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
 
     result = await _run_workflow(temporal_client, f"{wf_exec_id}:second", run_args)
     assert result == "__EXPECTED_SECOND_RESULT__"
+
+
+def _get_test_id(test_case):
+    """Extract test title from test case tuple."""
+    match test_case:
+        case {"title": title}:
+            return title
+        case _:
+            return None
+
+
+@pytest.mark.parametrize(
+    "dsl_data,expected",
+    [
+        (
+            # Now, we aren't properly propagating the skipped edge
+            {
+                "title": "run_if_skips_few_OK",
+                "description": "Test that run_if skips work",
+                "entrypoint": {"expects": {}, "ref": "a"},
+                "actions": [
+                    {
+                        "ref": "a",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "A"},
+                    },
+                    {
+                        "ref": "b",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "B"},
+                        "depends_on": ["a"],
+                        "run_if": "${{ False }}",
+                    },
+                    {
+                        "ref": "c",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "C"},
+                        "depends_on": ["b"],
+                    },
+                    {
+                        "ref": "d",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "D"},
+                        "depends_on": ["c"],
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "a": "${{ ACTIONS.a.result }}",
+                    "b": "${{ ACTIONS.b.result }}",
+                    "c": "${{ ACTIONS.c.result }}",
+                    "d": "${{ ACTIONS.d.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "a": "A",
+                "b": None,
+                "c": None,
+                "d": None,
+            },
+        ),
+        (
+            {
+                "title": "simple_skip_ok_ERR",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "a"},
+                "actions": [
+                    {
+                        "ref": "a",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "${{ 1/0 }}"},
+                    },
+                    {
+                        "ref": "success_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "SUCCESS"},
+                        "depends_on": ["a"],  # SKIPPED because error
+                    },
+                    {
+                        "ref": "error_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ERROR"},
+                        "depends_on": ["a.error"],  # RUNS
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "success": "${{ ACTIONS.success_path.result }}",
+                    "error": "${{ ACTIONS.error_path.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "success": None,
+                "error": "ERROR",
+            },
+        ),
+        (
+            {
+                "title": "simple_skip_error_OK",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "a"},
+                "actions": [
+                    {
+                        "ref": "a",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "NO_ERROR_HERE"},
+                    },
+                    {
+                        "ref": "success_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "SUCCESS"},
+                        "depends_on": ["a"],  # Implicitly `a.success`
+                    },
+                    {
+                        "ref": "error_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ERROR"},
+                        "depends_on": ["a.error"],  # This action should NOT run
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "success": "${{ ACTIONS.success_path.result }}",
+                    "error": "${{ ACTIONS.error_path.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "success": "SUCCESS",
+                "error": None,
+            },
+        ),
+        (
+            {
+                "title": "multiple_errors_skipped_OK",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "start"},
+                "actions": [
+                    {
+                        "ref": "start",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "NO_ERROR_HERE"},
+                    },
+                    {
+                        "ref": "success_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "SUCCESS"},
+                        "depends_on": ["start"],  # Implicitly `start.success`
+                    },
+                    {
+                        "ref": "error_path_1",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ERROR_1"},
+                        "depends_on": ["start.error"],  # This action should NOT run
+                    },
+                    {
+                        "ref": "error_path_2",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ERROR_2"},
+                        "depends_on": ["error_path_1"],  # This action should NOT run
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "success_path": "${{ ACTIONS.success_path.result }}",
+                    "error_path_1": "${{ ACTIONS.error_path_1.result }}",
+                    "error_path_2": "${{ ACTIONS.error_path_2.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "success_path": "SUCCESS",
+                "error_path_1": None,
+                "error_path_2": None,
+            },
+        ),
+        (
+            {  # What's currently wrong here is that we're skipping the error path
+                "title": "run_if_skips_one_OK",
+                "description": "Test that run_if skips work",
+                "entrypoint": {"expects": {}, "ref": "a"},
+                "actions": [
+                    {
+                        "ref": "a",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "A"},
+                    },
+                    {
+                        "ref": "b",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "B"},
+                        "depends_on": ["a"],
+                        "run_if": "${{ False }}",
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "a": "${{ ACTIONS.a.result }}",
+                    "b": "${{ ACTIONS.b.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "a": "A",
+                "b": None,
+            },
+        ),
+        (
+            {
+                "title": "join_on_same_node_OK",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "start"},
+                "actions": [
+                    {
+                        "ref": "start",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "START"},
+                    },
+                    {
+                        "ref": "join",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "JOIN"},
+                        "depends_on": ["start", "start.error"],
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "start": "${{ ACTIONS.start.result }}",
+                    "join": "${{ ACTIONS.join.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "start": "START",
+                "join": "JOIN",  # This should still run, as we took the success path
+            },
+        ),
+        (
+            {
+                "title": "diamond_join_success",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "start"},
+                "actions": [
+                    {
+                        "ref": "start",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "START"},  # RUNS
+                    },
+                    {
+                        "ref": "left",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "SUCCESS"},
+                        "depends_on": ["start"],  # RUNS
+                    },
+                    {
+                        "ref": "right",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "MAYBE_ERROR"},
+                        "depends_on": ["start"],  # RUNS
+                    },
+                    {
+                        "ref": "join",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "JOIN"},
+                        "depends_on": [
+                            "left",  # RUNS
+                            "right",  # RUNS
+                            "right.error",  # SKIPS
+                        ],
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "start": "${{ ACTIONS.start.result }}",
+                    "left": "${{ ACTIONS.left.result }}",
+                    "right": "${{ ACTIONS.right.result }}",
+                    "join": "${{ ACTIONS.join.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "start": "START",
+                "left": "SUCCESS",
+                "right": "MAYBE_ERROR",
+                "join": "JOIN",
+            },
+        ),
+        (
+            {
+                "title": "diamond_join_right_error",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "start"},
+                "actions": [
+                    {
+                        "ref": "start",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "START"},  # RUNS
+                    },
+                    {
+                        "ref": "left",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "SUCCESS"},
+                        "depends_on": ["start"],  # RUNS
+                    },
+                    {
+                        "ref": "right",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "${{ 1/0 }}"},
+                        "depends_on": ["start"],  # ERROR
+                    },
+                    {
+                        "ref": "join",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "JOIN"},
+                        "depends_on": [
+                            "left",  # RUNS
+                            "right",  # RUNS
+                            "right.error",  # SKIPS: Absorbs the error path
+                        ],
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "start": "${{ ACTIONS.start.result }}",
+                    "left": "${{ ACTIONS.left.result }}",
+                    "right": "${{ ACTIONS.right.result }}",
+                    "join": "${{ ACTIONS.join.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "start": "START",
+                "left": "SUCCESS",
+                "right": None,
+                "join": "JOIN",
+            },
+        ),
+    ],
+    ids=_get_test_id,
+)
+@pytest.mark.asyncio
+async def test_workflow_error(
+    temporal_cluster, test_role, runtime_config, base_registry, dsl_data, expected
+):
+    dsl = DSLInput(**dsl_data)
+    test_name = f"test_workflow_error-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    client = await get_temporal_client()
+    # Run a worker for the activities and workflow
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(
+                dsl=dsl,
+                role=test_role,
+                wf_id=TEST_WF_ID,
+                runtime_config=runtime_config,
+            ),
+            id=wf_exec_id,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            run_timeout=timedelta(seconds=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,
+                non_retryable_error_types=[
+                    "tracecat.types.exceptions.TracecatExpressionError"
+                    "TracecatValidationError"
+                ],
+            ),
+        )
+    assert result == expected
