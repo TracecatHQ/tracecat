@@ -286,6 +286,8 @@ def iter_for_each(
 ) -> Iterator[ArgsT]:
     """Yield patched contexts for each loop iteration."""
     # Evaluate the loop expression
+    if not task.for_each:
+        raise ValueError("No loop expression found")
     iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
 
     # Assert that all length of the iterables are the same
