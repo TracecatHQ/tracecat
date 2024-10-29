@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
@@ -11,8 +12,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.contexts import RunContext
-from tracecat.dsl.enums import FailStrategy, LoopStrategy
-from tracecat.dsl.graph import RFEdge, RFGraph, TriggerNode, UDFNode, UDFNodeData
+from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
+from tracecat.dsl.graph import (
+    RFEdge,
+    RFGraph,
+    RFNode,
+    TriggerNode,
+    UDFNode,
+    UDFNodeData,
+)
 from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
@@ -83,7 +91,17 @@ class DSLInput(BaseModel):
 
         # Validate that all the refs in depends_on are valid actions
         valid_actions = {a.ref for a in self.actions}
-        dependencies = {dep for a in self.actions for dep in a.depends_on}
+        # Actions refs can now contain a path, so we need to check for that
+        dependencies = set()
+        for a in self.actions:
+            for dep in a.depends_on:
+                try:
+                    src, _ = get_edge_components(dep)
+                except ValueError:
+                    raise TracecatDSLError(
+                        f"Invalid depends_on ref: {dep!r} in action {a.ref!r}"
+                    ) from None
+                dependencies.add(src)
         invalid_deps = dependencies - valid_actions
         if invalid_deps:
             raise TracecatDSLError(
@@ -146,7 +164,7 @@ class DSLInput(BaseModel):
         """
 
         # Create nodes and edges
-        nodes: list[RFEdge] = [trigger_node]
+        nodes: list[RFNode] = [trigger_node]
         edges: list[RFEdge] = []
         try:
             for action in self.actions:
@@ -194,7 +212,7 @@ class DSLRunArgs(BaseModel):
         description="The maximum time to wait for the workflow to complete.",
     )
     schedule_id: ScheduleID | None = Field(
-        None,
+        default=None,
         description="The schedule ID that triggered this workflow, if any.",
     )
 
@@ -202,8 +220,30 @@ class DSLRunArgs(BaseModel):
 class ExecuteChildWorkflowArgs(TypedDict):
     workflow_id: WorkflowID
     trigger_inputs: dict[str, Any]
-    environment: str | None = None
-    version: int | None = None  # Workflow defn version
-    loop_strategy: LoopStrategy | None = None
-    batch_size: int | None = None
-    fail_strategy: FailStrategy | None = None
+    environment: str | None
+    version: int | None
+    loop_strategy: LoopStrategy | None
+    batch_size: int | None
+    fail_strategy: FailStrategy | None
+
+
+AdjDst = tuple[str, EdgeType]
+
+
+def get_edge_components(dep_ref: str) -> AdjDst:
+    src_ref, *path = dep_ref.split(".", 1)
+    if not path or path[0] == EdgeType.SUCCESS:
+        return src_ref, EdgeType.SUCCESS
+    elif path[0] == EdgeType.ERROR:
+        return src_ref, EdgeType.ERROR
+    raise ValueError(f"Invalid edge type: {path[0]} in {dep_ref!r}")
+
+
+@dataclass(frozen=True)
+class DSLEdge:
+    src: str
+    dst: str
+    type: EdgeType
+
+    def __repr__(self) -> str:
+        return f"{self.src}-[{self.type.value}]->{self.dst}"

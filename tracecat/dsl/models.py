@@ -15,9 +15,13 @@ SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
 
 
-class DSLNodeResult(TypedDict):
+class DSLNodeResult(TypedDict, total=False):
+    """Result of executing a DSL node."""
+
     result: Any
     result_typename: str
+    error: Any
+    error_typename: str
 
 
 ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
@@ -163,3 +167,27 @@ class RunActionInput(BaseModel, Generic[ArgsT]):
     role: Role
     exec_context: DSLContext
     run_context: RunContext
+
+
+class DSLExecutionError(TypedDict, total=False):
+    """A proxy for an exception.
+
+    This is the object that gets returned in place of an exception returned when
+    using `asyncio.gather(..., return_exceptions=True)`, as Exception types aren't serializable."""
+
+    is_error: bool
+    """A flag to indicate that this object is an error."""
+
+    type: str
+    """The type of the exception. e.g. `ValueError`"""
+
+    message: str
+    """The message of the exception."""
+
+    @staticmethod
+    def from_exception(e: BaseException) -> DSLExecutionError:
+        return DSLExecutionError(
+            is_error=True,
+            type=e.__class__.__name__,
+            message=str(e),
+        )
