@@ -70,6 +70,7 @@
     {
       "group": "Tutorials",
       "pages": [
+        "tutorials/control-flow",
         "tutorials/actions-registry",
         "tutorials/custom-integrations",
         "tutorials/triggers",
@@ -103,8 +104,7 @@
         "platform/workflows",
         "platform/actions",
         "platform/secrets",
-        "platform/expressions",
-        "platform/functions"
+        "platform/expressions"
       ]
     },
     {
