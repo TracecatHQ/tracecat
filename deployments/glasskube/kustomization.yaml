@@ -5,9 +5,9 @@ resources:
 images:
 - name: server
   newName: ghcr.io/tracecathq/tracecat
-  newTag: 0.10.1
+  newTag: 0.12.3
 - name: ui
-  newTag: 0.10.1
+  newTag: 0.12.3
   newName: ghcr.io/tracecathq/tracecat-ui
 - name: kubectl
   newTag: 1.30.0
