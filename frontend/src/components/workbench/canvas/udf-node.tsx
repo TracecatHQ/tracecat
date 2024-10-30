@@ -30,7 +30,11 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
-import { CustomFloatingHandle } from "@/components/workbench/canvas/custom-handle"
+import {
+  CustomFloatingHandle,
+  ErrorHandle,
+  SuccessHandle,
+} from "@/components/workbench/canvas/custom-handle"
 
 export interface UDFNodeData {
   type: string // alias for key
@@ -155,10 +159,8 @@ export default React.memo(function UDFNode({
         type="target"
         position={targetPosition ?? Position.Top}
       />
-      <CustomFloatingHandle
-        type="source"
-        position={sourcePosition ?? Position.Bottom}
-      />
+      <SuccessHandle type="source" />
+      <ErrorHandle type="source" />
     </Card>
   )
 })
