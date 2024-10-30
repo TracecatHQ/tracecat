@@ -1594,6 +1594,29 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
     assert result == "__EXPECTED_SECOND_RESULT__"
 
 
+DIVISION_BY_ZERO_ERROR = {
+    "ref": "start",
+    "message": (
+        "There was an error in the registry when calling action 'core.transform.reshape' (500).\n"
+        "\n"
+        "[evaluator] Error evaluating expression `1/0`\n"
+        "\n"
+        "[evaluator] Evaluation failed at node:\n"
+        "binary_op\n"
+        "  literal\t1\n"
+        "  /\n"
+        "  literal\t0\n"
+        "\n"
+        'Reason: Error trying to process rule "binary_op":\n'
+        "\n"
+        "Cannot divide by zero"
+    ),
+    "type": "RegistryActionError",
+    "expr_context": "ACTIONS",
+    "attempt": 1,
+}
+
+
 def _get_test_id(test_case):
     """Extract test title from test case tuple."""
     match test_case:
@@ -1606,6 +1629,48 @@ def _get_test_id(test_case):
 @pytest.mark.parametrize(
     "dsl_data,expected",
     [
+        # Error handling
+        (
+            {
+                "title": "simple_skip_ok_ERR_check_error_info",
+                "description": "Test that workflow errors are correctly handled",
+                "entrypoint": {"expects": {}, "ref": "start"},
+                "actions": [
+                    {
+                        "ref": "start",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "${{ 1/0 }}"},
+                    },
+                    {
+                        "ref": "success_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "SUCCESS"},
+                        "depends_on": ["start"],  # SKIPPED because error
+                    },
+                    {
+                        "ref": "error_path",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ERROR"},
+                        "depends_on": ["start.error"],  # RUNS
+                    },
+                ],
+                "inputs": {},
+                "returns": {
+                    "start": "${{ ACTIONS.start.result }}",
+                    "start.error": "${{ ACTIONS.start.error }}",
+                    "success": "${{ ACTIONS.success_path.result }}",
+                    "error": "${{ ACTIONS.error_path.result }}",
+                },
+                "tests": [],
+                "triggers": [],
+            },
+            {
+                "start": None,
+                "start.error": DIVISION_BY_ZERO_ERROR,
+                "success": None,
+                "error": "ERROR",
+            },
+        ),
         (
             # Now, we aren't properly propagating the skipped edge
             {
