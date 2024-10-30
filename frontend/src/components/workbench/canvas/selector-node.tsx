@@ -41,7 +41,6 @@ const groupByDisplayGroup = (
   const groups = {} as Record<string, RegistryActionRead[]>
   actions.forEach((action) => {
     const displayGroup = (action.display_group || TOP_LEVEL_GROUP).toString()
-    console.log("groupByDisplayGroup", displayGroup, action)
     if (!groups[displayGroup]) {
       groups[displayGroup] = []
     }
@@ -64,6 +63,15 @@ export default React.memo(function SelectorNode({
   const { workflowId, reactFlow } = useWorkflowBuilder()
   const { setNodes, setEdges } = reactFlow
   const escapePressed = useKeyPress("Escape")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    // Focus the input after a short delay to allow the command list to open
+    const timer = setTimeout(() => {
+      inputRef.current?.focus()
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [])
 
   const removeSelectorNode = () => {
     setNodes((nodes) => nodes.filter((node) => !isEphemeral(node)))
@@ -101,8 +109,10 @@ export default React.memo(function SelectorNode({
         </div>
         <Separator />
         <CommandInput
+          ref={inputRef}
           className="!py-0 text-xs"
           placeholder="Start typing to search for an action..."
+          autoFocus
         />
         <CommandList className="border-b">
           <CommandEmpty>
