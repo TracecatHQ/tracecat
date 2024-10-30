@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
+from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.auth import Role
@@ -20,8 +22,26 @@ class DSLNodeResult(TypedDict, total=False):
 
     result: Any
     result_typename: str
-    error: Any
-    error_typename: str
+    error: Any | None
+    error_typename: str | None
+
+
+@dataclass(frozen=True)
+class DSLTaskErrorInfo:
+    ref: str
+    """The task reference."""
+
+    message: str
+    """The error message."""
+
+    type: str
+    """The error type."""
+
+    expr_context: ExprContext = ExprContext.ACTIONS
+    """The expression context where the error occurred."""
+
+    attempt: int = 1
+    """The attempt number."""
 
 
 ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])

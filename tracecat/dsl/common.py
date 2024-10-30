@@ -24,6 +24,7 @@ from tracecat.dsl.graph import (
 from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
@@ -247,3 +248,9 @@ class DSLEdge:
 
     def __repr__(self) -> str:
         return f"{self.src}-[{self.type.value}]->{self.dst}"
+
+
+def context_locator(
+    stmt: ActionStatement, loc: str, *, ctx: ExprContext = ExprContext.ACTIONS
+) -> str:
+    return f"{ctx}.{stmt.ref} -> {loc}"

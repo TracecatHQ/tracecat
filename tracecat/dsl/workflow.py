@@ -283,6 +283,7 @@ class DSLWorkflow:
         """
 
         logger.info("Begin task execution", task_ref=task.ref)
+        task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
         try:
             if self._should_execute_child_workflow(task):
                 # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
@@ -305,9 +306,8 @@ class DSLWorkflow:
                 )
                 action_result = await self._run_action(task)
             logger.trace("Action completed successfully", action_result=action_result)
-            self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
-                result=action_result,
-                result_typename=type(action_result).__name__,
+            task_result.update(
+                result=action_result, result_typename=type(action_result).__name__
             )
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         except (ActivityError, ChildWorkflowError, FailureError) as e:
@@ -315,23 +315,29 @@ class DSLWorkflow:
             err_type = e.__class__.__name__
             msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
             logger.error(msg, error=e.message)
-            # task_result = DSLNodeResult(error=e.message, error_typename=err_type)
+            match cause := e.cause:
+                case ApplicationError(details=[err_info, *_]):
+                    task_result.update(
+                        error=err_info, error_typename=cause.type or err_type
+                    )
+                case _:
+                    task_result.update(error=e.message, error_typename=err_type)
             raise ApplicationError(e.message, non_retryable=True, type=err_type) from e
         except ValidationError as e:
             logger.error("Runtime validation error", error=e.errors())
-            # task_result = DSLNodeResult(
-            #     error=e.errors(), error_typename=ValidationError.__name__
-            # )
+            task_result.update(
+                error=e.errors(), error_typename=ValidationError.__name__
+            )
             raise e
         except Exception as e:
             err_type = e.__class__.__name__
             msg = f"Task execution failed with unexpected error: {e}"
             logger.error("Activity execution failed with unexpected error", error=msg)
-            # task_result = DSLNodeResult(error=msg, error_typename=err_type)
+            task_result.update(error=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
-        # finally:
-        #     logger.warning("Setting action result", task_result=task_result)
-        #     self.context[ExprContext.ACTIONS][task.ref] = task_result
+        finally:
+            logger.warning("Setting action result", task_result=task_result)
+            self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",
