@@ -111,6 +111,7 @@ class DSLActivities:
             # We only expect RegistryActionError to be raised from the registry client
             kind = e.__class__.__name__
             msg = str(e)
+            err_locator = _contextualize_message(task, msg, attempt=attempt)
             act_logger.error(
                 "Application exception occurred", error=msg, detail=e.detail
             )
@@ -120,12 +121,19 @@ class DSLActivities:
                 type=kind,
                 attempt=attempt,
             )
-            raise ApplicationError(msg, err_info, type=kind) from e
+            raise ApplicationError(err_locator, err_info, type=kind) from e
         except ApplicationError as e:
             # Unexpected application error - depends
             act_logger.error("ApplicationError occurred", error=e)
+            err_info = DSLTaskErrorInfo(
+                ref=task.ref,
+                message=str(e),
+                type=e.type or e.__class__.__name__,
+                attempt=attempt,
+            )
             raise ApplicationError(
                 _contextualize_message(task, e.message, attempt=attempt),
+                err_info,
                 non_retryable=e.non_retryable,
                 type=e.type,
             ) from e
@@ -134,8 +142,16 @@ class DSLActivities:
             kind = e.__class__.__name__
             raw_msg = f"{kind} occurred:\n{e}"
             act_logger.error(raw_msg)
+
+            err_info = DSLTaskErrorInfo(
+                ref=task.ref,
+                message=raw_msg,
+                type=kind,
+                attempt=attempt,
+            )
             raise ApplicationError(
                 _contextualize_message(task, raw_msg, attempt=attempt),
+                err_info,
                 type=kind,
                 non_retryable=True,
             ) from e

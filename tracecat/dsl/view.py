@@ -13,11 +13,9 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-from tracecat.db.schemas import Action
-from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.enums import EdgeType
 from tracecat.identifiers import action
 from tracecat.logger import logger
-from tracecat.types.api import ActionControlFlow
 from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
@@ -85,14 +83,14 @@ class RFNode(TSObject, Generic[T]):
         return action.ref(self.data.title)
 
 
-class TriggerNode(RFNode):
+class TriggerNode(RFNode[TriggerNodeData]):
     """React Flow Graph Trigger Node."""
 
     type: Literal["trigger"] = Field(default="trigger", frozen=True)
     data: TriggerNodeData = Field(default_factory=TriggerNodeData)
 
 
-class UDFNode(RFNode):
+class UDFNode(RFNode[UDFNodeData]):
     """React Flow Graph Trigger Node."""
 
     type: Literal["udf"] = Field(default="udf", frozen=True)
@@ -118,14 +116,15 @@ class RFEdge(TSObject):
 
     label: str | None = Field(default=None, description="Edge label")
 
+    source_handle: EdgeType = Field(
+        default=EdgeType.SUCCESS, description="Edge source handle type"
+    )
+
     @model_validator(mode="before")
-    def generate_id(cls, values):
+    def generate_id(cls, values: dict[str, Any]) -> dict[str, Any]:
         """Generate the ID as a concatenation of source and target with a prefix."""
-        source = values.get("source")
-        target = values.get("target")
-        prefix = "reactflow__edge"
-        if source and target:
-            values["id"] = "-".join((prefix, source, target))
+        if (source := values.get("source")) and (target := values.get("target")):
+            values["id"] = "-".join(("reactflow__edge", source, target))
         return values
 
 
@@ -260,44 +259,12 @@ class RFGraph(TSObject):
         """Return all `udf` (action) type nodes."""
         return [node for node in self.nodes if node.type == "udf"]
 
-    def build_action_statements(self, actions: list[Action]) -> list[ActionStatement]:
-        """Convert DB Actions into ActionStatements using the graph."""
-        ref2action = {action.ref: action for action in actions}
-
-        statements = []
-        for node in self.action_nodes():
-            dependencies = sorted(
-                self.node_map[nid].ref for nid in self.dep_list[node.id]
-            )
-
-            action = ref2action[node.ref]
-            control_flow = ActionControlFlow.model_validate(action.control_flow)
-            action_stmt = ActionStatement(
-                id=action.id,
-                ref=node.ref,
-                action=node.data.type,
-                args=action.inputs,
-                depends_on=dependencies,
-                run_if=control_flow.run_if,
-                for_each=control_flow.for_each,
-                retry_policy=control_flow.retry_policy,
-                start_delay=control_flow.start_delay,
-            )
-            statements.append(action_stmt)
-        return statements
-
     @classmethod
     def from_workflow(cls, workflow: Workflow) -> Self:
         if not workflow.object:
             raise ValueError("Empty response object")
         # This will accept either RFGraph or dict
         return cls.model_validate(workflow.object)
-
-    def topsort_order(self) -> list[str]:
-        from graphlib import TopologicalSorter
-
-        ts = TopologicalSorter(self.dep_list)
-        return list(ts.static_order())
 
     @staticmethod
     def with_defaults(workflow: Workflow) -> RFGraph:

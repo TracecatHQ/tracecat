@@ -13,8 +13,9 @@ from tracecat import validation
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Action, Webhook, Workflow
-from tracecat.dsl.common import DSLInput
-from tracecat.dsl.graph import RFGraph
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
+from tracecat.dsl.models import DSLConfig
+from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
@@ -180,7 +181,12 @@ class WorkflowsManagementService:
             raise TracecatValidationError(
                 "Workflow has no actions. Please add an action to the workflow before committing."
             )
+        logger.warning("Building graph from workflow", workflow=workflow)
         graph = RFGraph.from_workflow(workflow)
+        if not graph.logical_entrypoint:
+            raise TracecatValidationError(
+                "Workflow has no starting action. Please add an action to the workflow before committing."
+            )
         graph_actions = graph.action_nodes()
         if len(graph_actions) != len(actions):
             logger.warning(
@@ -195,22 +201,24 @@ class WorkflowsManagementService:
             await self.session.refresh(workflow)
             # Check again
             actions = workflow.actions
+            if not actions:
+                raise TracecatValidationError(
+                    "Workflow has no actions. Please add an action to the workflow before committing."
+                )
             if len(graph_actions) != len(actions):
                 raise TracecatValidationError(
                     "Couldn't synchronize actions between graph and database."
                 )
-        action_statements = graph.build_action_statements(actions)
+        action_statements = build_action_statements(graph, actions)
         return DSLInput(
             title=workflow.title,
             description=workflow.description,
-            entrypoint={
-                # XXX: Sus
-                "ref": graph.logical_entrypoint.ref,
-                "expects": workflow.expects,
-            },
+            entrypoint=DSLEntrypoint(
+                ref=graph.logical_entrypoint.ref, expects=workflow.expects
+            ),
             actions=action_statements,
             inputs=workflow.static_inputs,
-            config=workflow.config,
+            config=DSLConfig(**workflow.config),
             returns=workflow.returns,
             # triggers=workflow.triggers,
         )

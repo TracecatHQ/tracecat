@@ -12,8 +12,10 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.contexts import RunContext
+from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
-from tracecat.dsl.graph import (
+from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
+from tracecat.dsl.view import (
     RFEdge,
     RFGraph,
     RFNode,
@@ -21,13 +23,13 @@ from tracecat.dsl.graph import (
     UDFNode,
     UDFNodeData,
 )
-from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
+from tracecat.types.api import ActionControlFlow
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatDSLError
 
@@ -97,7 +99,7 @@ class DSLInput(BaseModel):
         for a in self.actions:
             for dep in a.depends_on:
                 try:
-                    src, _ = get_edge_components(dep)
+                    src, _ = edge_components_from_dep(dep)
                 except ValueError:
                     raise TracecatDSLError(
                         f"Invalid depends_on ref: {dep!r} in action {a.ref!r}"
@@ -231,13 +233,17 @@ class ExecuteChildWorkflowArgs(TypedDict):
 AdjDst = tuple[str, EdgeType]
 
 
-def get_edge_components(dep_ref: str) -> AdjDst:
+def edge_components_from_dep(dep_ref: str) -> AdjDst:
     src_ref, *path = dep_ref.split(".", 1)
     if not path or path[0] == EdgeType.SUCCESS:
         return src_ref, EdgeType.SUCCESS
     elif path[0] == EdgeType.ERROR:
         return src_ref, EdgeType.ERROR
     raise ValueError(f"Invalid edge type: {path[0]} in {dep_ref!r}")
+
+
+def dep_from_edge_components(src_ref: str, edge_type: EdgeType) -> str:
+    return f"{src_ref}.{edge_type.value}"
 
 
 @dataclass(frozen=True)
@@ -254,3 +260,43 @@ def context_locator(
     stmt: ActionStatement, loc: str, *, ctx: ExprContext = ExprContext.ACTIONS
 ) -> str:
     return f"{ctx}.{stmt.ref} -> {loc}"
+
+
+def build_action_statements(
+    graph: RFGraph, actions: list[Action]
+) -> list[ActionStatement]:
+    """Convert DB Actions into ActionStatements using the graph."""
+    ref2action = {action.ref: action for action in actions}
+
+    statements = []
+    for node in graph.action_nodes():
+        dependencies: list[str] = []
+        # We are constructing the dependency list from the edge list
+        for dep_node_id in graph.dep_list[node.id]:
+            try:
+                edge = next(edge for edge in graph.edges if edge.target == node.id)
+            except StopIteration:
+                raise ValueError(f"No edge found for target {node.id}") from None
+            base_ref = graph.node_map[dep_node_id].ref
+            if edge.source_handle == EdgeType.ERROR:
+                ref = dep_from_edge_components(base_ref, edge.source_handle)
+            else:
+                ref = base_ref
+            dependencies.append(ref)
+        dependencies = sorted(dependencies)
+
+        action = ref2action[node.ref]
+        control_flow = ActionControlFlow.model_validate(action.control_flow)
+        action_stmt = ActionStatement(
+            id=action.id,
+            ref=node.ref,
+            action=node.data.type,
+            args=action.inputs,
+            depends_on=dependencies,
+            run_if=control_flow.run_if,
+            for_each=control_flow.for_each,
+            retry_policy=control_flow.retry_policy,
+            start_delay=control_flow.start_delay,
+        )
+        statements.append(action_stmt)
+    return statements

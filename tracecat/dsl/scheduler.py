@@ -6,7 +6,7 @@ from typing import Any
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger
-from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, get_edge_components
+from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
 from tracecat.dsl.models import ActionStatement, ArgsT, DSLContext
 from tracecat.expressions.core import TemplateExpression
@@ -36,7 +36,7 @@ class DSLScheduler:
         self.adj: dict[str, set[AdjDst]] = defaultdict(set)
         """Graph connectivity information."""
         self.completed_tasks: set[str] = set()
-        self.edges: dict[DSLEdge, EdgeMarker] = {}
+        self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
         """Marked edges are used to track the state of edges in the graph.
 
         When a task succeeds/fails, we need to update all its outgoing edges.
@@ -258,7 +258,7 @@ class DSLScheduler:
         raise ValueError(f"Unknown join strategy: {join_strategy}")
 
     def _get_edge_components(self, dep_ref: str) -> AdjDst:
-        return get_edge_components(dep_ref)
+        return edge_components_from_dep(dep_ref)
 
     def _mark_edge(self, edge: DSLEdge, marker: EdgeMarker) -> None:
         logger.debug("Marking edge", edge=edge, marker=marker)
