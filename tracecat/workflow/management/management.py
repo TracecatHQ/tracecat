@@ -19,6 +19,7 @@ from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.types.api import ActionControlFlow
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.models import (
@@ -291,6 +292,13 @@ class WorkflowsManagementService:
         # Create and associate Actions with the Workflow
         actions: list[Action] = []
         for act_stmt in dsl.actions:
+            control_flow = ActionControlFlow(
+                run_if=act_stmt.run_if,
+                for_each=act_stmt.for_each,
+                retry_policy=act_stmt.retry_policy,
+                start_delay=act_stmt.start_delay,
+                join_strategy=act_stmt.join_strategy,
+            )
             new_action = Action(
                 owner_id=self.role.workspace_id,
                 workflow_id=workflow.id,
@@ -298,12 +306,7 @@ class WorkflowsManagementService:
                 inputs=act_stmt.args,
                 title=act_stmt.title,
                 description=act_stmt.description,
-                control_flow={
-                    "run_if": act_stmt.run_if,
-                    "for_each": act_stmt.for_each,
-                    "retry_policy": act_stmt.retry_policy.model_dump(),
-                    "start_delay": act_stmt.start_delay,
-                },
+                control_flow=control_flow.model_dump(),
             )
             actions.append(new_action)
             self.session.add(new_action)

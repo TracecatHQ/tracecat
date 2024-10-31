@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
+from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -102,6 +103,13 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
     )
     start_delay: float = Field(
         default=0.0, description="Delay before starting the action in seconds."
+    )
+    join_strategy: JoinStrategy = Field(
+        default=JoinStrategy.ALL,
+        description=(
+            "The strategy to use when joining on this task. "
+            "By default, all branches must complete successfully before the join task can complete."
+        ),
     )
 
     @property

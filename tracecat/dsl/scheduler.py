@@ -221,11 +221,15 @@ class DSLScheduler:
     def _task_reachable(self, task_ref: str) -> bool:
         """Check whether a task is reachable based on its dependencies' states.
 
-        Under JoinStrategy.ANY, a task is considered reachable if:
+        Under JoinStrategy.ANY
+        A task is considered reachable if:
         - Any of its dependencies completed successfully
 
-        Under JoinStrategy.ALL, a task is considered reachable if:
+        Under JoinStrategy.ALL
+        A task is considered reachable if:
         - All of its dependencies completed successfully
+
+
 
         Args:
             task_ref (str): The reference of the task to check
@@ -239,7 +243,6 @@ class DSLScheduler:
         if not task.depends_on:
             # Covers any root nodes
             return True
-        join_strategy = JoinStrategy.ANY
 
         # Logically, this function should check that there was at least
         # one successful path (edge) taken to the task.
@@ -251,11 +254,13 @@ class DSLScheduler:
 
         outcomes = {parent: edge_visited(parent) for parent in task.depends_on}
         logger.debug("Check outcomes", outcomes=outcomes, edges=self.edges)
-        if join_strategy == JoinStrategy.ANY:
-            return any(outcomes.values())
-        elif join_strategy == JoinStrategy.ALL:
-            return all(outcomes.values())
-        raise ValueError(f"Unknown join strategy: {join_strategy}")
+        match task.join_strategy:
+            case JoinStrategy.ANY:
+                return any(outcomes.values())
+            case JoinStrategy.ALL:
+                return all(outcomes.values())
+            case _:
+                raise ValueError(f"Unknown join strategy: {task.join_strategy}")
 
     def _get_edge_components(self, dep_ref: str) -> AdjDst:
         return edge_components_from_dep(dep_ref)
@@ -265,6 +270,13 @@ class DSLScheduler:
         self.edges[edge] = marker
 
     def _should_skip_task(self, task: ActionStatement[ArgsT]) -> bool:
+        # If a task has join_strategy=ANY:
+        # - Reachable if any of its incoming edges are reachable
+        # - Skipped if all of its incoming edges are skipped
+        #
+        # If a task has join_strategy=ALL:
+        # - Reachable ONLY if all of its incoming edges are reachable
+        # - Skipped if any of its incoming edges are skipped
         if not self._task_reachable(task.ref):
             self.logger.info("Task is unreachable, skipped")
             return True

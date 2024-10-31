@@ -120,13 +120,6 @@ class RFEdge(TSObject):
         default=EdgeType.SUCCESS, description="Edge source handle type"
     )
 
-    @model_validator(mode="before")
-    def generate_id(cls, values: dict[str, Any]) -> dict[str, Any]:
-        """Generate the ID as a concatenation of source and target with a prefix."""
-        if (source := values.get("source")) and (target := values.get("target")):
-            values["id"] = "-".join(("reactflow__edge", source, target))
-        return values
-
 
 class RFGraph(TSObject):
     """React Flow Graph Object.
