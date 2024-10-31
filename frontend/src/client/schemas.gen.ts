@@ -45,6 +45,14 @@ export const $ActionControlFlow = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            default: 'all'
         }
     },
     type: 'object',
@@ -232,6 +240,15 @@ export const $ActionStatement_Input = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
+            default: 'all'
         }
     },
     type: 'object',
@@ -314,6 +331,15 @@ export const $ActionStatement_Output = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
+            default: 'all'
         }
     },
     type: 'object',
@@ -395,6 +421,15 @@ export const $ActionStatement_Any_ = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
+            default: 'all'
         }
     },
     type: 'object',
@@ -1084,11 +1119,20 @@ export const $EventGroup = {
         },
         start_delay: {
             type: 'number',
-            title: 'Start Delay'
+            title: 'Start Delay',
+            default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            default: 'all'
         }
     },
     type: 'object',
-    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input', 'retry_policy', 'start_delay'],
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input'],
     title: 'EventGroup'
 } as const;
 
@@ -1244,6 +1288,12 @@ export const $HTTPValidationError = {
     },
     type: 'object',
     title: 'HTTPValidationError'
+} as const;
+
+export const $JoinStrategy = {
+    type: 'string',
+    enum: ['any', 'all'],
+    title: 'JoinStrategy'
 } as const;
 
 export const $OAuth2AuthorizeResponse = {
