@@ -6,6 +6,7 @@ import React, { useCallback, useState } from "react"
 import {
   ActionControlFlow,
   ApiError,
+  JoinStrategy,
   registryActionsValidateRegistryAction,
   RegistryActionValidateResponse,
   UpdateActionParams,
@@ -89,6 +90,10 @@ type ActionFormSchema = {
     options?: string
   }
 }
+type ControlFlowOptions = {
+  start_delay?: number
+  join_strategy?: JoinStrategy
+}
 
 export function UDFActionPanel({
   node,
@@ -149,7 +154,7 @@ export function UDFActionPanel({
           description: "Please see the error window for more details",
         })
       }
-      const options: { start_delay?: number } | undefined = control_flow.options
+      const options: ControlFlowOptions | undefined = control_flow.options
         ? YAML.parse(control_flow.options)
         : undefined
       const actionControlFlow = {
@@ -162,7 +167,7 @@ export function UDFActionPanel({
         retry_policy: control_flow?.retry_policy
           ? YAML.parse(control_flow.retry_policy)
           : undefined,
-        start_delay: options?.start_delay,
+        ...options,
       } as ActionControlFlow
       try {
         const validateResponse = await registryActionsValidateRegistryAction({
