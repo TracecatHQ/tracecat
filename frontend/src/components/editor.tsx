@@ -3,15 +3,19 @@ import {
   Editor as ReactMonacoEditor,
   type Monaco,
 } from "@monaco-editor/react"
-import { editor } from "monaco-editor"
+import { editor, KeyCode, KeyMod } from "monaco-editor"
 
 import { cn } from "@/lib/utils"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
 export function CustomEditor({
   className,
+  onKeyDown,
   ...props
-}: EditorProps & { className?: string }) {
+}: EditorProps & {
+  className?: string
+  onKeyDown?: () => void
+}) {
   const handleEditorDidMount = (
     editor: editor.IStandaloneCodeEditor,
     monaco: Monaco
@@ -42,6 +46,20 @@ export function CustomEditor({
       },
     })
     monaco.editor.setTheme("myCustomTheme")
+    editor.addAction({
+      id: "cmdEnterAction",
+      label: "Save Editor",
+      keybindings: [KeyMod.CtrlCmd | KeyCode.Enter],
+      contextMenuGroupId: "2_execution",
+      precondition:
+        "editorTextFocus && !suggestWidgetVisible && !renameInputVisible && !inSnippetMode " +
+        "&& !quickFixWidgetVisible",
+      run: () => {
+        if (onKeyDown) {
+          onKeyDown()
+        }
+      },
+    })
   }
   return (
     <div className={cn("h-36", className)}>
