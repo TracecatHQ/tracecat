@@ -271,18 +271,16 @@ def build_action_statements(
     statements = []
     for node in graph.action_nodes():
         dependencies: list[str] = []
-        # We are constructing the dependency list from the edge list
         for dep_node_id in graph.dep_list[node.id]:
-            try:
-                edge = next(edge for edge in graph.edges if edge.target == node.id)
-            except StopIteration:
-                raise ValueError(f"No edge found for target {node.id}") from None
             base_ref = graph.node_map[dep_node_id].ref
-            if edge.source_handle == EdgeType.ERROR:
-                ref = dep_from_edge_components(base_ref, edge.source_handle)
-            else:
-                ref = base_ref
-            dependencies.append(ref)
+            for edge in graph.edges:
+                if edge.source != dep_node_id or edge.target != node.id:
+                    continue
+                if edge.source_handle == EdgeType.ERROR:
+                    ref = dep_from_edge_components(base_ref, edge.source_handle)
+                else:
+                    ref = base_ref
+                dependencies.append(ref)
         dependencies = sorted(dependencies)
 
         action = ref2action[node.ref]
