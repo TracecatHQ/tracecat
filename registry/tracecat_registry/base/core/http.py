@@ -50,6 +50,7 @@ async def get_oauth2_token(
     payload: dict[str, Any] | None = None,
 ):
     payload = payload or {}
+    headers = headers or {}
     async with AsyncOAuth2Client(
         client_id=client_id, client_secret=client_secret, scope=scope
     ) as client:
@@ -171,7 +172,17 @@ async def http_request(
         ),
     ] = True,
 ) -> HTTPResponse:
+    """Perform a HTTP request to a given URL."""
+
     access_token = None
+    headers = headers or {}
+    payload = payload or {}
+    params = params or {}
+    form_data = form_data or {}
+    jwt_payload = jwt_payload or {}
+    oauth2_payload = oauth2_payload or {}
+    token_request_headers = token_request_headers or {}
+
     if jwt_url is not None:
         access_token = get_jwt_token(
             url=jwt_url,
