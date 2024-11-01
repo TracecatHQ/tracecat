@@ -2011,7 +2011,7 @@ def _get_test_id(test_case):
     ids=_get_test_id,
 )
 @pytest.mark.asyncio
-async def test_workflow_error(
+async def test_workflow_error_path(
     temporal_cluster, test_role, runtime_config, base_registry, dsl_data, expected
 ):
     dsl = DSLInput(**dsl_data)
@@ -2047,3 +2047,85 @@ async def test_workflow_error(
             ),
         )
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_workflow_join_unreachable(
+    temporal_cluster, test_role, runtime_config, base_registry
+):
+    """Test join strategy behavior with unreachable nodes.
+
+    Args:
+        dsl_data: The workflow DSL configuration to test
+        should_throw: Whether the workflow should raise an error
+
+    The test verifies:
+    1. Workflows with satisfied dependencies execute successfully
+    2. Workflows with unsatisfied required dependencies fail appropriately
+    """
+    from temporalio.exceptions import TemporalError
+
+    dsl_data = {
+        "title": "join_all_throws",
+        "description": "Test that workflow fails when required dependency is skipped",
+        "entrypoint": {"expects": {}, "ref": "start"},
+        "actions": [
+            {
+                "ref": "start",
+                "action": "core.transform.reshape",
+                "args": {"value": "START"},
+            },
+            {
+                "ref": "left",
+                "action": "core.transform.reshape",
+                "args": {"value": "LEFT"},
+                "depends_on": ["start"],
+            },
+            {
+                "ref": "right",
+                "action": "core.transform.reshape",
+                "args": {"value": "RIGHT"},
+                "depends_on": ["start"],
+                "run_if": "${{ False }}",  # This causes the error
+            },
+            {
+                "ref": "join",
+                "action": "core.transform.reshape",
+                "args": {"value": "JOIN"},
+                "depends_on": ["left", "right"],
+                "join_strategy": "all",  # Fails because 'right' is skipped
+            },
+        ],
+    }
+    dsl = DSLInput(**dsl_data)
+    test_name = f"test_workflow_join_unreachable-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    client = await get_temporal_client()
+
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        with pytest.raises(TemporalError):
+            await client.execute_workflow(
+                DSLWorkflow.run,
+                DSLRunArgs(
+                    dsl=dsl,
+                    role=test_role,
+                    wf_id=TEST_WF_ID,
+                    runtime_config=runtime_config,
+                ),
+                id=wf_exec_id,
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                run_timeout=timedelta(seconds=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                    non_retryable_error_types=[
+                        "tracecat.types.exceptions.TracecatExpressionError",
+                        "TracecatValidationError",
+                    ],
+                ),
+            )
