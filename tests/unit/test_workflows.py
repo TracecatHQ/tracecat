@@ -1887,6 +1887,7 @@ def _get_test_id(test_case):
                         "action": "core.transform.reshape",
                         "args": {"value": "JOIN"},
                         "depends_on": ["start", "start.error"],
+                        "join_strategy": "any",
                     },
                 ],
                 "inputs": {},
@@ -1934,6 +1935,7 @@ def _get_test_id(test_case):
                             "right",  # RUNS
                             "right.error",  # SKIPS
                         ],
+                        "join_strategy": "any",
                     },
                 ],
                 "inputs": {},
@@ -1985,6 +1987,7 @@ def _get_test_id(test_case):
                             "right",  # RUNS
                             "right.error",  # SKIPS: Absorbs the error path
                         ],
+                        "join_strategy": "any",
                     },
                 ],
                 "inputs": {},
