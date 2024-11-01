@@ -11,6 +11,7 @@ from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
 from tracecat.dsl.models import ActionStatement, ArgsT, DSLContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
+from tracecat.types.exceptions import TaskUnreachable
 
 
 class DSLScheduler:
@@ -54,7 +55,6 @@ class DSLScheduler:
 
         self.executor = executor
         self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
-        self.logger.warning("Context obj", id_=id(self.context))
 
         for task in dsl.actions:
             self.tasks[task.ref] = task
@@ -162,8 +162,25 @@ class DSLScheduler:
         """Schedule a task for execution."""
         task = self.tasks[ref]
         try:
-            if self._should_skip_task(task):
+            # 1) Skip propagation (force-skip) takes highest precedence over reachability
+            if self._skip_should_propagate(task):
+                self.logger.info("Task should be force-skipped, propagating", ref=ref)
                 return await self._handle_skip_path(ref)
+
+            # 2) Then we check if the task is reachable - i.e. do we have
+            # enough successful paths to reach this task?
+            if not self._is_reachable(task):
+                self.logger.info("Task cannot proceed, unreachable", ref=ref)
+                raise TaskUnreachable(f"Task {ref!r} is unreachable")
+
+            # 3) At this point the task is reachable and not force-skipped.
+            # Check if the task should self-skip based on its `run_if` condition
+            if self._task_should_skip(task):
+                self.logger.info("Task should self-skip", ref=ref)
+                return await self._handle_skip_path(ref)
+
+            # 4) If we made it here, the task is reachable and not force-skipped.
+            # Time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
@@ -178,6 +195,7 @@ class DSLScheduler:
         else:
             await self._handle_success_path(ref)
         finally:
+            # 5) Regardless of the outcome, the task is now complete
             self.logger.info("Task completed", ref=ref)
             self.completed_tasks.add(ref)
 
@@ -218,68 +236,97 @@ class DSLScheduler:
             tasks=self.tasks,
         )
 
-    def _task_reachable(self, task_ref: str) -> bool:
-        """Check whether a task is reachable based on its dependencies' states.
-
-        Under JoinStrategy.ANY
-        A task is considered reachable if:
-        - Any of its dependencies completed successfully
-
-        Under JoinStrategy.ALL
-        A task is considered reachable if:
-        - All of its dependencies completed successfully
-
-
+    def _is_reachable(self, task: ActionStatement[ArgsT]) -> bool:
+        """Check whether a task is reachable based on its dependencies' outcomes.
 
         Args:
             task_ref (str): The reference of the task to check
 
         Returns:
             bool: True if the task is reachable, False otherwise
+
+        Raises:
+            ValueError: If the join strategy is invalid
         """
 
-        task = self.tasks[task_ref]
         logger.debug("Check task reachability", task=task, marked_edges=self.edges)
-        if not task.depends_on:
-            # Covers any root nodes
+        n_deps = len(task.depends_on)
+        if n_deps == 0:
+            # Root nodes are always reachable
             return True
+        elif n_deps == 1:
+            logger.warning("Task has only 1 dependency", task=task)
+            # If there's only 1 dependency, the node is reachable only if the
+            # dependency was successful ignoring the join strategy.
+            dep_ref = task.depends_on[0]
+            return self._edge_has_marker(dep_ref, task.ref, EdgeMarker.VISITED)
+        else:
+            # If there's more than 1 dependency, the node is reachable depending
+            # on the join strategy
+            n_success_paths = sum(
+                self._edge_has_marker(dep_ref, task.ref, EdgeMarker.VISITED)
+                for dep_ref in task.depends_on
+            )
+            if task.join_strategy == JoinStrategy.ANY:
+                return n_success_paths > 0
+            if task.join_strategy == JoinStrategy.ALL:
+                return n_success_paths == n_deps
+            raise ValueError(f"Invalid join strategy: {task.join_strategy}")
 
-        # Logically, this function should check that there was at least
-        # one successful path (edge) taken to the task.
-        def edge_visited(dep_ref: str) -> bool:
-            # dep_ref might have a path, so we need to check for that
-            src_ref, edge_type = self._get_edge_components(dep_ref)
-            edge = DSLEdge(src=src_ref, dst=task_ref, type=edge_type)
-            return self.edges[edge] == EdgeMarker.VISITED
+    def _edge_has_marker(
+        self, src_ref_path: str, dst_ref: str, marker: EdgeMarker
+    ) -> bool:
+        edge = self._get_edge_by_refs(src_ref_path, dst_ref)
+        return self.edges[edge] == marker
 
-        outcomes = {parent: edge_visited(parent) for parent in task.depends_on}
-        logger.debug("Check outcomes", outcomes=outcomes, edges=self.edges)
-        match task.join_strategy:
-            case JoinStrategy.ANY:
-                return any(outcomes.values())
-            case JoinStrategy.ALL:
-                return all(outcomes.values())
-            case _:
-                raise ValueError(f"Unknown join strategy: {task.join_strategy}")
+    def _get_edge_components(self, ref_path: str) -> AdjDst:
+        return edge_components_from_dep(ref_path)
 
-    def _get_edge_components(self, dep_ref: str) -> AdjDst:
-        return edge_components_from_dep(dep_ref)
+    def _get_edge_by_refs(self, src_ref_path: str, dst_ref: str) -> DSLEdge:
+        """Get an edge by its source and destination references.
+
+        Args:
+            src_ref_path: The source reference path
+            dst_ref: The destination reference
+
+        Returns:
+            The edge
+        """
+        base_src_ref, edge_type = self._get_edge_components(src_ref_path)
+        return DSLEdge(src=base_src_ref, dst=dst_ref, type=edge_type)
 
     def _mark_edge(self, edge: DSLEdge, marker: EdgeMarker) -> None:
         logger.debug("Marking edge", edge=edge, marker=marker)
         self.edges[edge] = marker
 
-    def _should_skip_task(self, task: ActionStatement[ArgsT]) -> bool:
-        # If a task has join_strategy=ANY:
-        # - Reachable if any of its incoming edges are reachable
-        # - Skipped if all of its incoming edges are skipped
-        #
-        # If a task has join_strategy=ALL:
-        # - Reachable ONLY if all of its incoming edges are reachable
-        # - Skipped if any of its incoming edges are skipped
-        if not self._task_reachable(task.ref):
-            self.logger.info("Task is unreachable, skipped")
-            return True
+    def _skip_should_propagate(self, task: ActionStatement[ArgsT]) -> bool:
+        """Check if a task's skip should propagate to its dependents.
+
+        Args:
+            task: The task to check
+
+        Returns:
+            bool: True if the task's skip should propagate, False otherwise
+        """
+        # If all of a task's dependencies are skipped, then the task should be skipped
+        # regardless of its `run_if` condition.
+        deps = task.depends_on
+        if not deps:
+            return False
+        return all(
+            self._edge_has_marker(dep_ref, task.ref, EdgeMarker.SKIPPED)
+            for dep_ref in deps
+        )
+
+    def _task_should_skip(self, task: ActionStatement[ArgsT]) -> bool:
+        """Check if a task should be skipped based on its `run_if` condition.
+
+        Args:
+            task: The task to check
+
+        Returns:
+            bool: True if the task should be skipped, False otherwise
+        """
         # Evaluate the `run_if` condition
         if task.run_if is not None:
             expr = TemplateExpression(task.run_if, operand=self.context)
