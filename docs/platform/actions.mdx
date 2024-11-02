@@ -1,0 +1,35 @@
+---
+title: Actions
+description: Building blocks for automations
+---
+
+Actions are steps in your workflows.
+
+<Tip>
+    Check out the [Actions Registry tutorial](/tutorials/actions-registry) for a hands-on guide on actions.
+</Tip>
+
+## Action Types
+
+There are two types of actions:
+
+- **User-Defined Function (UDF)**: A Python function turned into a referencable action.
+- **Action Template**: A YAML template of referencable actions (UDFs and other action templates) that can be used to create new actions.
+
+## Action Templates
+
+<Tip>
+    We recommend using Action Templates whenever possible.
+    Action templates are easier to maintain and update across workflows compared to UDFs.
+    Templates, unlike UDFs, can be cloned and editted directly in the UI.
+</Tip>
+
+Action templates are YAML configuration-as-code templates similar to GitHub Actions workflows.
+
+You can find examples of action templates in the [Tracecat GitHub repo](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
+
+## User-Defined Functions
+
+User-defined functions (UDFs) are Python functions that can be referenced in expressions.
+
+Tracecat comes with six core UDF-based actions:

@@ -38,6 +38,10 @@
   },
   "tabs": [
     {
+      "name": "Cheatsheets",
+      "url": "cheatsheets"
+    },
+    {
       "name": "API Reference",
       "url": "api-reference"
     }
@@ -64,17 +68,18 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "quickstart"
-      ]
-    },
-    {
-      "group": "Tutorials",
-      "pages": [
-        "tutorials/control-flow",
-        "tutorials/actions-registry",
-        "tutorials/custom-integrations",
-        "tutorials/triggers",
-        "tutorials/updating"
+        "quickstart",
+        {
+          "group": "Tutorials",
+          "pages": [
+            "tutorials/control-flow",
+            "tutorials/actions-registry",
+            "tutorials/triggers",
+            "tutorials/child-workflows",
+            "tutorials/custom-integrations",
+            "tutorials/updating"
+          ]
+        }
       ]
     },
     {
@@ -99,12 +104,26 @@
       ]
     },
     {
-      "group": "Platform",
+      "group": "Core Features",
       "pages": [
-        "platform/workflows",
         "platform/actions",
+        {
+          "group": "Core Actions",
+          "pages": [
+            "platform/action-types/trigger",
+            "platform/action-types/http",
+            "platform/action-types/reshape"
+          ]
+        },
         "platform/secrets",
         "platform/expressions"
+      ]
+    },
+    {
+      "group": "Cheatsheets",
+      "pages": [
+        "cheatsheets/functions",
+        "cheatsheets/expressions"
       ]
     },
     {

@@ -18,7 +18,10 @@ description: Introduction to the Tracecat security automation platform.
     Self-host Tracecat on your own infrastructure (Docker Compose, AWS, Kubernetes).
   </Card>
   <Card title="15-Minute Quickstart" icon="rocket" href="/installation/introduction">
-    Learn the basics of Tracecat by building the classic VirusTotal enrichment playbook.
+    Learn the basics of Tracecat by building a VirusTotal enrichment playbook.
+  </Card>
+  <Card title="Integrations" icon="diagram-project" href="/cheatsheets/integrations">
+    Pre-built integrations and their required secrets.
   </Card>
 </CardGroup>
 
@@ -34,11 +37,14 @@ Self-guided tutorials to go from zero-to-hero in Tracecat.
   <Card title="Actions Registry" icon="shapes" href="/tutorials/actions-registry">
     Learn how to use pre-built integrations in your workflows.
   </Card>
-  <Card title="Custom Integrations" icon="file-code" href="/tutorials/custom-integrations">
-    Learn how to add and maintain custom integrations in the Actions Registry.
-  </Card>
   <Card title="Triggers" icon="circle-play" href="/tutorials/triggers">
     Learn how to trigger workflows via webhooks or schedules.
+  </Card>
+  <Card title="Child Workflows" icon="file-code" href="/tutorials/child-workflows">
+    Learn how to combine smaller workflows into a single workflow.
+  </Card>
+  <Card title="Custom Integrations" icon="file-code" href="/tutorials/custom-integrations">
+    Learn how to add and maintain custom integrations in the Actions Registry.
   </Card>
   <Card title="Updating" icon="spinner" href="/tutorials/updating">
     Learn how to update Tracecat to the latest version.
@@ -50,19 +56,16 @@ Self-guided tutorials to go from zero-to-hero in Tracecat.
 Check out the following docs for more details on Tracecat's core features.
 
 <CardGroup cols={2}>
-  <Card title="Workflows" icon="diagram-project" href="/platform/workflows">
-    Automated event-driven workflows
-  </Card>
   <Card title="Actions" icon="square-plus" href="/platform/actions">
-    Core building blocks for automations
+    Building blocks for automations and integrations.
   </Card>
   <Card title="Secrets" icon="key" href="/platform/secrets">
-    Store and reference sensitive data
+    Store and retrieve sensitive data.
   </Card>
   <Card title="Expressions" icon="brackets-curly" href="/platform/expressions">
-    Reference data and variables in your workflows
+    Reference action results and workflow metadata.
   </Card>
-  <Card title="Functions" icon="percent" href="/platform/functions">
-    Powerful utility functions for you actions
+  <Card title="Functions" icon="percent" href="/cheatsheets/functions">
+    Powerful utility functions for automations.
   </Card>
 </CardGroup>

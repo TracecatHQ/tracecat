@@ -65,30 +65,20 @@ By the end of this tutorial, you will learn:
 
         You'll get the same result as the previous tutorial but with one less action cluttering up the UI.
     </Step>
-    <Step title="Chain actions together in a template">
-        Let's use our new found knowledge of the Actions Registry to combine the `Get URL stats from VirusTotal` action and the `List VirusTotal comments on URL` action into a single Action Template.
-
-        Tracecat's Action Registry makes it easy to update actions with new functionality without pivoting across workflows.
-
-        ![Combine report and comments](/img/tutorials/actions-registry/combine-report-and-comments.png)
-
-        Copy the following configuration into the YAML editor:
-
-        ```yaml
-        name: Get URL stats and comments from VirusTotal
-        namespace: tracecat
-        ```
-    </Step>
-    <Step title="Run the workflow">
-        Click on the **Run** button to execute the workflow.
-
-        ![Run workflow](/img/tutorials/actions-registry/run-combined-action-workflow.png)
-    </Step>
     <Step title="Congrats!">
         You've successfully created a new **Action Template** to consolidate your workflow logic!
         Action templates should be used to create more powerful reusable integrations across workflows.
     </Step>
 </Steps>
+
+## Best Practices
+
+- **Action Templates** should contain logic for only one tool (e.g. VirusTotal).
+- **Action Templates** should be simple and contain at most 2 actions or API calls.
+- **Action Templates** should be reusable across workflows (e.g. Tag Slack user by email).
+- **Action Templates** are most effective when used to normalize input and output data between tools.
+- **Action Templates** are not mini-workflows.
+
 
 ## Next Steps
 
