@@ -10,8 +10,9 @@ import {
   LayoutListIcon,
   ScanSearchIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position, useNodeId } from "reactflow"
+import { Node, NodeProps, Position, useEdges } from "reactflow"
 
+import { usePanelAction } from "@/lib/hooks"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -52,11 +53,13 @@ export default React.memo(function UDFNode({
   selected,
   sourcePosition,
   targetPosition,
+  id,
 }: NodeProps<UDFNodeData>) {
-  const id = useNodeId()
-  const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
+  const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
+  // SAFETY: Node only exists if it's in the workflow
+  const { action } = usePanelAction(id, workspaceId, workflowId!)
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)
@@ -91,6 +94,10 @@ export default React.memo(function UDFNode({
       })
     }
   }, [id, toast])
+
+  // Add this to track incoming edges
+  const edges = useEdges()
+  const incomingEdges = edges.filter((edge) => edge.target === id)
 
   return (
     <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
@@ -158,6 +165,8 @@ export default React.memo(function UDFNode({
       <CustomFloatingHandle
         type="target"
         position={targetPosition ?? Position.Top}
+        join_strategy={action?.control_flow?.join_strategy}
+        indegree={incomingEdges.length}
       />
       <SuccessHandle type="source" />
       <ErrorHandle type="source" />
