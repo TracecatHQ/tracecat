@@ -1,29 +1,26 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user_for_workspace
-from tracecat.db.engine import get_async_session
+from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Action
-from tracecat.types.api import (
+from tracecat.workflow.actions.models import (
+    ActionControlFlow,
     ActionMetadataResponse,
     ActionResponse,
     CreateActionParams,
     UpdateActionParams,
 )
-from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/actions")
 
 
 @router.get("", tags=["actions"])
 async def list_actions(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     workflow_id: str,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> list[ActionMetadataResponse]:
     """List all actions for a workflow."""
     statement = select(Action).where(
@@ -49,9 +46,9 @@ async def list_actions(
 
 @router.post("", tags=["actions"])
 async def create_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     params: CreateActionParams,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> ActionMetadataResponse:
     """Create a new action for a workflow."""
     action = Action(
@@ -92,10 +89,10 @@ async def create_action(
 
 @router.get("/{action_id}", tags=["actions"])
 async def get_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     action_id: str,
     workflow_id: str,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> ActionResponse:
     """Get an action."""
     statement = select(Action).where(
@@ -119,16 +116,16 @@ async def get_action(
         status=action.status,
         inputs=action.inputs,
         key=action.key,
-        control_flow=action.control_flow,
+        control_flow=ActionControlFlow(**action.control_flow),
     )
 
 
 @router.post("/{action_id}", tags=["actions"])
 async def update_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     action_id: str,
     params: UpdateActionParams,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> ActionResponse:
     """Update an action."""
     # Fetch the action by id
@@ -172,9 +169,9 @@ async def update_action(
 
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"])
 async def delete_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     action_id: str,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> None:
     """Delete an action."""
     statement = select(Action).where(

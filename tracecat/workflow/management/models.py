@@ -12,11 +12,9 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import (
-    ActionResponse,
-    WebhookResponse,
-)
+from tracecat.types.api import WebhookResponse
 from tracecat.types.auth import Role
+from tracecat.workflow.actions.models import ActionResponse
 
 
 class CreateWorkflowFromDSLResponse(BaseModel):

@@ -19,9 +19,9 @@ from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import ActionControlFlow
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
     CreateWorkflowFromDSLResponse,
     CreateWorkflowParams,
