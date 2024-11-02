@@ -30,12 +30,11 @@ async def get_jwt_token(
         try:
             response = await client.get(url, json=json, headers=headers)
             response.raise_for_status()
-            token = response.json()[token_response_key]
-        except KeyError:
-            msg = f"Tried to get JWT token. `{token_response_key}` key not found in response JSON."
-            return HTTPResponse(
-                status_code=500, headers=dict(response.headers.items()), data=msg
-            )
+            obj = response.json()
+            token = obj[token_response_key]
+        except KeyError as err:
+            msg = f"Tried to get JWT token. `{token_response_key}` key not found in response JSON with fields {obj.keys()}"
+            raise KeyError(msg) from err
     return token
 
 
@@ -62,9 +61,9 @@ async def get_oauth2_token(
         )
         try:
             token = token[token_response_key]
-        except KeyError:
-            msg = f"Tried to get OAuth2 token. `{token_response_key}` key not found in response JSON."
-            return HTTPResponse(status_code=500, headers={}, data=msg)
+        except KeyError as err:
+            msg = f"Tried to get OAuth2 token. `{token_response_key}` key not found in response JSON with fields {token.keys()}"
+            raise KeyError(msg) from err
     return token
 
 
