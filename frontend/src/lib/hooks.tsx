@@ -92,7 +92,7 @@ export type PanelAction = {
     workflow: [string, string]
   }
 }
-export function usePanelAction(
+export function useAction(
   actionId: string,
   workspaceId: string,
   workflowId: string

@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { Node, NodeProps, Position, useEdges } from "reactflow"
 
-import { usePanelAction } from "@/lib/hooks"
+import { useAction } from "@/lib/hooks"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,7 +59,7 @@ export default React.memo(function UDFNode({
   const { toast } = useToast()
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   // SAFETY: Node only exists if it's in the workflow
-  const { action } = usePanelAction(id, workspaceId, workflowId!)
+  const { action } = useAction(id, workspaceId, workflowId!)
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)

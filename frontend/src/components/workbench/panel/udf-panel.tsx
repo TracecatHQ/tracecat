@@ -25,7 +25,7 @@ import { Controller, FormProvider, useForm } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
-import { usePanelAction, useWorkbenchRegistryActions } from "@/lib/hooks"
+import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
 import { itemOrEmptyString } from "@/lib/utils"
 import {
   Accordion,
@@ -103,7 +103,7 @@ export function UDFActionPanel({
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
-  const { action, actionIsLoading, updateAction } = usePanelAction(
+  const { action, actionIsLoading, updateAction } = useAction(
     node.id,
     workspaceId,
     workflowId
