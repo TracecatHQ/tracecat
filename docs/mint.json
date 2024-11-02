@@ -68,15 +68,15 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "quickstart",
+        "tutorials/quickstart",
         {
           "group": "Tutorials",
           "pages": [
-            "tutorials/control-flow",
-            "tutorials/actions-registry",
-            "tutorials/triggers",
-            "tutorials/child-workflows",
-            "tutorials/custom-integrations",
+            "tutorials/2-control-flow",
+            "tutorials/3-actions-registry",
+            "tutorials/4-child-workflows",
+            "tutorials/5-triggers",
+            "tutorials/6-custom-integrations",
             "tutorials/updating"
           ]
         }
