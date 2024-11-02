@@ -68,7 +68,7 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "tutorials/quickstart",
+        "tutorials/1-quickstart",
         {
           "group": "Tutorials",
           "pages": [
