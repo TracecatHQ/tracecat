@@ -485,7 +485,6 @@ export function UDFActionPanel({
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
-                        onKeyDown={handleKeyDownEditor}
                       />
                     )}
                   />
@@ -542,7 +541,6 @@ export function UDFActionPanel({
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
-                        onKeyDown={handleKeyDownEditor}
                       />
                     )}
                   />
@@ -581,7 +579,6 @@ export function UDFActionPanel({
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
-                        onKeyDown={handleKeyDownEditor}
                       />
                     )}
                   />
@@ -618,7 +615,6 @@ export function UDFActionPanel({
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
-                        onKeyDown={handleKeyDownEditor}
                       />
                     )}
                   />
@@ -655,7 +651,6 @@ export function UDFActionPanel({
                         defaultLanguage="yaml"
                         value={field.value}
                         onChange={field.onChange}
-                        onKeyDown={handleKeyDownEditor}
                       />
                     )}
                   />
