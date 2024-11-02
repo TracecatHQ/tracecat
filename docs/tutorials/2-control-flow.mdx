@@ -1,6 +1,6 @@
 ---
 title: Control Flow
-description: Learn how to use if-conditions and loops in your workflows.
+description: Learn how to use if-conditions in your workflows.
 ---
 
 ## Goals
@@ -10,7 +10,6 @@ By the end of this tutorial, you will learn how to:
 - Reference data from previous actions
 - Use the **Reshape** action to organize data
 - Use if-conditions to control the flow of your workflow
-- Use loop iteration to iterate over a list of items from a previous action
 
 ## Prerequisites
 
@@ -56,7 +55,8 @@ By the end of this tutorial, you will learn how to:
         ![Add list comments action](/img/tutorials/control-flow/list-vt-comments.png)
     </Step>
     <Step title="Define an if-condition on list comments">
-        Let's add a condition to only list comments if the URL has been flagged as malicious more than 10 times.
+        As an analyst, you might want to view comments from the VirusTotal community on a potentially malicious URL.
+        To reduce noise, let's list these comments only if the URL has been flagged as malicious more than 10 times.
 
         You can do this by adding a **Run If** condition to the **List VirusTotal comments on URL** action:
 
@@ -65,10 +65,6 @@ By the end of this tutorial, you will learn how to:
         ```
 
         ![List comments](/img/tutorials/control-flow/list-vt-comments-run-if.png)
-    </Step>
-    <Step title="Add a loop to iterate over the comments">
-        Maybe we want to create a list of comments prefixed by the submitter's name,
-        we can do this by adding a **Reshape** action and using a loop to iterate over the comments.
     </Step>
     <Step title="Done!">
         🎉 You've completed the tutorial on control flow in Tracecat!
