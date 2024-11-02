@@ -2,8 +2,8 @@ import pytest
 from pydantic import BaseModel
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
-from tracecat.dsl.graph import RFGraph, TriggerNode
 from tracecat.dsl.models import ActionStatement
+from tracecat.dsl.view import RFGraph, TriggerNode
 
 
 @pytest.fixture(scope="session")

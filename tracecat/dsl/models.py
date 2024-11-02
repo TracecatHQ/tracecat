@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel, Field
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.auth import Role
@@ -15,9 +18,31 @@ SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
 
 
-class DSLNodeResult(TypedDict):
+class DSLNodeResult(TypedDict, total=False):
+    """Result of executing a DSL node."""
+
     result: Any
     result_typename: str
+    error: Any | None
+    error_typename: str | None
+
+
+@dataclass(frozen=True)
+class DSLTaskErrorInfo:
+    ref: str
+    """The task reference."""
+
+    message: str
+    """The error message."""
+
+    type: str
+    """The error type."""
+
+    expr_context: ExprContext = ExprContext.ACTIONS
+    """The expression context where the error occurred."""
+
+    attempt: int = 1
+    """The attempt number."""
 
 
 ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
@@ -78,6 +103,13 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
     )
     start_delay: float = Field(
         default=0.0, description="Delay before starting the action in seconds."
+    )
+    join_strategy: JoinStrategy = Field(
+        default=JoinStrategy.ALL,
+        description=(
+            "The strategy to use when joining on this task. "
+            "By default, all branches must complete successfully before the join task can complete."
+        ),
     )
 
     @property
@@ -163,3 +195,27 @@ class RunActionInput(BaseModel, Generic[ArgsT]):
     role: Role
     exec_context: DSLContext
     run_context: RunContext
+
+
+class DSLExecutionError(TypedDict, total=False):
+    """A proxy for an exception.
+
+    This is the object that gets returned in place of an exception returned when
+    using `asyncio.gather(..., return_exceptions=True)`, as Exception types aren't serializable."""
+
+    is_error: bool
+    """A flag to indicate that this object is an error."""
+
+    type: str
+    """The type of the exception. e.g. `ValueError`"""
+
+    message: str
+    """The message of the exception."""
+
+    @staticmethod
+    def from_exception(e: BaseException) -> DSLExecutionError:
+        return DSLExecutionError(
+            is_error=True,
+            type=e.__class__.__name__,
+            message=str(e),
+        )

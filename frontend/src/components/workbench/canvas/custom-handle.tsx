@@ -12,6 +12,12 @@ import {
 } from "reactflow"
 
 import { cn } from "@/lib/utils"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface CustomHandleProps
   extends Omit<HandleProps, "isConnectable">,
@@ -97,5 +103,57 @@ export function CustomFloatingHandle({
     >
       <div className="pointer-events-none absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/50 transition-all group-hover:size-4 group-hover:bg-emerald-400 group-hover:shadow-lg" />
     </Handle>
+  )
+}
+
+export function SuccessHandle({
+  type,
+  className,
+}: Omit<HandleProps, "position"> & React.HTMLProps<HTMLDivElement>) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Handle
+            id="success"
+            type={type}
+            position={Position.Bottom}
+            className={cn(
+              "group !-bottom-8 !left-[45%] !size-8 !-translate-x-1/2 !border-none !bg-transparent",
+              className
+            )}
+          >
+            <div className="pointer-events-none absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400 shadow-sm transition-all duration-150 group-hover:size-4 group-hover:bg-emerald-400 group-hover:shadow-lg" />
+          </Handle>
+        </TooltipTrigger>
+        <TooltipContent>Success</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+export function ErrorHandle({
+  type,
+  className,
+}: Omit<HandleProps, "position"> & React.HTMLProps<HTMLDivElement>) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Handle
+            id="error"
+            type={type}
+            position={Position.Bottom}
+            className={cn(
+              "group !-bottom-8 !left-[55%] !size-8 !-translate-x-1/2 !border-none !bg-transparent",
+              className
+            )}
+          >
+            <div className="pointer-events-none absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-400 shadow-sm transition-all duration-150 group-hover:size-4 group-hover:bg-rose-400 group-hover:shadow-lg" />
+          </Handle>
+        </TooltipTrigger>
+        <TooltipContent>Error</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

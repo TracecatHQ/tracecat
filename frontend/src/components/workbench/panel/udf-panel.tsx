@@ -6,6 +6,7 @@ import React, { useCallback, useState } from "react"
 import {
   ActionControlFlow,
   ApiError,
+  JoinStrategy,
   registryActionsValidateRegistryAction,
   RegistryActionValidateResponse,
   UpdateActionParams,
@@ -89,6 +90,10 @@ type ActionFormSchema = {
     options?: string
   }
 }
+type ControlFlowOptions = {
+  start_delay?: number
+  join_strategy?: JoinStrategy
+}
 
 export function UDFActionPanel({
   node,
@@ -125,10 +130,8 @@ export function UDFActionPanel({
   const [validationErrors, setValidationErrors] =
     useState<RegistryActionValidateResponse | null>(null)
 
-  const onSubmit = useCallback(
+  const handleSave = useCallback(
     async (values: ActionFormSchema) => {
-      console.log("registry action", registryAction)
-      console.log("action", action)
       if (!registryAction || !action) {
         console.error("UDF or action not found")
         return
@@ -149,7 +152,7 @@ export function UDFActionPanel({
           description: "Please see the error window for more details",
         })
       }
-      const options: { start_delay?: number } | undefined = control_flow.options
+      const options: ControlFlowOptions | undefined = control_flow.options
         ? YAML.parse(control_flow.options)
         : undefined
       const actionControlFlow = {
@@ -162,7 +165,7 @@ export function UDFActionPanel({
         retry_policy: control_flow?.retry_policy
           ? YAML.parse(control_flow.retry_policy)
           : undefined,
-        start_delay: options?.start_delay,
+        ...options,
       } as ActionControlFlow
       try {
         const validateResponse = await registryActionsValidateRegistryAction({
@@ -201,6 +204,43 @@ export function UDFActionPanel({
     [workspaceId, registryAction, action]
   )
 
+  const onSubmit = useCallback(
+    async (values: ActionFormSchema) => {
+      await handleSave(values)
+    },
+    [handleSave]
+  )
+
+  const onPanelBlur = useCallback(
+    async (event: React.FocusEvent) => {
+      // Only save if we're actually leaving the panel
+      // (not just clicking between elements within it)
+      const panelElement = event.currentTarget
+      // Cast to HTMLElement since event.relatedTarget could be any EventTarget
+      const relatedTarget = event.relatedTarget as HTMLElement | null
+
+      if (!panelElement.contains(relatedTarget)) {
+        const values = methods.getValues()
+        await handleSave(values)
+      }
+    },
+    [methods, handleSave]
+  )
+
+  const handleKeyDownEditor = useCallback(async () => {
+    await handleSave(methods.getValues())
+  }, [methods, handleSave])
+
+  const handleKeyDownPanel = useCallback(
+    async (event: React.KeyboardEvent) => {
+      // Check for Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux)
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        await handleSave(methods.getValues())
+      }
+    },
+    [methods, handleSave]
+  )
+
   if (actionIsLoading) {
     return <CenteredSpinner />
   }
@@ -227,7 +267,13 @@ export function UDFActionPanel({
   console.log("registryAction", registryAction)
 
   return (
-    <div className="size-full overflow-auto">
+    <div
+      className="size-full overflow-auto"
+      onBlur={onPanelBlur}
+      onKeyDown={handleKeyDownPanel}
+      // Need tabIndex to receive blur events
+      tabIndex={-1}
+    >
       <FormProvider {...methods}>
         <form
           onSubmit={methods.handleSubmit(onSubmit)}

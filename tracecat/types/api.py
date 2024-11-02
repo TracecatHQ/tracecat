@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Resource
+from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy
 
 # TODO: Consistent API design
@@ -21,6 +22,7 @@ class ActionControlFlow(BaseModel):
     start_delay: float = Field(
         default=0.0, description="Delay before starting the action in seconds."
     )
+    join_strategy: JoinStrategy = Field(default=JoinStrategy.ALL)
 
 
 class ActionResponse(BaseModel):

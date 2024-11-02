@@ -10,8 +10,12 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 
 export function CustomEditor({
   className,
+  onKeyDown,
   ...props
-}: EditorProps & { className?: string }) {
+}: EditorProps & {
+  className?: string
+  onKeyDown?: () => void
+}) {
   const handleEditorDidMount = (
     editor: editor.IStandaloneCodeEditor,
     monaco: Monaco

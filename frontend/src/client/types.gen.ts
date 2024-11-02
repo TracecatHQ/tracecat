@@ -13,6 +13,7 @@ export type ActionControlFlow = {
      * Delay before starting the action in seconds.
      */
     start_delay?: number;
+    join_strategy?: JoinStrategy;
 };
 
 export type ActionMetadataResponse = {
@@ -89,6 +90,10 @@ export type ActionStatement_Input = {
      * Delay before starting the action in seconds.
      */
     start_delay?: number;
+    /**
+     * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
+     */
+    join_strategy?: JoinStrategy;
 };
 
 export type ActionStatement_Output = {
@@ -127,6 +132,10 @@ export type ActionStatement_Output = {
      * Delay before starting the action in seconds.
      */
     start_delay?: number;
+    /**
+     * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
+     */
+    join_strategy?: JoinStrategy;
 };
 
 export type ActionStatement_Any_ = {
@@ -163,6 +172,10 @@ export type ActionStatement_Any_ = {
      * Delay before starting the action in seconds.
      */
     start_delay?: number;
+    /**
+     * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
+     */
+    join_strategy?: JoinStrategy;
 };
 
 export type ActionStep = {
@@ -404,8 +417,9 @@ export type EventGroup = {
     action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
     current_attempt?: number | null;
-    retry_policy: ActionRetryPolicy;
-    start_delay: number;
+    retry_policy?: ActionRetryPolicy;
+    start_delay?: number;
+    join_strategy?: JoinStrategy;
 };
 
 export type EventHistoryResponse = {
@@ -443,6 +457,8 @@ export type GetWorkflowDefinitionActivityInputs = {
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
+
+export type JoinStrategy = 'any' | 'all';
 
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;

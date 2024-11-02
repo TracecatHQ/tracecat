@@ -53,7 +53,7 @@ class RegistryActionsService:
         if not include_marked:
             statement = statement.where(
                 cast(RegistryAction.options["include_in_schema"].astext, Boolean)  # noqa: E712
-                == True
+                == True  # noqa: E712
             )
 
         if namespace:
