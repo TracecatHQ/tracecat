@@ -14,13 +14,16 @@ from tracecat_registry import RegistrySecret, registry, secrets
 from tracecat_registry.integrations._http_types import JSONObjectOrArray, RequestMethods
 
 limacharlie_secret = RegistrySecret(
-    name="limacharlie", keys=["LIMACHARLIE_SECRET"], optional_keys=["LIMACHARLIE_OID"]
+    name="limacharlie",
+    keys=["LIMACHARLIE_SECRET", "LIMACHARLIE_UID"],
+    optional_keys=["LIMACHARLIE_OID"],
 )
 """Limacharlie secret.
 
 - name: `limacharlie`
 - keys:
     - `LIMACHARLIE_SECRET`
+    - `LIMACHARLIE_UID`
 - optional_keys:
     - `LIMACHARLIE_OID` (organization ID)
 """
@@ -69,7 +72,7 @@ async def call_limacharlie_api(
         response = await client.get(
             f"{LIMACHARLIE_AUTH_URL}",
             params={
-                "uid": secret["LIMACHARLIE_SECRET"],
+                "uid": secret["LIMACHARLIE_UID"],
                 "secret": secret["LIMACHARLIE_SECRET"],
                 "oid": secret.get("LIMACHARLIE_OID", "-"),
             },
