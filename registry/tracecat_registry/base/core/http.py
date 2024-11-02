@@ -183,7 +183,7 @@ async def http_request(
     token_request_headers = token_request_headers or {}
 
     if jwt_url is not None:
-        access_token = get_jwt_token(
+        access_token = await get_jwt_token(
             url=jwt_url,
             token_response_key=token_response_key,
             json=jwt_payload,
@@ -191,7 +191,7 @@ async def http_request(
         )
 
     if oauth2_url is not None:
-        access_token = get_oauth2_token(
+        access_token = await get_oauth2_token(
             token_url=oauth2_url,
             client_id=oauth2_client_id,
             client_secret=oauth2_client_secret,
