@@ -16,7 +16,12 @@ import {
 } from "@/components/ui/table"
 
 export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
-  const rows = transformJsonSchemaToTableRows(schema)
+  const rows = transformJsonSchemaToTableRows(schema).sort((a, b) => {
+    // Sort required fields first, then alphabetically
+    if (a.required && !b.required) return -1
+    if (!a.required && b.required) return 1
+    return a.parameter.localeCompare(b.parameter)
+  })
   return (
     <Table>
       <TableHeader>
