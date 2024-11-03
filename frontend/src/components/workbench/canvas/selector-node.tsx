@@ -2,14 +2,7 @@ import React, { useCallback, useEffect, useRef } from "react"
 import { RegistryActionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { CloudOffIcon, XIcon } from "lucide-react"
-import {
-  Handle,
-  Node,
-  NodeProps,
-  Position,
-  useKeyPress,
-  useNodeId,
-} from "reactflow"
+import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
 
 import { useWorkbenchRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -27,11 +20,11 @@ import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import {
   createNewNode,
   isEphemeral,
 } from "@/components/workbench/canvas/canvas"
-import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
 
 const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
 
@@ -41,7 +34,6 @@ const groupByDisplayGroup = (
   const groups = {} as Record<string, RegistryActionRead[]>
   actions.forEach((action) => {
     const displayGroup = (action.display_group || TOP_LEVEL_GROUP).toString()
-    console.log("groupByDisplayGroup", displayGroup, action)
     if (!groups[displayGroup]) {
       groups[displayGroup] = []
     }
@@ -63,18 +55,35 @@ export default React.memo(function SelectorNode({
   const id = useNodeId()
   const { workflowId, reactFlow } = useWorkflowBuilder()
   const { setNodes, setEdges } = reactFlow
-  const escapePressed = useKeyPress("Escape")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    // Remove the selector node when the escape key is pressed
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        removeSelectorNode()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [])
+
+  useEffect(() => {
+    // Focus the input after a short delay to allow the command list to open
+    const timer = setTimeout(() => {
+      inputRef.current?.focus()
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [])
 
   const removeSelectorNode = () => {
     setNodes((nodes) => nodes.filter((node) => !isEphemeral(node)))
     setEdges((edges) => edges.filter((edge) => edge.target !== id))
   }
-
-  useEffect(() => {
-    if (escapePressed) {
-      removeSelectorNode()
-    }
-  }, [escapePressed])
 
   if (!workflowId || !id) {
     console.error("Workflow or node ID not found")
@@ -101,8 +110,10 @@ export default React.memo(function SelectorNode({
         </div>
         <Separator />
         <CommandInput
+          ref={inputRef}
           className="!py-0 text-xs"
           placeholder="Start typing to search for an action..."
+          autoFocus
         />
         <CommandList className="border-b">
           <CommandEmpty>
@@ -110,7 +121,7 @@ export default React.memo(function SelectorNode({
               No results found.
             </span>
           </CommandEmpty>
-          <UDFCommandSelector nodeId={id} />
+          <ActionCommandSelector nodeId={id} />
         </CommandList>
       </Command>
       <Handle
@@ -125,7 +136,7 @@ export default React.memo(function SelectorNode({
   )
 })
 
-function UDFCommandSelector({ nodeId }: { nodeId: string }) {
+function ActionCommandSelector({ nodeId }: { nodeId: string }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useWorkbenchRegistryActions()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -151,7 +162,7 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
     return <CenteredSpinner />
   }
   if (registryActionsError) {
-    console.error("Failed to load UDFs", registryActionsError)
+    console.error("Failed to load actions", registryActionsError)
     return (
       <div className="flex size-full items-center justify-center">
         <CloudOffIcon className="size-8 text-muted-foreground" />
@@ -165,7 +176,7 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
       {Object.entries(grouped)
         .sort(([groupA], [groupB]) => groupA.localeCompare(groupB))
         .map(([group, actions], idx) => (
-          <UDFCommandGroup
+          <ActionCommandGroup
             key={`${group}-${idx}`}
             group={group === TOP_LEVEL_GROUP ? "Core" : group}
             registryActions={actions}
@@ -176,7 +187,7 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
   )
 }
 
-function UDFCommandGroup({
+function ActionCommandGroup({
   group,
   registryActions: actions,
   nodeId,
@@ -193,7 +204,7 @@ function UDFCommandGroup({
       if (!workflowId) {
         return
       }
-      console.log("Selected UDF:", action)
+      console.log("Selected action:", action)
       const { position: currPosition } = getNode(
         nodeId
       ) as Node<SelectorNodeData>
@@ -204,7 +215,7 @@ function UDFCommandGroup({
         status: "offline",
         isConfigured: false,
         numberOfEvents: 0,
-      } as UDFNodeData
+      } as ActionNodeData
       try {
         const newNode = await createNewNode(
           "udf",

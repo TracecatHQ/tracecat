@@ -155,13 +155,34 @@ export function ControlFlowConfigTooltip() {
         <div>Specifies the delay (in seconds) before starting the action.</div>
         <div>Defaults to 0.0 seconds.</div>
       </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">join_strategy</span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            string
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          Strategy to use when joining multiple branches into this action.
+        </div>
+        <div>
+          Can be either `all` (wait for all branches) or `any` (wait for any
+          branch).
+        </div>
+        <div>Defaults to `all`.</div>
+      </div>
       <div className="w-full items-center text-start">
         <span>Example inputs: </span>
       </div>
       <div className="flex w-full flex-col text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
           <pre className="text-xs text-foreground/70">
-            {"start_delay: 1.5  # 1.5 seconds"}
+            {
+              "start_delay: 1.5  # 1.5 seconds\njoin_strategy: any  # continue on any branch completion"
+            }
           </pre>
         </div>
       </div>

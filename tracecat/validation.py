@@ -50,10 +50,10 @@ from tracecat_registry import RegistrySecret
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import RegistryAction
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, context_locator
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
-from tracecat.expressions.shared import ExprType, context_locator
+from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
 from tracecat.registry.actions.models import ArgsT, RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
@@ -94,6 +94,7 @@ async def validate_dsl_args(
             session=session,
             action_name=act_stmt.action,
             args=act_stmt.args,
+            ref=act_stmt.ref,
         )
         if result.status == "error":
             result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
@@ -105,6 +106,7 @@ async def validate_dsl_args(
                     status="error",
                     msg=f"[{context_locator(act_stmt, "run_if")}]\n\n"
                     "`run_if` must only contain an expression.",
+                    ref=act_stmt.ref,
                 )
             )
         # Validate `for_each`
@@ -117,6 +119,7 @@ async def validate_dsl_args(
                             status="error",
                             msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
                             "`for_each` must be an expression or list of expressions.",
+                            ref=act_stmt.ref,
                         )
                     )
             case list():
@@ -127,6 +130,7 @@ async def validate_dsl_args(
                                 status="error",
                                 msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
                                 "`for_each` must be an expression or list of expressions.",
+                                ref=act_stmt.ref,
                             )
                         )
             case None:
@@ -137,6 +141,7 @@ async def validate_dsl_args(
                         status="error",
                         msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
                         "Invalid `for_each` of type {type(act_stmt.for_each)}.",
+                        ref=act_stmt.ref,
                     )
                 )
 
@@ -259,7 +264,7 @@ async def validate_dsl(
 
     iterables: list[Sequence[ValidationResult]] = []
 
-    # Tier 2: UDF Args validation
+    # Tier 2: Action Args validation
     if validate_args:
         dsl_args_errs = await validate_dsl_args(session=session, dsl=dsl)
         logger.debug(
@@ -293,7 +298,11 @@ async def validate_dsl(
 
 
 async def vadliate_registry_action_args(
-    *, session: AsyncSession, action_name: str, args: ArgsT
+    *,
+    session: AsyncSession,
+    action_name: str,
+    args: ArgsT,
+    ref: str | None = None,
 ) -> RegistryValidationResult:
     """Validate arguments against a UDF spec."""
     # 1. read the schema from the db
@@ -324,20 +333,30 @@ async def vadliate_registry_action_args(
             ) from e
 
         return RegistryValidationResult(
-            status="success", msg="Arguments are valid.", validated_args=validated_args
+            status="success",
+            msg="Arguments are valid.",
+            validated_args=validated_args,
+            ref=ref,
         )
     except RegistryValidationError as e:
         if isinstance(e.err, ValidationError):
             detail = e.err.errors()
         else:
             detail = str(e.err) if e.err else None
+        logger.error(
+            "Error validating UDF args", action_name=action_name, error=e, detail=detail
+        )
         return RegistryValidationResult(
-            status="error", msg=f"Error validating UDF {action_name}", detail=detail
+            status="error",
+            msg=f"Error validating UDF {action_name}",
+            detail=detail,
+            ref=ref,
         )
     except KeyError:
         return RegistryValidationResult(
             status="error",
             msg=f"Could not find UDF {action_name!r} in registry. Is this UDF registered?",
+            ref=ref,
         )
     except Exception as e:
         raise e

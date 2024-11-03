@@ -696,7 +696,7 @@ export const workflowExecutionsTerminateWorkflowExecution = (data: WorkflowExecu
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns ActionMetadataResponse Successful Response
+ * @returns ActionReadMinimal Successful Response
  * @throws ApiError
  */
 export const actionsListActions = (data: ActionsListActionsData): CancelablePromise<ActionsListActionsResponse> => { return __request(OpenAPI, {
@@ -717,7 +717,7 @@ export const actionsListActions = (data: ActionsListActionsData): CancelableProm
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns ActionMetadataResponse Successful Response
+ * @returns ActionReadMinimal Successful Response
  * @throws ApiError
  */
 export const actionsCreateAction = (data: ActionsCreateActionData): CancelablePromise<ActionsCreateActionResponse> => { return __request(OpenAPI, {
@@ -740,7 +740,7 @@ export const actionsCreateAction = (data: ActionsCreateActionData): CancelablePr
  * @param data.actionId
  * @param data.workflowId
  * @param data.workspaceId
- * @returns ActionResponse Successful Response
+ * @returns ActionRead Successful Response
  * @throws ApiError
  */
 export const actionsGetAction = (data: ActionsGetActionData): CancelablePromise<ActionsGetActionResponse> => { return __request(OpenAPI, {
@@ -765,7 +765,7 @@ export const actionsGetAction = (data: ActionsGetActionData): CancelablePromise<
  * @param data.actionId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns ActionResponse Successful Response
+ * @returns ActionRead Successful Response
  * @throws ApiError
  */
 export const actionsUpdateAction = (data: ActionsUpdateActionData): CancelablePromise<ActionsUpdateActionResponse> => { return __request(OpenAPI, {

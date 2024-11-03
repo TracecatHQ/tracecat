@@ -13,7 +13,7 @@ import {
   UnplugIcon,
   WebhookIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position } from "reactflow"
+import { Node, NodeProps } from "reactflow"
 
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { CustomHandle } from "@/components/workbench/canvas/custom-handle"
+import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
 
 export interface TriggerNodeData {
   type: "trigger"
@@ -60,7 +60,6 @@ export const TriggerTypename = "trigger" as const
 export default React.memo(function TriggerNode({
   data: { title, isConfigured, type },
   selected,
-  sourcePosition,
 }: NodeProps<TriggerNodeData>) {
   const { workflow } = useWorkflow()
 
@@ -151,11 +150,7 @@ export default React.memo(function TriggerNode({
         </div>
       </CardContent>
 
-      <CustomHandle
-        type="source"
-        position={sourcePosition ?? Position.Bottom}
-        isConnectable={1}
-      />
+      <TriggerSourceHandle />
     </Card>
   )
 })

@@ -45,18 +45,22 @@ export const $ActionControlFlow = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            default: 'all'
         }
     },
     type: 'object',
     title: 'ActionControlFlow'
 } as const;
 
-export const $ActionMetadataResponse = {
+export const $ActionCreate = {
     properties: {
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
         workflow_id: {
             type: 'string',
             title: 'Workflow Id'
@@ -68,26 +72,14 @@ export const $ActionMetadataResponse = {
         title: {
             type: 'string',
             title: 'Title'
-        },
-        description: {
-            type: 'string',
-            title: 'Description'
-        },
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        key: {
-            type: 'string',
-            title: 'Key'
         }
     },
     type: 'object',
-    required: ['id', 'workflow_id', 'type', 'title', 'description', 'status', 'key'],
-    title: 'ActionMetadataResponse'
+    required: ['workflow_id', 'type', 'title'],
+    title: 'ActionCreate'
 } as const;
 
-export const $ActionResponse = {
+export const $ActionRead = {
     properties: {
         id: {
             type: 'string',
@@ -123,7 +115,43 @@ export const $ActionResponse = {
     },
     type: 'object',
     required: ['id', 'type', 'title', 'description', 'status', 'inputs', 'key'],
-    title: 'ActionResponse'
+    title: 'ActionRead'
+} as const;
+
+export const $ActionReadMinimal = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        title: {
+            type: 'string',
+            title: 'Title'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        key: {
+            type: 'string',
+            title: 'Key'
+        }
+    },
+    type: 'object',
+    required: ['id', 'workflow_id', 'type', 'title', 'description', 'status', 'key'],
+    title: 'ActionReadMinimal'
 } as const;
 
 export const $ActionRetryPolicy = {
@@ -232,6 +260,15 @@ export const $ActionStatement_Input = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
+            default: 'all'
         }
     },
     type: 'object',
@@ -314,6 +351,15 @@ export const $ActionStatement_Output = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
+            default: 'all'
         }
     },
     type: 'object',
@@ -395,6 +441,15 @@ export const $ActionStatement_Any_ = {
             title: 'Start Delay',
             description: 'Delay before starting the action in seconds.',
             default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
+            default: 'all'
         }
     },
     type: 'object',
@@ -421,6 +476,67 @@ export const $ActionStep = {
     type: 'object',
     required: ['ref', 'action', 'args'],
     title: 'ActionStep'
+} as const;
+
+export const $ActionUpdate = {
+    properties: {
+        title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Status'
+        },
+        inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inputs'
+        },
+        control_flow: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ActionControlFlow'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    title: 'ActionUpdate'
 } as const;
 
 export const $Body_auth_reset_forgot_password = {
@@ -454,13 +570,13 @@ export const $Body_auth_reset_reset_password = {
 
 export const $Body_auth_sso_acs = {
     properties: {
-        SAMLResponse: {
+        saml_response: {
             type: 'string',
-            title: 'Samlresponse'
+            title: 'Saml Response'
         }
     },
     type: 'object',
-    required: ['SAMLResponse'],
+    required: ['saml_response'],
     title: 'Body_auth-sso_acs'
 } as const;
 
@@ -592,26 +708,6 @@ export const $CommitWorkflowResponse = {
     type: 'object',
     required: ['workflow_id', 'status', 'message'],
     title: 'CommitWorkflowResponse'
-} as const;
-
-export const $CreateActionParams = {
-    properties: {
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        type: {
-            type: 'string',
-            title: 'Type'
-        },
-        title: {
-            type: 'string',
-            title: 'Title'
-        }
-    },
-    type: 'object',
-    required: ['workflow_id', 'type', 'title'],
-    title: 'CreateActionParams'
 } as const;
 
 export const $CreateWorkflowExecutionParams = {
@@ -1084,11 +1180,20 @@ export const $EventGroup = {
         },
         start_delay: {
             type: 'number',
-            title: 'Start Delay'
+            title: 'Start Delay',
+            default: 0
+        },
+        join_strategy: {
+            allOf: [
+                {
+                    '$ref': '#/components/schemas/JoinStrategy'
+                }
+            ],
+            default: 'all'
         }
     },
     type: 'object',
-    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input', 'retry_policy', 'start_delay'],
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input'],
     title: 'EventGroup'
 } as const;
 
@@ -1244,6 +1349,12 @@ export const $HTTPValidationError = {
     },
     type: 'object',
     title: 'HTTPValidationError'
+} as const;
+
+export const $JoinStrategy = {
+    type: 'string',
+    enum: ['any', 'all'],
+    title: 'JoinStrategy'
 } as const;
 
 export const $OAuth2AuthorizeResponse = {
@@ -1709,6 +1820,17 @@ export const $RegistryActionValidateResponse = {
                 }
             ],
             title: 'Detail'
+        },
+        action_ref: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Action Ref'
         }
     },
     type: 'object',
@@ -2805,67 +2927,6 @@ export const $Trigger = {
     title: 'Trigger'
 } as const;
 
-export const $UpdateActionParams = {
-    properties: {
-        title: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        status: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Status'
-        },
-        inputs: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Inputs'
-        },
-        control_flow: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/ActionControlFlow'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        }
-    },
-    type: 'object',
-    title: 'UpdateActionParams'
-} as const;
-
 export const $UpdateWorkflowParams = {
     properties: {
         title: {
@@ -3621,7 +3682,7 @@ export const $WorkflowResponse = {
         },
         actions: {
             additionalProperties: {
-                '$ref': '#/components/schemas/ActionResponse'
+                '$ref': '#/components/schemas/ActionRead'
             },
             type: 'object',
             title: 'Actions'

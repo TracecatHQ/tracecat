@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import (
     ActionStatement,
     DSLContext,
@@ -24,7 +25,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext, ExprContextType, context_locator
+from tracecat.expressions.shared import ExprContext, ExprContextType
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import ArgsClsT, ArgsT, BoundRegistryAction
@@ -286,6 +287,8 @@ def iter_for_each(
 ) -> Iterator[ArgsT]:
     """Yield patched contexts for each loop iteration."""
     # Evaluate the loop expression
+    if not task.for_each:
+        raise ValueError("No loop expression found")
     iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
 
     # Assert that all length of the iterables are the same

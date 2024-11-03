@@ -27,13 +27,10 @@ from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import (
-    ActionResponse,
-    UpsertWebhookParams,
-    WebhookResponse,
-)
+from tracecat.types.api import UpsertWebhookParams, WebhookResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
@@ -180,7 +177,7 @@ async def get_workflow(
 
     actions = workflow.actions or []
     actions_responses = {
-        action.id: ActionResponse(**action.model_dump()) for action in actions
+        action.id: ActionRead(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
     return WorkflowResponse(

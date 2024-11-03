@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.api.routers.actions import router as actions_router
 from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.users import router as users_router
 from tracecat.api.routers.validation import router as validation_router
@@ -40,6 +39,7 @@ from tracecat.registry.repository import safe_url
 from tracecat.secrets.router import router as secrets_router
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
 from tracecat.workflow.schedules.router import router as schedules_router
@@ -234,7 +234,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workspaces_router)
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
-    app.include_router(actions_router)
+    app.include_router(workflow_actions_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(validation_router)
