@@ -10,7 +10,7 @@ import {
   LayoutListIcon,
   ScanSearchIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position, useEdges } from "reactflow"
+import { Node, NodeProps, useEdges } from "reactflow"
 
 import { useAction } from "@/lib/hooks"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
@@ -32,9 +32,9 @@ import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import {
-  CustomFloatingHandle,
-  ErrorHandle,
-  SuccessHandle,
+  ActionSoruceSuccessHandle,
+  ActionSourceErrorHandle,
+  ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
 export interface ActionNodeData {
@@ -50,8 +50,6 @@ export type ActionNodeType = Node<ActionNodeData>
 export default React.memo(function ActionNode({
   data: { title, isConfigured, numberOfEvents, type: key },
   selected,
-  sourcePosition,
-  targetPosition,
   id,
 }: NodeProps<ActionNodeData>) {
   const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
@@ -161,14 +159,12 @@ export default React.memo(function ActionNode({
         </div>
       </CardContent>
 
-      <CustomFloatingHandle
-        type="target"
-        position={targetPosition ?? Position.Top}
+      <ActionTargetHandle
         join_strategy={action?.control_flow?.join_strategy}
         indegree={incomingEdges.length}
       />
-      <SuccessHandle type="source" />
-      <ErrorHandle type="source" />
+      <ActionSoruceSuccessHandle type="source" />
+      <ActionSourceErrorHandle type="source" />
     </Card>
   )
 })
