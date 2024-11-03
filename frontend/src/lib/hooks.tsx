@@ -62,7 +62,7 @@ import Cookies from "js-cookie"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { isEmptyObject } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
-import { UDFNodeType } from "@/components/workbench/canvas/udf-node"
+import { ActionNodeType } from "@/components/workbench/canvas/action-node"
 
 export function useLocalStorage<T>(
   key: string,
@@ -114,8 +114,8 @@ export function useAction(
     mutationFn: async (values: ActionUpdate) =>
       await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
     onSuccess: (updatedAction: ActionRead) => {
-      setNodes((nds: UDFNodeType[]) =>
-        nds.map((node: UDFNodeType) => {
+      setNodes((nds: ActionNodeType[]) =>
+        nds.map((node: ActionNodeType) => {
           if (node.id === actionId) {
             const { title } = updatedAction
             node.data = {
@@ -807,7 +807,7 @@ export function useWorkbenchRegistryActions(versions?: string[]) {
   }
 }
 
-// This is for the UDF panel in the workbench
+// This is for the action panel in the workbench
 export function useRegistryAction(key: string, version: string) {
   const {
     data: registryAction,

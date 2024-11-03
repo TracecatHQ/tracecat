@@ -70,13 +70,13 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
+import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import {
   ControlFlowConfigTooltip,
   ForEachTooltip,
   RetryPolicyTooltip,
   RunIfTooltip,
-} from "@/components/workbench/panel/udf-panel-tooltips"
+} from "@/components/workbench/panel/action-panel-tooltips"
 
 // These are YAML strings
 type ActionFormSchema = {
@@ -95,11 +95,11 @@ type ControlFlowOptions = {
   join_strategy?: JoinStrategy
 }
 
-export function UDFActionPanel({
+export function ActionPanel({
   node,
   workflowId,
 }: {
-  node: Node<UDFNodeData>
+  node: Node<ActionNodeData>
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
@@ -133,7 +133,7 @@ export function UDFActionPanel({
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
       if (!registryAction || !action) {
-        console.error("UDF or action not found")
+        console.error("Action not found")
         return
       }
       const { inputs, title, description, control_flow } = values
@@ -195,7 +195,7 @@ export function UDFActionPanel({
         }
       } catch (error) {
         if (error instanceof ApiError) {
-          console.error("Application failed to validate UDF", error.body)
+          console.error("Application failed to validate action", error.body)
         } else {
           console.error("Validation failed, unknown error", error)
         }
@@ -249,7 +249,7 @@ export function UDFActionPanel({
       <div className="flex h-full items-center justify-center space-x-2 p-4">
         <AlertNotification
           level="error"
-          message={`Could not load UDF schema '${actionName}'.`}
+          message={`Could not load action schema '${actionName}'.`}
         />
       </div>
     )
@@ -402,7 +402,7 @@ export function UDFActionPanel({
                 </div>
               </AccordionTrigger>
               <AccordionContent className="space-y-4">
-                {/* UDF secrets */}
+                {/* Action secrets */}
                 <div className="space-y-4 px-4">
                   {registryAction.secrets ? (
                     <div className="text-xs text-muted-foreground">
@@ -445,7 +445,7 @@ export function UDFActionPanel({
                     </span>
                   )}
                 </div>
-                {/* UDF inputs */}
+                {/* Action inputs */}
                 <div className="space-y-4 px-4">
                   <span className="text-xs text-muted-foreground">
                     Hover over each row for details.

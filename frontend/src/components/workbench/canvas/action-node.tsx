@@ -37,7 +37,7 @@ import {
   SuccessHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
-export interface UDFNodeData {
+export interface ActionNodeData {
   type: string // alias for key
   title: string
   namespace: string
@@ -45,16 +45,15 @@ export interface UDFNodeData {
   isConfigured: boolean
   numberOfEvents: number
 }
-export type UDFNodeType = Node<UDFNodeData>
-export const RFGraphUDFNodeType = "udf" as const
+export type ActionNodeType = Node<ActionNodeData>
 
-export default React.memo(function UDFNode({
+export default React.memo(function ActionNode({
   data: { title, isConfigured, numberOfEvents, type: key },
   selected,
   sourcePosition,
   targetPosition,
   id,
-}: NodeProps<UDFNodeData>) {
+}: NodeProps<ActionNodeData>) {
   const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
