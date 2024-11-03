@@ -11,7 +11,6 @@ import {
   BanIcon,
   CalendarClockIcon,
   PlusCircleIcon,
-  SaveIcon,
   SettingsIcon,
   WebhookIcon,
 } from "lucide-react"
@@ -86,11 +85,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+
+
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { CustomEditor } from "@/components/editor"
@@ -130,16 +126,6 @@ export function TriggerPanel({
               </div>
             </div>
           </h3>
-        </div>
-        <div className="flex justify-end space-x-2 p-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="icon" disabled>
-                <SaveIcon className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Save</TooltipContent>
-          </Tooltip>
         </div>
       </div>
       <Separator />
@@ -309,9 +295,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="pl-3 text-xs font-semibold">
               Schedule ID
             </TableHead>
-            <TableHead className="text-xs font-semibold">
-              Interval
-            </TableHead>
+            <TableHead className="text-xs font-semibold">Interval</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
             <TableHead className="pr-3 text-right text-xs font-semibold">
               Actions
@@ -358,10 +342,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                className={cn(
-                                  "text-xs",
-                                  status === "online"
-                                )}
+                                className={cn("text-xs", status === "online")}
                                 onClick={async () =>
                                   await updateSchedule({
                                     workspaceId,

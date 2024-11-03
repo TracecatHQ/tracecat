@@ -96,7 +96,8 @@ export function useAction(
   actionId: string,
   workspaceId: string,
   workflowId: string
-): PanelAction {
+): PanelAction & { isSaving: boolean } {
+  const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
   const {
@@ -111,15 +112,21 @@ export function useAction(
     },
   })
   const { mutateAsync: updateAction } = useMutation({
-    mutationFn: async (values: ActionUpdate) =>
-      await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
+    mutationFn: async (values: ActionUpdate) => {
+      setIsSaving(true)
+      return await actionsUpdateAction({
+        workspaceId,
+        actionId,
+        requestBody: values,
+      })
+    },
     onSuccess: (updatedAction: ActionRead) => {
       setNodes((nds: ActionNodeType[]) =>
         nds.map((node: ActionNodeType) => {
           if (node.id === actionId) {
             const { title } = updatedAction
             node.data = {
-              ...node.data, // Overwrite the existing node data
+              ...node.data,
               title,
               isConfigured:
                 updatedAction.inputs !== null ||
@@ -129,17 +136,16 @@ export function useAction(
           return node
         })
       )
-      console.log("Action update successful", updatedAction)
-      toast({
-        title: "Saved action",
-        description: "Your action has been updated successfully.",
-      })
       queryClient.invalidateQueries({
         queryKey: ["selected_action", actionId, workflowId],
       })
       queryClient.invalidateQueries({
         queryKey: ["workflow", workflowId],
       })
+      // Add a small delay before clearing the saving state to show feedback
+      setTimeout(() => {
+        setIsSaving(false)
+      }, 1000)
     },
     onError: (error) => {
       console.error("Failed to update action:", error)
@@ -147,6 +153,7 @@ export function useAction(
         title: "Failed to save action",
         description: "Could not update your action. Please try again.",
       })
+      setIsSaving(false)
     },
   })
   return {
@@ -159,6 +166,7 @@ export function useAction(
       selectedAction: ["selected_action", actionId, workflowId],
       workflow: ["workflow", workflowId],
     },
+    isSaving,
   }
 }
 

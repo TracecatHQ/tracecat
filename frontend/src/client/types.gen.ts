@@ -674,6 +674,7 @@ export type RegistryActionValidateResponse = {
     ok: boolean;
     message: string;
     detail?: unknown | null;
+    action_ref?: string | null;
 };
 
 export type RegistryRepositoryCreate = {

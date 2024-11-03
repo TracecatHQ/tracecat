@@ -2,22 +2,23 @@
 
 import "react18-json-view/src/style.css"
 
-import React, { useCallback, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import {
   ActionControlFlow,
   ActionUpdate,
   ApiError,
   JoinStrategy,
-  registryActionsValidateRegistryAction,
   RegistryActionValidateResponse,
 } from "@/client"
+import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
   AlertTriangleIcon,
+  CheckCheck,
   Info,
   LayoutListIcon,
+  Loader2Icon,
   RepeatIcon,
-  SaveIcon,
   SettingsIcon,
   Shapes,
 } from "lucide-react"
@@ -26,14 +27,13 @@ import { type Node } from "reactflow"
 import YAML from "yaml"
 
 import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
-import { itemOrEmptyString } from "@/lib/utils"
+import { cn, itemOrEmptyString, slugify } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Button } from "@/components/ui/button"
 import {
   FormControl,
   FormField,
@@ -58,11 +58,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { CustomEditor } from "@/components/editor"
@@ -103,7 +98,8 @@ export function ActionPanel({
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
-  const { action, actionIsLoading, updateAction } = useAction(
+  const { validationErrors, setValidationErrors } = useWorkflow()
+  const { action, actionIsLoading, updateAction, isSaving } = useAction(
     node.id,
     workspaceId,
     workflowId
@@ -127,8 +123,23 @@ export function ActionPanel({
     },
   })
 
-  const [validationErrors, setValidationErrors] =
+  const [actionValidationErrors, setActionValidationErrors] =
     useState<RegistryActionValidateResponse | null>(null)
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "success">(
+    "idle"
+  )
+
+  useEffect(() => {
+    if (isSaving) {
+      setSaveState("saving")
+    } else {
+      setSaveState("success")
+      const timer = setTimeout(() => {
+        setSaveState("idle")
+      }, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [isSaving])
 
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
@@ -142,7 +153,7 @@ export function ActionPanel({
         actionInputs = inputs ? YAML.parse(inputs) : {}
       } catch (error) {
         console.error("Failed to parse inputs", error)
-        setValidationErrors({
+        setActionValidationErrors({
           ok: false,
           message: "Failed to parse action inputs",
           detail: String(error),
@@ -167,32 +178,15 @@ export function ActionPanel({
           : undefined,
         ...options,
       } as ActionControlFlow
+      const params = {
+        title: title,
+        description: description,
+        inputs: actionInputs,
+        control_flow: actionControlFlow,
+      } as ActionUpdate
+
       try {
-        const validateResponse = await registryActionsValidateRegistryAction({
-          actionName: registryAction.action,
-          requestBody: {
-            args: actionInputs,
-          },
-        })
-        console.log("Validation passed", validateResponse)
-        if (!validateResponse.ok) {
-          console.error("Validation failed", validateResponse)
-          setValidationErrors(validateResponse)
-          toast({
-            title: "Validation Error",
-            description: "Failed to validate action inputs",
-          })
-        } else {
-          setValidationErrors(null)
-          const params = {
-            title: title as string,
-            description: description as string,
-            inputs: actionInputs,
-            control_flow: actionControlFlow,
-          } as ActionUpdate
-          console.log("Submitting action form", params)
-          await updateAction(params)
-        }
+        await updateAction(params)
       } catch (error) {
         if (error instanceof ApiError) {
           console.error("Application failed to validate action", error.body)
@@ -213,23 +207,12 @@ export function ActionPanel({
 
   const onPanelBlur = useCallback(
     async (event: React.FocusEvent) => {
-      // Only save if we're actually leaving the panel
-      // (not just clicking between elements within it)
-      const panelElement = event.currentTarget
-      // Cast to HTMLElement since event.relatedTarget could be any EventTarget
-      const relatedTarget = event.relatedTarget as HTMLElement | null
-
-      if (!panelElement.contains(relatedTarget)) {
-        const values = methods.getValues()
-        await handleSave(values)
-      }
+      // Save whenever focus changes, regardless of where it's going
+      const values = methods.getValues()
+      await handleSave(values)
     },
     [methods, handleSave]
   )
-
-  const handleKeyDownEditor = useCallback(async () => {
-    await handleSave(methods.getValues())
-  }, [methods, handleSave])
 
   const handleKeyDownPanel = useCallback(
     async (event: React.KeyboardEvent) => {
@@ -264,8 +247,11 @@ export function ActionPanel({
       </div>
     )
   }
-  console.log("registryAction", registryAction)
 
+  // If there are validation errors, filter out the errors related to this action
+  const finalValErrors = validationErrors
+    ?.filter((error) => error.action_ref === slugify(action.title))
+    .concat(actionValidationErrors || [])
   return (
     <div
       className="size-full overflow-auto"
@@ -310,15 +296,18 @@ export function ActionPanel({
                 </div>
               </h3>
             </div>
-            <div className="flex justify-end space-x-2 p-4">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="submit" size="icon">
-                    <SaveIcon className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Save</TooltipContent>
-              </Tooltip>
+            <div
+              className={cn(
+                "animate-fade-out flex justify-end space-x-2 p-4 transition-opacity duration-200",
+                saveState === "idle" && "opacity-0"
+              )}
+            >
+              {saveState === "saving" && (
+                <Loader2Icon className="size-4 animate-spin text-muted-foreground/70" />
+              )}
+              {saveState === "success" && (
+                <CheckCheck className="size-4 text-green-500" />
+              )}
             </div>
           </div>
           <Separator />
@@ -465,7 +454,7 @@ export function ActionPanel({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="flex flex-col space-y-4 px-4">
-                  {validationErrors && (
+                  {!!finalValErrors && finalValErrors.length > 0 && (
                     <div className="flex items-center space-x-2">
                       <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
                       <span className="text-xs text-rose-500">
@@ -488,12 +477,16 @@ export function ActionPanel({
                       />
                     )}
                   />
-                  {validationErrors && (
+                  {!!finalValErrors && finalValErrors.length > 0 && (
                     <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
                       <span className="font-bold">Validation Errors</span>
                       <Separator className="my-2 bg-rose-400" />
-                      <span>{validationErrors.message}</span>
-                      <pre>{YAML.stringify(validationErrors.detail)}</pre>
+                      {finalValErrors.map((error, index) => (
+                        <div key={index} className="mb-4">
+                          <span>{error.message}</span>
+                          <pre>{YAML.stringify(error.detail)}</pre>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
