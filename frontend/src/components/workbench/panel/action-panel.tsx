@@ -454,7 +454,7 @@ export function ActionPanel({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="flex flex-col space-y-4 px-4">
-                  {!!finalValErrors && (
+                  {!!finalValErrors && finalValErrors.length > 0 && (
                     <div className="flex items-center space-x-2">
                       <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
                       <span className="text-xs text-rose-500">
@@ -477,7 +477,7 @@ export function ActionPanel({
                       />
                     )}
                   />
-                  {!!finalValErrors && (
+                  {!!finalValErrors && finalValErrors.length > 0 && (
                     <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
                       <span className="font-bold">Validation Errors</span>
                       <Separator className="my-2 bg-rose-400" />
