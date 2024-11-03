@@ -16,17 +16,13 @@ export type ActionControlFlow = {
     join_strategy?: JoinStrategy;
 };
 
-export type ActionMetadataResponse = {
-    id: string;
+export type ActionCreate = {
     workflow_id: string;
     type: string;
     title: string;
-    description: string;
-    status: string;
-    key: string;
 };
 
-export type ActionResponse = {
+export type ActionRead = {
     id: string;
     type: string;
     title: string;
@@ -37,6 +33,16 @@ export type ActionResponse = {
     };
     key: string;
     control_flow?: ActionControlFlow;
+};
+
+export type ActionReadMinimal = {
+    id: string;
+    workflow_id: string;
+    type: string;
+    title: string;
+    description: string;
+    status: string;
+    key: string;
 };
 
 export type ActionRetryPolicy = {
@@ -189,6 +195,16 @@ export type ActionStep = {
     };
 };
 
+export type ActionUpdate = {
+    title?: string | null;
+    description?: string | null;
+    status?: string | null;
+    inputs?: {
+    [key: string]: unknown;
+} | null;
+    control_flow?: ActionControlFlow | null;
+};
+
 export type Body_auth_reset_forgot_password = {
     email: string;
 };
@@ -199,7 +215,7 @@ export type Body_auth_reset_reset_password = {
 };
 
 export type Body_auth_sso_acs = {
-    SAMLResponse: string;
+    saml_response: string;
 };
 
 export type Body_auth_verify_request_token = {
@@ -232,12 +248,6 @@ export type CommitWorkflowResponse = {
 };
 
 export type status = 'success' | 'failure';
-
-export type CreateActionParams = {
-    workflow_id: string;
-    type: string;
-    title: string;
-};
 
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
@@ -1001,16 +1011,6 @@ export type Trigger = {
 
 export type type3 = 'schedule' | 'webhook';
 
-export type UpdateActionParams = {
-    title?: string | null;
-    description?: string | null;
-    status?: string | null;
-    inputs?: {
-    [key: string]: unknown;
-} | null;
-    control_flow?: ActionControlFlow | null;
-};
-
 export type UpdateWorkflowParams = {
     title?: string | null;
     description?: string | null;
@@ -1193,7 +1193,7 @@ export type WorkflowResponse = {
     description: string;
     status: string;
     actions: {
-        [key: string]: ActionResponse;
+        [key: string]: ActionRead;
     };
     object: {
     [key: string]: unknown;
@@ -1477,14 +1477,14 @@ export type ActionsListActionsData = {
     workspaceId: string;
 };
 
-export type ActionsListActionsResponse = Array<ActionMetadataResponse>;
+export type ActionsListActionsResponse = Array<ActionReadMinimal>;
 
 export type ActionsCreateActionData = {
-    requestBody: CreateActionParams;
+    requestBody: ActionCreate;
     workspaceId: string;
 };
 
-export type ActionsCreateActionResponse = ActionMetadataResponse;
+export type ActionsCreateActionResponse = ActionReadMinimal;
 
 export type ActionsGetActionData = {
     actionId: string;
@@ -1492,15 +1492,15 @@ export type ActionsGetActionData = {
     workspaceId: string;
 };
 
-export type ActionsGetActionResponse = ActionResponse;
+export type ActionsGetActionResponse = ActionRead;
 
 export type ActionsUpdateActionData = {
     actionId: string;
-    requestBody: UpdateActionParams;
+    requestBody: ActionUpdate;
     workspaceId: string;
 };
 
-export type ActionsUpdateActionResponse = ActionResponse;
+export type ActionsUpdateActionResponse = ActionRead;
 
 export type ActionsDeleteActionData = {
     actionId: string;
@@ -2232,7 +2232,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<ActionMetadataResponse>;
+                200: Array<ActionReadMinimal>;
                 /**
                  * Validation Error
                  */
@@ -2245,7 +2245,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: ActionMetadataResponse;
+                200: ActionReadMinimal;
                 /**
                  * Validation Error
                  */
@@ -2260,7 +2260,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: ActionResponse;
+                200: ActionRead;
                 /**
                  * Validation Error
                  */
@@ -2273,7 +2273,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: ActionResponse;
+                200: ActionRead;
                 /**
                  * Validation Error
                  */
