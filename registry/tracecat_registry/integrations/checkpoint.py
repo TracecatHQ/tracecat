@@ -30,7 +30,7 @@ checkpoint_secret = RegistrySecret(
     namespace="integrations.checkpoint",
     secrets=[checkpoint_secret],
 )
-async def get_jwt_token() -> str:
+async def get_auth_token() -> str:
     secret = await secrets.get("checkpoint")
     async with httpx.AsyncClient() as client:
         response = await client.post(

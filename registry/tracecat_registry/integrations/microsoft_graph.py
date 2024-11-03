@@ -36,7 +36,7 @@ microsoft_graph_secret = RegistrySecret(
     namespace="integrations.microsoft_graph",
     secrets=[microsoft_graph_secret],
 )
-async def get_jwt_token() -> str:
+async def get_auth_token() -> str:
     secret = await secrets.get("microsoft_graph")
     auth_url = f"https://login.microsoftonline.com/{secret['MICROSOFT_GRAPH_TENANT_ID']}/oauth2/v2.0/token"
     async with httpx.AsyncClient() as client:
