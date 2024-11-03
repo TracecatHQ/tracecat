@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -13,6 +14,7 @@ class ValidationResult(BaseModel):
     status: Literal["success", "error"]
     msg: str = ""
     detail: Any | None = None
+    ref: str | None = None
 
     def __hash__(self) -> int:
         detail = json.dumps(self.detail, sort_keys=True)
@@ -20,9 +22,9 @@ class ValidationResult(BaseModel):
 
 
 class RegistryValidationResult(ValidationResult):
-    """Result of validating a UDF args."""
+    """Result of validating a registry action's arguments."""
 
-    validated_args: dict[str, Any] | None = None
+    validated_args: Mapping[str, Any] | None = None
 
 
 class ExprValidationResult(ValidationResult):

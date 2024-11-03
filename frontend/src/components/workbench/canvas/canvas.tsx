@@ -40,6 +40,10 @@ import { createAction, updateWorkflowGraphObject } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import actionNode, {
+  ActionNodeData,
+  ActionNodeType,
+} from "@/components/workbench/canvas/action-node"
 import selectorNode, {
   SelectorNodeType,
   SelectorTypename,
@@ -49,10 +53,6 @@ import triggerNode, {
   TriggerNodeType,
   TriggerTypename,
 } from "@/components/workbench/canvas/trigger-node"
-import udfNode, {
-  UDFNodeData,
-  UDFNodeType,
-} from "@/components/workbench/canvas/udf-node"
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172
@@ -119,14 +119,14 @@ function getLayoutedElements(
 }
 
 export type NodeTypename = "udf" | "trigger"
-export type NodeType = UDFNodeType | TriggerNodeType | SelectorNodeType
-export type NodeData = UDFNodeData | TriggerNodeData
+export type NodeType = ActionNodeType | TriggerNodeType | SelectorNodeType
+export type NodeData = ActionNodeData | TriggerNodeData
 
 export const invincibleNodeTypes: readonly string[] = [TriggerTypename]
 export const ephemeralNodeTypes: readonly string[] = [SelectorTypename]
 
 const nodeTypes = {
-  udf: udfNode,
+  udf: actionNode,
   trigger: triggerNode,
   selector: selectorNode,
 }
@@ -174,7 +174,7 @@ export async function createNewNode(
       newNode = {
         id: actionId,
         ...common,
-      } as UDFNodeType
+      } as ActionNodeType
 
       return newNode
     default:

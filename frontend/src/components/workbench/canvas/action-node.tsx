@@ -10,8 +10,9 @@ import {
   LayoutListIcon,
   ScanSearchIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position, useNodeId } from "reactflow"
+import { Node, NodeProps, useEdges } from "reactflow"
 
+import { useAction } from "@/lib/hooks"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,12 +32,12 @@ import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import {
-  CustomFloatingHandle,
-  ErrorHandle,
-  SuccessHandle,
+  ActionSoruceSuccessHandle,
+  ActionSourceErrorHandle,
+  ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
-export interface UDFNodeData {
+export interface ActionNodeData {
   type: string // alias for key
   title: string
   namespace: string
@@ -44,19 +45,18 @@ export interface UDFNodeData {
   isConfigured: boolean
   numberOfEvents: number
 }
-export type UDFNodeType = Node<UDFNodeData>
-export const RFGraphUDFNodeType = "udf" as const
+export type ActionNodeType = Node<ActionNodeData>
 
-export default React.memo(function UDFNode({
+export default React.memo(function ActionNode({
   data: { title, isConfigured, numberOfEvents, type: key },
   selected,
-  sourcePosition,
-  targetPosition,
-}: NodeProps<UDFNodeData>) {
-  const id = useNodeId()
-  const { workflowId, getNode, reactFlow } = useWorkflowBuilder()
+  id,
+}: NodeProps<ActionNodeData>) {
+  const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
+  // SAFETY: Node only exists if it's in the workflow
+  const { action } = useAction(id, workspaceId, workflowId!)
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)
@@ -91,6 +91,10 @@ export default React.memo(function UDFNode({
       })
     }
   }, [id, toast])
+
+  // Add this to track incoming edges
+  const edges = useEdges()
+  const incomingEdges = edges.filter((edge) => edge.target === id)
 
   return (
     <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
@@ -155,12 +159,12 @@ export default React.memo(function UDFNode({
         </div>
       </CardContent>
 
-      <CustomFloatingHandle
-        type="target"
-        position={targetPosition ?? Position.Top}
+      <ActionTargetHandle
+        join_strategy={action?.control_flow?.join_strategy}
+        indegree={incomingEdges.length}
       />
-      <SuccessHandle type="source" />
-      <ErrorHandle type="source" />
+      <ActionSoruceSuccessHandle type="source" />
+      <ActionSourceErrorHandle type="source" />
     </Card>
   )
 })

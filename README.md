@@ -26,14 +26,10 @@
 - [x] Hosted [Temporal](https://github.com/temporalio/temporal) workflows
 - [x] No-code workflow builder
 - [x] Automations-as-code
-  - [x] GitHub Actions-like YAML syntax. [Docs](https://docs.tracecat.com/concepts/workflow-definitions)
-  - [x] Python-to-no-code compiler. [Docs](https://docs.tracecat.com/concepts/user-defined-functions)
+  - [x] GitHub Actions-like YAML syntax
+  - [x] Python-to-no-code integrations
   - [x] Version control
-  - [ ] VSCode extension (coming soon)
-- [x] Actions (HTTP requests, if-else, etc.). [Docs](https://docs.tracecat.com/concepts/actions)
-- [x] Case Management. [Docs]()
-- [x] Dashboard UI
-- [x] Command-line interface
+- [x] Actions (HTTP requests, JSON data transforms)
 - [x] Integrations
 
 Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simplest way for modern security teams to build, scale, and maintain workflows. Tracecat enables security practitioners to build automations using both:
@@ -65,7 +61,7 @@ More of a DIY hacker? Check out the self-serve [installation guide here](https:/
 
 - For full documentation, visit [https://docs.tracecat.com](https://docs.tracecat.com).
 - For developers looking to create custom security apps, check out our [API Reference](https://docs.tracecat.com/api-reference/introduction).
-- [Quickstart](https://docs.tracecat.com/quickstart): Deploy the classic threat intel workflow with VirusTotal in 15 minutes.
+- [Quickstart](https://docs.tracecat.com/tutorials/quickstart): Build the classic VirusTotal enrichment playbook in 15 minutes.
 
 ## Partner With Us
 

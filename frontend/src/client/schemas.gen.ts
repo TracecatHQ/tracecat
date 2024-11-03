@@ -59,12 +59,8 @@ export const $ActionControlFlow = {
     title: 'ActionControlFlow'
 } as const;
 
-export const $ActionMetadataResponse = {
+export const $ActionCreate = {
     properties: {
-        id: {
-            type: 'string',
-            title: 'Id'
-        },
         workflow_id: {
             type: 'string',
             title: 'Workflow Id'
@@ -76,26 +72,14 @@ export const $ActionMetadataResponse = {
         title: {
             type: 'string',
             title: 'Title'
-        },
-        description: {
-            type: 'string',
-            title: 'Description'
-        },
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        key: {
-            type: 'string',
-            title: 'Key'
         }
     },
     type: 'object',
-    required: ['id', 'workflow_id', 'type', 'title', 'description', 'status', 'key'],
-    title: 'ActionMetadataResponse'
+    required: ['workflow_id', 'type', 'title'],
+    title: 'ActionCreate'
 } as const;
 
-export const $ActionResponse = {
+export const $ActionRead = {
     properties: {
         id: {
             type: 'string',
@@ -131,7 +115,43 @@ export const $ActionResponse = {
     },
     type: 'object',
     required: ['id', 'type', 'title', 'description', 'status', 'inputs', 'key'],
-    title: 'ActionResponse'
+    title: 'ActionRead'
+} as const;
+
+export const $ActionReadMinimal = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        title: {
+            type: 'string',
+            title: 'Title'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        key: {
+            type: 'string',
+            title: 'Key'
+        }
+    },
+    type: 'object',
+    required: ['id', 'workflow_id', 'type', 'title', 'description', 'status', 'key'],
+    title: 'ActionReadMinimal'
 } as const;
 
 export const $ActionRetryPolicy = {
@@ -458,6 +478,67 @@ export const $ActionStep = {
     title: 'ActionStep'
 } as const;
 
+export const $ActionUpdate = {
+    properties: {
+        title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Status'
+        },
+        inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inputs'
+        },
+        control_flow: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ActionControlFlow'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    title: 'ActionUpdate'
+} as const;
+
 export const $Body_auth_reset_forgot_password = {
     properties: {
         email: {
@@ -489,13 +570,13 @@ export const $Body_auth_reset_reset_password = {
 
 export const $Body_auth_sso_acs = {
     properties: {
-        SAMLResponse: {
+        saml_response: {
             type: 'string',
-            title: 'Samlresponse'
+            title: 'Saml Response'
         }
     },
     type: 'object',
-    required: ['SAMLResponse'],
+    required: ['saml_response'],
     title: 'Body_auth-sso_acs'
 } as const;
 
@@ -627,26 +708,6 @@ export const $CommitWorkflowResponse = {
     type: 'object',
     required: ['workflow_id', 'status', 'message'],
     title: 'CommitWorkflowResponse'
-} as const;
-
-export const $CreateActionParams = {
-    properties: {
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        type: {
-            type: 'string',
-            title: 'Type'
-        },
-        title: {
-            type: 'string',
-            title: 'Title'
-        }
-    },
-    type: 'object',
-    required: ['workflow_id', 'type', 'title'],
-    title: 'CreateActionParams'
 } as const;
 
 export const $CreateWorkflowExecutionParams = {
@@ -1759,6 +1820,17 @@ export const $RegistryActionValidateResponse = {
                 }
             ],
             title: 'Detail'
+        },
+        action_ref: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Action Ref'
         }
     },
     type: 'object',
@@ -2855,67 +2927,6 @@ export const $Trigger = {
     title: 'Trigger'
 } as const;
 
-export const $UpdateActionParams = {
-    properties: {
-        title: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        status: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Status'
-        },
-        inputs: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Inputs'
-        },
-        control_flow: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/ActionControlFlow'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        }
-    },
-    type: 'object',
-    title: 'UpdateActionParams'
-} as const;
-
 export const $UpdateWorkflowParams = {
     properties: {
         title: {
@@ -3671,7 +3682,7 @@ export const $WorkflowResponse = {
         },
         actions: {
             additionalProperties: {
-                '$ref': '#/components/schemas/ActionResponse'
+                '$ref': '#/components/schemas/ActionRead'
             },
             type: 'object',
             title: 'Actions'

@@ -94,13 +94,11 @@ export function WorkbenchNav() {
     isOnline,
     setIsOnline,
     commitWorkflow,
+    validationErrors,
+    setValidationErrors,
   } = useWorkflow()
 
   const { workspaceId, workspace, workspaceLoading } = useWorkspace()
-
-  const [commitErrors, setCommitErrors] = React.useState<
-    RegistryActionValidateResponse[] | null
-  >(null)
 
   const handleCommit = async () => {
     console.log("Committing changes...")
@@ -108,9 +106,9 @@ export function WorkbenchNav() {
       const response = await commitWorkflow()
       const { status, errors } = response
       if (status === "failure") {
-        setCommitErrors(errors || null)
+        setValidationErrors(errors || null)
       } else {
-        setCommitErrors(null)
+        setValidationErrors(null)
       }
     } catch (error) {
       console.error("Failed to commit workflow:", error)
@@ -159,11 +157,11 @@ export function WorkbenchNav() {
                 onClick={handleCommit}
                 className={cn(
                   "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
-                  commitErrors &&
+                  validationErrors &&
                     "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
                 )}
               >
-                {commitErrors ? (
+                {validationErrors ? (
                   <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
                 ) : (
                   <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
@@ -174,20 +172,20 @@ export function WorkbenchNav() {
 
             <TooltipContent
               side="bottom"
-              className="max-w-72 space-y-2 border bg-background p-0 text-xs text-muted-foreground shadow-lg"
+              className="w-auto min-w-72 max-w-lg space-y-2 border bg-background p-0 text-xs text-muted-foreground shadow-lg"
             >
-              {commitErrors ? (
+              {validationErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
                   <span className="text-xs font-bold text-rose-500">
                     Validation Errors
                   </span>
                   <div className="mt-1 space-y-1">
-                    {commitErrors.map((error, index) => (
+                    {validationErrors.map((error, index) => (
                       <div className="space-y-2">
                         <Separator className="bg-rose-400" />
                         <ErrorMessage
                           key={index}
-                          message={error.message}
+                          {...error}
                           className="text-rose-500"
                         />
                       </div>
@@ -271,8 +269,9 @@ export function WorkbenchNav() {
 
 function ErrorMessage({
   message,
+  detail,
   className,
-}: { message: string } & React.HTMLAttributes<HTMLPreElement>) {
+}: RegistryActionValidateResponse & React.HTMLAttributes<HTMLPreElement>) {
   // Replace newline characters with <br /> tags
   const formattedMessage = message.split("\n").map((line, index) => (
     <React.Fragment key={index}>
@@ -280,12 +279,19 @@ function ErrorMessage({
       <br />
     </React.Fragment>
   ))
+  const formattedDetail = detail ? YAML.stringify(detail, null, 2) : null
 
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
     >
       {formattedMessage}
+      {formattedDetail && (
+        <React.Fragment>
+          <br />
+          {formattedDetail}
+        </React.Fragment>
+      )}
     </pre>
   )
 }

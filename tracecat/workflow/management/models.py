@@ -12,11 +12,9 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import (
-    ActionResponse,
-    WebhookResponse,
-)
+from tracecat.types.api import WebhookResponse
 from tracecat.types.auth import Role
+from tracecat.workflow.actions.models import ActionRead
 
 
 class CreateWorkflowFromDSLResponse(BaseModel):
@@ -29,7 +27,7 @@ class WorkflowResponse(BaseModel):
     title: str
     description: str
     status: str
-    actions: dict[str, ActionResponse]
+    actions: dict[str, ActionRead]
     object: dict[str, Any] | None  # React Flow object
     owner_id: OwnerID
     version: int | None = None
