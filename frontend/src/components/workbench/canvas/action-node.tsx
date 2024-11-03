@@ -10,7 +10,7 @@ import {
   LayoutListIcon,
   ScanSearchIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position, useEdges } from "reactflow"
+import { Node, NodeProps, useEdges } from "reactflow"
 
 import { useAction } from "@/lib/hooks"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
