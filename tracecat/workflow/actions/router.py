@@ -7,10 +7,10 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Action
 from tracecat.workflow.actions.models import (
     ActionControlFlow,
-    ActionMetadataResponse,
-    ActionResponse,
-    CreateActionParams,
-    UpdateActionParams,
+    ActionCreate,
+    ActionRead,
+    ActionReadMinimal,
+    ActionUpdate,
 )
 
 router = APIRouter(prefix="/actions")
@@ -21,7 +21,7 @@ async def list_actions(
     role: WorkspaceUserRole,
     workflow_id: str,
     session: AsyncDBSession,
-) -> list[ActionMetadataResponse]:
+) -> list[ActionReadMinimal]:
     """List all actions for a workflow."""
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
@@ -30,7 +30,7 @@ async def list_actions(
     results = await session.exec(statement)
     actions = results.all()
     action_metadata = [
-        ActionMetadataResponse(
+        ActionReadMinimal(
             id=action.id,
             workflow_id=workflow_id,
             type=action.type,
@@ -47,9 +47,9 @@ async def list_actions(
 @router.post("", tags=["actions"])
 async def create_action(
     role: WorkspaceUserRole,
-    params: CreateActionParams,
+    params: ActionCreate,
     session: AsyncDBSession,
-) -> ActionMetadataResponse:
+) -> ActionReadMinimal:
     """Create a new action for a workflow."""
     action = Action(
         owner_id=role.workspace_id,
@@ -75,7 +75,7 @@ async def create_action(
     await session.commit()
     await session.refresh(action)
 
-    action_metadata = ActionMetadataResponse(
+    action_metadata = ActionReadMinimal(
         id=action.id,
         workflow_id=params.workflow_id,
         type=params.type,
@@ -93,7 +93,7 @@ async def get_action(
     action_id: str,
     workflow_id: str,
     session: AsyncDBSession,
-) -> ActionResponse:
+) -> ActionRead:
     """Get an action."""
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
@@ -108,7 +108,7 @@ async def get_action(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
 
-    return ActionResponse(
+    return ActionRead(
         id=action.id,
         type=action.type,
         title=action.title,
@@ -124,9 +124,9 @@ async def get_action(
 async def update_action(
     role: WorkspaceUserRole,
     action_id: str,
-    params: UpdateActionParams,
+    params: ActionUpdate,
     session: AsyncDBSession,
-) -> ActionResponse:
+) -> ActionRead:
     """Update an action."""
     # Fetch the action by id
     statement = select(Action).where(
@@ -156,7 +156,7 @@ async def update_action(
     await session.commit()
     await session.refresh(action)
 
-    return ActionResponse(
+    return ActionRead(
         id=action.id,
         type=action.type,
         title=action.title,

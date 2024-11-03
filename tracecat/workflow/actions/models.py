@@ -16,7 +16,7 @@ class ActionControlFlow(BaseModel):
     join_strategy: JoinStrategy = Field(default=JoinStrategy.ALL)
 
 
-class ActionResponse(BaseModel):
+class ActionRead(BaseModel):
     id: str
     type: str
     title: str
@@ -27,12 +27,7 @@ class ActionResponse(BaseModel):
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
 
 
-# TODO: Consistent API design
-# Action and Workflow create / update params
-# should be the same as the metadata responses
-
-
-class ActionMetadataResponse(BaseModel):
+class ActionReadMinimal(BaseModel):
     id: str
     workflow_id: str
     type: str
@@ -42,13 +37,13 @@ class ActionMetadataResponse(BaseModel):
     key: str
 
 
-class CreateActionParams(BaseModel):
+class ActionCreate(BaseModel):
     workflow_id: str
     type: str
     title: str
 
 
-class UpdateActionParams(BaseModel):
+class ActionUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     status: str | None = None
