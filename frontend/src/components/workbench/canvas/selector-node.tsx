@@ -2,14 +2,7 @@ import React, { useCallback, useEffect, useRef } from "react"
 import { RegistryActionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { CloudOffIcon, XIcon } from "lucide-react"
-import {
-  Handle,
-  Node,
-  NodeProps,
-  Position,
-  useKeyPress,
-  useNodeId,
-} from "reactflow"
+import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
 
 import { useWorkbenchRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -62,8 +55,22 @@ export default React.memo(function SelectorNode({
   const id = useNodeId()
   const { workflowId, reactFlow } = useWorkflowBuilder()
   const { setNodes, setEdges } = reactFlow
-  const escapePressed = useKeyPress("Escape")
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    // Remove the selector node when the escape key is pressed
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        removeSelectorNode()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [])
 
   useEffect(() => {
     // Focus the input after a short delay to allow the command list to open
@@ -77,12 +84,6 @@ export default React.memo(function SelectorNode({
     setNodes((nodes) => nodes.filter((node) => !isEphemeral(node)))
     setEdges((edges) => edges.filter((edge) => edge.target !== id))
   }
-
-  useEffect(() => {
-    if (escapePressed) {
-      removeSelectorNode()
-    }
-  }, [escapePressed])
 
   if (!workflowId || !id) {
     console.error("Workflow or node ID not found")
