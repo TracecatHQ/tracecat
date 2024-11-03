@@ -362,6 +362,7 @@ class RegistryActionValidateResponse(BaseModel):
     ok: bool
     message: str
     detail: Any | None = None
+    action_ref: str | None = None
 
     @staticmethod
     def from_validation_result(
@@ -371,7 +372,8 @@ class RegistryActionValidateResponse(BaseModel):
             ok=result.status == "success",
             message=result.msg,
             # Dump this to get subclass-specific fields
-            detail=result.model_dump(exclude={"status", "msg"}, exclude_none=True),
+            detail=result.model_dump(include={"detail"}, exclude_none=True),
+            action_ref=result.ref,
         )
 
     @staticmethod
