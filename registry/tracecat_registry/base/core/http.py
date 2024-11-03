@@ -30,6 +30,10 @@ async def http_request(
         Field(description="The destination of the HTTP request"),
         UrlConstraints(),
     ],
+    method: Annotated[
+        RequestMethods,
+        Field(description="HTTP request method"),
+    ],
     headers: Annotated[
         dict[str, str],
         Field(description="HTTP request headers"),
@@ -46,10 +50,6 @@ async def http_request(
         dict[str, Any],
         Field(description="HTTP form encoded data"),
     ] = None,
-    method: Annotated[
-        RequestMethods,
-        Field(description="HTTP request method"),
-    ] = "GET",
     timeout: Annotated[
         float,
         Field(description="Timeout in seconds"),
