@@ -14,10 +14,10 @@ from tracecat_registry import RegistrySecret, logger, registry, secrets
 # TODO: Support possible sets of secrets
 # e.g. AWS_PROFILE_NAME or AWS_ROLE_ARN
 aws_secret = RegistrySecret(
-    name="aws_guardduty",
+    name="aws",
     keys=["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
 )
-"""AWS GuardDuty secret.
+"""AWS secret.
 
 Secret
 ------
@@ -33,7 +33,7 @@ Environment variables:
 >>> secrets.get["AWS_ACCESS_KEY_ID"]
 
 Expression:
->>> ${{ SECRETS.aws_guardduty.AWS_ACCESS_KEY_ID }}
+>>> ${{ SECRETS.aws.AWS_ACCESS_KEY_ID }}
 """
 
 
