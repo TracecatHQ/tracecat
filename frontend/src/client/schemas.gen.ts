@@ -1820,6 +1820,17 @@ export const $RegistryActionValidateResponse = {
                 }
             ],
             title: 'Detail'
+        },
+        action_ref: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Action Ref'
         }
     },
     type: 'object',

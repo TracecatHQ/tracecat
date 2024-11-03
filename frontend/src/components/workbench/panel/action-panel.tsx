@@ -10,6 +10,7 @@ import {
   JoinStrategy,
   RegistryActionValidateResponse,
 } from "@/client"
+import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
   AlertTriangleIcon,
@@ -26,7 +27,7 @@ import { type Node } from "reactflow"
 import YAML from "yaml"
 
 import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
-import { cn, itemOrEmptyString } from "@/lib/utils"
+import { cn, itemOrEmptyString, slugify } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -57,8 +58,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-
-
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { CustomEditor } from "@/components/editor"
@@ -99,6 +98,7 @@ export function ActionPanel({
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
+  const { validationErrors, setValidationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction, isSaving } = useAction(
     node.id,
     workspaceId,
@@ -123,7 +123,7 @@ export function ActionPanel({
     },
   })
 
-  const [validationErrors, setValidationErrors] =
+  const [actionValidationErrors, setActionValidationErrors] =
     useState<RegistryActionValidateResponse | null>(null)
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success">(
     "idle"
@@ -153,7 +153,7 @@ export function ActionPanel({
         actionInputs = inputs ? YAML.parse(inputs) : {}
       } catch (error) {
         console.error("Failed to parse inputs", error)
-        setValidationErrors({
+        setActionValidationErrors({
           ok: false,
           message: "Failed to parse action inputs",
           detail: String(error),
@@ -178,38 +178,14 @@ export function ActionPanel({
           : undefined,
         ...options,
       } as ActionControlFlow
+      const params = {
+        title: title,
+        description: description,
+        inputs: actionInputs,
+        control_flow: actionControlFlow,
+      } as ActionUpdate
+
       try {
-        // const validateResponse = await registryActionsValidateRegistryAction({
-        //   actionName: registryAction.action,
-        //   requestBody: {
-        //     args: actionInputs,
-        //   },
-        // })
-        // console.log("Validation passed", validateResponse)
-        // if (!validateResponse.ok) {
-        //   console.error("Validation failed", validateResponse)
-        //   setValidationErrors(validateResponse)
-        //   toast({
-        //     title: "Validation Error",
-        //     description: "Failed to validate action inputs",
-        //   })
-        // } else {
-        //   setValidationErrors(null)
-        //   const params = {
-        //     title: title as string,
-        //     description: description as string,
-        //     inputs: actionInputs,
-        //     control_flow: actionControlFlow,
-        //   } as ActionUpdate
-        //   console.log("Submitting action form", params)
-        //   await updateAction(params)
-        // }
-        const params = {
-          title: title as string,
-          description: description as string,
-          inputs: actionInputs,
-          control_flow: actionControlFlow,
-        } as ActionUpdate
         await updateAction(params)
       } catch (error) {
         if (error instanceof ApiError) {
@@ -272,6 +248,10 @@ export function ActionPanel({
     )
   }
 
+  // If there are validation errors, filter out the errors related to this action
+  const finalValErrors = validationErrors
+    ?.filter((error) => error.action_ref === slugify(action.title))
+    .concat(actionValidationErrors || [])
   return (
     <div
       className="size-full overflow-auto"
@@ -474,7 +454,7 @@ export function ActionPanel({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="flex flex-col space-y-4 px-4">
-                  {validationErrors && (
+                  {!!finalValErrors && (
                     <div className="flex items-center space-x-2">
                       <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
                       <span className="text-xs text-rose-500">
@@ -497,12 +477,16 @@ export function ActionPanel({
                       />
                     )}
                   />
-                  {validationErrors && (
+                  {!!finalValErrors && (
                     <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
                       <span className="font-bold">Validation Errors</span>
                       <Separator className="my-2 bg-rose-400" />
-                      <span>{validationErrors.message}</span>
-                      <pre>{YAML.stringify(validationErrors.detail)}</pre>
+                      {finalValErrors.map((error, index) => (
+                        <div key={index} className="mb-4">
+                          <span>{error.message}</span>
+                          <pre>{YAML.stringify(error.detail)}</pre>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
