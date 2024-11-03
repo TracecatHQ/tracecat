@@ -35,10 +35,11 @@ async def get_jwt_token() -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(
             secret["CHECKPOINT_AUTH_URL"],
+            headers={"Content-Type": "application/json"},
             json={
                 "clientId": secret["CHECKPOINT_CLIENT_ID"],
                 "accessKey": secret["CHECKPOINT_ACCESS_KEY"],
             },
         )
         response.raise_for_status()
-        return response.json()["data"]["token"]
+        return response.json()["token"]
