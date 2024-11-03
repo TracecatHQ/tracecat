@@ -11,7 +11,7 @@ import { NodeType } from "@/components/workbench/canvas/canvas"
 import { TriggerNodeData } from "@/components/workbench/canvas/trigger-node"
 import { ActionPanel } from "@/components/workbench/panel/action-panel"
 import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
-import { WorkflowForm } from "@/components/workbench/panel/workflow/form"
+import { WorkflowPanel } from "@/components/workbench/panel/workflow-panel"
 
 export function WorkbenchPanel() {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
@@ -44,7 +44,7 @@ export function WorkbenchPanel() {
       {selectedNode ? (
         <NodePanel node={selectedNode} workflow={workflow} />
       ) : (
-        <WorkflowForm workflow={workflow} />
+        <WorkflowPanel workflow={workflow} />
       )}
     </div>
   )
