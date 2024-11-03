@@ -30,8 +30,8 @@ wiz_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Get Wiz JWT Token",
-    description="Get a JWT token for Wiz API calls.",
+    default_title="Get Wiz auth token",
+    description="Get an auth token for Wiz API calls.",
     namespace="integrations.wiz",
     secrets=[wiz_secret],
 )

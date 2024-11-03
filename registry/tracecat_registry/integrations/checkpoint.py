@@ -25,8 +25,8 @@ checkpoint_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Get Checkpoint JWT Token",
-    description="Get a JWT token for Checkpoint API calls.",
+    default_title="Get Checkpoint auth token",
+    description="Get an auth token for Checkpoint API calls.",
     namespace="integrations.checkpoint",
     secrets=[checkpoint_secret],
 )
