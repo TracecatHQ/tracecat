@@ -6,11 +6,11 @@ import { Node } from "reactflow"
 
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
+import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import { NodeType } from "@/components/workbench/canvas/canvas"
 import { TriggerNodeData } from "@/components/workbench/canvas/trigger-node"
-import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
+import { ActionPanel } from "@/components/workbench/panel/action-panel"
 import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
-import { UDFActionPanel } from "@/components/workbench/panel/udf-panel"
 import { WorkflowForm } from "@/components/workbench/panel/workflow/form"
 
 export function WorkbenchPanel() {
@@ -59,8 +59,8 @@ function NodePanel({
   switch (node.type) {
     case "udf":
       return (
-        <UDFActionPanel
-          node={node as Node<UDFNodeData>}
+        <ActionPanel
+          node={node as Node<ActionNodeData>}
           workflowId={workflow.id}
         />
       )

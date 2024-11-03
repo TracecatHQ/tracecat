@@ -27,11 +27,11 @@ import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import {
   createNewNode,
   isEphemeral,
 } from "@/components/workbench/canvas/canvas"
-import { UDFNodeData } from "@/components/workbench/canvas/udf-node"
 
 const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
 
@@ -120,7 +120,7 @@ export default React.memo(function SelectorNode({
               No results found.
             </span>
           </CommandEmpty>
-          <UDFCommandSelector nodeId={id} />
+          <ActionCommandSelector nodeId={id} />
         </CommandList>
       </Command>
       <Handle
@@ -135,7 +135,7 @@ export default React.memo(function SelectorNode({
   )
 })
 
-function UDFCommandSelector({ nodeId }: { nodeId: string }) {
+function ActionCommandSelector({ nodeId }: { nodeId: string }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useWorkbenchRegistryActions()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -161,7 +161,7 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
     return <CenteredSpinner />
   }
   if (registryActionsError) {
-    console.error("Failed to load UDFs", registryActionsError)
+    console.error("Failed to load actions", registryActionsError)
     return (
       <div className="flex size-full items-center justify-center">
         <CloudOffIcon className="size-8 text-muted-foreground" />
@@ -175,7 +175,7 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
       {Object.entries(grouped)
         .sort(([groupA], [groupB]) => groupA.localeCompare(groupB))
         .map(([group, actions], idx) => (
-          <UDFCommandGroup
+          <ActionCommandGroup
             key={`${group}-${idx}`}
             group={group === TOP_LEVEL_GROUP ? "Core" : group}
             registryActions={actions}
@@ -186,7 +186,7 @@ function UDFCommandSelector({ nodeId }: { nodeId: string }) {
   )
 }
 
-function UDFCommandGroup({
+function ActionCommandGroup({
   group,
   registryActions: actions,
   nodeId,
@@ -203,7 +203,7 @@ function UDFCommandGroup({
       if (!workflowId) {
         return
       }
-      console.log("Selected UDF:", action)
+      console.log("Selected action:", action)
       const { position: currPosition } = getNode(
         nodeId
       ) as Node<SelectorNodeData>
@@ -214,7 +214,7 @@ function UDFCommandGroup({
         status: "offline",
         isConfigured: false,
         numberOfEvents: 0,
-      } as UDFNodeData
+      } as ActionNodeData
       try {
         const newNode = await createNewNode(
           "udf",

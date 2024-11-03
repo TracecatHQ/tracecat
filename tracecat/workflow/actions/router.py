@@ -1,30 +1,27 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user_for_workspace
-from tracecat.db.engine import get_async_session
+from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Action
-from tracecat.types.api import (
-    ActionMetadataResponse,
-    ActionResponse,
-    CreateActionParams,
-    UpdateActionParams,
+from tracecat.workflow.actions.models import (
+    ActionControlFlow,
+    ActionCreate,
+    ActionRead,
+    ActionReadMinimal,
+    ActionUpdate,
 )
-from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/actions")
 
 
 @router.get("", tags=["actions"])
 async def list_actions(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     workflow_id: str,
-    session: AsyncSession = Depends(get_async_session),
-) -> list[ActionMetadataResponse]:
+    session: AsyncDBSession,
+) -> list[ActionReadMinimal]:
     """List all actions for a workflow."""
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
@@ -33,7 +30,7 @@ async def list_actions(
     results = await session.exec(statement)
     actions = results.all()
     action_metadata = [
-        ActionMetadataResponse(
+        ActionReadMinimal(
             id=action.id,
             workflow_id=workflow_id,
             type=action.type,
@@ -49,10 +46,10 @@ async def list_actions(
 
 @router.post("", tags=["actions"])
 async def create_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    params: CreateActionParams,
-    session: AsyncSession = Depends(get_async_session),
-) -> ActionMetadataResponse:
+    role: WorkspaceUserRole,
+    params: ActionCreate,
+    session: AsyncDBSession,
+) -> ActionReadMinimal:
     """Create a new action for a workflow."""
     action = Action(
         owner_id=role.workspace_id,
@@ -78,7 +75,7 @@ async def create_action(
     await session.commit()
     await session.refresh(action)
 
-    action_metadata = ActionMetadataResponse(
+    action_metadata = ActionReadMinimal(
         id=action.id,
         workflow_id=params.workflow_id,
         type=params.type,
@@ -92,11 +89,11 @@ async def create_action(
 
 @router.get("/{action_id}", tags=["actions"])
 async def get_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     action_id: str,
     workflow_id: str,
-    session: AsyncSession = Depends(get_async_session),
-) -> ActionResponse:
+    session: AsyncDBSession,
+) -> ActionRead:
     """Get an action."""
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
@@ -111,7 +108,7 @@ async def get_action(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
 
-    return ActionResponse(
+    return ActionRead(
         id=action.id,
         type=action.type,
         title=action.title,
@@ -119,17 +116,17 @@ async def get_action(
         status=action.status,
         inputs=action.inputs,
         key=action.key,
-        control_flow=action.control_flow,
+        control_flow=ActionControlFlow(**action.control_flow),
     )
 
 
 @router.post("/{action_id}", tags=["actions"])
 async def update_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     action_id: str,
-    params: UpdateActionParams,
-    session: AsyncSession = Depends(get_async_session),
-) -> ActionResponse:
+    params: ActionUpdate,
+    session: AsyncDBSession,
+) -> ActionRead:
     """Update an action."""
     # Fetch the action by id
     statement = select(Action).where(
@@ -159,7 +156,7 @@ async def update_action(
     await session.commit()
     await session.refresh(action)
 
-    return ActionResponse(
+    return ActionRead(
         id=action.id,
         type=action.type,
         title=action.title,
@@ -172,9 +169,9 @@ async def update_action(
 
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"])
 async def delete_action(
-    role: Annotated[Role, Depends(authenticate_user_for_workspace)],
+    role: WorkspaceUserRole,
     action_id: str,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> None:
     """Delete an action."""
     statement = select(Action).where(

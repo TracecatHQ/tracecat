@@ -29,9 +29,9 @@ from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.types.api import ActionControlFlow
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatDSLError
+from tracecat.workflow.actions.models import ActionControlFlow
 
 
 class DSLEntrypoint(BaseModel):

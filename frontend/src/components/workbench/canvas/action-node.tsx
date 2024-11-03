@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { Node, NodeProps, Position, useEdges } from "reactflow"
 
-import { usePanelAction } from "@/lib/hooks"
+import { useAction } from "@/lib/hooks"
 import { cn, copyToClipboard, slugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -37,7 +37,7 @@ import {
   SuccessHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
-export interface UDFNodeData {
+export interface ActionNodeData {
   type: string // alias for key
   title: string
   namespace: string
@@ -45,21 +45,20 @@ export interface UDFNodeData {
   isConfigured: boolean
   numberOfEvents: number
 }
-export type UDFNodeType = Node<UDFNodeData>
-export const RFGraphUDFNodeType = "udf" as const
+export type ActionNodeType = Node<ActionNodeData>
 
-export default React.memo(function UDFNode({
+export default React.memo(function ActionNode({
   data: { title, isConfigured, numberOfEvents, type: key },
   selected,
   sourcePosition,
   targetPosition,
   id,
-}: NodeProps<UDFNodeData>) {
+}: NodeProps<ActionNodeData>) {
   const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   // SAFETY: Node only exists if it's in the workflow
-  const { action } = usePanelAction(id, workspaceId, workflowId!)
+  const { action } = useAction(id, workspaceId, workflowId!)
 
   const handleCopyToClipboard = useCallback(() => {
     const slug = slugify(title)

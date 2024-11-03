@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  ActionResponse,
+  ActionRead,
   actionsGetAction,
   actionsUpdateAction,
+  ActionUpdate,
   ApiError,
   CreateWorkspaceParams,
   EventHistoryResponse,
@@ -38,7 +39,6 @@ import {
   secretsUpdateSecretById,
   SecretUpdate,
   triggersUpdateWebhook,
-  UpdateActionParams,
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
@@ -62,7 +62,7 @@ import Cookies from "js-cookie"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { isEmptyObject } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
-import { UDFNodeType } from "@/components/workbench/canvas/udf-node"
+import { ActionNodeType } from "@/components/workbench/canvas/action-node"
 
 export function useLocalStorage<T>(
   key: string,
@@ -82,17 +82,17 @@ export function useLocalStorage<T>(
 }
 
 export type PanelAction = {
-  action?: ActionResponse
+  action?: ActionRead
   actionIsLoading: boolean
   actionError: Error | null
-  updateAction: (values: UpdateActionParams) => Promise<ActionResponse>
+  updateAction: (values: ActionUpdate) => Promise<ActionRead>
   queryClient: ReturnType<typeof useQueryClient>
   queryKeys: {
     selectedAction: [string, string, string]
     workflow: [string, string]
   }
 }
-export function usePanelAction(
+export function useAction(
   actionId: string,
   workspaceId: string,
   workflowId: string
@@ -103,7 +103,7 @@ export function usePanelAction(
     data: action,
     isLoading: actionIsLoading,
     error: actionError,
-  } = useQuery<ActionResponse, Error>({
+  } = useQuery<ActionRead, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
@@ -111,11 +111,11 @@ export function usePanelAction(
     },
   })
   const { mutateAsync: updateAction } = useMutation({
-    mutationFn: async (values: UpdateActionParams) =>
+    mutationFn: async (values: ActionUpdate) =>
       await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
-    onSuccess: (updatedAction: ActionResponse) => {
-      setNodes((nds: UDFNodeType[]) =>
-        nds.map((node: UDFNodeType) => {
+    onSuccess: (updatedAction: ActionRead) => {
+      setNodes((nds: ActionNodeType[]) =>
+        nds.map((node: ActionNodeType) => {
           if (node.id === actionId) {
             const { title } = updatedAction
             node.data = {
@@ -807,7 +807,7 @@ export function useWorkbenchRegistryActions(versions?: string[]) {
   }
 }
 
-// This is for the UDF panel in the workbench
+// This is for the action panel in the workbench
 export function useRegistryAction(key: string, version: string) {
   const {
     data: registryAction,
