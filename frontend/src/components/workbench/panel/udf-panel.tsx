@@ -5,11 +5,11 @@ import "react18-json-view/src/style.css"
 import React, { useCallback, useState } from "react"
 import {
   ActionControlFlow,
+  ActionUpdate,
   ApiError,
   JoinStrategy,
   registryActionsValidateRegistryAction,
   RegistryActionValidateResponse,
-  UpdateActionParams,
 } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import {
@@ -189,7 +189,7 @@ export function UDFActionPanel({
             description: description as string,
             inputs: actionInputs,
             control_flow: actionControlFlow,
-          } as UpdateActionParams
+          } as ActionUpdate
           console.log("Submitting action form", params)
           await updateAction(params)
         }

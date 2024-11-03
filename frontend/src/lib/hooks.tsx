@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  ActionResponse,
+  ActionRead,
   actionsGetAction,
   actionsUpdateAction,
+  ActionUpdate,
   ApiError,
   CreateWorkspaceParams,
   EventHistoryResponse,
@@ -38,7 +39,6 @@ import {
   secretsUpdateSecretById,
   SecretUpdate,
   triggersUpdateWebhook,
-  UpdateActionParams,
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
@@ -82,10 +82,10 @@ export function useLocalStorage<T>(
 }
 
 export type PanelAction = {
-  action?: ActionResponse
+  action?: ActionRead
   actionIsLoading: boolean
   actionError: Error | null
-  updateAction: (values: UpdateActionParams) => Promise<ActionResponse>
+  updateAction: (values: ActionUpdate) => Promise<ActionRead>
   queryClient: ReturnType<typeof useQueryClient>
   queryKeys: {
     selectedAction: [string, string, string]
@@ -103,7 +103,7 @@ export function useAction(
     data: action,
     isLoading: actionIsLoading,
     error: actionError,
-  } = useQuery<ActionResponse, Error>({
+  } = useQuery<ActionRead, Error>({
     queryKey: ["selected_action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
@@ -111,9 +111,9 @@ export function useAction(
     },
   })
   const { mutateAsync: updateAction } = useMutation({
-    mutationFn: async (values: UpdateActionParams) =>
+    mutationFn: async (values: ActionUpdate) =>
       await actionsUpdateAction({ workspaceId, actionId, requestBody: values }),
-    onSuccess: (updatedAction: ActionResponse) => {
+    onSuccess: (updatedAction: ActionRead) => {
       setNodes((nds: UDFNodeType[]) =>
         nds.map((node: UDFNodeType) => {
           if (node.id === actionId) {
