@@ -3,11 +3,32 @@ title: Actions
 description: Building blocks for automations
 ---
 
-Actions are steps in your workflows.
-
 <Tip>
-    Check out the [Actions Registry tutorial](/tutorials/actions-registry) for a hands-on guide on actions.
+    Check out the [Actions Registry](/tutorials/3-actions-registry) tutorial for a hands-on guide.
 </Tip>
+
+Actions are steps in your workflows.
+Connect them together to create automations.
+Outputs from upstream actions can be referenced as inputs for downstream actions.
+
+## Success / Error Paths
+
+## Action Results
+
+<Note>
+    Actions results are referenced using [JSONPath](https://www.ietf.org/archive/id/draft-ietf-jsonpath-base-01.html) syntax.
+</Note>
+
+To retrieve the output from an action, use the following expression syntax:
+
+```yaml
+ACTIONS.<action_reference>.result.<jsonpath-to-field>
+```
+
+The action reference is a sluggified version of the action's name.
+You can quickly copy the reference for an action by clicking the <Icon icon="copy" iconType="solid" /> icon next to the action's name in the node:
+
+![Copy Action Reference](/images/copy-action-reference.png)
 
 ## Action Types
 
@@ -16,20 +37,56 @@ There are two types of actions:
 - **User-Defined Function (UDF)**: A Python function turned into a referencable action.
 - **Action Template**: A YAML template of referencable actions (UDFs and other action templates) that can be used to create new actions.
 
-## Action Templates
-
-<Tip>
-    We recommend using Action Templates whenever possible.
-    Action templates are easier to maintain and update across workflows compared to UDFs.
-    Templates, unlike UDFs, can be cloned and editted directly in the UI.
-</Tip>
+### Action Templates
 
 Action templates are YAML configuration-as-code templates similar to GitHub Actions workflows.
+We recommend using **Action Templates** over Python UDFswhenever possible.
 
-You can find examples of action templates in the [Tracecat GitHub repo](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
+    - Templates are easier to maintain and update across workflows
+    - Templates, unlike UDFs, can be cloned and editted directly in the UI.
 
-## User-Defined Functions
+For example, the action template for the **Search URL with VirusTotal** integration is as follows:
 
-User-defined functions (UDFs) are Python functions that can be referenced in expressions.
+```yaml
+type: action
+definition:
+  title: Search URL with VirusTotal
+  description: Get threat intel report for a URL from VirusTotal.
+  display_group: VirusTotal
+  namespace: integrations.virustotal
+  name: search_url
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
+  expects:
+    url:
+      type: str
+      description: The URL to search
+  steps:
+    - ref: search_url
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/urls/${{ FN.to_base64(inputs.url) }}
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+  returns: ${{ steps.search_url.result }}
+```
 
-Tracecat comes with six core UDF-based actions:
+We open sourced action templates for every pre-built integrations.
+Check them out in Tracecat's public repository [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
+
+### User-Defined Functions
+
+User-defined functions (UDFs) are Python functions that are automatically converted into no-code actions.
+Find out how to create your own UDFs in the [Custom Integrations](/tutorials/6-custom-integrations) tutorial.
+
+## Integrations
+
+Tracecat comes with pre-built integrations for many popular security tools.
+A list of supported tools can be found in the [integrations cheatsheet](/cheatsheets/integrations).
+
+<Note>
+    Integrations are not automatically updated when you update the Tracecat version.
+    You will need to manually sync the Tracecat registry repository from the **Action Registry** page.
+</Note>
