@@ -47,9 +47,16 @@ description: Learn how to safely update versions and run data migrations.
   </Step>
 </Steps>
 
+## Update Integrations
+
+Integrations are not automatically updated when you update the Tracecat version.
+You will need to manually sync the Tracecat registry repository from the **Action Registry** page:
+
+![Sync registry](/img/tutorials/sync-registry.png)
+
 ## Terraform Deployments
 
-All of Tracecat's Cloud deployments (e.g. AWS EC2, AWS ECS) are configured using Terraform.
+All of Tracecat's Cloud deployments are configured using Terraform.
 To update Tracecat, you can download the latest Terraform stack from Tracecat's GitHub repo and run `terraform apply`.
 
 ## Data Migration
@@ -59,15 +66,12 @@ Data migrations are, however, non-trivial operations.
 We recommend backing up your database before running migrations, especially in a production environment.
 
 <Note>
-If the API service fails to spin up due to a data migration error, do not worry!
-Your data is still intact. Make sure you first backup the core Tracecat database:
+If the API service fails to spin up due to a data migration error, do not worry.
+Your data is still intact. Make sure you backup the core Tracecat database:
 
 - For Docker Compose and AWS EC2 deployments, this would be the `core-db` volume in Tracecat's Docker stack.
-- For AWS ECS Fargate deployments, backups are created automatically as part of the RDS postgres service.
+- For AWS ECS Fargate deployments, backups are created automatically as part of the RDS postgres service. Just run `terraform apply` with `var.restore_from_backup` set to `true` to restore the latest RDS snapshot.
 
-Then contact us on [Discord](https://discord.gg/n3GF4qxFU8) or email [founders@tracecat.com](mailto:founders@tracecat.com) for live migration support.
-
-We're releasing a self-serve guide for manual migration in the coming months.
-For the time being, however, we recommend contacting us for one-on-one help!
+If you need live migration support, contact us on [Discord](https://discord.gg/n3GF4qxFU8) or email [founders@tracecat.com](mailto:founders@tracecat.com)!
 
 </Note>
