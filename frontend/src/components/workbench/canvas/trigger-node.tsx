@@ -133,7 +133,7 @@ export default React.memo(function TriggerNode({
         </div>
       </div>
       <Separator />
-      <CardContent className="p-4 py-3">
+      <CardContent className="p-4 py-2">
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
