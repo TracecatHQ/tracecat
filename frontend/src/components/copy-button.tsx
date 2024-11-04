@@ -12,9 +12,11 @@ import {
 export function CopyButton({
   value,
   toastMessage,
+  tooltipMessage,
 }: {
   value: string
   toastMessage: string
+  tooltipMessage?: string
 }) {
   const [copied, setCopied] = React.useState(false)
   return (
@@ -24,7 +26,8 @@ export function CopyButton({
           type="button"
           variant="ghost"
           className="group m-0 size-4 p-0"
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation()
             copyToClipboard({
               value,
               message: toastMessage,
@@ -40,7 +43,7 @@ export function CopyButton({
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Copy</TooltipContent>
+      <TooltipContent>{tooltipMessage || "Copy"}</TooltipContent>
     </Tooltip>
   )
 }

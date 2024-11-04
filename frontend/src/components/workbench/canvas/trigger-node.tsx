@@ -2,7 +2,6 @@ import React from "react"
 import { Schedule, WebhookResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
-  BellDotIcon,
   CalendarCheck,
   ChevronDownIcon,
   CircleCheckBigIcon,
@@ -134,7 +133,7 @@ export default React.memo(function TriggerNode({
         </div>
       </div>
       <Separator />
-      <CardContent className="p-4 py-3">
+      <CardContent className="p-4 py-2">
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
@@ -143,9 +142,6 @@ export default React.memo(function TriggerNode({
               <LayoutListIcon className="size-4 text-gray-400" />
             )}
             <span className="text-xs capitalize">{"Not configured"}</span>
-          </div>
-          <div className="flex items-center justify-end">
-            <BellDotIcon className="mr-2 size-3" />0
           </div>
         </div>
       </CardContent>
