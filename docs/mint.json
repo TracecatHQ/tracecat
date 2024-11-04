@@ -210,12 +210,6 @@
               ]
             },
             {
-              "group": "validation",
-              "pages": [
-                "api-reference/reference/validation/validate-workflow"
-              ]
-            },
-            {
               "group": "users",
               "pages": [
                 "api-reference/reference/users/search-user",
