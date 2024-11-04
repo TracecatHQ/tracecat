@@ -46,6 +46,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -567,16 +572,21 @@ export function ActionPanel({
                         <span>Run If</span>
                       </FormLabel>
                       <div className="flex items-center">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <Info className="mr-1 size-3 stroke-muted-foreground" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <Info className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
                             <RunIfTooltip />
-                          </TooltipContent>
-                        </Tooltip>
+                          </HoverCardContent>
+                        </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
                           Define a conditional expression that determines if the
@@ -603,16 +613,21 @@ export function ActionPanel({
                         <span>Loop Iteration</span>
                       </FormLabel>
                       <div className="flex items-center">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <Info className="mr-1 size-3 stroke-muted-foreground" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <Info className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
                             <ForEachTooltip />
-                          </TooltipContent>
-                        </Tooltip>
+                          </HoverCardContent>
+                        </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
                           Define one or more loop expressions for the action to
@@ -639,16 +654,21 @@ export function ActionPanel({
                         <span>Retry Policy</span>
                       </FormLabel>
                       <div className="flex items-center">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <Info className="mr-1 size-3 stroke-muted-foreground" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <Info className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
                             <RetryPolicyTooltip />
-                          </TooltipContent>
-                        </Tooltip>
+                          </HoverCardContent>
+                        </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
                           Define the retry policy for the action.
@@ -673,16 +693,21 @@ export function ActionPanel({
                         <span>Options</span>
                       </FormLabel>
                       <div className="flex items-center">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <Info className="mr-1 size-3 stroke-muted-foreground" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <Info className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
                             <ControlFlowConfigTooltip />
-                          </TooltipContent>
-                        </Tooltip>
+                          </HoverCardContent>
+                        </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
                           Define additional control flow options for the action.
