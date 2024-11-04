@@ -13,7 +13,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.api.routers.public.webhooks import router as webhook_router
 from tracecat.api.routers.users import router as users_router
-from tracecat.api.routers.validation import router as validation_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
@@ -237,7 +236,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_actions_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
-    app.include_router(validation_router)
     app.include_router(users_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
