@@ -346,14 +346,14 @@ export function ActionPanel({
             <div className="flex items-center justify-start">
               <TabsList className="grid h-8 grid-cols-2 rounded-none bg-transparent p-0">
                 <TabsTrigger
-                  className="size-full w-full rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="inputs"
                 >
                   <LayoutListIcon className="mr-2 size-4" />
                   <span>Inputs</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="size-full w-full rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="control-flow"
                 >
                   <RepeatIcon className="mr-2 size-4" />
