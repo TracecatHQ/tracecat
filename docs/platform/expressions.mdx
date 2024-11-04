@@ -2,3 +2,19 @@
 title: Expressions
 description: Reference action results and workflow metadata in your workflows
 ---
+
+Expressions are a way to reference data in your workflows.
+To use an expression, you must wrap an [expression context](/platform/expressions#expression-contexts) around `${{...}}`.
+For example, `${{ ACTIONS.my_action.result }}` will return the result of the `my_action` action.
+
+Expressions are evaluated into a value when the workflow is run.
+
+## Expression Types
+
+Tracecat comes with five expression types:
+
+- `ACTIONS`: Reference the result of an action
+- `SECRETS`: Reference secrets
+- `TRIGGER`: Reference data passed into the workflow from the webhook
+- `INPUTS`: Static workflow inputs
+- `FN`: Reference functions (e.g. `FN.contains("a", ["a", "b", "c"])`)
