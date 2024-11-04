@@ -144,9 +144,6 @@ export default React.memo(function TriggerNode({
             )}
             <span className="text-xs capitalize">{"Not configured"}</span>
           </div>
-          <div className="flex items-center justify-end">
-            <BellDotIcon className="mr-2 size-3" />0
-          </div>
         </div>
       </CardContent>
 
