@@ -1,19 +1,15 @@
 import React, { useCallback } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import {
-  BellDotIcon,
   ChevronDownIcon,
   CircleCheckBigIcon,
-  Copy,
-  Delete,
-  EyeIcon,
   LayoutListIcon,
-  ScanSearchIcon,
+  Trash2Icon,
 } from "lucide-react"
 import { Node, NodeProps, useEdges } from "reactflow"
 
 import { useAction } from "@/lib/hooks"
-import { cn, copyToClipboard, slugify } from "@/lib/utils"
+import { cn, slugify } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -30,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
+import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import {
   ActionSoruceSuccessHandle,
@@ -57,19 +54,6 @@ export default React.memo(function ActionNode({
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   // SAFETY: Node only exists if it's in the workflow
   const { action } = useAction(id, workspaceId, workflowId!)
-
-  const handleCopyToClipboard = useCallback(() => {
-    const slug = slugify(title)
-    const ref = `ACTIONS.${slug}`
-    copyToClipboard({
-      value: ref,
-      message: `Action reference copied to clipboard`,
-    })
-    toast({
-      title: "Copied action node reference",
-      description: `The action reference '${ref}' has been copied to your clipboard.`,
-    })
-  }, [title, toast])
 
   const handleDeleteNode = useCallback(async () => {
     try {
@@ -106,8 +90,13 @@ export default React.memo(function ActionNode({
 
           <div className="flex w-full flex-1 justify-between space-x-12">
             <div className="flex flex-col">
-              <CardTitle className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                <div className="flex w-full">{title}</div>
+              <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
+                <span>{title}</span>
+                <CopyButton
+                  value={`\$\{\{ ACTIONS.${slugify(title)}.result \}\}`}
+                  toastMessage="Copied action reference to clipboard"
+                  tooltipMessage="Copy action reference"
+                />
               </CardTitle>
               <CardDescription className="mt-2 text-xs text-muted-foreground">
                 {key}
@@ -120,20 +109,8 @@ export default React.memo(function ActionNode({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleCopyToClipboard}>
-                  <Copy className="mr-2 size-4" />
-                  <span className="text-xs">Copy action reference</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  <ScanSearchIcon className="mr-2 size-4" />
-                  <span className="text-xs">Search events</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  <EyeIcon className="mr-2 size-4" />
-                  <span className="text-xs">View logs</span>
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleDeleteNode}>
-                  <Delete className="mr-2 size-4 text-red-600" />
+                  <Trash2Icon className="mr-2 size-4 text-red-600" />
                   <span className="text-xs text-red-600">Delete</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -142,7 +119,7 @@ export default React.memo(function ActionNode({
         </div>
       </CardHeader>
       <Separator />
-      <CardContent className="p-4 py-3">
+      <CardContent className="p-4 py-2">
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
