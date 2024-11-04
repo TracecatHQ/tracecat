@@ -48,7 +48,7 @@ export interface ActionNodeData {
 export type ActionNodeType = Node<ActionNodeData>
 
 export default React.memo(function ActionNode({
-  data: { title, isConfigured, numberOfEvents, type: key },
+  data: { title, isConfigured, type: key },
   selected,
   id,
 }: NodeProps<ActionNodeData>) {
@@ -151,10 +151,6 @@ export default React.memo(function ActionNode({
               <LayoutListIcon className="size-4 text-gray-400" />
             )}
             <span className="text-xs capitalize">{isConfiguredMessage}</span>
-          </div>
-          <div className="flex items-center justify-end">
-            <BellDotIcon className="mr-2 size-3" />
-            <span>{numberOfEvents}</span>
           </div>
         </div>
       </CardContent>
