@@ -2,7 +2,6 @@ import React from "react"
 import { Schedule, WebhookResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
-  BellDotIcon,
   CalendarCheck,
   ChevronDownIcon,
   CircleCheckBigIcon,
