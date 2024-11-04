@@ -98,7 +98,8 @@
           "pages": [
             "self-hosting/authentication/introduction",
             "self-hosting/authentication/basic",
-            "self-hosting/authentication/google"
+            "self-hosting/authentication/google",
+            "self-hosting/authentication/okta"
           ]
         }
       ]
@@ -107,14 +108,6 @@
       "group": "Core Features",
       "pages": [
         "platform/actions",
-        {
-          "group": "Core Actions",
-          "pages": [
-            "platform/action-types/trigger",
-            "platform/action-types/http",
-            "platform/action-types/reshape"
-          ]
-        },
         "platform/secrets",
         "platform/expressions"
       ]
