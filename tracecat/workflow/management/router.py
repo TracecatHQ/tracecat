@@ -27,9 +27,9 @@ from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import UpsertWebhookParams, WebhookResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.webhooks.models import UpsertWebhookParams, WebhookResponse
 from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -445,10 +445,9 @@ async def create_webhook(
 
     webhook = Webhook(
         owner_id=role.workspace_id,
-        entrypoint_ref=params.entrypoint_ref,
         method=params.method or "POST",
         workflow_id=workflow_id,
-    )
+    )  # type: ignore
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)

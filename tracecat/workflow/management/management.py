@@ -182,7 +182,6 @@ class WorkflowsManagementService:
             raise TracecatValidationError(
                 "Workflow has no actions. Please add an action to the workflow before committing."
             )
-        logger.warning("Building graph from workflow", workflow=workflow)
         graph = RFGraph.from_workflow(workflow)
         if not graph.logical_entrypoint:
             raise TracecatValidationError(

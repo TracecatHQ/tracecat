@@ -816,3 +816,20 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
 
     for actual, ex in zip(errors, expected, strict=True):
         assert_validation_result(actual, **ex)
+
+
+@pytest.mark.parametrize(
+    "context,expr,expected",
+    [
+        ({"TRIGGER": {"data": {"foo": "bar"}}}, "TRIGGER", {"data": {"foo": "bar"}}),
+        ({"TRIGGER": "data"}, "TRIGGER", "data"),
+        ({"TRIGGER": None}, "TRIGGER", None),
+        ({"TRIGGER": [1, 2, 3]}, "TRIGGER", [1, 2, 3]),
+    ],
+)
+def test_parse_trigger_json(context, expr, expected):
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    ev = ExprEvaluator(context=context)
+    actual = ev.transform(parse_tree)
+    assert actual == expected

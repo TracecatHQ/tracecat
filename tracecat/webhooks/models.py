@@ -1,16 +1,8 @@
-from __future__ import annotations
-
 from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from tracecat.db.schemas import Resource
-
-
-class UpsertWebhookParams(BaseModel):
-    status: Literal["online", "offline"] | None = None
-    entrypoint_ref: str | None = None
-    method: Literal["GET", "POST"] | None = None
 
 
 class WebhookResponse(Resource):
@@ -22,3 +14,9 @@ class WebhookResponse(Resource):
     method: Literal["GET", "POST"]
     workflow_id: str
     url: str
+
+
+class UpsertWebhookParams(BaseModel):
+    status: Literal["online", "offline"] | None = None
+    entrypoint_ref: str | None = None
+    method: Literal["GET", "POST"] | None = None

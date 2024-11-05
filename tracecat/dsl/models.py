@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
@@ -16,6 +16,9 @@ from tracecat.types.auth import Role
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
+
+TriggerInputs = JsonValue
+"""Trigger inputs JSON type."""
 
 
 class DSLNodeResult(TypedDict, total=False):
@@ -167,7 +170,7 @@ class DSLContext(TypedDict, total=False):
     ACTIONS: dict[str, Any]
     """DSL Actions context"""
 
-    TRIGGER: dict[str, Any]
+    TRIGGER: TriggerInputs
     """DSL Trigger dynamic inputs context"""
 
     ENV: DSLEnvironment
