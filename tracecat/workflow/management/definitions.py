@@ -29,7 +29,7 @@ class WorkflowDefinitionsService:
     @staticmethod
     async def with_session(
         role: Role,
-    ) -> AsyncGenerator[WorkflowDefinitionsService, None, None]:
+    ) -> AsyncGenerator[WorkflowDefinitionsService, None]:
         async with get_async_session_context_manager() as session:
             yield WorkflowDefinitionsService(session, role)
 

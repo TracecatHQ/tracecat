@@ -175,20 +175,6 @@ class DSLContext(TypedDict, total=False):
     ENV: DSLEnvironment
     """DSL Environment context. Has metadata about the workflow."""
 
-    @staticmethod
-    def create_default(
-        INPUTS: dict[str, Any] | None = None,
-        ACTIONS: dict[str, Any] | None = None,
-        TRIGGER: dict[str, Any] | None = None,
-        ENV: dict[str, Any] | None = None,
-    ) -> DSLContext:
-        return DSLContext(
-            INPUTS=INPUTS or {},
-            ACTIONS=ACTIONS or {},
-            TRIGGER=TRIGGER or {},
-            ENV=ENV or {},
-        )
-
 
 class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
@@ -213,11 +199,3 @@ class DSLExecutionError(TypedDict, total=False):
 
     message: str
     """The message of the exception."""
-
-    @staticmethod
-    def from_exception(e: BaseException) -> DSLExecutionError:
-        return DSLExecutionError(
-            is_error=True,
-            type=e.__class__.__name__,
-            message=str(e),
-        )

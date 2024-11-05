@@ -13,7 +13,7 @@ from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.dsl.common import context_locator
+from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
     ActionStatement,
     DSLContext,
@@ -256,7 +256,9 @@ async def run_action_from_input(input: RunActionInput[ArgsT]) -> Any:
     else:
         args = evaluate_templated_args(task, context_with_secrets)
         result = await run_single_action(
-            action_name=action_name, args=args, context=context_with_secrets
+            action_name=action_name,
+            args=args,
+            context=cast(dict[str, Any], context_with_secrets),
         )
 
     if mask_values:
@@ -309,12 +311,12 @@ def iter_for_each(
             context.copy()
             if patch
             # XXX: ENV is the only context that should be shared
-            else DSLContext.create_default()
+            else create_default_dsl_context()
         )
         logger.trace("Context before patch", patched_context=patched_context)
         for iterator_path, iterator_value in items:
             patch_object(
-                patched_context,
+                cast(dict[str, Any], patched_context),
                 path=assign_context + iterator_path,
                 value=iterator_value,
             )

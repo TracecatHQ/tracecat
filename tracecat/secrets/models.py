@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Self
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import (
@@ -29,7 +29,7 @@ class RevealedSecretKeyValue(BaseModel):
     value: str
 
     def conceal(self) -> SecretKeyValue:
-        return SecretKeyValue(key=self.key, value=self.value)
+        return SecretKeyValue(key=self.key, value=SecretStr(self.value))
 
 
 class SecretKeyValue(BaseModel):
@@ -37,9 +37,9 @@ class SecretKeyValue(BaseModel):
     value: SecretStr
 
     @staticmethod
-    def from_str(kv: str) -> Self:
+    def from_str(kv: str) -> SecretKeyValue:
         key, value = kv.split("=", 1)
-        return SecretKeyValue(key=key, value=value)
+        return SecretKeyValue(key=key, value=SecretStr(value))
 
     def reveal(self) -> RevealedSecretKeyValue:
         return RevealedSecretKeyValue(key=self.key, value=self.value.get_secret_value())
@@ -71,7 +71,7 @@ class CustomSecret(SecretBase):
 
 SecretVariant = CustomSecret  # | TokenSecret | OAuth2Secret
 _SECRET_FACTORY: dict[SecretType, type[SecretBase]] = {
-    "custom": CustomSecret,
+    SecretType.CUSTOM: CustomSecret,
     # "token": TokenSecret,
     # "oauth2": OAuth2Secret,
 }
@@ -160,7 +160,7 @@ class SecretRead(BaseModel):
     def from_database(obj: BaseSecret) -> SecretRead:
         return SecretRead(
             id=obj.id,
-            type=obj.type,
+            type=SecretType(obj.type),
             name=obj.name,
             description=obj.description,
             environment=obj.environment,

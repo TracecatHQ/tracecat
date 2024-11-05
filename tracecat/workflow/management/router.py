@@ -23,6 +23,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
+from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
@@ -192,10 +193,10 @@ async def get_workflow(
         entrypoint=workflow.entrypoint,
         object=workflow.object,
         static_inputs=workflow.static_inputs,
-        config=workflow.config,
+        config=DSLConfig(**workflow.config),
         actions=actions_responses,
         webhook=WebhookResponse(**workflow.webhook.model_dump()),
-        schedules=workflow.schedules,
+        schedules=workflow.schedules or [],
     )
 
 

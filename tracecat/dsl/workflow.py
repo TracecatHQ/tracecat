@@ -30,7 +30,12 @@ with workflow.unsafe.imports_passed_through():
         DSLActivities,
         ValidateActionActivityInput,
     )
-    from tracecat.dsl.common import DSLInput, DSLRunArgs, ExecuteChildWorkflowArgs
+    from tracecat.dsl.common import (
+        DSLInput,
+        DSLRunArgs,
+        ExecuteChildWorkflowArgs,
+        dsl_execution_error_from_exception,
+    )
     from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
     from tracecat.dsl.enums import FailStrategy, LoopStrategy
     from tracecat.dsl.models import (
@@ -240,7 +245,9 @@ class DSLWorkflow:
         )
 
         self.scheduler = DSLScheduler(
-            executor=self.execute_task, dsl=self.dsl, context=self.context
+            executor=self.execute_task,  # type: ignore
+            dsl=self.dsl,
+            context=self.context,
         )
         try:
             await self.scheduler.start()
@@ -370,6 +377,8 @@ class DSLWorkflow:
                 evaluated_args=args,
             )
 
+            if child_run_args.dsl is None:
+                raise ValueError("Child run args must have a DSL")
             # Always set the trigger inputs in the child run args
             child_run_args.trigger_inputs = args.get("trigger_inputs")
 
@@ -475,7 +484,7 @@ class DSLWorkflow:
                 coros.append(coro)
             gather_result = await asyncio.gather(*coros, return_exceptions=True)
             result: list[DSLExecutionError | Any] = [
-                DSLExecutionError.from_exception(val)
+                dsl_execution_error_from_exception(val)
                 if isinstance(val, BaseException)
                 else val
                 for val in gather_result

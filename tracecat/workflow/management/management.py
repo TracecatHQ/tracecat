@@ -42,7 +42,7 @@ class WorkflowsManagementService:
     @staticmethod
     async def with_session(
         role: Role | None = None,
-    ) -> AsyncGenerator[WorkflowsManagementService, None, None]:
+    ) -> AsyncGenerator[WorkflowsManagementService, None]:
         async with get_async_session_context_manager() as session:
             yield WorkflowsManagementService(session, role=role)
 
