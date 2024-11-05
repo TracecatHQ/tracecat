@@ -605,24 +605,6 @@ export const $Body_auth_verify_verify = {
     title: 'Body_auth-verify:verify'
 } as const;
 
-export const $Body_validation_validate_workflow = {
-    properties: {
-        definition: {
-            type: 'string',
-            format: 'binary',
-            title: 'Definition'
-        },
-        payload: {
-            type: 'string',
-            format: 'binary',
-            title: 'Payload'
-        }
-    },
-    type: 'object',
-    required: ['definition'],
-    title: 'Body_validation-validate_workflow'
-} as const;
-
 export const $Body_workflows_create_workflow = {
     properties: {
         title: {
@@ -720,13 +702,12 @@ export const $CreateWorkflowExecutionParams = {
         inputs: {
             anyOf: [
                 {
-                    type: 'object'
+                    '$ref': '#/components/schemas/JsonValue'
                 },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Inputs'
+            ]
         }
     },
     type: 'object',
@@ -851,8 +832,7 @@ export const $DSLContext = {
             title: 'Actions'
         },
         TRIGGER: {
-            type: 'object',
-            title: 'Trigger'
+            '$ref': '#/components/schemas/JsonValue'
         },
         ENV: {
             '$ref': '#/components/schemas/DSLEnvironment'
@@ -996,13 +976,12 @@ export const $DSLRunArgs = {
         trigger_inputs: {
             anyOf: [
                 {
-                    type: 'object'
+                    '$ref': '#/components/schemas/JsonValue'
                 },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Trigger Inputs'
+            ]
         },
         parent_run_context: {
             anyOf: [
@@ -1356,6 +1335,8 @@ export const $JoinStrategy = {
     enum: ['any', 'all'],
     title: 'JoinStrategy'
 } as const;
+
+export const $JsonValue = {} as const;
 
 export const $OAuth2AuthorizeResponse = {
     properties: {
