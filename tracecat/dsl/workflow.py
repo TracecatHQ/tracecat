@@ -337,7 +337,7 @@ class DSLWorkflow:
             task_result.update(error=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            logger.warning("Setting action result", task_result=task_result)
+            logger.debug("Setting action result", task_result=task_result)
             self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
 
     ERROR_TYPE_TO_MESSAGE = {
