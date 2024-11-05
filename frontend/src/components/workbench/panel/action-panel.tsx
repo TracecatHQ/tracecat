@@ -455,7 +455,8 @@ export function ActionPanel({
                   <AccordionContent className="space-y-4">
                     {/* Action secrets */}
                     <div className="space-y-4 px-4">
-                      {registryAction.secrets ? (
+                      {registryAction.secrets &&
+                      registryAction.secrets.length > 0 ? (
                         <div className="text-xs text-muted-foreground">
                           <span>
                             This action requires the following secrets:

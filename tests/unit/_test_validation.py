@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 from pydantic import BaseModel
 
-from tracecat.validation import json_schema_to_pydantic
+from tracecat.validation.common import json_schema_to_pydantic
 
 
 def test_simple_schema():

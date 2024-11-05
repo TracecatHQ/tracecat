@@ -20,7 +20,6 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import validation
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
@@ -29,6 +28,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import UpsertWebhookParams, WebhookResponse
 from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -185,7 +185,6 @@ async def get_workflow(
         owner_id=workflow.owner_id,
         title=workflow.title,
         description=workflow.description,
-        icon_url=workflow.icon_url,
         status=workflow.status,
         version=workflow.version,
         expects=workflow.expects,
@@ -295,7 +294,7 @@ async def commit_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
+        if val_errors := await validate_dsl(session=session, dsl=dsl):
             logger.warning("Validation errors", errors=val_errors)
             return CommitWorkflowResponse(
                 workflow_id=workflow_id,

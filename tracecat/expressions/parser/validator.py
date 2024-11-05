@@ -16,7 +16,7 @@ from tracecat.expressions.shared import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, 
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.types.validation import ExprValidationResult
+from tracecat.validation.models import ExprValidationResult
 
 T = TypeVar("T")
 
