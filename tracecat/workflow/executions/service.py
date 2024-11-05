@@ -30,6 +30,7 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.webhooks.models import TriggerInputs
 from tracecat.workflow.executions.models import (
     CreateWorkflowExecutionResponse,
     DispatchWorkflowResult,
@@ -319,7 +320,7 @@ class WorkflowExecutionsService:
         dsl: DSLInput,
         *,
         wf_id: identifiers.WorkflowID,
-        payload: dict[str, Any] | None = None,
+        payload: TriggerInputs | None = None,
     ) -> CreateWorkflowExecutionResponse:
         """Create a new workflow execution.
 
@@ -338,7 +339,7 @@ class WorkflowExecutionsService:
         dsl: DSLInput,
         *,
         wf_id: identifiers.WorkflowID,
-        payload: dict[str, Any] | None = None,
+        payload: TriggerInputs | None = None,
     ) -> Awaitable[DispatchWorkflowResult]:
         """Create a new workflow execution.
 
@@ -364,7 +365,7 @@ class WorkflowExecutionsService:
         dsl: DSLInput,
         wf_id: identifiers.WorkflowID,
         wf_exec_id: identifiers.WorkflowExecutionID,
-        trigger_inputs: dict[str, Any] | None = None,
+        trigger_inputs: TriggerInputs | None = None,
         **kwargs: Any,
     ) -> DispatchWorkflowResult:
         logger.info(

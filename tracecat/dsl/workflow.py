@@ -60,6 +60,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.types.validation import ValidationResult
+    from tracecat.webhooks.models import TriggerInputs
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -511,7 +512,7 @@ class DSLWorkflow:
         )
 
     async def _validate_trigger_inputs(
-        self, trigger_inputs: dict[str, Any]
+        self, trigger_inputs: TriggerInputs
     ) -> ValidationResult:
         """Validate trigger inputs.
 

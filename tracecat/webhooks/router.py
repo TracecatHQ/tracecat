@@ -1,12 +1,11 @@
-from typing import Any
-
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import DSLContext
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import WorkflowDefinitionFromWebhook
+from tracecat.webhooks.models import TriggerInputs
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/webhooks")
 async def incoming_webhook(
     defn: WorkflowDefinitionFromWebhook,
     path: str,
-    payload: dict[str, Any] | None = None,
+    payload: TriggerInputs | None = Body(default=None),
 ) -> CreateWorkflowExecutionResponse:
     """
     Webhook endpoint to trigger a workflow.
@@ -40,7 +39,7 @@ async def incoming_webhook(
 async def incoming_webhook_wait(
     defn: WorkflowDefinitionFromWebhook,
     path: str,
-    payload: dict[str, Any] | None = None,
+    payload: TriggerInputs | None = Body(default=None),
 ) -> DSLContext:
     """
     Webhook endpoint to trigger a workflow.

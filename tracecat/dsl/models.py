@@ -13,6 +13,7 @@ from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.auth import Role
+from tracecat.webhooks.models import TriggerInputs
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -167,7 +168,7 @@ class DSLContext(TypedDict, total=False):
     ACTIONS: dict[str, Any]
     """DSL Actions context"""
 
-    TRIGGER: dict[str, Any]
+    TRIGGER: TriggerInputs
     """DSL Trigger dynamic inputs context"""
 
     ENV: DSLEnvironment

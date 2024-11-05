@@ -15,14 +15,7 @@ from tracecat.contexts import RunContext
 from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
 from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
-from tracecat.dsl.view import (
-    RFEdge,
-    RFGraph,
-    RFNode,
-    TriggerNode,
-    UDFNode,
-    UDFNodeData,
-)
+from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.shared import ExprContext
@@ -31,6 +24,7 @@ from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatDSLError
+from tracecat.webhooks.models import TriggerInputs
 from tracecat.workflow.actions.models import ActionControlFlow
 
 
@@ -201,7 +195,7 @@ class DSLRunArgs(BaseModel):
     role: Role
     dsl: DSLInput | None = None
     wf_id: WorkflowID
-    trigger_inputs: dict[str, Any] | None = None
+    trigger_inputs: TriggerInputs | None = None
     parent_run_context: RunContext | None = None
     runtime_config: DSLConfig = Field(
         default_factory=DSLConfig,
@@ -222,7 +216,7 @@ class DSLRunArgs(BaseModel):
 
 class ExecuteChildWorkflowArgs(TypedDict):
     workflow_id: WorkflowID
-    trigger_inputs: dict[str, Any]
+    trigger_inputs: TriggerInputs
     environment: str | None
     version: int | None
     loop_strategy: LoopStrategy | None
