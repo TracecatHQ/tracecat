@@ -2,10 +2,10 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from tracecat.api.routers.public.dependencies import WorkflowDefinitionFromWebhook
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
 from tracecat.logger import logger
+from tracecat.webhooks.dependencies import WorkflowDefinitionFromWebhook
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 

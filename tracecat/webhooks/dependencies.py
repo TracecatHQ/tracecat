@@ -60,7 +60,7 @@ async def validate_incoming_webhook(
         result = await session.exec(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == path)
-            .order_by(WorkflowDefinition.version.desc())
+            .order_by(WorkflowDefinition.version.desc())  # type: ignore
         )
         try:
             defn = result.first()
