@@ -74,7 +74,7 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
     workflow_id: WorkflowID
     version: int | None = None
-    task: ActionStatement[Any] | None = None
+    task: ActionStatement | None = None
 
 
 WorkflowExportFormat = Literal["json", "yaml"]

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-from collections.abc import Awaitable, Generator, Iterable
+import uuid
+from collections.abc import Coroutine, Generator, Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -34,13 +35,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.enums import FailStrategy, LoopStrategy
     from tracecat.dsl.models import (
         ActionStatement,
-        ArgsT,
         DSLConfig,
         DSLContext,
         DSLEnvironment,
         DSLExecutionError,
         DSLNodeResult,
         RunActionInput,
+        TriggerInputs,
     )
     from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.validation import (
@@ -60,7 +61,6 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.validation.models import ValidationResult
-    from tracecat.dsl.models import TriggerInputs
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -226,7 +226,7 @@ class DSLWorkflow:
         self.run_context = RunContext(
             wf_id=args.wf_id,
             wf_exec_id=wf_info.workflow_id,
-            wf_run_id=wf_info.run_id,
+            wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
         )
         ctx_run.set(self.run_context)
@@ -272,7 +272,7 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             ) from e
 
-    async def execute_task(self, task: ActionStatement[ArgsT]) -> Any:
+    async def execute_task(self, task: ActionStatement) -> Any:
         """Purely execute a task and manage the results.
 
         Preflight checks
@@ -349,7 +349,7 @@ class DSLWorkflow:
 
     async def _execute_child_workflow(
         self,
-        task: ActionStatement[ExecuteChildWorkflowArgs],
+        task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> Any:
         self.logger.debug("Execute child workflow", child_run_args=child_run_args)
@@ -390,7 +390,7 @@ class DSLWorkflow:
     async def _execute_child_workflow_loop(
         self,
         *,
-        task: ActionStatement[ExecuteChildWorkflowArgs],
+        task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> list[Any]:
         loop_strategy = LoopStrategy(
@@ -558,7 +558,7 @@ class DSLWorkflow:
         )
         return schedule_read.inputs
 
-    async def _validate_action(self, task: ActionStatement[ArgsT]) -> None:
+    async def _validate_action(self, task: ActionStatement) -> None:
         result = await workflow.execute_activity(
             DSLActivities.validate_action_activity,
             arg=ValidateActionActivityInput(role=self.role, task=task),
@@ -573,9 +573,7 @@ class DSLWorkflow:
                 type=TracecatValidationError.__name__,
             )
 
-    async def _prepare_child_workflow(
-        self, task: ActionStatement[ExecuteChildWorkflowArgs]
-    ) -> DSLRunArgs:
+    async def _prepare_child_workflow(self, task: ActionStatement) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
         await self._validate_action(task)
@@ -614,7 +612,7 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    def _run_action(self, task: ActionStatement[ArgsT]) -> Awaitable[Any]:
+    def _run_action(self, task: ActionStatement) -> Coroutine[Any, Any, Any]:
         arg = RunActionInput(
             task=task,
             role=self.role,
@@ -634,7 +632,7 @@ class DSLWorkflow:
             ),
         )
 
-    def _run_child_workflow(self, run_args: DSLRunArgs) -> Awaitable[Any]:
+    def _run_child_workflow(self, run_args: DSLRunArgs) -> Coroutine[Any, Any, Any]:
         self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
         return workflow.execute_child_workflow(
@@ -646,5 +644,5 @@ class DSLWorkflow:
             execution_timeout=self.start_to_close_timeout,
         )
 
-    def _should_execute_child_workflow(self, task: ActionStatement[ArgsT]) -> bool:
+    def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
         return task.action == CHILD_WORKFLOW_EXECUTE_ACTION

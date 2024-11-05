@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field, JsonValue
 
@@ -48,9 +48,6 @@ class DSLTaskErrorInfo:
     """The attempt number."""
 
 
-ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
-
-
 class ActionRetryPolicy(BaseModel):
     max_attempts: int = Field(
         default=1,
@@ -61,7 +58,7 @@ class ActionRetryPolicy(BaseModel):
     )
 
 
-class ActionStatement(BaseModel, Generic[ArgsT]):
+class ActionStatement(BaseModel):
     id: str | None = Field(
         default=None,
         exclude=True,
@@ -81,7 +78,9 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
     )
     """Action type. Equivalent to the UDF key."""
 
-    args: ArgsT = Field(default_factory=dict, description="Arguments for the action")
+    args: Mapping[str, Any] = Field(
+        default_factory=dict, description="Arguments for the action"
+    )
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
@@ -191,10 +190,10 @@ class DSLContext(TypedDict, total=False):
         )
 
 
-class RunActionInput(BaseModel, Generic[ArgsT]):
+class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
 
-    task: ActionStatement[ArgsT]
+    task: ActionStatement
     role: Role
     exec_context: DSLContext
     run_context: RunContext

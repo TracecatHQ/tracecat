@@ -6,7 +6,7 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any, cast
 
 from tracecat import config
@@ -28,7 +28,7 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.shared import ExprContext, ExprContextType
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.actions.models import ArgsClsT, ArgsT, BoundRegistryAction
+from tracecat.registry.actions.models import ArgsClsT, BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -36,6 +36,8 @@ from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
+
+type ArgsT = Mapping[str, Any]
 
 
 async def _run_action_direct(
@@ -267,7 +269,7 @@ async def run_action_from_input(input: RunActionInput[ArgsT]) -> Any:
 """Utilities"""
 
 
-def evaluate_templated_args(task: ActionStatement[ArgsT], context: DSLContext) -> ArgsT:
+def evaluate_templated_args(task: ActionStatement, context: DSLContext) -> ArgsT:
     return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
@@ -279,7 +281,7 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
 
 
 def iter_for_each(
-    task: ActionStatement[ArgsT],
+    task: ActionStatement,
     context: DSLContext,
     *,
     assign_context: ExprContext = ExprContext.LOCAL_VARS,

@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.common import context_locator
-from tracecat.dsl.models import ActionStatement, ArgsT, DSLTaskErrorInfo, RunActionInput
+from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.registry.client import RegistryClient
@@ -19,7 +19,7 @@ from tracecat.types.exceptions import RegistryActionError
 
 
 def _contextualize_message(
-    task: ActionStatement[ArgsT],
+    task: ActionStatement,
     msg: str | BaseException,
     *,
     attempt: int,
@@ -30,7 +30,7 @@ def _contextualize_message(
 
 class ValidateActionActivityInput(BaseModel):
     role: Role
-    task: ActionStatement[ArgsT]
+    task: ActionStatement
 
 
 class DSLActivities:
@@ -40,7 +40,7 @@ class DSLActivities:
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod
-    def load(cls) -> list[Callable[[RunActionInput[ArgsT]], Any]]:
+    def load(cls) -> list[Callable[[RunActionInput], Any]]:
         """Load and return all UDFs in the class."""
         return [
             getattr(cls, method_name)
@@ -68,7 +68,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def run_action_activity(input: RunActionInput[ArgsT]) -> Any:
+    async def run_action_activity(input: RunActionInput) -> Any:
         """Run an action.
         Goals:
         - Think of this as a controller activity that will orchestrate the execution of the action.
