@@ -1,12 +1,14 @@
-from typing import Annotated
+from typing import Annotated, cast
 
-from fastapi import Depends, HTTPException, Request, status
+import orjson
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
+from tracecat.dsl.models import TriggerInputs
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 
@@ -94,6 +96,63 @@ async def validate_incoming_webhook(
             )
         )
         return validated_defn
+
+
+async def parse_webhook_payload(
+    request: Request,
+    content_type: Annotated[str | None, Header(alias="content-type")] = None,
+) -> TriggerInputs | None:
+    """
+    Dependency to parse webhook payload based on Content-Type header.
+
+    Args:
+        request: FastAPI request object
+        content_type: Content-Type header value
+
+    Returns:
+        Parsed payload as TriggerInputs or None if no payload
+    """
+    logger.debug("Parsing webhook payload", content_type=content_type)
+
+    body = await request.body()
+    if not body:
+        return None
+
+    match content_type:
+        case "application/x-ndjson" | "application/jsonlines" | "application/jsonl":
+            # Newline delimited json
+            try:
+                lines = body.splitlines()
+                return cast(TriggerInputs, [orjson.loads(line) for line in lines])
+            except orjson.JSONDecodeError as e:
+                logger.error("Failed to parse ndjson payload", error=e)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid ndjson payload",
+                ) from e
+        case "application/x-www-form-urlencoded":
+            try:
+                form_data = await request.form()
+                return cast(TriggerInputs, dict(form_data))
+            except Exception as e:
+                logger.error("Failed to parse form data payload", error=e)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid form data payload",
+                ) from e
+        case _:
+            # Interpret everything else as json
+            try:
+                return cast(TriggerInputs, orjson.loads(body))
+            except orjson.JSONDecodeError as e:
+                logger.error("Failed to parse json payload", error=e)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid json payload",
+                ) from e
+
+
+PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]
 
 
 WorkflowDefinitionFromWebhook = Annotated[
