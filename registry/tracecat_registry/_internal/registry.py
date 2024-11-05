@@ -1,8 +1,11 @@
 from collections.abc import Callable
-from types import FunctionType
+from typing import ParamSpec, TypeVar
 
 from tracecat_registry._internal.constants import DEFAULT_NAMESPACE
 from tracecat_registry._internal.models import RegistrySecret
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 def register(
@@ -14,7 +17,7 @@ def register(
     secrets: list[RegistrySecret] | None = None,
     version: str | None = None,  # Backwards compatibility
     include_in_schema: bool = True,
-) -> Callable[[FunctionType], FunctionType]:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator factory to register a new UDF (User-Defined Function) with additional parameters.
 
     This method creates a decorator that can be used to register a function as a UDF in the Tracecat system.
@@ -39,7 +42,7 @@ def register(
 
     Returns
     -------
-    Callable[[FunctionType], FunctionType]
+    Callable[[Callable[P, R]], Callable[P, R]]
         A decorator function that registers the decorated function as a UDF.
 
     Notes
@@ -53,19 +56,19 @@ def register(
             "If you are seeing this, please remove the `version` parameter from your registry decorator."
         )
 
-    def decorator_register(fn: FunctionType) -> FunctionType:
+    def decorator_register(fn: Callable[P, R]) -> Callable[P, R]:
         """The decorator function to register a new UDF.
 
         This inner function handles the actual registration process for a given function.
 
         Parameters
         ----------
-        fn : FunctionType
+        fn : Callable[P, R]
             The function to be registered as a UDF.
 
         Returns
         -------
-        FunctionType
+        Callable[P, R]
             The wrapped and registered UDF function.
 
         Raises
