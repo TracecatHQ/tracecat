@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
@@ -13,10 +13,12 @@ from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.auth import Role
-from tracecat.webhooks.models import TriggerInputs
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
+
+TriggerInputs = JsonValue
+"""Trigger inputs JSON type."""
 
 
 class DSLNodeResult(TypedDict, total=False):

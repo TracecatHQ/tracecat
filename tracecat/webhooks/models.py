@@ -1,10 +1,8 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel
 
 from tracecat.db.schemas import Resource
-
-TriggerInputs = JsonValue
 
 
 class WebhookResponse(Resource):

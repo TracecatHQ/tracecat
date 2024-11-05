@@ -15,7 +15,12 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
-from tracecat.dsl.models import ActionRetryPolicy, DSLContext, RunActionInput
+from tracecat.dsl.models import (
+    ActionRetryPolicy,
+    DSLContext,
+    RunActionInput,
+    TriggerInputs,
+)
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -255,7 +260,7 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
 
 class CreateWorkflowExecutionParams(BaseModel):
     workflow_id: identifiers.WorkflowID
-    inputs: dict[str, Any] | None = None
+    inputs: TriggerInputs | None = None
 
 
 class CreateWorkflowExecutionResponse(TypedDict):

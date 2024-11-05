@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
-from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger
+from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger, TriggerInputs
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
@@ -24,7 +24,6 @@ from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatDSLError
-from tracecat.webhooks.models import TriggerInputs
 from tracecat.workflow.actions.models import ActionControlFlow
 
 

@@ -25,12 +25,12 @@ from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.webhooks.models import TriggerInputs
 from tracecat.workflow.executions.models import (
     CreateWorkflowExecutionResponse,
     DispatchWorkflowResult,

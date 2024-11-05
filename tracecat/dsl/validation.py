@@ -6,10 +6,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
 
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.models import TriggerInputs
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
 from tracecat.types.validation import ValidationResult
-from tracecat.webhooks.models import TriggerInputs
 
 LIST_PATTERN = re.compile(r"list\[(?P<inner>(\$)?[a-zA-Z]+)\]")
 
