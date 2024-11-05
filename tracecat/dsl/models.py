@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field, JsonValue
 
@@ -48,9 +48,6 @@ class DSLTaskErrorInfo:
     """The attempt number."""
 
 
-ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
-
-
 class ActionRetryPolicy(BaseModel):
     max_attempts: int = Field(
         default=1,
@@ -61,7 +58,7 @@ class ActionRetryPolicy(BaseModel):
     )
 
 
-class ActionStatement(BaseModel, Generic[ArgsT]):
+class ActionStatement(BaseModel):
     id: str | None = Field(
         default=None,
         exclude=True,
@@ -81,7 +78,9 @@ class ActionStatement(BaseModel, Generic[ArgsT]):
     )
     """Action type. Equivalent to the UDF key."""
 
-    args: ArgsT = Field(default_factory=dict, description="Arguments for the action")
+    args: Mapping[str, Any] = Field(
+        default_factory=dict, description="Arguments for the action"
+    )
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
@@ -176,25 +175,11 @@ class DSLContext(TypedDict, total=False):
     ENV: DSLEnvironment
     """DSL Environment context. Has metadata about the workflow."""
 
-    @staticmethod
-    def create_default(
-        INPUTS: dict[str, Any] | None = None,
-        ACTIONS: dict[str, Any] | None = None,
-        TRIGGER: dict[str, Any] | None = None,
-        ENV: dict[str, Any] | None = None,
-    ) -> DSLContext:
-        return DSLContext(
-            INPUTS=INPUTS or {},
-            ACTIONS=ACTIONS or {},
-            TRIGGER=TRIGGER or {},
-            ENV=ENV or {},
-        )
 
-
-class RunActionInput(BaseModel, Generic[ArgsT]):
+class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
 
-    task: ActionStatement[ArgsT]
+    task: ActionStatement
     role: Role
     exec_context: DSLContext
     run_context: RunContext
@@ -214,11 +199,3 @@ class DSLExecutionError(TypedDict, total=False):
 
     message: str
     """The message of the exception."""
-
-    @staticmethod
-    def from_exception(e: BaseException) -> DSLExecutionError:
-        return DSLExecutionError(
-            is_error=True,
-            type=e.__class__.__name__,
-            message=str(e),
-        )

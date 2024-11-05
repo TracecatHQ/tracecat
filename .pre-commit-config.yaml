@@ -21,6 +21,7 @@ repos:
           - --fix
         exclude: ^alembic/versions/
       - id: ruff-format
+        verbose: true
         exclude: ^alembic/versions/
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.94.1

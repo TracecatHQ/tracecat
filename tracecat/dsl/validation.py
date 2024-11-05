@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
 
@@ -10,8 +8,6 @@ from tracecat.dsl.models import TriggerInputs
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
 from tracecat.validation.models import ValidationResult
-
-LIST_PATTERN = re.compile(r"list\[(?P<inner>(\$)?[a-zA-Z]+)\]")
 
 
 def validate_trigger_inputs(

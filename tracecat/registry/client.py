@@ -1,5 +1,6 @@
 """Use this in worker to execute actions."""
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 import httpx
@@ -11,7 +12,6 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    ArgsT,
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
@@ -41,7 +41,7 @@ class RegistryClient:
 
     """Execution"""
 
-    async def call_action(self, input: RunActionInput[ArgsT]) -> Any:
+    async def call_action(self, input: RunActionInput) -> Any:
         """
         Call an action in the registry asynchronously.
 
@@ -120,7 +120,7 @@ class RegistryClient:
     """Validation"""
 
     async def validate_action(
-        self, *, action_name: str, args: dict[str, Any]
+        self, *, action_name: str, args: Mapping[str, Any]
     ) -> RegistryActionValidateResponse:
         """Validate an action."""
         try:

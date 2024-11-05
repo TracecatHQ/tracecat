@@ -25,7 +25,6 @@ from tracecat.logger import logger
 from tracecat.types.exceptions import RegistryActionError, TracecatValidationError
 from tracecat.validation.models import ValidationResult
 
-ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
 RegistryActionType = Literal["udf", "template"]
 

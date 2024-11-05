@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, Self, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeGuard
 
 from pydantic import (
     BaseModel,
@@ -66,10 +66,7 @@ class TriggerNodeData(TSObject):
     schedules: list[dict[str, Any]] = Field(default_factory=list)
 
 
-T = TypeVar("T", UDFNodeData, TriggerNodeData)
-
-
-class RFNode(TSObject, Generic[T]):
+class RFNode[T: (UDFNodeData | TriggerNodeData)](TSObject):
     """Base React Flow Graph Node."""
 
     id: str = Field(..., description="RF Graph Node ID, not to confuse with action ref")
@@ -185,7 +182,7 @@ class RFGraph(TSObject):
 
     @property
     def trigger(self) -> TriggerNode:
-        triggers = [node for node in self.nodes if node.type == "trigger"]
+        triggers = [node for node in self.nodes if _is_trigger_node(node)]
         if len(triggers) != 1:
             raise TracecatValidationError(
                 f"Expected 1 trigger node, got {len(triggers)}"
@@ -220,7 +217,7 @@ class RFGraph(TSObject):
         return indegree
 
     @property
-    def entrypoint(self) -> UDFNode | None:
+    def entrypoint(self) -> RFNode[UDFNodeData] | None:
         """The physical entrypoint of the graph. It is the node with the trigger as the source."""
         if len(self.action_nodes()) == 0:
             return None
@@ -257,7 +254,7 @@ class RFGraph(TSObject):
 
     def action_nodes(self) -> list[UDFNode]:
         """Return all `udf` (action) type nodes."""
-        return [node for node in self.nodes if node.type == "udf"]
+        return [node for node in self.nodes if _is_udf_node(node)]
 
     @classmethod
     def from_workflow(cls, workflow: Workflow) -> Self:
@@ -288,3 +285,11 @@ class RFGraph(TSObject):
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
         return RFGraph.model_validate(initial_data)
+
+
+def _is_trigger_node(node: RFNode) -> TypeGuard[TriggerNode]:
+    return node.type == "trigger"
+
+
+def _is_udf_node(node: RFNode) -> TypeGuard[UDFNode]:
+    return node.type == "udf"

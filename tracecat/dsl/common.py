@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Any, Self, TypedDict
+from typing import Any, Self, TypedDict, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -14,7 +14,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
-from tracecat.dsl.models import ActionStatement, DSLConfig, Trigger, TriggerInputs
+from tracecat.dsl.models import (
+    ActionStatement,
+    DSLConfig,
+    DSLContext,
+    DSLEnvironment,
+    DSLExecutionError,
+    Trigger,
+    TriggerInputs,
+)
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
 from tracecat.expressions import patterns
 from tracecat.expressions.expectations import ExpectedField
@@ -292,3 +300,25 @@ def build_action_statements(
         )
         statements.append(action_stmt)
     return statements
+
+
+def create_default_dsl_context(
+    INPUTS: dict[str, Any] | None = None,
+    ACTIONS: dict[str, Any] | None = None,
+    TRIGGER: dict[str, Any] | None = None,
+    ENV: DSLEnvironment | None = None,
+) -> DSLContext:
+    return DSLContext(
+        INPUTS=INPUTS or {},
+        ACTIONS=ACTIONS or {},
+        TRIGGER=TRIGGER or {},
+        ENV=cast(DSLEnvironment, ENV or {}),
+    )
+
+
+def dsl_execution_error_from_exception(e: BaseException) -> DSLExecutionError:
+    return DSLExecutionError(
+        is_error=True,
+        type=e.__class__.__name__,
+        message=str(e),
+    )
