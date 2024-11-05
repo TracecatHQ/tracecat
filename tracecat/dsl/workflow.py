@@ -59,7 +59,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.types.validation import ValidationResult
+    from tracecat.validation.models import ValidationResult
     from tracecat.dsl.models import TriggerInputs
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,

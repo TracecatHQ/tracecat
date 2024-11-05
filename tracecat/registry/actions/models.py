@@ -22,8 +22,8 @@ from tracecat_registry import RegistrySecret, RegistryValidationError
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatValidationError
-from tracecat.types.validation import ValidationResult
+from tracecat.types.exceptions import RegistryActionError, TracecatValidationError
+from tracecat.validation.models import ValidationResult
 
 ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
@@ -100,7 +100,10 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
                 template_action=self.template_action,
             )
         elif self.type == "udf":
-            module_path = inspect.getmodule(self.fn).__name__
+            module = inspect.getmodule(self.fn)
+            if not module:
+                raise RegistryActionError("UDF module not found")
+            module_path = module.__name__
             function_name = self.fn.__name__
             return RegistryActionUDFImpl(
                 type="udf",

@@ -19,7 +19,7 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.types.exceptions import RegistryError
-from tracecat.validation import vadliate_registry_action_args
+from tracecat.validation.service import validate_registry_action_args
 
 router = APIRouter(prefix="/registry/actions", tags=["registry-actions"])
 
@@ -146,7 +146,7 @@ async def validate_registry_action(
 ) -> RegistryActionValidateResponse:
     """Validate a registry action."""
     try:
-        result = await vadliate_registry_action_args(
+        result = await validate_registry_action_args(
             session=session, action_name=action_name, args=params.args
         )
 

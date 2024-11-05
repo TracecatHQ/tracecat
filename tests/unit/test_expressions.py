@@ -27,8 +27,8 @@ from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.types.validation import ExprValidationResult
-from tracecat.validation import get_validators
+from tracecat.validation.common import get_validators
+from tracecat.validation.models import ExprValidationResult
 
 
 @pytest.mark.parametrize(

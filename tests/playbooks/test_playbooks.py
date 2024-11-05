@@ -20,7 +20,7 @@ from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
-from tracecat.validation import validate_dsl
+from tracecat.validation.service import validate_dsl
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
