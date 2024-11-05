@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.models import DSLContext
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import WorkflowDefinitionFromWebhook
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
@@ -40,7 +41,7 @@ async def incoming_webhook_wait(
     defn: WorkflowDefinitionFromWebhook,
     path: str,
     payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> DSLContext:
     """
     Webhook endpoint to trigger a workflow.
 
