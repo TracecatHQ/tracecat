@@ -37,11 +37,7 @@ from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
-    ArgsClsT,
-    BoundRegistryAction,
-    TemplateAction,
-)
+from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -52,6 +48,8 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryError
+
+ArgsClsT = type[BaseModel]
 
 
 class RegisterKwargs(BaseModel):

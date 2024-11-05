@@ -185,7 +185,6 @@ async def get_workflow(
         owner_id=workflow.owner_id,
         title=workflow.title,
         description=workflow.description,
-        icon_url=workflow.icon_url,
         status=workflow.status,
         version=workflow.version,
         expects=workflow.expects,

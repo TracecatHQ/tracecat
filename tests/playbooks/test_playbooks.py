@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 

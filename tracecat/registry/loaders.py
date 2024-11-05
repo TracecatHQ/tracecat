@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable
-from typing import Any, NoReturn, TypeVar
+from types import FunctionType
+from typing import Any, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -11,7 +12,6 @@ from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    ArgsClsT,
     BoundRegistryAction,
     RegistryActionImpl,
     RegistryActionImplValidator,
@@ -25,10 +25,12 @@ from tracecat.registry.repository import (
     get_signature_docs,
 )
 
-F = TypeVar("F", bound=Callable[..., Any])
+F = FunctionType
 
 
-def get_bound_action_impl(action: RegistryAction) -> BoundRegistryAction[ArgsClsT]:
+def get_bound_action_impl(
+    action: RegistryAction,
+) -> BoundRegistryAction[type[BaseModel]]:
     impl = RegistryActionImplValidator.validate_python(action.implementation)
     impl_loader = _LOADERS[impl.type]
     fn: F = impl_loader(impl)

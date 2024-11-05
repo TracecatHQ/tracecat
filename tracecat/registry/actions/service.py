@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
 from pydantic import UUID4
@@ -47,7 +47,7 @@ class RegistryActionsService:
         namespace: str | None = None,
         include_marked: bool = False,
         include_keys: set[str] | None = None,
-    ) -> list[RegistryAction]:
+    ) -> Sequence[RegistryAction]:
         statement = select(RegistryAction)
 
         if not include_marked:
@@ -102,6 +102,7 @@ class RegistryActionsService:
             DBRegistryAction: The created registry action.
         """
 
+        # Interface
         if params.implementation.type == "template":
             interface = model_converters.implementation_to_interface(
                 params.implementation
