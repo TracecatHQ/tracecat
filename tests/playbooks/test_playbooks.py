@@ -106,6 +106,7 @@ async def test_playbook_validation(
     assert len(validation_results) == 0
 
 
+@pytest.mark.skipif(not os.getenv("GITHUB_ACTIONS"), reason="Only run in CI")
 @pytest.mark.parametrize(
     "file_path, trigger_inputs, expected_actions",
     [
