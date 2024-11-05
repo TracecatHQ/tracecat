@@ -95,9 +95,11 @@ async def check_action_secrets(
 ) -> list[SecretValidationResult]:
     """Check all secrets for a single action."""
     results: list[SecretValidationResult] = []
+    secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
+    implicit_secrets = await registry_service.get_action_implicit_secrets(action)
+    secrets.extend(implicit_secrets)
 
-    for registry_secret_dict in action.secrets or []:
-        registry_secret = RegistrySecret.model_validate(registry_secret_dict)
+    for registry_secret in secrets:
         secret_results = await validate_single_secret(
             secrets_service,
             checked_keys,
@@ -164,7 +166,7 @@ async def validate_registry_action_args(
             validated: BaseModel = model.model_validate(args)
             validated_args = cast(Mapping[str, Any], validated.model_dump())
         except ValidationError as e:
-            logger.error(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
+            logger.warning(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
             raise RegistryValidationError(
                 f"Validation error for UDF {action_name!r}. {e.errors()!r}",
                 key=action_name,

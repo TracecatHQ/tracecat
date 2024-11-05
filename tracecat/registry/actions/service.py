@@ -7,6 +7,7 @@ from pydantic import UUID4
 from sqlalchemy import Boolean
 from sqlmodel import cast, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry import RegistrySecret
 
 from tracecat import config
 from tracecat.contexts import ctx_role
@@ -16,6 +17,8 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
     RegistryActionCreate,
+    RegistryActionImplValidator,
+    RegistryActionRead,
     RegistryActionUpdate,
     model_converters,
 )
@@ -279,3 +282,24 @@ class RegistryActionsService:
         action = await self.get_action(action_name=action_name)
         bound_action = get_bound_action_impl(action)
         return bound_action
+
+    async def get_action_implicit_secrets(
+        self, action: RegistryAction
+    ) -> list[RegistrySecret]:
+        """Extract the implicit secrets from the template action's steps."""
+        impl = RegistryActionImplValidator.validate_python(action.implementation)
+        if impl.type != "template":
+            return []
+        implicit_secrets: list[RegistrySecret] = []
+        for step in impl.template_action.definition.steps:
+            inner_action = await self.get_action(action_name=step.action)
+            implicit_secrets.extend(
+                RegistrySecret(**secret) for secret in inner_action.secrets or []
+            )
+        return implicit_secrets
+
+    async def read_action_with_implicit_secrets(
+        self, action: RegistryAction
+    ) -> RegistryActionRead:
+        extra_secrets = await self.get_action_implicit_secrets(action)
+        return RegistryActionRead.from_database(action, extra_secrets)
