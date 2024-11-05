@@ -36,7 +36,7 @@ secrets: "SECRETS" ATTRIBUTE_PATH
 inputs: "INPUTS" jsonpath_expression
 env: "ENV" jsonpath_expression
 local_vars: "var" jsonpath_expression
-trigger: "TRIGGER" jsonpath_expression
+trigger: "TRIGGER" [jsonpath_expression]
 function: "FN." FN_NAME_WITH_TRANSFORM "(" [arg_list] ")"
 local_vars_assignment: "var" ATTRIBUTE_PATH
 

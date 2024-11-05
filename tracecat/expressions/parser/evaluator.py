@@ -141,11 +141,10 @@ class ExprEvaluator(Transformer):
         return jsonpath
 
     @v_args(inline=True)
-    def trigger(self, jsonpath: str):
+    def trigger(self, jsonpath: str | None):
         logger.trace("Visiting trigger:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.TRIGGER + jsonpath, self._context, strict=self._strict
-        )
+        expr = ExprContext.TRIGGER + (jsonpath or "")
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):
