@@ -26,6 +26,7 @@ limacharlie_secret = RegistrySecret(
 @registry.register(
     default_title="Get Limacharlie auth token",
     description="Get an auth token for Limacharlie API calls.",
+    display_group="Limacharlie",
     namespace="integrations.limacharlie",
     secrets=[limacharlie_secret],
 )

@@ -33,6 +33,7 @@ microsoft_graph_secret = RegistrySecret(
 @registry.register(
     default_title="Get Microsoft Graph auth token",
     description="Get an auth token for Microsoft Graph API calls.",
+    display_group="Microsoft Graph",
     namespace="integrations.microsoft_graph",
     secrets=[microsoft_graph_secret],
 )
