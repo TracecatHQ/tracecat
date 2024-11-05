@@ -32,7 +32,6 @@ dependencies = [
     "cryptography==43.0.1",
     "fastapi-users[sqlalchemy,oauth]==13.0.0",
     "fastapi==0.111.0",
-    "fsspec==2024.6.0",
     "greenlet==3.0.3",
     "httpx==0.27.0",
     "jsonpath_ng==1.6.1",
