@@ -10,6 +10,7 @@ By the end of this tutorial, you will learn how to:
 - Reference data from previous actions
 - Use the **Reshape** action to organize data
 - Use if-conditions to control the flow of your workflow
+- Configure the output schema of a workflow
 
 ## Prerequisites
 
@@ -66,10 +67,12 @@ By the end of this tutorial, you will learn how to:
 
         ![List comments](/img/tutorials/control-flow/list-vt-comments-run-if.png)
     </Step>
-    <Step title="Done!">
-        🎉 You've completed the tutorial on control flow in Tracecat!
-        Every action in Tracecat can be configured with a **Run If** condition and **Loop Iteration**.
-        Use these features to control when an action is run and to manipulate lists of data.
+    <Step title="Configure output schema">
+        Configure the workflow to return a specific output schema on completion.
+        ![Configure output schema](/img/tutorials/quickstart/configure-output-schema.png)
+
+        In a later tutorial on [child workflows](/tutorials/4-child-workflows),
+        you'll see how the workflow's output schema determines what data is returned to the parent workflow.
     </Step>
 </Steps>
 

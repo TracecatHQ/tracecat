@@ -26,60 +26,50 @@ By the end of this tutorial, you will learn:
         Actions are registered at the organization level and can be used across all workflows and workspaces.
     </Step>
     <Step title="Clone existing Action Template">
-        As seen in the previous [Control Flow](/tutorials/control-flow) tutorial,
-        the `Search URL with VirusTotal` action returns a lot of data that we don't need.
-
-        Let's clean this up by creating a new action from the existing `Search URL with VirusTotal` action template.
-
-        ![Clone existing Action Template](/img/tutorials/actions-registry/clone-action-template.png)
-
-        You notice that **Action Templates** are YAML configuration-as-code templates similar to GitHub Actions workflows:
-
-        ![Action Template](/img/tutorials/actions-registry/vt-action-template.png)
+        Let's create a new action called `Is URL malicious`.
+        First, clone the existing `Search URL with VirusTotal` action template.
     </Step>
-    <Step title="Configure the new action">
-        <Note>
-            Use `secrets.<secret-name>.<secret-key>` to reference secrets and `steps.<step-key>.result` to reference results from previous steps.
-        </Note>
-
-        ![Configure new VirusTotal action](/img/tutorials/actions-registry/new-vt-action.png)
-
+    <Step title="Edit the new action">
+        Edit the action to get the VirusTotal report, check if the URL is malicious, and return a single boolean value.
         Copy the following configuration into the YAML editor:
 
         ```yaml
-        name: Get URL stats from VirusTotal
-        namespace: tracecat
-        title: Get URL stats from VirusTotal
-        description: Get the stats for a given URL from VirusTotal
         ```
-
-        You notice this new action returns a JSON object with the `url` and `stats` fields already extracted for us!
     </Step>
-    <Step title="Add the new action to the workflow">
-        Delete the `Reshape` action named `Extract VirusTotal report`, then add the new `Get URL stats from VirusTotal` action to the workflow.
+    <Step title="Replace actions in workflow">
+        Replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
+    </Step>
+    <Step title="Update action result references">
+        We need to update the `List VirusTotal comments on URL` action to use the new `Is URL malicious` action.
+
+        ```yaml
+        ${{ ACTIONS.is_url_malicious.result }}
+        ```
     </Step>
     <Step title="Run the workflow">
         Click on the **Run** button to execute the workflow.
-
-        ![Run workflow](/img/tutorials/actions-registry/run-new-action-workflow.png)
-
-        You'll get the same result as the previous tutorial but with one less action cluttering up the UI.
-    </Step>
-    <Step title="Congrats!">
-        You've successfully created a new **Action Template** to consolidate your workflow logic!
-        Action templates should be used to create more powerful reusable integrations across workflows.
+        The results will be the same as the previous tutorial.
     </Step>
 </Steps>
 
+## Why use Action Templates?
+
+Action templates allow you to:
+
+- Define explicit input and output schemas for your integrations
+- Combine actions into reusable pieces of tradecraft that aren't just API calls
+- Build integrations that are easier to edit across workflows
+- Declutter your workflows with fewer filler actions
+
 ## Best Practices
 
-- **Action Templates** should contain logic for only one tool (e.g. VirusTotal).
-- **Action Templates** should be simple and contain at most 2 actions or API calls.
-- **Action Templates** should be reusable across workflows (e.g. Tag Slack user by email).
-- **Action Templates** are most effective when used to normalize input and output data between tools.
-- **Action Templates** are not mini-workflows.
+- **Action templates** should contain logic for only one integration.
+- **Action templates** should be simple and contain at most three actions.
+- **Action templates** should be used to normalize input and output data between actions.
+- **Action templates** are not mini-workflows.
 
 ## Next Steps
 
-- Learn how to receive external events (e.g. from your SIEM) and configure schedules to trigger workflows. View the [tutorial on triggers](/tutorials/5-triggers).
-- Check out the [tutorial on custom integrations](/tutorials/6-custom-integrations). Learn how to create version-controlled Python integrations and YAML Action Templates. All synced from your private GitHub repository.
+- Learn how to combine smaller workflows into a single workflow. View the tutorial [here](/tutorials/4-child-workflows).
+- Learn how to receive external events (e.g. from your SIEM) and configure schedules to trigger workflows. View the tutorial [here](/tutorials/5-triggers).
+- Learn how to sync custom Python integrations from GitHub. View the tutorial [here](/tutorials/6-custom-integrations).
