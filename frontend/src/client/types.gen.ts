@@ -144,46 +144,6 @@ export type ActionStatement_Output = {
     join_strategy?: JoinStrategy;
 };
 
-export type ActionStatement_Any_ = {
-    /**
-     * Unique reference for the task
-     */
-    ref: string;
-    description?: string;
-    /**
-     * Action type. Equivalent to the UDF key.
-     */
-    action: string;
-    /**
-     * Arguments for the action
-     */
-    args?: unknown;
-    /**
-     * Task dependencies
-     */
-    depends_on?: Array<(string)>;
-    /**
-     * Condition to run the task
-     */
-    run_if?: string | null;
-    /**
-     * Iterate over a list of items and run the task for each item.
-     */
-    for_each?: string | Array<(string)> | null;
-    /**
-     * Retry policy for the action.
-     */
-    retry_policy?: ActionRetryPolicy;
-    /**
-     * Delay before starting the action in seconds.
-     */
-    start_delay?: number;
-    /**
-     * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
-     */
-    join_strategy?: JoinStrategy;
-};
-
 export type ActionStep = {
     /**
      * The reference of the step
@@ -450,7 +410,7 @@ export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     workflow_id: string;
     version?: number | null;
-    task?: ActionStatement_Any_ | null;
+    task?: ActionStatement_Output | null;
 };
 
 export type HTTPValidationError = {

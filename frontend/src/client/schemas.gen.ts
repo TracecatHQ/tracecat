@@ -367,96 +367,6 @@ export const $ActionStatement_Output = {
     title: 'ActionStatement'
 } as const;
 
-export const $ActionStatement_Any_ = {
-    properties: {
-        ref: {
-            type: 'string',
-            pattern: '^[a-z0-9_]+$',
-            title: 'Ref',
-            description: 'Unique reference for the task'
-        },
-        description: {
-            type: 'string',
-            title: 'Description',
-            default: ''
-        },
-        action: {
-            type: 'string',
-            pattern: '^[a-z0-9_.]+$',
-            title: 'Action',
-            description: 'Action type. Equivalent to the UDF key.'
-        },
-        args: {
-            title: 'Args',
-            description: 'Arguments for the action'
-        },
-        depends_on: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Depends On',
-            description: 'Task dependencies'
-        },
-        run_if: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Run If',
-            description: 'Condition to run the task'
-        },
-        for_each: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    items: {
-                        type: 'string'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'For Each',
-            description: 'Iterate over a list of items and run the task for each item.'
-        },
-        retry_policy: {
-            allOf: [
-                {
-                    '$ref': '#/components/schemas/ActionRetryPolicy'
-                }
-            ],
-            description: 'Retry policy for the action.'
-        },
-        start_delay: {
-            type: 'number',
-            title: 'Start Delay',
-            description: 'Delay before starting the action in seconds.',
-            default: 0
-        },
-        join_strategy: {
-            allOf: [
-                {
-                    '$ref': '#/components/schemas/JoinStrategy'
-                }
-            ],
-            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
-            default: 'all'
-        }
-    },
-    type: 'object',
-    required: ['ref', 'action'],
-    title: 'ActionStatement[Any]'
-} as const;
-
 export const $ActionStep = {
     properties: {
         ref: {
@@ -1303,7 +1213,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
         task: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/ActionStatement_Any_'
+                    '$ref': '#/components/schemas/ActionStatement-Output'
                 },
                 {
                     type: 'null'
