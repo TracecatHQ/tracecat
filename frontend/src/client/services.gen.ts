@@ -1205,15 +1205,15 @@ export const registryRepositoriesUpdateRegistryRepository = (data: RegistryRepos
  * Delete Registry Repository
  * Delete a registry repository.
  * @param data The data for the request.
- * @param data.origin
+ * @param data.id
  * @returns void Successful Response
  * @throws ApiError
  */
 export const registryRepositoriesDeleteRegistryRepository = (data: RegistryRepositoriesDeleteRegistryRepositoryData): CancelablePromise<RegistryRepositoriesDeleteRegistryRepositoryResponse> => { return __request(OpenAPI, {
     method: 'DELETE',
-    url: '/registry/repos/{origin}',
+    url: '/registry/repos/{id}',
     path: {
-        origin: data.origin
+        id: data.id
     },
     errors: {
         422: 'Validation Error'

@@ -1602,7 +1602,7 @@ export type RegistryRepositoriesUpdateRegistryRepositoryData = {
 export type RegistryRepositoriesUpdateRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesDeleteRegistryRepositoryData = {
-    origin: string;
+    id: string;
 };
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void;
@@ -2481,6 +2481,8 @@ export type $OpenApiTs = {
                 422: HTTPValidationError;
             };
         };
+    };
+    '/registry/repos/{id}': {
         delete: {
             req: RegistryRepositoriesDeleteRegistryRepositoryData;
             res: {

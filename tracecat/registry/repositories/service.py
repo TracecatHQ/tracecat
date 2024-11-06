@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
+from pydantic import UUID4
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -31,7 +32,7 @@ class RegistryReposService:
         async with get_async_session_context_manager() as session:
             yield RegistryReposService(session, role=role)
 
-    async def list_repositories(self) -> list[RegistryRepository]:
+    async def list_repositories(self) -> Sequence[RegistryRepository]:
         """Get all registry repositories."""
         statement = select(RegistryRepository)
         result = await self.session.exec(statement)
@@ -42,6 +43,12 @@ class RegistryReposService:
         statement = select(RegistryRepository).where(
             RegistryRepository.origin == origin
         )
+        result = await self.session.exec(statement)
+        return result.one_or_none()
+
+    async def get_repository_by_id(self, id: UUID4) -> RegistryRepository | None:
+        """Get a registry by ID."""
+        statement = select(RegistryRepository).where(RegistryRepository.id == id)
         result = await self.session.exec(statement)
         return result.one_or_none()
 
@@ -63,11 +70,10 @@ class RegistryReposService:
         """Update a registry repository."""
         self.session.add(repository)
         await self.session.commit()
+        await self.session.refresh(repository)
         return repository
 
-    async def delete_repository(
-        self, repository: RegistryRepository
-    ) -> RegistryRepository:
+    async def delete_repository(self, repository: RegistryRepository) -> None:
         """Delete a registry repository."""
         await self.session.delete(repository)
         await self.session.commit()

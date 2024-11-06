@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import UUID4
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserOrServiceRole, OrgUserRole
@@ -46,7 +47,7 @@ async def sync_registry_repositories(
     # Check if the base registry repository already exists
     await ensure_base_repository(session=session, role=role)
     if origins is None:
-        repos = await repos_service.list_repositories()
+        repos = list(await repos_service.list_repositories())
     else:
         # If origins are provided, only sync those repositories
         repos: list[RegistryRepository] = []
@@ -67,7 +68,7 @@ async def sync_registry_repositories(
     try:
         await actions_service.sync_actions(repos)
     except RegistryError as e:
-        logger.warning("Cannot sync repository", origin=origin, exc=e)
+        logger.warning("Cannot sync repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
@@ -138,10 +139,11 @@ async def create_registry_repository(
         logger.info("Creating registry", params=params)
         created_repository = await service.create_repository(params)
         return RegistryRepositoryRead(
+            origin=created_repository.origin,
             actions=[
                 RegistryActionRead.model_validate(action, from_attributes=True)
                 for action in created_repository.actions
-            ]
+            ],
         )
     except Exception as e:
         raise HTTPException(
@@ -170,32 +172,30 @@ async def update_registry_repository(
     updated_repository = await service.update_repository(repository)
     return RegistryRepositoryRead(
         origin=updated_repository.origin,
-        actions=[action.to_read_model() for action in updated_repository.actions],
+        actions=[
+            RegistryActionRead.model_validate(action, from_attributes=True)
+            for action in updated_repository.actions
+        ],
     )
 
 
-@router.delete("/{origin:path}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_repository(
-    role: OrgUserOrServiceRole, session: AsyncDBSession, origin: str
+    role: OrgUserOrServiceRole, session: AsyncDBSession, id: UUID4
 ):
     """Delete a registry repository."""
-    logger.info("Deleting registry repository", origin=origin)
-    if origin == DEFAULT_REGISTRY_ORIGIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot delete the base Tracecat repository.",
-        )
-    elif origin == CUSTOM_REPOSITORY_ORIGIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot delete the custom repository.",
-        )
     service = RegistryReposService(session, role)
-    repository = await service.get_repository(origin)
+    repository = await service.get_repository_by_id(id)
     if repository is None:
-        logger.error("Registry repository not found", origin=origin)
+        logger.error("Registry repository not found", id=id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
+        )
+    logger.info("Deleting registry repository", id=id)
+    if repository.origin in (DEFAULT_REGISTRY_ORIGIN, CUSTOM_REPOSITORY_ORIGIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"The {repository.origin!r} repository cannot be deleted.",
         )
     await service.delete_repository(repository)
