@@ -26,9 +26,9 @@ definition:
       ref: list_sensors_by_tags
       args:
         url: "{{ INPUTS.api_url }}/tags/{{ SECRETS.limacharlie.LIMACHARLIE_OID }}/{ TRIGGER.tags }"
+        method: GET
         token_response_key: ${{ INPUTS.token_response_key }}
         jwt_url: "{{ INPUTS.jwt_url }}?oid={{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret={{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
-        method: GET
 
     - action: core.transform.reshape
       ref: extract_sensor_ids
@@ -45,10 +45,12 @@ definition:
       for_each: ${{ for var.sensor_id in ACTIONS.extract_sensor_ids.result.sensor_ids }}
       args:
         url: "${{ INPUTS.api_url }}/${{ var.sensor_id }}/"
+        method: GET
         token_response_key: ${{ INPUTS.token_response_key }}
         jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
-          tasks: ["run --shell-command 'del ${{ INPUTS.payload_dir_path }}\\*.exe'"]
+          tasks:
+            - "run --shell-command 'del ${{ INPUTS.payload_dir_path }}\\*.exe'"
         headers:
           Content-Type: application/x-www-form-urlencoded
 
