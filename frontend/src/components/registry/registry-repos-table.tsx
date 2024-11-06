@@ -116,9 +116,13 @@ export function RegistryRepositoriesTable() {
               console.error("No repository selected")
               return
             }
-            console.log("Deleting repository", selectedRepo.origin)
+            console.log(
+              "Deleting repository",
+              selectedRepo.origin,
+              selectedRepo.id
+            )
             try {
-              await deleteRepo({ origin: selectedRepo.origin })
+              await deleteRepo({ id: selectedRepo.id })
             } catch (error) {
               console.error("Error deleting repository", error)
             } finally {
