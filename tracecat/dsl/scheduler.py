@@ -151,7 +151,7 @@ class DSLScheduler:
                         "Adding task to queue; mark visited", next_ref=next_ref
                     )
                     tg.create_task(self.queue.put(next_ref))
-        self.logger.warning(
+        self.logger.trace(
             "Queued tasks",
             visited_tasks=list(self.completed_tasks),
             tasks=list(self.tasks.keys()),
