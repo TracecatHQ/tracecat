@@ -1,8 +1,9 @@
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, Field, create_model
 
 from tracecat.expressions.shared import ExprType
+from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
@@ -52,7 +53,7 @@ def json_schema_to_pydantic(
 
     fields = {}
     for prop_name, prop_schema in properties.items():
-        field_type = create_field(prop_schema)
+        field_type = Annotated[create_field(prop_schema), TemplateValidator()]
         field_params = {}
 
         if "description" in prop_schema:
