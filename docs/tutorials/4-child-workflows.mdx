@@ -3,13 +3,82 @@ title: Child Workflows
 description: Learn how to combine smaller workflows into a single workflow.
 ---
 
+<Tip>
+    Tracecat comes with unlimited workflows.
+    Whenever possible, we recommend creating smaller, reusable workflows.
+    Each workflow should contain a single, cohesive piece of logic.
+
+    Then use a "parent" workflow to orchestrate the execution of multiple child workflows.
+    This design is inspired by AWS Step Functions and AWS Lambda.
+</Tip>
+
 ## Goals
 
 By the end of this tutorial, you will learn:
 
 - When to use child workflows
-- How to execute multiple workflows in a single workflow
+- How to use the `Execute Child Workflow` action
+- How to use the `Reshape` action and `filter` function to select items from a list
+- How to use the `Reshape` action and `flatten` function to turn a list of lists into a single list
+- How to use loop-iteration to execute child workflows in parallel
+
+<Note>
+    This tutorial does not implement the full playbook discussed in the scenario.
+    This is left as an exercise to the reader.
+</Note>
+
+## Prerequisites
+
+- Completed the [Control Flow](/tutorials/2-control-flow) tutorial
+- Completed the [Actions Registry](/tutorials/3-actions-registry) tutorial
 
 ## Tutorial
 
-Coming soon.
+<Steps>
+    <Step icon="lightbulb" title="Scenario: end-to-end alert response">
+        Let's say you want to automate a playbook that will:
+
+        1. Receive an alert from your SIEM
+        2. Check if alert is high-severity
+        3. Extract all the URLs from the alert
+        4. Check if each URL is malicious
+        5. Block the IPs that are associated with the malicious URLs
+
+        You might be tempted to create a single workflow that contains all of these steps.
+        However, each of these steps is a single, cohesive piece of logic.
+        We recommend creating a child workflow for each step.
+    </Step>
+    <Step title="Create a orchestrator workflow">
+        Create a new workflow called `SIEM alert incident response`.
+    </Step>
+    <Step title="Filter alerts">
+        Let's assume that this workflow recieves a list of alerts (JSON objects) from [Elastic Security](https://www.elastic.co/guide/en/security/current/alert-schema.html) via webhook.
+        We want to filter out any alerts that are not high-severity.
+
+        **This is easily done using the `Reshape` action along with the `filter` function.**
+
+        Rename the `Reshape` action to `Select high-severity alerts`, then configure the action with the following inputs:
+
+        ```yaml
+        value: ${{ FN.filter(TRIGGER, 'x.kibana.alert.severity == "high"') }}
+        ```
+
+        <Note>
+            We're assuming you've configured the Elastic Security [webhook connector](https://www.elastic.co/guide/en/kibana/current/webhook-action-type.html)to send alerts as ndjson with the MIME content-type set as `application/x-ndjson`.
+        </Note>
+    </Step>
+    <Step title="Trigger child workflow">
+        Add the `Execute Child Workflow` action to the workflow.
+        Rename the action to `Trigger VirusTotal workflow`.
+        Copy the workflow ID from the VirusTotal workflow created in the [Quickstart](/tutorials/quickstart) tutorial and paste it into the action inputs.
+    </Step>
+    <Step title="Configure child workflow to run once per alert">
+        Every action in Tracecat can be configured with one or more loop-iteration expressions.
+        This allows you to iterate through a list of data and run the same action once per item in the list.
+
+        In this case, under the **Control Flow** tab for the `Trigger VirusTotal workflow` action, we can set the loop-iteration config with the following:
+        ```yaml
+        - ${{ var.alert for alert in ACTIONS.select_high_severity_alerts.result }}
+        ```
+    </Step>
+</Steps>
