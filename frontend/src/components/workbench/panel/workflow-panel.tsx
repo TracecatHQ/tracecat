@@ -564,6 +564,7 @@ my_param:
 my_list:
   type: list[int]
   description: This is a list of integers without a default value
+
 my_union:
   type: str | int | None
   description: This is a union of a string, an integer, and None

@@ -172,11 +172,9 @@ function WorkflowExecutionsViewLayout({
               {selectedEvent ? (
                 <WorkflowExecutionEventDetailView event={selectedEvent} />
               ) : (
-                <div className="flex size-full items-center justify-center">
-                  <span className="text-center text-xs text-muted-foreground">
-                    Select an Event.
-                  </span>
-                </div>
+                <span className="flex justify-center p-4 text-center text-xs text-muted-foreground">
+                  Select an Event.
+                </span>
               )}
             </div>
           </div>
