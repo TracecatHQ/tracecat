@@ -23,7 +23,7 @@ Tracecat comes with five expression context types:
 | `TRIGGER` | `TRIGGER.<jsonpath>`                | Reference data from the webhook         |
 | `SECRETS` | `SECRETS.<name>.<key>`              | Reference a secret                      |
 | `FN`      | `FN.<fn_name>(<arg1>, <arg2>, ...)` | Call a function                         |
-| `INPUTS`  | `INPUTS.<jsonpath>`                 | Reference static workflow inputs        |
+| `VARS`    | `VARS.<jsonpath>`                   | Reference fixed workflow variables      |
 
 <Note>
     We use dot notation and JSONPath to access specific data in a particular context.
@@ -96,29 +96,31 @@ Use functions to manipulate data. Functions are called using the `FN` prefix.
 <Accordion icon="book-open" title="Example">
 This expression will return the boolean value `true`:
 
-```php
+```php!
 ${{ FN.contains("a", ["a", "b", "c"]) }}
 ```
 </Accordion>
 
-### Static Inputs
+### Variables
 
-Static inputs are fixed values defined in the workflow settings. They are accessed using the `INPUTS` prefix:
+<Note>
+    Variables used to be called "static inputs" with the `INPUTS` prefix prior to version 0.14.
+</Note>
+
+Variables are accessed using the `VARS` prefix:
 
 ```php
-${{ INPUTS.<jsonpath> }}
+${{ VARS.<jsonpath> }}
 ```
 
 <Accordion icon="book-open" title="Example">
 
 Let's say the workflow has a static input defined with the key `api_url` and the value `https://example.com/api`.
 
-![Static Inputs](/images/static-inputs.png)
-
 This expression will return the string `https://example.com/api`:
 
 ```php
-${{ INPUTS.api_url }}
+${{ VARS.api_url }}
 ```
 </Accordion>
 
