@@ -85,11 +85,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-
-
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
-import { CustomEditor } from "@/components/editor"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -431,19 +428,6 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
 
 const scheduleInputsSchema = z.object({
   duration: durationSchema,
-  inputs: z
-    .string()
-    .optional()
-    .refine((val) => {
-      if (!val) return true
-      try {
-        JSON.parse(val)
-        return true
-      } catch {
-        return false
-      }
-    }, "Invalid JSON format")
-    .transform((val) => (val ? JSON.parse(val) : {})),
 })
 type DurationType =
   | "duration.years"
@@ -459,20 +443,16 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const { workspaceId } = useWorkspace()
   const form = useForm<ScheduleInputs>({
     resolver: zodResolver(scheduleInputsSchema),
-    defaultValues: {
-      inputs: '{"sampleWebhookParam": "sampleValue"}',
-    },
   })
 
   const onSubmit = async (values: ScheduleInputs) => {
-    const { duration, inputs } = values
+    const { duration } = values
     try {
       const response = await createSchedule({
         workspaceId,
         requestBody: {
           workflow_id: workflowId,
           every: durationToISOString(duration),
-          inputs,
         },
       })
       console.log("Schedule created", response)
@@ -532,7 +512,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs capitalize text-foreground/80">
-                        {unit}
+                        {unit.split(".")[1]}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -550,41 +530,12 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   )}
                 />
               ))}
-
-              <div className="col-span-2 w-full">
-                <FormField
-                  key="inputs"
-                  control={form.control}
-                  name="inputs"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs text-foreground/80">
-                        <span>
-                          Scheduled workflow inputs. Access these through the{" "}
-                          <p className="inline-block rounded-sm bg-amber-100 font-mono">
-                            TRIGGER
-                          </p>{" "}
-                          context.
-                        </span>
-                      </FormLabel>
-                      <FormControl>
-                        <CustomEditor
-                          className="h-40 w-full"
-                          defaultLanguage="yaml"
-                          value={field.value}
-                          onChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
             </div>
             <DialogFooter className="mt-4">
               <DialogClose asChild>
                 <Button type="submit" variant="default">
-                  Create
+                  <PlusCircleIcon className="mr-2 size-4" />
+                  <span>Create</span>
                 </Button>
               </DialogClose>
             </DialogFooter>
