@@ -8,6 +8,7 @@ description: Learn how to trigger workflows via webhooks or schedules.
 By the end of this tutorial, you will learn how to:
 
 - Trigger workflows from external events (e.g. from your SIEM)
+- Define input schemas for your workflows
 - Schedule workflow runs
 
 ## Prerequisites
@@ -16,4 +17,63 @@ By the end of this tutorial, you will learn how to:
 
 ## Tutorial
 
-Coming soon.
+### Webhook
+
+<Steps>
+    <Step title="Activate webhook">
+        Every workflow comes with a webhook URL that can be used to trigger the workflow.
+        To activate the webhook, click on the **Trigger** node and toggle the webhook switch.
+    </Step>
+    <Step title="Enable workflow">
+        In the previous tutorials, we've used the manual trigger UI to run the workflow.
+        To start receiving external events via the webhook URL, you still need to enable the workflow.
+
+        Click on **Enable workflow** to start receiving external events.
+    </Step>
+    <Step title="Trigger the workflow">
+        To trigger the workflow, send a POST request to the webhook URL with the following JSON payload:
+
+        ```json
+        {
+            "url": "https://example.com"
+        }
+        ```
+    </Step>
+    <Step title="Define workflow input schema">
+        Let's say you want to the JSON payload to the webhook to fit a specific schema.
+        Even though the input schema is optional, specifying it will allow you to validate the payload of the incoming webhook request.
+        The workflow will fail fast if the incoming payload does not match the schema.
+
+        You can define the input schema by going into the workflow settings and filling out the **Input Schema** config with the following:
+
+        ```yaml
+        url:
+            type: str
+            description: The URL to check if malicious
+        ```
+
+        <Note>
+            The workflow's input schema must be formatted in the following way:
+
+            ```yaml
+            field:
+                type: str | int | bool | list[type] | dict[str, type]
+                description: The description of the field
+                default: The default value of the field (optional)
+            ```
+
+            Nested schemas are currently not supported.
+        </Note>
+    </Step>
+</Steps>
+
+### Schedule
+
+<Steps>
+    <Step title="Create a schedule">
+        You can schedule a workflow under the **Trigger** node's **Schedules** section.
+    </Step>
+    <Step title="Enable workflow">
+        After creating a schedule, you'll need to click **Enable workflow** to start workflow runs on the schedule.
+    </Step>
+</Steps>
